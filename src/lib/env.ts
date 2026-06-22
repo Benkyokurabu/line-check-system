@@ -19,3 +19,13 @@ export function getServerEnv() {
     SUPABASE_SECRET_KEY: string;
   };
 }
+
+export function requireInternalToken(request: Request) {
+  const expected = process.env.INTERNAL_API_TOKEN;
+  if (!expected) {
+    return false;
+  }
+
+  const actual = request.headers.get("x-internal-token");
+  return actual === expected;
+}

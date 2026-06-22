@@ -37,6 +37,7 @@ yarn-error.log*
 # secrets / local notes (never commit)
 *パスワード*.txt
 *.secret
+.claude/
 
 # vercel
 .vercel
