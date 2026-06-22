@@ -2,7 +2,7 @@
 
 学習塾のLINE公式アカウントに届いたメッセージをWebhookで受け取り、Supabaseに保存するためのMVPです。
 
-このステップでは、Next.js + TypeScript + App Routerの土台と、Supabaseに作成するDBテーブル定義を用意しています。LINE Webhook本体、AI判定、管理画面、ログイン、未対応チェック機能はまだ実装していません。
+このステップでは、Next.js + TypeScript + App Routerの土台、Supabaseに作成するDBテーブル定義、LINE Webhookで受信メッセージを保存するAPIを用意しています。AI判定、管理画面、ログイン、未対応チェック機能はまだ実装していません。
 
 ## Stack
 
@@ -37,7 +37,7 @@ npm run dev
 
 今後設定する環境変数は以下です。
 
-- `NEXT_PUBLIC_SUPABASE_URL`: Supabase の Project URL を入れる。
+- `SUPABASE_URL`: Supabase の Project URL を入れる。
 - `SUPABASE_SECRET_KEY`: Supabase の Secret key または service_role key を入れる。
 - `LINE_CHANNEL_SECRET`: LINE Messaging API の Channel Secret
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging API の Channel Access Token
@@ -60,7 +60,7 @@ Supabaseにテーブルを作成する手順です。
 ## Project Structure
 
 - `src/app`: App Routerの画面とAPIルート
-- `src/app/api/line/webhook`: 後で `POST /api/line/webhook` を実装する場所
+- `src/app/api/line/webhook`: `POST /api/line/webhook` でLINE Webhookを受け取るAPIルート
 - `src/lib/env.ts`: サーバー側環境変数の読み込み
 - `src/lib/supabase.ts`: Supabase server client の初期化
 - `supabase/schema.sql`: SupabaseのDBテーブル定義
@@ -68,4 +68,4 @@ Supabaseにテーブルを作成する手順です。
 ## Notes
 
 - APIキーや秘密情報はコードへ直書きしないでください。
-- Webhookの本実装は次ステップで `src/app/api/line/webhook/route.ts` として追加します。
+- Webhookは `src/app/api/line/webhook/route.ts` に実装済みです。LINE Developers の Webhook URL には `/api/line/webhook` を指定してください。
