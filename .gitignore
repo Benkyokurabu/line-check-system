@@ -36,6 +36,7 @@ yarn-error.log*
 
 # secrets / local notes (never commit)
 *パスワード*.txt
+groq.txt
 *.secret
 .claude/
 
