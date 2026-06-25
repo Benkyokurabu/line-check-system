@@ -94,7 +94,7 @@ curl -X POST https://example.vercel.app/api/ai/route-messages \
   -d '{"limit":10}'
 ```
 
-`vercel.json` には10分ごとのCronを設定しています。
+`vercel.json` にはVercel Hobbyプランでもデプロイできるよう、1日1回のCronを設定しています。より短い間隔で実行したい場合はVercel Pro以上でCron式を変更します。
 
 - `/api/ai/route-messages?limit=20`
 - `/api/notifications/teams/send?limit=20`
