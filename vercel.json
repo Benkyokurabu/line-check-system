@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/ai/route-messages?limit=20",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/notifications/teams/send?limit=20",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}

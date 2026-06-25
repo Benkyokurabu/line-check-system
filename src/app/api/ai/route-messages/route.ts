@@ -141,16 +141,24 @@ function routeType(confidence: number, directThreshold: number) {
   return confidence >= directThreshold ? "direct" : "candidate";
 }
 
-export async function POST(request: Request) {
+function parseLimit(value: unknown) {
+  const numericValue = Number(value);
+  return Math.min(
+    Math.max(Number.isFinite(numericValue) ? numericValue : 10, 1),
+    50,
+  );
+}
+
+async function handleRouteMessages(request: Request) {
   if (!requireInternalToken(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const limit = Math.min(
-    Math.max(Number.isFinite(body.limit) ? Number(body.limit) : 10, 1),
-    50,
-  );
+  const body =
+    request.method === "POST"
+      ? await request.json().catch(() => ({}))
+      : Object.fromEntries(new URL(request.url).searchParams);
+  const limit = parseLimit(body.limit);
 
   const supabase = createSupabaseAdminClient();
   const settings = await loadSettings(supabase);
@@ -311,4 +319,12 @@ export async function POST(request: Request) {
     routes: routeCount,
     notifications: notificationCount,
   });
+}
+
+export async function GET(request: Request) {
+  return handleRouteMessages(request);
+}
+
+export async function POST(request: Request) {
+  return handleRouteMessages(request);
 }

@@ -56,16 +56,24 @@ async function postToTeams(url: string, text: string) {
   }
 }
 
-export async function POST(request: Request) {
+function parseLimit(value: unknown) {
+  const numericValue = Number(value);
+  return Math.min(
+    Math.max(Number.isFinite(numericValue) ? numericValue : 10, 1),
+    50,
+  );
+}
+
+async function handleSendTeamsNotifications(request: Request) {
   if (!requireInternalToken(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const limit = Math.min(
-    Math.max(Number.isFinite(body.limit) ? Number(body.limit) : 10, 1),
-    50,
-  );
+  const body =
+    request.method === "POST"
+      ? await request.json().catch(() => ({}))
+      : Object.fromEntries(new URL(request.url).searchParams);
+  const limit = parseLimit(body.limit);
   const notificationType =
     body.notification_type === "digest" ||
     body.notification_type === "manual" ||
@@ -132,4 +140,12 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ checked: data?.length ?? 0, sent, failed });
+}
+
+export async function GET(request: Request) {
+  return handleSendTeamsNotifications(request);
+}
+
+export async function POST(request: Request) {
+  return handleSendTeamsNotifications(request);
 }

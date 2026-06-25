@@ -1,8 +1,8 @@
 # LINE Check System
 
-学習塾のLINE公式アカウントに届いたメッセージをWebhookで受け取り、Supabaseに保存するためのMVPです。
+学習塾のLINE公式アカウントに届いたメッセージをWebhookで受け取り、Supabaseに保存し、AIで担当候補の先生を判定してTeamsへ通知するためのMVPです。
 
-このステップでは、Next.js + TypeScript + App Routerの土台、Supabaseに作成するDBテーブル定義、LINE Webhookで受信メッセージを保存するAPIを用意しています。AI判定、管理画面、ログイン、未対応チェック機能はまだ実装していません。
+Next.js + TypeScript + App Routerの土台、Supabaseに作成するDBテーブル定義、LINE Webhookで受信メッセージを保存するAPI、Groqを使った先生候補判定、Teams通知送信APIを用意しています。管理画面、ログイン、未対応チェックUIはまだ実装していません。
 
 ## Stack
 
@@ -41,10 +41,10 @@ npm run dev
 - `SUPABASE_SECRET_KEY`: Supabase の Secret key または service_role key を入れる。
 - `LINE_CHANNEL_SECRET`: LINE Messaging API の Channel Secret
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging API の Channel Access Token
-- `AI_API_KEY`: AI判定を追加するときに使うAPIキー
 - `GROQ_API_KEY`: Groq APIでAI判定・通知先推定を行う場合のAPIキー
 - `TEAMS_WEBHOOK_URL`: Teams Workflows Webhookで通知を送る場合のURL
 - `INTERNAL_API_TOKEN`: AI判定やTeams通知APIを手動実行・Cron実行するときの認証トークン
+- `CRON_SECRET`: Vercel CronからのBearer認証に使うトークン。`INTERNAL_API_TOKEN`と同じ値でも可
 
 `SUPABASE_SECRET_KEY` はサーバー側専用で、絶対にブラウザ側コードで使わないでください。
 
@@ -56,7 +56,7 @@ Supabaseにテーブルを作成する手順です。
 
 1. Supabase Dashboard の SQL Editor を開く。
 2. `supabase/schema.sql` の内容をコピーして実行する。
-3. `line_messages` と `line_tasks` が作成されたことを確認する。
+3. `line_messages`, `line_tasks`, `app_settings`, `teachers`, `ai_message_routes`, `teacher_notifications` が作成されたことを確認する。
 
 今回はRLSを有効化していません。まずはサーバー側のWebhook APIから `SUPABASE_SECRET_KEY` で書き込む前提です。
 
@@ -80,10 +80,10 @@ Supabaseにテーブルを作成する手順です。
 
 通知が多すぎる場合は `app_settings` や `teachers` のしきい値を上げ、拾えていない場合は先生の `aliases` や会話履歴の参照範囲を調整します。
 
-内部APIは `x-internal-token` ヘッダーに `INTERNAL_API_TOKEN` を付けて実行します。
+内部APIは `x-internal-token` ヘッダーに `INTERNAL_API_TOKEN` を付けて実行します。Vercel CronなどBearer認証で呼ぶ場合は `Authorization: Bearer <CRON_SECRET>` も使えます。
 
-- `POST /api/ai/route-messages`: 未判定のLINEメッセージをAIで判定し、`ai_message_routes` と `teacher_notifications` に保存する
-- `POST /api/notifications/teams/send`: `teacher_notifications` の未送信Teams通知を送信し、成功/失敗を保存する
+- `GET/POST /api/ai/route-messages`: 未判定のLINEメッセージをAIで判定し、`ai_message_routes` と `teacher_notifications` に保存する
+- `GET/POST /api/notifications/teams/send`: `teacher_notifications` の未送信Teams通知を送信し、成功/失敗を保存する
 
 例:
 
@@ -93,6 +93,11 @@ curl -X POST https://example.vercel.app/api/ai/route-messages \
   -H "x-internal-token: $INTERNAL_API_TOKEN" \
   -d '{"limit":10}'
 ```
+
+`vercel.json` には10分ごとのCronを設定しています。
+
+- `/api/ai/route-messages?limit=20`
+- `/api/notifications/teams/send?limit=20`
 
 ## Notes
 

@@ -21,11 +21,21 @@ export function getServerEnv() {
 }
 
 export function requireInternalToken(request: Request) {
-  const expected = process.env.INTERNAL_API_TOKEN;
-  if (!expected) {
+  const expectedTokens = [
+    process.env.INTERNAL_API_TOKEN,
+    process.env.CRON_SECRET,
+  ].filter(Boolean);
+
+  if (expectedTokens.length === 0) {
     return false;
   }
 
-  const actual = request.headers.get("x-internal-token");
-  return actual === expected;
+  const headerToken = request.headers.get("x-internal-token");
+  const bearerToken = request.headers
+    .get("authorization")
+    ?.replace(/^Bearer\s+/i, "");
+
+  return expectedTokens.some(
+    (expected) => headerToken === expected || bearerToken === expected,
+  );
 }
