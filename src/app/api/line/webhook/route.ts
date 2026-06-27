@@ -24,12 +24,29 @@ const ALLOWED_MESSAGE_TYPES = new Set([
 type LineMessageRow = {
   line_message_id: string;
   line_user_id: string;
+  display_name: string | null;
   message_type: string;
   text: string | null;
   direction: "inbound";
   received_at: string | null;
   raw_event: unknown;
 };
+
+async function fetchDisplayName(
+  userId: string,
+  accessToken: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/profile/${userId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { displayName?: string };
+    return typeof data.displayName === "string" ? data.displayName : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * x-line-signature ヘッダーを HMAC-SHA256(channelSecret, rawBody) の Base64 と比較する。
@@ -85,6 +102,7 @@ function buildRow(event: unknown): LineMessageRow | null {
   return {
     line_message_id: message.id,
     line_user_id: lineUserId,
+    display_name: null,
     message_type: messageType,
     text,
     direction: "inbound",
@@ -126,11 +144,25 @@ export async function POST(request: Request) {
 
   if (rows.length > 0) {
     try {
+      const accessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "";
+      const uniqueUserIds = [...new Set(rows.map((r) => r.line_user_id))];
+      const profiles = await Promise.all(
+        uniqueUserIds.map(async (userId) => {
+          const name = await fetchDisplayName(userId, accessToken);
+          return [userId, name] as [string, string | null];
+        }),
+      );
+      const profileMap = Object.fromEntries(profiles);
+      const rowsWithNames = rows.map((r) => ({
+        ...r,
+        display_name: profileMap[r.line_user_id] ?? null,
+      }));
+
       const supabase = createSupabaseAdminClient();
       // line_message_id の unique 制約で重複を防ぐ。同一 ID は無視（再送対策）。
       const { error } = await supabase
         .from("line_messages")
-        .upsert(rows, {
+        .upsert(rowsWithNames, {
           onConflict: "line_message_id",
           ignoreDuplicates: true,
         });

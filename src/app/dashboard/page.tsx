@@ -122,7 +122,7 @@ export default function DashboardPage() {
                   }}
                 >
                   <td style={td}>{formatDate(r.received_at ?? r.created_at)}</td>
-                  <td style={td}>{r.display_name ?? "—"}</td>
+                  <td style={td}>{r.display_name ?? <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>名前未取得</span>}</td>
                   <td style={{ ...td, maxWidth: 320 }}>
                     <span title={r.message_text ?? ""}>{truncate(r.message_text ?? "—", 60)}</span>
                     {r.topic && (
