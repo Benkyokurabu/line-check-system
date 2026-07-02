@@ -16,6 +16,8 @@ export default function ContactsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   const fetchContacts = useCallback(async () => {
     setLoading(true);
@@ -63,6 +65,44 @@ export default function ContactsPage() {
     }
   }
 
+  async function handleCsvImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      // ヘッダー行をスキップ（line_user_id で始まる行）
+      const dataLines = lines.filter((l) => !l.startsWith("line_user_id"));
+      const rows: { line_user_id: string; alias_name: string }[] = [];
+      for (const line of dataLines) {
+        // CSV パース: "val1","val2","val3"
+        const cols = line.match(/"([^"]*)"/g)?.map((s) => s.replace(/"/g, "")) ?? line.split(",");
+        const lineUserId = cols[0]?.trim();
+        const aliasName = cols[2]?.trim();
+        if (lineUserId && aliasName) rows.push({ line_user_id: lineUserId, alias_name: aliasName });
+      }
+      if (rows.length === 0) {
+        setImportMsg("登録名が入力された行がありませんでした。");
+        return;
+      }
+      const res = await fetch("/api/admin/contacts/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      const data = await res.json();
+      setImportMsg(`${data.imported} 件インポートしました。`);
+      await fetchContacts();
+    } catch {
+      setImportMsg("エラーが発生しました。");
+    } finally {
+      setImporting(false);
+      e.target.value = "";
+    }
+  }
+
   async function clearAlias(userId: string) {
     setSaving(userId);
     try {
@@ -105,6 +145,16 @@ export default function ContactsPage() {
       <p style={{ color: "var(--muted)", fontSize: "0.875rem", marginBottom: 16 }}>
         LINE名の代わりに表示する「登録名」を設定できます。例: 山田太郎 父
       </p>
+
+      {/* CSVインポート */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
+        <span style={{ fontSize: "0.875rem", color: "var(--muted)", flexShrink: 0 }}>CSVインポート:</span>
+        <label style={{ ...btnEdit, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+          {importing ? "処理中…" : "CSVを選択"}
+          <input type="file" accept=".csv" onChange={handleCsvImport} disabled={importing} style={{ display: "none" }} />
+        </label>
+        {importMsg && <span style={{ fontSize: "0.875rem", color: "var(--accent)" }}>{importMsg}</span>}
+      </div>
 
       <input
         type="text"
