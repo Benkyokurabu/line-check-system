@@ -1,295 +1,383 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 
-type Route = {
+type Message = {
   id: string;
-  teacher_name: string;
-  confidence: number;
-  route_type: string;
-  reason: string | null;
-  topic: string | null;
-  handled_status: string;
-  created_at: string;
-  message_text: string | null;
-  display_name: string | null;
+  direction: "inbound" | "outbound";
+  text: string | null;
   received_at: string | null;
+  sent_by: string | null;
+};
+
+type Conversation = {
+  line_user_id: string;
+  display_name: string | null;
+  teachers: string[];
+  pending_route_ids: string[];
+  messages: Message[];
+  likely_resolved: boolean;
+  latest_at: string | null;
 };
 
 export default function DashboardPage() {
-  const [routes, setRoutes] = useState<Route[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [teachers, setTeachers] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("全体");
   const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
+  const [senderName, setSenderName] = useState("");
+  const [sending, setSending] = useState<string | null>(null);
+  const [completing, setCompleting] = useState<string | null>(null);
 
-  const fetchRoutes = useCallback(async () => {
+  const fetchConversations = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/routes");
+      const res = await fetch("/api/dashboard/conversations");
       const data = await res.json();
-      const list: Route[] = data.routes ?? [];
-      setRoutes(list);
-      const unique = Array.from(new Set(list.map((r) => r.teacher_name)));
-      setTeachers(unique);
+      const list: Conversation[] = data.conversations ?? [];
+      setConversations(list);
+      const allTeachers = [...new Set(list.flatMap((c) => c.teachers))].sort();
+      setTeachers(allTeachers);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchRoutes();
-  }, [fetchRoutes]);
-
-  async function markAs(id: string, status: "done" | "dismissed") {
-    setUpdating(id);
-    try {
-      await fetch(`/api/dashboard/routes/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handled_status: status }),
-      });
-      setRoutes((prev) => prev.filter((r) => r.id !== id));
-    } finally {
-      setUpdating(null);
-    }
-  }
+  useEffect(() => { fetchConversations(); }, [fetchConversations]);
 
   const displayed =
     activeTab === "全体"
-      ? routes
-      : routes.filter((r) => r.teacher_name === activeTab);
+      ? conversations
+      : conversations.filter((c) => c.teachers.includes(activeTab));
 
   const countFor = (teacher: string) =>
-    routes.filter((r) => r.teacher_name === teacher).length;
+    conversations.filter((c) => c.teachers.includes(teacher)).length;
+
+  async function complete(conv: Conversation) {
+    setCompleting(conv.line_user_id);
+    try {
+      await fetch(
+        `/api/dashboard/conversations/${encodeURIComponent(conv.line_user_id)}/complete`,
+        { method: "POST" },
+      );
+      setConversations((prev) => prev.filter((c) => c.line_user_id !== conv.line_user_id));
+      if (expandedId === conv.line_user_id) setExpandedId(null);
+    } finally {
+      setCompleting(null);
+    }
+  }
+
+  async function sendReply(conv: Conversation) {
+    const text = replyTexts[conv.line_user_id]?.trim();
+    if (!text) return;
+    setSending(conv.line_user_id);
+    try {
+      const res = await fetch("/api/line/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          line_user_id: conv.line_user_id,
+          text,
+          sent_by: senderName.trim() || null,
+        }),
+      });
+      if (res.ok) {
+        setReplyTexts((prev) => ({ ...prev, [conv.line_user_id]: "" }));
+        const newMsg: Message = {
+          id: `local_${Date.now()}`,
+          direction: "outbound",
+          text,
+          received_at: new Date().toISOString(),
+          sent_by: senderName.trim() || null,
+        };
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.line_user_id === conv.line_user_id
+              ? { ...c, messages: [...c.messages, newMsg] }
+              : c,
+          ),
+        );
+      }
+    } finally {
+      setSending(null);
+    }
+  }
 
   return (
-    <div className="shell" style={{ maxWidth: 1100 }}>
-      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div className="shell" style={{ maxWidth: 860 }}>
+      <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>未対応メッセージ</h1>
         <div style={{ display: "flex", gap: 8 }}>
-          <Link href="/contacts" style={{ ...btnRefresh, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+          <Link href="/contacts" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
             連絡先管理
           </Link>
-          <button onClick={fetchRoutes} style={btnRefresh} disabled={loading}>
+          <button onClick={fetchConversations} style={btnGhost} disabled={loading}>
             {loading ? "読込中…" : "更新"}
           </button>
         </div>
       </div>
 
+      {/* 送信者名（ページ上部で一度だけ設定） */}
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: "0.8rem", color: "var(--muted)", flexShrink: 0 }}>返信時の送信者名:</span>
+        <input
+          value={senderName}
+          onChange={(e) => setSenderName(e.target.value)}
+          placeholder="例: 田中先生"
+          style={inputStyle}
+        />
+      </div>
+
       {/* タブ */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        <Tab
-          label="全体"
-          count={routes.length}
-          active={activeTab === "全体"}
-          onClick={() => setActiveTab("全体")}
-        />
+        <Tab label="全体" count={conversations.length} active={activeTab === "全体"} onClick={() => setActiveTab("全体")} />
         {teachers.map((t) => (
-          <Tab
-            key={t}
-            label={t}
-            count={countFor(t)}
-            active={activeTab === t}
-            onClick={() => setActiveTab(t)}
-          />
+          <Tab key={t} label={t} count={countFor(t)} active={activeTab === t} onClick={() => setActiveTab(t)} />
         ))}
       </div>
 
-      {/* テーブル */}
-      <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
-        {loading ? (
-          <p style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>読み込み中...</p>
-        ) : displayed.length === 0 ? (
-          <p style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
-            未対応のメッセージはありません ✓
-          </p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
-                <Th>受信日時</Th>
-                <Th>送信者</Th>
-                <Th>メッセージ</Th>
-                {activeTab === "全体" && <Th>担当先生</Th>}
-                <Th>信頼度</Th>
-                <Th>操作</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayed.map((r) => (
-                <tr
-                  key={r.id}
-                  style={{
-                    borderBottom: "1px solid var(--line)",
-                    opacity: updating === r.id ? 0.4 : 1,
-                    transition: "opacity 0.15s",
-                  }}
-                >
-                  <td style={td}>{formatDate(r.received_at ?? r.created_at)}</td>
-                  <td style={td}>{r.display_name ?? <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>名前未取得</span>}</td>
-                  <td style={{ ...td, maxWidth: 320 }}>
-                    <span title={r.message_text ?? ""}>{truncate(r.message_text ?? "—", 60)}</span>
-                    {r.topic && (
-                      <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: 2 }}>
-                        話題: {r.topic}
-                      </div>
-                    )}
-                  </td>
-                  {activeTab === "全体" && <td style={td}>{r.teacher_name}</td>}
-                  <td style={td}>
-                    <span style={{ fontWeight: 600, color: confidenceColor(r.confidence) }}>
-                      {Math.round(r.confidence * 100)}%
-                    </span>
-                  </td>
-                  <td style={{ ...td, whiteSpace: "nowrap" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button
-                        onClick={() => markAs(r.id, "done")}
-                        disabled={updating === r.id}
-                        style={btnDone}
-                      >
-                        対応済み
-                      </button>
-                      <button
-                        onClick={() => markAs(r.id, "dismissed")}
-                        disabled={updating === r.id}
-                        style={btnDismiss}
-                      >
-                        対応不要
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      {/* 会話リスト */}
+      {loading ? (
+        <p style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>読み込み中...</p>
+      ) : displayed.length === 0 ? (
+        <p style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>
+          未対応のメッセージはありません ✓
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {displayed.map((conv) => (
+            <ConversationCard
+              key={conv.line_user_id}
+              conv={conv}
+              expanded={expandedId === conv.line_user_id}
+              onToggle={() =>
+                setExpandedId((prev) => (prev === conv.line_user_id ? null : conv.line_user_id))
+              }
+              onComplete={() => complete(conv)}
+              completing={completing === conv.line_user_id}
+              replyText={replyTexts[conv.line_user_id] ?? ""}
+              onReplyChange={(t) => setReplyTexts((prev) => ({ ...prev, [conv.line_user_id]: t }))}
+              onSend={() => sendReply(conv)}
+              sending={sending === conv.line_user_id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConversationCard({
+  conv, expanded, onToggle, onComplete, completing,
+  replyText, onReplyChange, onSend, sending,
+}: {
+  conv: Conversation;
+  expanded: boolean;
+  onToggle: () => void;
+  onComplete: () => void;
+  completing: boolean;
+  replyText: string;
+  onReplyChange: (t: string) => void;
+  onSend: () => void;
+  sending: boolean;
+}) {
+  const threadRef = useRef<HTMLDivElement>(null);
+  const lastInbound = [...conv.messages].reverse().find((m) => m.direction === "inbound");
+
+  useEffect(() => {
+    if (expanded && threadRef.current) {
+      threadRef.current.scrollTop = threadRef.current.scrollHeight;
+    }
+  }, [expanded, conv.messages.length]);
+
+  return (
+    <div className="panel" style={{ padding: 0, overflow: "hidden", opacity: completing ? 0.4 : 1, transition: "opacity 0.15s" }}>
+      {/* ヘッダー */}
+      <div
+        onClick={onToggle}
+        style={{
+          padding: "12px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          cursor: "pointer",
+          background: expanded ? "var(--background)" : "transparent",
+          borderBottom: expanded ? "1px solid var(--line)" : "none",
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+            <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>
+              {conv.display_name ?? "名前未設定"}
+            </span>
+            <span style={{ fontSize: "0.72rem", color: "var(--muted)", background: "var(--background)", padding: "1px 6px", borderRadius: 8 }}>
+              {conv.messages.length}件
+            </span>
+            {conv.likely_resolved && (
+              <span style={{ fontSize: "0.7rem", padding: "2px 7px", borderRadius: 10, background: "#dcfce7", color: "#16a34a", fontWeight: 600 }}>
+                完了済みかも
+              </span>
+            )}
+            <span style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+              担当: {conv.teachers.join(" / ")}
+            </span>
+          </div>
+          <div style={{ fontSize: "0.8rem", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {lastInbound?.text ? truncate(lastInbound.text, 55) : "—"}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {conv.latest_at && (
+            <span style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+              {formatDate(conv.latest_at)}
+            </span>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onComplete(); }}
+            disabled={completing}
+            style={btnDone}
+          >
+            完了
+          </button>
+        </div>
+      </div>
+
+      {/* 展開: メッセージスレッド + 返信 */}
+      {expanded && (
+        <>
+          <div
+            ref={threadRef}
+            style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10, maxHeight: 360, overflowY: "auto" }}
+          >
+            {conv.messages.length === 0 ? (
+              <p style={{ color: "var(--muted)", fontSize: "0.8rem", textAlign: "center" }}>
+                直近30日のメッセージはありません
+              </p>
+            ) : (
+              conv.messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)
+            )}
+          </div>
+
+          {/* 返信欄 */}
+          <div style={{ borderTop: "1px solid var(--line)", padding: "10px 16px", display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <textarea
+              value={replyText}
+              onChange={(e) => onReplyChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onSend(); }}
+              placeholder="返信を入力… (Ctrl+Enter で送信)"
+              rows={2}
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 6,
+                border: "1px solid var(--line)", background: "var(--surface)",
+                color: "var(--foreground)", fontSize: "0.875rem",
+                resize: "vertical", fontFamily: "inherit",
+              }}
+            />
+            <button
+              onClick={onSend}
+              disabled={sending || !replyText.trim()}
+              style={btnSend}
+            >
+              {sending ? "送信中…" : "送信"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MessageBubble({ msg }: { msg: Message }) {
+  const isOut = msg.direction === "outbound";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: isOut ? "flex-end" : "flex-start" }}>
+      <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: 3 }}>
+        {isOut ? (msg.sent_by ?? "学校") : "保護者"}
+        {msg.received_at ? ` · ${formatTime(msg.received_at)}` : ""}
+      </div>
+      <div style={{
+        maxWidth: "76%",
+        padding: "8px 12px",
+        borderRadius: isOut ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+        background: isOut ? "var(--accent)" : "var(--surface)",
+        color: isOut ? "#fff" : "var(--foreground)",
+        fontSize: "0.875rem",
+        lineHeight: 1.55,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        border: isOut ? "none" : "1px solid var(--line)",
+      }}>
+        {msg.text ?? <span style={{ opacity: 0.6, fontStyle: "italic" }}>(テキストなし)</span>}
       </div>
     </div>
   );
 }
 
-function Tab({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
+function Tab({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       style={{
-        padding: "8px 16px",
-        borderRadius: 6,
-        border: "1px solid var(--line)",
+        padding: "8px 16px", borderRadius: 6, border: "1px solid var(--line)",
         background: active ? "var(--accent)" : "var(--surface)",
         color: active ? "#fff" : "var(--foreground)",
-        cursor: "pointer",
-        fontWeight: active ? 700 : 400,
-        fontSize: "0.9rem",
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
+        cursor: "pointer", fontWeight: active ? 700 : 400, fontSize: "0.9rem",
+        display: "flex", alignItems: "center", gap: 6,
       }}
     >
       {label}
-      <span
-        style={{
-          background: active ? "rgba(255,255,255,0.25)" : "var(--background)",
-          borderRadius: 10,
-          padding: "1px 7px",
-          fontSize: "0.78rem",
-          fontWeight: 700,
-        }}
-      >
+      <span style={{ background: active ? "rgba(255,255,255,0.25)" : "var(--background)", borderRadius: 10, padding: "1px 7px", fontSize: "0.78rem", fontWeight: 700 }}>
         {count}
       </span>
     </button>
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th
-      style={{
-        padding: "11px 16px",
-        textAlign: "left",
-        fontSize: "0.78rem",
-        fontWeight: 700,
-        color: "var(--muted)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </th>
-  );
-}
-
-const td: React.CSSProperties = {
-  padding: "14px 16px",
-  fontSize: "0.875rem",
-  verticalAlign: "top",
+const btnGhost: React.CSSProperties = {
+  padding: "8px 16px", borderRadius: 6, border: "1px solid var(--line)",
+  background: "var(--surface)", color: "var(--foreground)", cursor: "pointer", fontSize: "0.875rem",
 };
-
 const btnDone: React.CSSProperties = {
-  padding: "6px 12px",
-  borderRadius: 5,
-  border: "none",
-  background: "var(--accent)",
-  color: "#fff",
-  cursor: "pointer",
-  fontSize: "0.8rem",
-  fontWeight: 600,
+  padding: "6px 14px", borderRadius: 5, border: "none",
+  background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600,
 };
-
-const btnDismiss: React.CSSProperties = {
-  padding: "6px 12px",
-  borderRadius: 5,
-  border: "1px solid var(--line)",
-  background: "transparent",
-  color: "var(--muted)",
-  cursor: "pointer",
-  fontSize: "0.8rem",
+const btnSend: React.CSSProperties = {
+  padding: "8px 16px", borderRadius: 6, border: "none",
+  background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: "0.875rem", fontWeight: 600,
+  whiteSpace: "nowrap",
 };
-
-const btnRefresh: React.CSSProperties = {
-  padding: "8px 16px",
-  borderRadius: 6,
-  border: "1px solid var(--line)",
-  background: "var(--surface)",
-  color: "var(--foreground)",
-  cursor: "pointer",
-  fontSize: "0.875rem",
+const inputStyle: React.CSSProperties = {
+  padding: "5px 10px", borderRadius: 5, border: "1px solid var(--line)",
+  background: "var(--surface)", color: "var(--foreground)", fontSize: "0.875rem", width: 180,
 };
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  const today = now.toDateString();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  const time = d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-  if (d.toDateString() === today) return `今日 ${time}`;
-  if (d.toDateString() === yesterday.toDateString()) return `昨日 ${time}`;
-  return (
-    d.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }) +
-    ` ${time}`
-  );
-}
 
 function truncate(text: string, max: number) {
   return text.length > max ? text.slice(0, max) + "…" : text;
 }
 
-function confidenceColor(c: number) {
-  if (c >= 0.75) return "#16a34a";
-  if (c >= 0.45) return "#d97706";
-  return "var(--muted)";
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return `今日 ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `昨日 ${time}`;
+  return d.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }) + ` ${time}`;
+}
+
+function formatTime(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  }
+  return (
+    d.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }) +
+    " " +
+    d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
+  );
 }
