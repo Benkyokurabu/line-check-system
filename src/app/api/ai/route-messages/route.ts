@@ -14,6 +14,7 @@ type AppSettings = {
   teacher_direct_confidence_threshold?: number;
   conversation_lookback_hours?: number;
   conversation_lookback_message_count?: number;
+  routing_context?: string;
 };
 
 type Teacher = {
@@ -75,6 +76,7 @@ async function callGroq(params: {
   message: LineMessage;
   thread: LineMessage[];
   teachers: Teacher[];
+  routingContext?: string;
 }) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
@@ -96,7 +98,11 @@ async function callGroq(params: {
           role: "system",
           content:
             "You route Japanese cram-school LINE messages to teachers. Return compact JSON only. " +
-            "Prefer recall over precision, but do not invent teachers that are not in the teacher list.",
+            "Prefer recall over precision, but do not invent teachers that are not in the teacher list." +
+            (params.routingContext
+              ? "\n\n以下は生徒・担任・授業コードのルール情報です。メッセージに生徒名が含まれていれば担任の先生に振り分けてください:\n\n" +
+                params.routingContext
+              : ""),
         },
         {
           role: "user",
@@ -244,6 +250,7 @@ async function handleRouteMessages(request: Request) {
       message,
       thread: (thread ?? []).reverse() as LineMessage[],
       teachers: teachers as Teacher[],
+      routingContext: typeof settings.routing_context === "string" ? settings.routing_context : undefined,
     });
 
     for (const aiRoute of aiRoutes) {
