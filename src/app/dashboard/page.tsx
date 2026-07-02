@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 
 type Route = {
   id: string;
@@ -67,9 +68,14 @@ export default function DashboardPage() {
     <div className="shell" style={{ maxWidth: 1100 }}>
       <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>未対応メッセージ</h1>
-        <button onClick={fetchRoutes} style={btnRefresh} disabled={loading}>
-          {loading ? "読込中…" : "更新"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Link href="/contacts" style={{ ...btnRefresh, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+            連絡先管理
+          </Link>
+          <button onClick={fetchRoutes} style={btnRefresh} disabled={loading}>
+            {loading ? "読込中…" : "更新"}
+          </button>
+        </div>
       </div>
 
       {/* タブ */}
