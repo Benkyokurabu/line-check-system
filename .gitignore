@@ -40,6 +40,11 @@ groq.txt
 *.secret
 .claude/
 
+# personal data (student/parent names, LINE IDs, rosters) - repo is public, never commit
+line_users_export.csv
+*クラス一覧表*.xlsx
+*スケジュール*.xlsm
+
 # vercel
 .vercel
 
