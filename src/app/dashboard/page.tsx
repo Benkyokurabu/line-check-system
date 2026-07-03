@@ -21,6 +21,12 @@ type Conversation = {
   latest_at: string | null;
 };
 
+type Contact = {
+  line_user_id: string;
+  display_name: string | null;
+  alias_name: string | null;
+};
+
 export default function DashboardPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [teachers, setTeachers] = useState<string[]>([]);
@@ -31,6 +37,16 @@ export default function DashboardPage() {
   const [senderName, setSenderName] = useState("");
   const [sending, setSending] = useState<string | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
+
+  // 生徒検索して送信
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [searchSending, setSearchSending] = useState(false);
+  const [searchSentMsg, setSearchSentMsg] = useState<string | null>(null);
 
   const fetchConversations = useCallback(async () => {
     setLoading(true);
@@ -47,6 +63,57 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
+
+  const toggleSearch = useCallback(async () => {
+    setSearchOpen((prev) => !prev);
+    if (!contactsLoaded) {
+      try {
+        const res = await fetch("/api/admin/contacts");
+        const data = await res.json();
+        setContacts(data.contacts ?? []);
+      } finally {
+        setContactsLoaded(true);
+      }
+    }
+  }, [contactsLoaded]);
+
+  const searchResults =
+    searchQuery.trim().length === 0
+      ? []
+      : contacts
+          .filter((c) => {
+            const q = searchQuery.trim().toLowerCase();
+            return (
+              (c.alias_name ?? "").toLowerCase().includes(q) ||
+              (c.display_name ?? "").toLowerCase().includes(q)
+            );
+          })
+          .slice(0, 8);
+
+  async function sendToSelectedContact() {
+    if (!selectedContact || !searchText.trim()) return;
+    setSearchSending(true);
+    setSearchSentMsg(null);
+    try {
+      const res = await fetch("/api/line/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          line_user_id: selectedContact.line_user_id,
+          text: searchText,
+          sent_by: senderName.trim() || null,
+        }),
+      });
+      if (res.ok) {
+        setSearchText("");
+        setSearchSentMsg("送信しました ✓");
+      } else {
+        setSearchSentMsg("送信に失敗しました");
+      }
+    } finally {
+      setSearchSending(false);
+    }
+  }
 
   const displayed =
     activeTab === "全体"
@@ -111,6 +178,9 @@ export default function DashboardPage() {
       <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>未対応メッセージ</h1>
         <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={toggleSearch} style={searchOpen ? btnGhostActive : btnGhost}>
+            生徒を検索して送信
+          </button>
           <Link href="/contacts" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
             連絡先管理
           </Link>
@@ -119,6 +189,87 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* 生徒を検索して送信 */}
+      {searchOpen && (
+        <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <input
+            type="text"
+            placeholder="生徒名で検索…"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setSelectedContact(null);
+              setSearchSentMsg(null);
+            }}
+            autoFocus
+            style={{ ...inputStyle, width: "100%" }}
+          />
+
+          {searchQuery.trim().length > 0 && !selectedContact && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+              {searchResults.length === 0 ? (
+                <p style={{ color: "var(--muted)", fontSize: "0.85rem", padding: "8px 4px" }}>該当する生徒が見つかりません</p>
+              ) : (
+                searchResults.map((c) => (
+                  <button
+                    key={c.line_user_id}
+                    onClick={() => { setSelectedContact(c); setSearchText(""); setSearchSentMsg(null); }}
+                    style={contactResultBtn}
+                  >
+                    <span style={{ fontWeight: c.alias_name ? 600 : 400 }}>
+                      {c.alias_name ?? c.display_name ?? "名前未設定"}
+                    </span>
+                    {c.alias_name && c.display_name && (
+                      <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>({c.display_name})</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
+          {selectedContact && (
+            <div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: "0.85rem" }}>
+                  送信先: <strong>{selectedContact.alias_name ?? selectedContact.display_name ?? "名前未設定"}</strong>
+                </span>
+                <button onClick={() => { setSelectedContact(null); setSearchSentMsg(null); }} style={btnCancelSmall}>
+                  変更
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                <textarea
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendToSelectedContact(); }}
+                  placeholder="メッセージを入力… (Ctrl+Enter で送信)"
+                  rows={2}
+                  style={{
+                    flex: 1, padding: "8px 10px", borderRadius: 6,
+                    border: "1px solid var(--line)", background: "var(--surface)",
+                    color: "var(--foreground)", fontSize: "0.875rem",
+                    resize: "vertical", fontFamily: "inherit",
+                  }}
+                />
+                <button
+                  onClick={sendToSelectedContact}
+                  disabled={searchSending || !searchText.trim()}
+                  style={btnSend}
+                >
+                  {searchSending ? "送信中…" : "送信"}
+                </button>
+              </div>
+              {searchSentMsg && (
+                <p style={{ marginTop: 6, fontSize: "0.8rem", color: searchSentMsg.includes("失敗") ? "#dc2626" : "#16a34a" }}>
+                  {searchSentMsg}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 送信者名（ページ上部で一度だけ設定） */}
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
@@ -339,6 +490,18 @@ function Tab({ label, count, active, onClick }: { label: string; count: number; 
 const btnGhost: React.CSSProperties = {
   padding: "8px 16px", borderRadius: 6, border: "1px solid var(--line)",
   background: "var(--surface)", color: "var(--foreground)", cursor: "pointer", fontSize: "0.875rem",
+};
+const btnGhostActive: React.CSSProperties = {
+  ...btnGhost, background: "var(--accent)", color: "#fff", borderColor: "var(--accent)",
+};
+const contactResultBtn: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 6,
+  border: "1px solid var(--line)", background: "var(--surface)", color: "var(--foreground)",
+  cursor: "pointer", fontSize: "0.875rem", textAlign: "left",
+};
+const btnCancelSmall: React.CSSProperties = {
+  padding: "3px 10px", borderRadius: 5, border: "1px solid var(--line)",
+  background: "transparent", color: "var(--muted)", cursor: "pointer", fontSize: "0.75rem",
 };
 const btnDone: React.CSSProperties = {
   padding: "6px 14px", borderRadius: 5, border: "none",
