@@ -14,7 +14,7 @@ export async function GET() {
         .from("line_messages")
         .select("line_user_id, display_name")
         .not("line_user_id", "is", null),
-      supabase.from("line_user_aliases").select("line_user_id, alias_name"),
+      supabase.from("line_user_aliases").select("line_user_id, alias_name, group_name"),
     ]);
 
   if (usersError) return NextResponse.json({ error: usersError.message }, { status: 500 });
@@ -32,11 +32,15 @@ export async function GET() {
   const aliasMap = Object.fromEntries(
     (aliases ?? []).map((a) => [a.line_user_id, a.alias_name]),
   );
+  const groupMap = Object.fromEntries(
+    (aliases ?? []).map((a) => [a.line_user_id, a.group_name]),
+  );
 
   const contacts = Array.from(userMap.entries()).map(([userId, displayName]) => ({
     line_user_id: userId,
     display_name: displayName ?? null,
     alias_name: aliasMap[userId] ?? null,
+    group_name: groupMap[userId] ?? null,
   }));
 
   // エイリアス登録済みを先に、次に LINE 名あり、最後に名前なし

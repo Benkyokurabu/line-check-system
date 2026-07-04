@@ -27,6 +27,8 @@ type Contact = {
   alias_name: string | null;
 };
 
+const CURRENT_TEACHER_KEY = "line-check:current-teacher";
+
 export default function DashboardPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [teachers, setTeachers] = useState<string[]>([]);
@@ -37,6 +39,29 @@ export default function DashboardPage() {
   const [senderName, setSenderName] = useState("");
   const [sending, setSending] = useState<string | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
+
+  // 先生選択（誰として操作しているか。パスワード等の認証はなし）
+  const [allTeachers, setAllTeachers] = useState<string[]>([]);
+  const [currentTeacher, setCurrentTeacher] = useState<string | null>(null);
+  const [teacherPickerOpen, setTeacherPickerOpen] = useState(false);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(CURRENT_TEACHER_KEY);
+    if (saved) setCurrentTeacher(saved);
+    else setTeacherPickerOpen(true);
+
+    fetch("/api/admin/teachers")
+      .then((res) => res.json())
+      .then((data) => setAllTeachers((data.teachers ?? []).map((t: { display_name: string }) => t.display_name)))
+      .catch(() => {});
+  }, []);
+
+  function chooseTeacher(name: string) {
+    setCurrentTeacher(name);
+    setSenderName((prev) => prev || name);
+    window.localStorage.setItem(CURRENT_TEACHER_KEY, name);
+    setTeacherPickerOpen(false);
+  }
 
   // 生徒検索して送信
   const [searchOpen, setSearchOpen] = useState(false);
@@ -124,14 +149,23 @@ export default function DashboardPage() {
     conversations.filter((c) => c.teachers.includes(teacher)).length;
 
   async function complete(conv: Conversation) {
+    if (!currentTeacher) {
+      setTeacherPickerOpen(true);
+      return;
+    }
     setCompleting(conv.line_user_id);
     try {
       await fetch(
         `/api/dashboard/conversations/${encodeURIComponent(conv.line_user_id)}/complete`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teacher_name: currentTeacher }),
+        },
       );
-      setConversations((prev) => prev.filter((c) => c.line_user_id !== conv.line_user_id));
       if (expandedId === conv.line_user_id) setExpandedId(null);
+      // 他の先生宛のルートが残っている可能性があるため、ローカルで消さずに再取得する
+      await fetchConversations();
     } finally {
       setCompleting(null);
     }
@@ -177,7 +211,14 @@ export default function DashboardPage() {
     <div className="shell" style={{ maxWidth: 860 }}>
       <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>未対応メッセージ</h1>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+            {currentTeacher ? `👤 ${currentTeacher}` : "先生未選択"}
+            {" "}
+            <button onClick={() => setTeacherPickerOpen(true)} style={linkBtn}>
+              切替
+            </button>
+          </span>
           <button onClick={toggleSearch} style={searchOpen ? btnGhostActive : btnGhost}>
             生徒を検索して送信
           </button>
@@ -309,6 +350,7 @@ export default function DashboardPage() {
               }
               onComplete={() => complete(conv)}
               completing={completing === conv.line_user_id}
+              canComplete={!currentTeacher || conv.teachers.includes(currentTeacher)}
               replyText={replyTexts[conv.line_user_id] ?? ""}
               onReplyChange={(t) => setReplyTexts((prev) => ({ ...prev, [conv.line_user_id]: t }))}
               onSend={() => sendReply(conv)}
@@ -317,12 +359,35 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+
+      {teacherPickerOpen && (
+        <div style={overlayStyle}>
+          <div className="panel" style={{ padding: 20, width: 320 }}>
+            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, marginBottom: 4 }}>あなたはどの先生ですか?</h2>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: 14 }}>
+              「完了」操作を自分の担当分だけに反映するために選択してください。
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+              {allTeachers.map((name) => (
+                <button key={name} onClick={() => chooseTeacher(name)} style={contactResultBtn}>
+                  {name}
+                </button>
+              ))}
+            </div>
+            {currentTeacher && (
+              <button onClick={() => setTeacherPickerOpen(false)} style={{ ...btnCancelSmall, marginTop: 12 }}>
+                キャンセル
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function ConversationCard({
-  conv, expanded, onToggle, onComplete, completing,
+  conv, expanded, onToggle, onComplete, completing, canComplete,
   replyText, onReplyChange, onSend, sending,
 }: {
   conv: Conversation;
@@ -330,6 +395,7 @@ function ConversationCard({
   onToggle: () => void;
   onComplete: () => void;
   completing: boolean;
+  canComplete: boolean;
   replyText: string;
   onReplyChange: (t: string) => void;
   onSend: () => void;
@@ -388,8 +454,9 @@ function ConversationCard({
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onComplete(); }}
-            disabled={completing}
-            style={btnDone}
+            disabled={completing || !canComplete}
+            title={canComplete ? undefined : "自分の担当ではありません"}
+            style={canComplete ? btnDone : btnDoneDisabled}
           >
             完了
           </button>
@@ -506,6 +573,16 @@ const btnCancelSmall: React.CSSProperties = {
 const btnDone: React.CSSProperties = {
   padding: "6px 14px", borderRadius: 5, border: "none",
   background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600,
+};
+const btnDoneDisabled: React.CSSProperties = {
+  ...btnDone, background: "var(--surface)", color: "var(--muted)", cursor: "not-allowed", border: "1px solid var(--line)",
+};
+const linkBtn: React.CSSProperties = {
+  border: "none", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.8rem", padding: 0, textDecoration: "underline",
+};
+const overlayStyle: React.CSSProperties = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+  display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50,
 };
 const btnSend: React.CSSProperties = {
   padding: "8px 16px", borderRadius: 6, border: "none",

@@ -7,17 +7,28 @@ type Contact = {
   line_user_id: string;
   display_name: string | null;
   alias_name: string | null;
+  group_name: string | null;
 };
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [groupFilter, setGroupFilter] = useState("全て");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editGroupValue, setEditGroupValue] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+
+  // グループへ一斉送信
+  const [broadcastGroup, setBroadcastGroup] = useState("");
+  const [broadcastText, setBroadcastText] = useState("");
+  const [broadcastSenderName, setBroadcastSenderName] = useState("");
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastMsg, setBroadcastMsg] = useState<string | null>(null);
 
   const fetchContacts = useCallback(async () => {
     setLoading(true);
@@ -119,7 +130,68 @@ export default function ContactsPage() {
     }
   }
 
+  function startEditGroup(c: Contact) {
+    setEditingGroupId(c.line_user_id);
+    setEditGroupValue(c.group_name ?? "");
+  }
+
+  function cancelEditGroup() {
+    setEditingGroupId(null);
+    setEditGroupValue("");
+  }
+
+  async function saveGroup(userId: string) {
+    const trimmed = editGroupValue.trim();
+    setSaving(userId);
+    try {
+      await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_name: trimmed }),
+      });
+      setContacts((prev) =>
+        prev.map((c) =>
+          c.line_user_id === userId ? { ...c, group_name: trimmed || null } : c,
+        ),
+      );
+      setEditingGroupId(null);
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const groups = [...new Set(contacts.map((c) => c.group_name).filter((g): g is string => !!g))].sort(
+    (a, b) => a.localeCompare(b, "ja"),
+  );
+
+  async function sendBroadcast() {
+    if (!broadcastGroup || !broadcastText.trim()) return;
+    setBroadcasting(true);
+    setBroadcastMsg(null);
+    try {
+      const res = await fetch("/api/line/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          group_name: broadcastGroup,
+          text: broadcastText,
+          sent_by: broadcastSenderName.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBroadcastText("");
+        setBroadcastMsg(`${data.sent} 件に送信しました ✓`);
+      } else {
+        setBroadcastMsg(data.error ?? "送信に失敗しました");
+      }
+    } finally {
+      setBroadcasting(false);
+    }
+  }
+
   const filtered = contacts.filter((c) => {
+    if (groupFilter !== "全て" && c.group_name !== groupFilter) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return (
@@ -156,13 +228,80 @@ export default function ContactsPage() {
         {importMsg && <span style={{ fontSize: "0.875rem", color: "var(--accent)" }}>{importMsg}</span>}
       </div>
 
-      <input
-        type="text"
-        placeholder="名前で検索…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        style={searchInput}
-      />
+      {/* グループへ一斉送信 */}
+      <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+        <h2 style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: 10 }}>グループへ一斉送信</h2>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+          <select
+            value={broadcastGroup}
+            onChange={(e) => { setBroadcastGroup(e.target.value); setBroadcastMsg(null); }}
+            style={{ ...inputStyle, width: 180 }}
+          >
+            <option value="">グループを選択…</option>
+            {groups.map((g) => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="送信者名（任意）例: 田中先生"
+            value={broadcastSenderName}
+            onChange={(e) => setBroadcastSenderName(e.target.value)}
+            style={{ ...inputStyle, width: 200 }}
+          />
+        </div>
+        {groups.length === 0 && (
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: 8 }}>
+            まだグループが登録されていません。下の一覧で各生徒に「グループ」を設定してください。
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <textarea
+            value={broadcastText}
+            onChange={(e) => setBroadcastText(e.target.value)}
+            placeholder="一斉送信するメッセージを入力…"
+            rows={2}
+            style={{
+              flex: 1, padding: "8px 10px", borderRadius: 6,
+              border: "1px solid var(--line)", background: "var(--surface)",
+              color: "var(--foreground)", fontSize: "0.875rem",
+              resize: "vertical", fontFamily: "inherit",
+            }}
+          />
+          <button
+            onClick={sendBroadcast}
+            disabled={broadcasting || !broadcastGroup || !broadcastText.trim()}
+            style={btnSave}
+          >
+            {broadcasting ? "送信中…" : "一斉送信"}
+          </button>
+        </div>
+        {broadcastMsg && (
+          <p style={{ marginTop: 6, fontSize: "0.8rem", color: broadcastMsg.includes("失敗") ? "#dc2626" : "#16a34a" }}>
+            {broadcastMsg}
+          </p>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input
+          type="text"
+          placeholder="名前で検索…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ ...searchInput, flex: 1 }}
+        />
+        <select
+          value={groupFilter}
+          onChange={(e) => setGroupFilter(e.target.value)}
+          style={{ ...inputStyle, width: 160 }}
+        >
+          <option value="全て">グループ: 全て</option>
+          {groups.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="panel" style={{ padding: 0, overflow: "hidden", marginTop: 12 }}>
         {loading ? (
@@ -175,6 +314,7 @@ export default function ContactsPage() {
               <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
                 <Th>LINE名</Th>
                 <Th>登録名</Th>
+                <Th>グループ</Th>
                 <Th>操作</Th>
               </tr>
             </thead>
@@ -212,40 +352,86 @@ export default function ContactsPage() {
                       </span>
                     )}
                   </td>
-                  <td style={{ ...td, whiteSpace: "nowrap" }}>
-                    {editingId === c.line_user_id ? (
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button
-                          onClick={() => saveAlias(c.line_user_id)}
-                          disabled={saving === c.line_user_id || !editValue.trim()}
-                          style={btnSave}
-                        >
-                          保存
-                        </button>
-                        <button onClick={cancelEdit} style={btnCancel}>
-                          キャンセル
-                        </button>
-                      </div>
+                  <td style={td}>
+                    {editingGroupId === c.line_user_id ? (
+                      <input
+                        type="text"
+                        value={editGroupValue}
+                        onChange={(e) => setEditGroupValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveGroup(c.line_user_id);
+                          if (e.key === "Escape") cancelEditGroup();
+                        }}
+                        placeholder="例: 高3理系"
+                        autoFocus
+                        style={editInput}
+                      />
                     ) : (
-                      <div style={{ display: "flex", gap: 6 }}>
+                      <span style={{ fontWeight: c.group_name ? 600 : 400, color: c.group_name ? "var(--foreground)" : "var(--muted)" }}>
+                        {c.group_name ?? "—"}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ ...td, whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                      {editingId === c.line_user_id ? (
+                        <>
+                          <button
+                            onClick={() => saveAlias(c.line_user_id)}
+                            disabled={saving === c.line_user_id || !editValue.trim()}
+                            style={btnSave}
+                          >
+                            保存
+                          </button>
+                          <button onClick={cancelEdit} style={btnCancel}>
+                            キャンセル
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => startEdit(c)}
+                            disabled={saving === c.line_user_id}
+                            style={btnEdit}
+                          >
+                            登録名編集
+                          </button>
+                          {c.alias_name && (
+                            <button
+                              onClick={() => clearAlias(c.line_user_id)}
+                              disabled={saving === c.line_user_id}
+                              style={btnCancel}
+                            >
+                              削除
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {editingGroupId === c.line_user_id ? (
+                        <>
+                          <button
+                            onClick={() => saveGroup(c.line_user_id)}
+                            disabled={saving === c.line_user_id}
+                            style={btnSave}
+                          >
+                            保存
+                          </button>
+                          <button onClick={cancelEditGroup} style={btnCancel}>
+                            キャンセル
+                          </button>
+                        </>
+                      ) : (
                         <button
-                          onClick={() => startEdit(c)}
+                          onClick={() => startEditGroup(c)}
                           disabled={saving === c.line_user_id}
                           style={btnEdit}
                         >
-                          編集
+                          グループ編集
                         </button>
-                        {c.alias_name && (
-                          <button
-                            onClick={() => clearAlias(c.line_user_id)}
-                            disabled={saving === c.line_user_id}
-                            style={btnCancel}
-                          >
-                            削除
-                          </button>
-                        )}
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -289,6 +475,10 @@ const btnCancel: React.CSSProperties = {
 const searchInput: React.CSSProperties = {
   width: "100%", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--line)",
   background: "var(--surface)", color: "var(--foreground)", fontSize: "0.875rem", boxSizing: "border-box",
+};
+const inputStyle: React.CSSProperties = {
+  padding: "8px 10px", borderRadius: 6, border: "1px solid var(--line)",
+  background: "var(--surface)", color: "var(--foreground)", fontSize: "0.875rem",
 };
 const editInput: React.CSSProperties = {
   padding: "5px 10px", borderRadius: 5, border: "1px solid var(--accent)",

@@ -1,0 +1,18 @@
+import { NextResponse } from "next/server";
+
+import { createSupabaseAdminClient } from "@/lib/supabase";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const supabase = createSupabaseAdminClient();
+
+  const { data, error } = await supabase
+    .from("teachers")
+    .select("id, display_name")
+    .order("display_name");
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ teachers: data ?? [] });
+}

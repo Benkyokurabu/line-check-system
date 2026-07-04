@@ -11,6 +11,7 @@ create table if not exists public.line_messages (
   received_at timestamptz,
   raw_event jsonb,
   created_at timestamptz not null default now(),
+  sent_by text,
   constraint line_messages_direction_check
     check (direction in ('inbound', 'outbound')),
   constraint line_messages_message_type_check
@@ -28,6 +29,13 @@ create index if not exists line_messages_created_at_idx
 
 create index if not exists line_messages_direction_idx
   on public.line_messages (direction);
+
+create table if not exists public.line_user_aliases (
+  line_user_id text primary key,
+  alias_name text, -- nullable: a contact can carry only a group_name (no custom display alias)
+  group_name text,
+  updated_at timestamptz not null default now()
+);
 
 create table if not exists public.line_tasks (
   id uuid primary key default gen_random_uuid(),
@@ -179,10 +187,14 @@ create table if not exists public.ai_message_routes (
   model text,
   raw_result jsonb,
   created_at timestamptz not null default now(),
+  handled_status text not null default 'pending',
+  handled_at timestamptz,
   constraint ai_message_routes_confidence_check
     check (confidence >= 0 and confidence <= 1),
   constraint ai_message_routes_route_type_check
     check (route_type in ('direct', 'candidate', 'digest', 'fallback', 'ignored')),
+  constraint ai_message_routes_handled_status_check
+    check (handled_status in ('pending', 'done')),
   constraint ai_message_routes_message_teacher_unique
     unique (message_id, teacher_name)
 );
