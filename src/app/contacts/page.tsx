@@ -22,6 +22,7 @@ export default function ContactsPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [rosterImportMsg, setRosterImportMsg] = useState<string | null>(null);
 
   // グループへ一斉送信
   const [broadcastGroup, setBroadcastGroup] = useState("");
@@ -130,6 +131,12 @@ export default function ContactsPage() {
     }
   }
 
+  function handleRosterImportClick() {
+    setRosterImportMsg(
+      "クラス一覧表の取り込み処理は次の段階で接続します。ボタンの配置だけ完了しています。",
+    );
+  }
+
   function startEditGroup(c: Contact) {
     setEditingGroupId(c.line_user_id);
     setEditGroupValue(c.group_name ?? "");
@@ -226,6 +233,14 @@ export default function ContactsPage() {
           <input type="file" accept=".csv" onChange={handleCsvImport} disabled={importing} style={{ display: "none" }} />
         </label>
         {importMsg && <span style={{ fontSize: "0.875rem", color: "var(--accent)" }}>{importMsg}</span>}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
+        <span style={{ fontSize: "0.875rem", color: "var(--muted)", flexShrink: 0 }}>クラス一覧表:</span>
+        <button onClick={handleRosterImportClick} style={btnEdit}>
+          クラス一覧表を再取り込み
+        </button>
+        {rosterImportMsg && <span style={{ fontSize: "0.875rem", color: "var(--muted)" }}>{rosterImportMsg}</span>}
       </div>
 
       {/* グループへ一斉送信 */}

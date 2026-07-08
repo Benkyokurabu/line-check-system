@@ -36,8 +36,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
+  const [contextTexts, setContextTexts] = useState<Record<string, string>>({});
   const [senderName, setSenderName] = useState("");
   const [sending, setSending] = useState<string | null>(null);
+  const [savingContext, setSavingContext] = useState<string | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
 
   // 先生選択（誰として操作しているか。パスワード等の認証はなし）
@@ -207,6 +209,46 @@ export default function DashboardPage() {
     }
   }
 
+  async function saveContext(conv: Conversation) {
+    const text = contextTexts[conv.line_user_id]?.trim();
+    if (!text) return;
+    setSavingContext(conv.line_user_id);
+    try {
+      const res = await fetch(
+        `/api/dashboard/conversations/${encodeURIComponent(conv.line_user_id)}/manual-context`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            sent_by: senderName.trim() || currentTeacher || null,
+          }),
+        },
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setContextTexts((prev) => ({ ...prev, [conv.line_user_id]: "" }));
+        const saved = data.message;
+        const newMsg: Message = {
+          id: saved.id ?? `manual_${Date.now()}`,
+          direction: "outbound",
+          text: saved.text ?? text,
+          received_at: saved.received_at ?? new Date().toISOString(),
+          sent_by: saved.sent_by ?? "AI文脈用メモ",
+        };
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.line_user_id === conv.line_user_id
+              ? { ...c, messages: [...c.messages, newMsg] }
+              : c,
+          ),
+        );
+      }
+    } finally {
+      setSavingContext(null);
+    }
+  }
+
   return (
     <div className="shell" style={{ maxWidth: 860 }}>
       <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -355,6 +397,10 @@ export default function DashboardPage() {
               onReplyChange={(t) => setReplyTexts((prev) => ({ ...prev, [conv.line_user_id]: t }))}
               onSend={() => sendReply(conv)}
               sending={sending === conv.line_user_id}
+              contextText={contextTexts[conv.line_user_id] ?? ""}
+              onContextChange={(t) => setContextTexts((prev) => ({ ...prev, [conv.line_user_id]: t }))}
+              onSaveContext={() => saveContext(conv)}
+              savingContext={savingContext === conv.line_user_id}
             />
           ))}
         </div>
@@ -389,6 +435,7 @@ export default function DashboardPage() {
 function ConversationCard({
   conv, expanded, onToggle, onComplete, completing, canComplete,
   replyText, onReplyChange, onSend, sending,
+  contextText, onContextChange, onSaveContext, savingContext,
 }: {
   conv: Conversation;
   expanded: boolean;
@@ -400,6 +447,10 @@ function ConversationCard({
   onReplyChange: (t: string) => void;
   onSend: () => void;
   sending: boolean;
+  contextText: string;
+  onContextChange: (t: string) => void;
+  onSaveContext: () => void;
+  savingContext: boolean;
 }) {
   const threadRef = useRef<HTMLDivElement>(null);
   const lastInbound = [...conv.messages].reverse().find((m) => m.direction === "inbound");
@@ -480,6 +531,28 @@ function ConversationCard({
           </div>
 
           {/* 返信欄 */}
+          <div style={{ borderTop: "1px solid var(--line)", padding: "10px 16px", display: "flex", gap: 8, alignItems: "flex-end", background: "var(--background)" }}>
+            <textarea
+              value={contextText}
+              onChange={(e) => onContextChange(e.target.value)}
+              placeholder="他の人の返信や過去のやりとりを貼り付け（LINEには送信されません）"
+              rows={3}
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 6,
+                border: "1px solid var(--line)", background: "var(--surface)",
+                color: "var(--foreground)", fontSize: "0.875rem",
+                resize: "vertical", fontFamily: "inherit",
+              }}
+            />
+            <button
+              onClick={onSaveContext}
+              disabled={savingContext || !contextText.trim()}
+              style={btnGhost}
+            >
+              {savingContext ? "保存中…" : "AI用に保存"}
+            </button>
+          </div>
+
           <div style={{ borderTop: "1px solid var(--line)", padding: "10px 16px", display: "flex", gap: 8, alignItems: "flex-end" }}>
             <textarea
               value={replyText}
