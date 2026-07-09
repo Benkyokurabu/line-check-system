@@ -19,6 +19,7 @@ type Conversation = {
   messages: Message[];
   likely_resolved: boolean;
   latest_at: string | null;
+  handled_at?: string | null;
 };
 
 type Contact = {
@@ -33,6 +34,7 @@ export default function DashboardPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [teachers, setTeachers] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("全体");
+  const [viewMode, setViewMode] = useState<"pending" | "done">("pending");
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
@@ -41,6 +43,7 @@ export default function DashboardPage() {
   const [sending, setSending] = useState<string | null>(null);
   const [savingContext, setSavingContext] = useState<string | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
+  const [reopening, setReopening] = useState<string | null>(null);
 
   // 先生選択（誰として操作しているか。パスワード等の認証はなし）
   const [allTeachers, setAllTeachers] = useState<string[]>([]);
@@ -79,7 +82,7 @@ export default function DashboardPage() {
   const fetchConversations = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/conversations");
+      const res = await fetch(`/api/dashboard/conversations?status=${viewMode}`);
       const data = await res.json();
       const list: Conversation[] = data.conversations ?? [];
       setConversations(list);
@@ -88,7 +91,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [viewMode]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -177,6 +180,27 @@ export default function DashboardPage() {
     }
   }
 
+  async function reopen(conv: Conversation) {
+    if (!currentTeacher) {
+      setTeacherPickerOpen(true);
+      return;
+    }
+    setReopening(conv.line_user_id);
+    try {
+      await fetch(
+        `/api/dashboard/conversations/${encodeURIComponent(conv.line_user_id)}/reopen`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teacher_name: currentTeacher }),
+        },
+      );
+      if (expandedId === conv.line_user_id) setExpandedId(null);
+      await fetchConversations();
+    } finally {
+      setReopening(null);
+    }
+  }
   async function sendReply(conv: Conversation) {
     const text = replyTexts[conv.line_user_id]?.trim();
     if (!text) return;
@@ -256,7 +280,7 @@ export default function DashboardPage() {
   return (
     <div className="shell" style={{ maxWidth: 860 }}>
       <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>未対応メッセージ</h1>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>{viewMode === "done" ? "完了済みメッセージ" : "未対応メッセージ"}</h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
             {currentTeacher ? `👤 ${currentTeacher}` : "先生未選択"}
@@ -372,6 +396,14 @@ export default function DashboardPage() {
         />
       </div>
 
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <button onClick={() => { setViewMode("pending"); setActiveTab("全体"); }} style={viewMode === "pending" ? btnGhostActive : btnGhost}>
+          未対応
+        </button>
+        <button onClick={() => { setViewMode("done"); setActiveTab("全体"); }} style={viewMode === "done" ? btnGhostActive : btnGhost}>
+          完了済み
+        </button>
+      </div>
       {/* タブ */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
         <Tab label="全体" count={conversations.length} active={activeTab === "全体"} onClick={() => setActiveTab("全体")} />
@@ -385,7 +417,7 @@ export default function DashboardPage() {
         <p style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>読み込み中...</p>
       ) : displayed.length === 0 ? (
         <p style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>
-          未対応のメッセージはありません ✓
+          {viewMode === "done" ? "完了済みのメッセージはありません" : "未対応のメッセージはありません ✓"}
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -398,8 +430,12 @@ export default function DashboardPage() {
                 setExpandedId((prev) => (prev === conv.line_user_id ? null : conv.line_user_id))
               }
               onComplete={() => complete(conv)}
+              onReopen={() => reopen(conv)}
               completing={completing === conv.line_user_id}
               canComplete={!currentTeacher || conv.teachers.includes(currentTeacher)}
+              reopening={reopening === conv.line_user_id}
+              canReopen={!currentTeacher || conv.teachers.includes(currentTeacher)}
+              viewMode={viewMode}
               replyText={replyTexts[conv.line_user_id] ?? ""}
               onReplyChange={(t) => setReplyTexts((prev) => ({ ...prev, [conv.line_user_id]: t }))}
               onSend={() => sendReply(conv)}
@@ -440,7 +476,7 @@ export default function DashboardPage() {
 }
 
 function ConversationCard({
-  conv, expanded, onToggle, onComplete, completing, canComplete,
+  conv, expanded, onToggle, onComplete, onReopen, completing, canComplete, reopening, canReopen, viewMode,
   replyText, onReplyChange, onSend, sending,
   contextText, onContextChange, onSaveContext, savingContext,
 }: {
@@ -448,8 +484,12 @@ function ConversationCard({
   expanded: boolean;
   onToggle: () => void;
   onComplete: () => void;
+  onReopen: () => void;
   completing: boolean;
   canComplete: boolean;
+  reopening: boolean;
+  canReopen: boolean;
+  viewMode: "pending" | "done";
   replyText: string;
   onReplyChange: (t: string) => void;
   onSend: () => void;
@@ -510,14 +550,25 @@ function ConversationCard({
               {formatDate(conv.latest_at)}
             </span>
           )}
-          <button
-            onClick={(e) => { e.stopPropagation(); onComplete(); }}
-            disabled={completing || !canComplete}
-            title={canComplete ? undefined : "自分の担当ではありません"}
-            style={canComplete ? btnDone : btnDoneDisabled}
-          >
-            完了
-          </button>
+          {viewMode === "done" ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReopen(); }}
+              disabled={reopening || !canReopen}
+              title={canReopen ? undefined : "自分の担当ではありません"}
+              style={canReopen ? btnReopen : btnDoneDisabled}
+            >
+              戻す
+            </button>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onComplete(); }}
+              disabled={completing || !canComplete}
+              title={canComplete ? undefined : "自分の担当ではありません"}
+              style={canComplete ? btnDone : btnDoneDisabled}
+            >
+              完了
+            </button>
+          )}
         </div>
       </div>
 
@@ -654,6 +705,10 @@ const btnDone: React.CSSProperties = {
   padding: "6px 14px", borderRadius: 5, border: "none",
   background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600,
 };
+const btnReopen: React.CSSProperties = {
+  padding: "6px 14px", borderRadius: 5, border: "1px solid var(--accent)",
+  background: "var(--surface)", color: "var(--accent)", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600,
+};
 const btnDoneDisabled: React.CSSProperties = {
   ...btnDone, background: "var(--surface)", color: "var(--muted)", cursor: "not-allowed", border: "1px solid var(--line)",
 };
@@ -701,6 +756,11 @@ function formatTime(iso: string) {
     d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
   );
 }
+
+
+
+
+
 
 
 

@@ -16,21 +16,27 @@ function likelyResolved(messages: { direction: string; text: string | null }[]):
   return RESOLVED_KEYWORDS.some((kw) => lastInbound.text!.includes(kw));
 }
 
-export async function GET() {
+function parseStatus(request: Request) {
+  const status = new URL(request.url).searchParams.get("status");
+  return status === "done" ? "done" : "pending";
+}
+
+export async function GET(request: Request) {
+  const handledStatus = parseStatus(request);
   const supabase = createSupabaseAdminClient();
 
-  // 1. pending な ai_message_routes を取得
   const { data: routes, error: routesErr } = await supabase
     .from("ai_message_routes")
-    .select("id, message_id, teacher_name")
-    .eq("handled_status", "pending");
+    .select("id, message_id, teacher_name, handled_at")
+    .eq("handled_status", handledStatus)
+    .order(handledStatus === "done" ? "handled_at" : "created_at", { ascending: false })
+    .limit(handledStatus === "done" ? 200 : 1000);
 
   if (routesErr) return NextResponse.json({ error: routesErr.message }, { status: 500 });
   if (!routes || routes.length === 0) return NextResponse.json({ conversations: [] });
 
   const messageIds = routes.map((r) => r.message_id as string);
 
-  // 2. message_id → line_user_id の対応と display_name を取得
   const { data: pivotMsgs, error: pivotErr } = await supabase
     .from("line_messages")
     .select("id, line_user_id, display_name")
@@ -42,8 +48,7 @@ export async function GET() {
     (pivotMsgs ?? []).map((m) => [m.id as string, m as { id: string; line_user_id: string; display_name: string | null }]),
   );
 
-  // 3. ユーザーごとに pending route を集約
-  const routesByUser = new Map<string, { routeId: string; teacherName: string }[]>();
+  const routesByUser = new Map<string, { routeId: string; teacherName: string; handledAt: string | null }[]>();
   const displayNameByUser = new Map<string, string | null>();
 
   for (const r of routes) {
@@ -51,14 +56,17 @@ export async function GET() {
     if (!pivot) continue;
     const uid = pivot.line_user_id;
     if (!routesByUser.has(uid)) routesByUser.set(uid, []);
-    routesByUser.get(uid)!.push({ routeId: r.id as string, teacherName: r.teacher_name as string });
+    routesByUser.get(uid)!.push({
+      routeId: r.id as string,
+      teacherName: r.teacher_name as string,
+      handledAt: (r.handled_at as string | null) ?? null,
+    });
     if (!displayNameByUser.has(uid)) displayNameByUser.set(uid, pivot.display_name);
   }
 
   const uniqueUserIds = [...routesByUser.keys()];
   if (uniqueUserIds.length === 0) return NextResponse.json({ conversations: [] });
 
-  // 4. 対象ユーザーの直近 30 日のメッセージ（送受信両方）を取得
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const [{ data: recentMsgs, error: msgsErr }, { data: aliases, error: aliasesErr }] =
@@ -82,13 +90,13 @@ export async function GET() {
     (aliases ?? []).map((a) => [a.line_user_id as string, a.alias_name as string]),
   );
 
-  // 5. 会話オブジェクトを組み立て
   const conversations = uniqueUserIds.map((uid) => {
     const userRoutes = routesByUser.get(uid) ?? [];
     const userMsgs = (recentMsgs ?? []).filter((m) => m.line_user_id === uid);
     const teachers = [...new Set(userRoutes.map((r) => r.teacherName))];
     const displayName = aliasMap[uid] ?? displayNameByUser.get(uid) ?? null;
     const latestMsg = userMsgs[userMsgs.length - 1];
+    const handledAts = userRoutes.map((r) => r.handledAt).filter((v): v is string => !!v);
 
     return {
       line_user_id: uid,
@@ -104,11 +112,16 @@ export async function GET() {
       })),
       likely_resolved: likelyResolved(userMsgs),
       latest_at: (latestMsg?.received_at as string | null) ?? null,
+      handled_at: handledAts.length > 0 ? handledAts.sort().at(-1) : null,
     };
   });
 
-  // 未解決を先に、次に最新順
   conversations.sort((a, b) => {
+    if (handledStatus === "done") {
+      if (!a.handled_at) return 1;
+      if (!b.handled_at) return -1;
+      return new Date(b.handled_at).getTime() - new Date(a.handled_at).getTime();
+    }
     if (a.likely_resolved !== b.likely_resolved) return a.likely_resolved ? 1 : -1;
     if (!a.latest_at) return 1;
     if (!b.latest_at) return -1;
