@@ -268,6 +268,9 @@ export default function DashboardPage() {
           <button onClick={toggleSearch} style={searchOpen ? btnGhostActive : btnGhost}>
             生徒を検索して送信
           </button>
+          <Link href="/students" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+            担任・クラス別 生徒一覧
+          </Link>
           <Link href="/contacts" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
             連絡先管理
           </Link>
@@ -698,5 +701,8 @@ function formatTime(iso: string) {
     d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
   );
 }
+
+
+
 
 
