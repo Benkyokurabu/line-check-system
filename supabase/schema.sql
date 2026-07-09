@@ -30,6 +30,54 @@ create index if not exists line_messages_created_at_idx
 create index if not exists line_messages_direction_idx
   on public.line_messages (direction);
 
+
+create table if not exists public.student_roster (
+  student_number text primary key,
+  grade text not null,
+  student_name text not null,
+  homeroom_teacher text not null,
+  campus text,
+  gender text,
+  source_file text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists student_roster_grade_idx
+  on public.student_roster (grade);
+
+create index if not exists student_roster_homeroom_teacher_idx
+  on public.student_roster (homeroom_teacher);
+
+create index if not exists student_roster_student_name_idx
+  on public.student_roster (student_name);
+
+
+create table if not exists public.student_class_enrollments (
+  id uuid primary key default gen_random_uuid(),
+  student_number text not null references public.student_roster (student_number) on delete cascade,
+  grade text not null,
+  subject text not null,
+  class_name text not null,
+  classroom text,
+  source_file text,
+  updated_at timestamptz not null default now(),
+  constraint student_class_enrollments_unique
+    unique (student_number, subject, class_name)
+);
+
+create index if not exists student_class_enrollments_class_idx
+  on public.student_class_enrollments (grade, subject, class_name);
+
+create index if not exists student_class_enrollments_student_number_idx
+  on public.student_class_enrollments (student_number);
+create table if not exists public.student_line_links (
+  student_number text primary key references public.student_roster (student_number) on delete cascade,
+  line_user_id text not null,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists student_line_links_line_user_id_idx
+  on public.student_line_links (line_user_id);
 create table if not exists public.line_user_aliases (
   line_user_id text primary key,
   alias_name text, -- nullable: a contact can carry only a group_name (no custom display alias)
@@ -283,6 +331,42 @@ begin
       execute function public.set_updated_at();
   end if;
 
+
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgname = 'set_student_roster_updated_at'
+      and tgrelid = 'public.student_roster'::regclass
+  ) then
+    create trigger set_student_roster_updated_at
+      before update on public.student_roster
+      for each row
+      execute function public.set_updated_at();
+  end if;
+
+
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgname = 'set_student_class_enrollments_updated_at'
+      and tgrelid = 'public.student_class_enrollments'::regclass
+  ) then
+    create trigger set_student_class_enrollments_updated_at
+      before update on public.student_class_enrollments
+      for each row
+      execute function public.set_updated_at();
+  end if;
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgname = 'set_student_line_links_updated_at'
+      and tgrelid = 'public.student_line_links'::regclass
+  ) then
+    create trigger set_student_line_links_updated_at
+      before update on public.student_line_links
+      for each row
+      execute function public.set_updated_at();
+  end if;
   if not exists (
     select 1
     from pg_trigger
@@ -320,3 +404,6 @@ begin
   end if;
 end;
 $$;
+
+
+

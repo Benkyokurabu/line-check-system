@@ -49,6 +49,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const saved = window.localStorage.getItem(CURRENT_TEACHER_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved) setCurrentTeacher(saved);
     else setTeacherPickerOpen(true);
 
@@ -89,7 +90,10 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => { fetchConversations(); }, [fetchConversations]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchConversations();
+  }, [fetchConversations]);
 
   const toggleSearch = useCallback(async () => {
     setSearchOpen((prev) => !prev);
@@ -694,3 +698,5 @@ function formatTime(iso: string) {
     d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
   );
 }
+
+

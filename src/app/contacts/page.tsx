@@ -43,6 +43,7 @@ export default function ContactsPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
   }, [fetchContacts]);
 
@@ -499,3 +500,4 @@ const editInput: React.CSSProperties = {
   padding: "5px 10px", borderRadius: 5, border: "1px solid var(--accent)",
   background: "var(--surface)", color: "var(--foreground)", fontSize: "0.875rem", width: 220,
 };
+
