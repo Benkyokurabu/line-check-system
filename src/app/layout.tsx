@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { HomeLink } from "./HomeLink";
 
 export const metadata: Metadata = {
   title: "LINE Check System",
@@ -13,7 +14,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body>{children}</body>
+      <body><HomeLink />{children}</body>
     </html>
   );
 }
+

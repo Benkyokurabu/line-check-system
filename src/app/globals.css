@@ -82,3 +82,25 @@ ul {
 li {
   line-height: 1.6;
 }
+
+.home-link {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 0.85rem;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(29, 35, 32, 0.08);
+}
+
+.home-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
