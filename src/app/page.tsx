@@ -1,31 +1,38 @@
 import Link from "next/link";
 
+const menuItems = [
+  {
+    href: "/dashboard",
+    title: "未対応メッセージ",
+    description: "LINEで届いた未対応の連絡を先生別に確認し、返信・完了処理をします。",
+  },
+  {
+    href: "/students",
+    title: "担任・クラス別 生徒一覧",
+    description: "担任生徒やクラス在籍生徒を一覧で確認し、選択した生徒へLINE送信します。",
+  },
+  {
+    href: "/contacts",
+    title: "連絡先管理",
+    description: "LINE名、登録名、グループを管理し、一斉送信の対象を整えます。",
+  },
+];
+
 export default function Home() {
   return (
     <main className="shell">
-      <section className="panel">
+      <section>
         <p className="eyebrow">LINE operations</p>
         <h1>LINE Check System</h1>
-        <p>
-          LINE公式アカウントの受信確認、先生別の対応管理、生徒一覧、クラス別送信を行う管理画面です。
-        </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}>
-          <Link href="/dashboard" style={linkButton}>未対応メッセージ</Link>
-          <Link href="/students" style={linkButton}>担任・クラス別 生徒一覧</Link>
-          <Link href="/contacts" style={linkButton}>連絡先管理</Link>
+        <div className="home-menu">
+          {menuItems.map((item) => (
+            <Link key={item.href} href={item.href} className="home-menu-item">
+              <span className="home-menu-title">{item.title}</span>
+              <span className="home-menu-description">{item.description}</span>
+            </Link>
+          ))}
         </div>
       </section>
     </main>
   );
 }
-
-const linkButton: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "10px 14px",
-  borderRadius: 6,
-  background: "var(--accent)",
-  color: "#fff",
-  fontWeight: 700,
-  fontSize: "0.9rem",
-};
