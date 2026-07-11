@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { teacherNameVariants } from "@/lib/teacher-names";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export async function POST(
     .from("ai_message_routes")
     .update({ handled_status: "done", handled_at: new Date().toISOString() })
     .in("message_id", messageIds)
-    .eq("teacher_name", teacherName)
+    .in("teacher_name", teacherNameVariants(teacherName))
     .eq("handled_status", "pending");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

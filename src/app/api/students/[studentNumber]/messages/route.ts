@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { findLinkedLineUserId, type LineAlias } from "@/lib/student-linking";
+import { canonicalTeacherName } from "@/lib/teacher-names";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,10 @@ export async function GET(
 
   if (!lineUserId) {
     return NextResponse.json({
-      student,
+      student: {
+        ...student,
+        homeroom_teacher: canonicalTeacherName(student.homeroom_teacher as string),
+      },
       line_user_id: null,
       messages: [],
       link_status: "not_linked",
@@ -71,7 +75,10 @@ export async function GET(
   }
 
   return NextResponse.json({
-    student,
+    student: {
+      ...student,
+      homeroom_teacher: canonicalTeacherName(student.homeroom_teacher as string),
+    },
     line_user_id: lineUserId,
     messages: messages ?? [],
     link_status: "linked",

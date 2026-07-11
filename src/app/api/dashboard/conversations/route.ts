@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { canonicalTeacherName } from "@/lib/teacher-names";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +59,7 @@ export async function GET(request: Request) {
     if (!routesByUser.has(uid)) routesByUser.set(uid, []);
     routesByUser.get(uid)!.push({
       routeId: r.id as string,
-      teacherName: r.teacher_name as string,
+      teacherName: canonicalTeacherName(r.teacher_name as string),
       handledAt: (r.handled_at as string | null) ?? null,
     });
     if (!displayNameByUser.has(uid)) displayNameByUser.set(uid, pivot.display_name);

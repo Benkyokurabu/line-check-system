@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
+import { canonicalTeacherName } from "@/lib/teacher-names";
+
 const CURRENT_TEACHER_KEY = "line-check:current-teacher";
 
 type Student = {
@@ -53,7 +55,7 @@ export default function StudentsPage() {
   const [mode, setMode] = useState<"teacher" | "class">("teacher");
   const [currentTeacher, setCurrentTeacher] = useState<string>(() => {
     if (typeof window === "undefined") return "";
-    return window.localStorage.getItem(CURRENT_TEACHER_KEY) ?? "";
+    return canonicalTeacherName(window.localStorage.getItem(CURRENT_TEACHER_KEY) ?? "");
   });
   const [teachers, setTeachers] = useState<string[]>([]);
   const [classes, setClasses] = useState<ClassOption[]>([]);

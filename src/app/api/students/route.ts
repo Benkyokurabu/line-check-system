@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { findLinkedLineUserId, type LineAlias } from "@/lib/student-linking";
+import { canonicalTeacherName, teacherNameVariants } from "@/lib/teacher-names";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     .order("student_number", { ascending: true });
 
   if (teacher) {
-    rosterQuery = rosterQuery.eq("homeroom_teacher", teacher);
+    rosterQuery = rosterQuery.in("homeroom_teacher", teacherNameVariants(teacher));
   }
 
   const [
@@ -95,6 +96,7 @@ export async function GET(request: Request) {
     const stat = lineUserId ? stats.get(lineUserId) : null;
     return {
       ...student,
+      homeroom_teacher: canonicalTeacherName(student.homeroom_teacher),
       line_user_id: lineUserId,
       message_count: stat?.message_count ?? 0,
       latest_at: stat?.latest_at ?? null,

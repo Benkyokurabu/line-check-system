@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 
+import { canonicalTeacherName } from "@/lib/teacher-names";
+
 type Message = {
   id: string;
   direction: "inbound" | "outbound";
@@ -53,7 +55,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const saved = window.localStorage.getItem(CURRENT_TEACHER_KEY);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (saved) setCurrentTeacher(saved);
+    if (saved) setCurrentTeacher(canonicalTeacherName(saved));
     else setTeacherPickerOpen(true);
 
     fetch("/api/admin/teachers")
@@ -63,9 +65,10 @@ export default function DashboardPage() {
   }, []);
 
   function chooseTeacher(name: string) {
-    setCurrentTeacher(name);
-    setSenderName((prev) => prev || name);
-    window.localStorage.setItem(CURRENT_TEACHER_KEY, name);
+    const displayName = canonicalTeacherName(name);
+    setCurrentTeacher(displayName);
+    setSenderName((prev) => prev || displayName);
+    window.localStorage.setItem(CURRENT_TEACHER_KEY, displayName);
     setTeacherPickerOpen(false);
   }
 
