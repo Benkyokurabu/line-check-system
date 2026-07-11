@@ -48,15 +48,12 @@ export async function GET(request: Request) {
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 80), 200);
   const supabase = createSupabaseAdminClient();
 
-  let studentQuery = supabase
+  const studentQuery = supabase
     .from("student_roster")
     .select("student_number,grade,student_name,homeroom_teacher,campus,gender")
     .order("grade", { ascending: true })
     .order("student_number", { ascending: true })
-    .limit(500);
-
-  if (grade) studentQuery = studentQuery.eq("grade", grade);
-  if (campus) studentQuery = studentQuery.eq("campus", campus);
+    .limit(5000);
 
   const [
     { data: students, error: studentsError },
@@ -82,12 +79,16 @@ export async function GET(request: Request) {
     new Set(studentRows.map((student) => canonicalTeacherName(student.homeroom_teacher) || "未設定")),
   ).sort((a, b) => a.localeCompare(b, "ja"));
   const gradeOptions = Array.from(new Set(studentRows.map((student) => student.grade).filter(Boolean))).sort(compareGrade);
-  const campusOptions = ["本校", "南教室"];
+  const campusOptions = Array.from(
+    new Set(studentRows.map((student) => student.campus).filter((value): value is string => Boolean(value))),
+  ).sort((a, b) => a.localeCompare(b, "ja", { numeric: true }));
 
   const filtered = studentRows
     .filter((student) => {
       const studentTeacher = canonicalTeacherName(student.homeroom_teacher) || "未設定";
       if (teacher && studentTeacher !== teacher) return false;
+      if (grade && student.grade !== grade) return false;
+      if (campus && student.campus !== campus) return false;
       if (!search) return true;
       return (
         normalizeStudentName(student.student_name).includes(search) ||
