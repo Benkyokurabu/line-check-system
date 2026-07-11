@@ -13,6 +13,7 @@ type Student = {
   student_name: string;
   homeroom_teacher: string;
   campus: string | null;
+  school_name: string | null;
   gender: string | null;
   source_file: string | null;
   updated_at: string;
@@ -93,7 +94,7 @@ export async function GET(
 
   const { data: student, error: studentError } = await supabase
     .from("student_roster")
-    .select("student_number,grade,student_name,homeroom_teacher,campus,gender,source_file,updated_at")
+    .select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,source_file,updated_at")
     .eq("student_number", studentNumber)
     .maybeSingle();
 

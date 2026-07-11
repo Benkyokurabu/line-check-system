@@ -31,6 +31,13 @@ function cellText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function normalizeCampus(value) {
+  const text = cellText(value);
+  if (text === "南") return "南教室";
+  if (text === "本") return "本校";
+  return text || null;
+}
+
 loadEnvFile(".env.local");
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -68,7 +75,8 @@ for (const file of files) {
     const studentNumber = cellText(record[1]);
     const studentName = cellText(record[2]);
     const gender = cellText(record[3]) || null;
-    const campus = cellText(record[4]) || null;
+    const campus = normalizeCampus(record[0]);
+    const schoolName = cellText(record[4]) || null;
     const teacher = cellText(record[5]);
 
     if (!studentNumber || !studentName || !teacher) continue;
@@ -80,6 +88,7 @@ for (const file of files) {
       student_name: studentName,
       homeroom_teacher: teacher,
       campus,
+      school_name: schoolName,
       gender,
       source_file: file,
       updated_at: new Date().toISOString(),

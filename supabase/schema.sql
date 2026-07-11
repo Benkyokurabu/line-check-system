@@ -37,6 +37,7 @@ create table if not exists public.student_roster (
   student_name text not null,
   homeroom_teacher text not null,
   campus text,
+  school_name text,
   gender text,
   source_file text,
   updated_at timestamptz not null default now()
