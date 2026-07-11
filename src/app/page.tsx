@@ -12,6 +12,11 @@ const menuItems = [
     description: "担任生徒やクラス在籍生徒を一覧で確認し、選択した生徒へLINE送信します。",
   },
   {
+    href: "/karte",
+    title: "生徒カルテ",
+    description: "Notion、LINE、クラス一覧Excelを生徒ごとにまとめ、経緯を確認します。",
+  },
+  {
     href: "/contacts",
     title: "連絡先管理",
     description: "LINE名、登録名、グループを管理し、一斉送信の対象を整えます。",
