@@ -81,10 +81,8 @@ type KarteDetail = {
 export default function KartePage() {
   const [query, setQuery] = useState("");
   const [selectedTeacher, setSelectedTeacher] = useState("");
-  const [selectedCampus, setSelectedCampus] = useState("");
   const [selectedGrade, setSelectedGrade] = useState("");
   const [teacherOptions, setTeacherOptions] = useState<string[]>([]);
-  const [campusOptions, setCampusOptions] = useState<string[]>([]);
   const [gradeOptions, setGradeOptions] = useState<string[]>([]);
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,18 +99,16 @@ export default function KartePage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  const loadStudents = useCallback(async (search: string, teacher: string, campus: string, grade: string) => {
+  const loadStudents = useCallback(async (search: string, teacher: string, grade: string) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ q: search, limit: "200" });
       if (teacher) params.set("teacher", teacher);
-      if (campus) params.set("campus", campus);
       if (grade) params.set("grade", grade);
       const res = await fetch(`/api/karte/students?${params.toString()}`);
       const data = await res.json();
       setStudents(data.students ?? []);
       setTeacherOptions(data.teachers ?? []);
-      setCampusOptions(data.campuses ?? []);
       setGradeOptions(data.grades ?? []);
     } finally {
       setLoading(false);
@@ -121,10 +117,10 @@ export default function KartePage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadStudents(query, selectedTeacher, selectedCampus, selectedGrade);
+      void loadStudents(query, selectedTeacher, selectedGrade);
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [loadStudents, query, selectedTeacher, selectedCampus, selectedGrade]);
+  }, [loadStudents, query, selectedTeacher, selectedGrade]);
 
   async function openStudent(studentNumber: string) {
     setSelectedNumber(studentNumber);
@@ -166,10 +162,6 @@ export default function KartePage() {
           <div style={listHeader}>
             <h2 style={sectionTitle}>生徒検索</h2>
             <div style={filterSelectGrid}>
-              <select value={selectedCampus} onChange={(event) => setSelectedCampus(event.target.value)} style={inputStyle} aria-label="校舎で絞り込み">
-                <option value="">校舎すべて</option>
-                {campusOptions.map((campus) => <option key={campus} value={campus}>{campus}</option>)}
-              </select>
               <select value={selectedGrade} onChange={(event) => setSelectedGrade(event.target.value)} style={inputStyle} aria-label="学年で絞り込み">
                 <option value="">学年すべて</option>
                 {gradeOptions.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
@@ -183,7 +175,7 @@ export default function KartePage() {
               {actor ? <button type="button" onClick={() => setSelectedTeacher(actor)} style={filterButton}>自分の担任</button> : null}
             </div>
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="氏名・学籍番号で検索" style={inputStyle} />
-            <p style={mutedLine}>{filterSummary(selectedCampus, selectedGrade, selectedTeacher)} / 表示 {students.length}件</p>
+            <p style={mutedLine}>{filterSummary(selectedGrade, selectedTeacher)} / 表示 {students.length}件</p>
           </div>
           <div style={{ maxHeight: "72vh", overflowY: "auto" }}>
             {loading ? <p style={{ padding: 18 }}>読み込み中...</p> : students.length === 0 ? <p style={{ padding: 18 }}>該当する生徒がいません。</p> : students.map((student) => (
@@ -192,7 +184,7 @@ export default function KartePage() {
                   <strong>{student.student_name}</strong>
                   <span style={mutedMono}>{student.student_number}</span>
                 </span>
-                <span style={mutedLine}>{student.grade} / {student.campus ?? "校舎未設定"} / 担任 {student.homeroom_teacher}</span>
+                <span style={mutedLine}>{student.grade} / 学校 {student.campus ?? "未設定"} / 担任 {student.homeroom_teacher}</span>
                 <span style={badgeRow}>
                   <Badge label={`LINE ${student.line_message_count}`} tone={student.line_user_id ? "green" : "gray"} />
                   <Badge label={`面談 ${student.interaction_count}`} tone="blue" />
@@ -209,7 +201,7 @@ export default function KartePage() {
               <div style={karteHeader}>
                 <div>
                   <h2 style={{ fontSize: "1.3rem", marginBottom: 4 }}>{selected.student_name}</h2>
-                  <p style={{ fontSize: "0.86rem" }}>{selected.student_number} / {selected.grade} / {selected.campus ?? "校舎未設定"} / 担任 {selected.homeroom_teacher}</p>
+                  <p style={{ fontSize: "0.86rem" }}>{selected.student_number} / {selected.grade} / 学校 {selected.campus ?? "未設定"} / 担任 {selected.homeroom_teacher}</p>
                 </div>
                 <div style={headerBadges}>
                   <Badge label={detail?.line_user_id ? "LINE紐づけ済み" : "LINE未紐づけ"} tone={detail?.line_user_id ? "green" : "gray"} />
@@ -290,9 +282,9 @@ function Badge({ label, tone }: { label: string; tone: "green" | "blue" | "orang
 function kindLabel(kind: TimelineItem["kind"]) { return { line: "LINE", interaction: "面談", survey: "アンケート" }[kind]; }
 function kindTone(kind: TimelineItem["kind"]) { return ({ line: "green", interaction: "blue", survey: "orange" } as const)[kind]; }
 function formatDate(iso: string) { return new Date(iso).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
-function filterSummary(campus: string, grade: string, teacher: string) {
-  const parts = [campus && "校舎 " + campus, grade && "学年 " + grade, teacher && "担任 " + teacher].filter(Boolean);
-  return parts.length > 0 ? parts.join(" / ") + " で絞り込み中" : "校舎・学年・担任を選ぶと対象生徒だけに絞れます";
+function filterSummary(grade: string, teacher: string) {
+  const parts = [grade && "学年 " + grade, teacher && "担任 " + teacher].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") + " で絞り込み中" : "学年・担任を選ぶと対象生徒だけに絞れます";
 }
 
 const pageHeader: React.CSSProperties = { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18, marginBottom: 18 };
