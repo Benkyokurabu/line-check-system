@@ -18,17 +18,34 @@ export async function PUT(
   }
 
   const supabase = createSupabaseAdminClient();
-  const { error } = await supabase.from("student_line_links").upsert(
-    {
-      student_number: studentNumber,
-      line_user_id: lineUserId,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "student_number" },
-  );
+  const now = new Date().toISOString();
+  const [{ error }, { error: accountError }] = await Promise.all([
+    supabase.from("student_line_links").upsert(
+      {
+        student_number: studentNumber,
+        line_user_id: lineUserId,
+        updated_at: now,
+      },
+      { onConflict: "student_number" },
+    ),
+    supabase.from("student_line_accounts").upsert(
+      {
+        student_number: studentNumber,
+        line_user_id: lineUserId,
+        relation: "unknown",
+        source: "manual",
+        is_primary: true,
+        updated_at: now,
+      },
+      { onConflict: "student_number,line_user_id" },
+    ),
+  ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (accountError && accountError.code !== "42P01") {
+    return NextResponse.json({ error: accountError.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
@@ -40,13 +57,22 @@ export async function DELETE(
 ) {
   const { studentNumber } = await context.params;
   const supabase = createSupabaseAdminClient();
-  const { error } = await supabase
-    .from("student_line_links")
-    .delete()
-    .eq("student_number", studentNumber);
+  const [{ error }, { error: accountError }] = await Promise.all([
+    supabase
+      .from("student_line_links")
+      .delete()
+      .eq("student_number", studentNumber),
+    supabase
+      .from("student_line_accounts")
+      .delete()
+      .eq("student_number", studentNumber),
+  ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (accountError && accountError.code !== "42P01") {
+    return NextResponse.json({ error: accountError.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

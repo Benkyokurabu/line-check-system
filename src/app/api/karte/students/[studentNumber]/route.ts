@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { findLinkedLineUserId, type LineAlias } from "@/lib/student-linking";
+import { findLinkedLineAccounts, findLinkedLineUserId, type LineAlias } from "@/lib/student-linking";
 import { canonicalTeacherName } from "@/lib/teacher-names";
 
 export const runtime = "nodejs";
@@ -20,6 +20,14 @@ type Student = {
 };
 
 type LinkRow = { line_user_id: string };
+
+type AccountRow = {
+  line_user_id: string;
+  relation: string;
+  alias_name: string | null;
+  friend_display_name: string | null;
+  is_primary: boolean;
+};
 
 type MessageRow = {
   id: string;
@@ -104,12 +112,17 @@ export async function GET(
   const [
     { data: explicitLink },
     { data: aliases },
+    { data: accounts },
     classes,
     interactions,
     surveys,
   ] = await Promise.all([
     supabase.from("student_line_links").select("line_user_id").eq("student_number", studentNumber).maybeSingle(),
     supabase.from("line_user_aliases").select("line_user_id,alias_name"),
+    supabase
+      .from("student_line_accounts")
+      .select("line_user_id,relation,alias_name,friend_display_name,is_primary")
+      .eq("student_number", studentNumber),
     optionalSelect<ClassEnrollment>(
       supabase
         .from("student_class_enrollments")
@@ -137,16 +150,28 @@ export async function GET(
   ]);
 
   const typedStudent = student as Student;
+  const inferredAccounts = findLinkedLineAccounts(typedStudent.student_name, (aliases ?? []) as LineAlias[]);
+  const lineAccounts = mergeAccounts((accounts ?? []) as AccountRow[], inferredAccounts);
+  const primaryAccount =
+    lineAccounts.find((account) => account.is_primary) ??
+    lineAccounts.find((account) => account.relation === "mother") ??
+    lineAccounts[0] ??
+    null;
   const lineUserId =
+    primaryAccount?.line_user_id ??
     ((explicitLink as LinkRow | null)?.line_user_id) ??
     findLinkedLineUserId(typedStudent.student_name, (aliases ?? []) as LineAlias[]);
+  const lineUserIds = [
+    ...lineAccounts.map((account) => account.line_user_id),
+    ...(lineUserId ? [lineUserId] : []),
+  ].filter((id, index, ids) => ids.indexOf(id) === index);
 
-  const messages = lineUserId
+  const messages = lineUserIds.length > 0
     ? await optionalSelect<MessageRow>(
         supabase
           .from("line_messages")
           .select("id,direction,text,message_type,received_at,created_at,sent_by")
-          .eq("line_user_id", lineUserId)
+          .in("line_user_id", lineUserIds)
           .order("received_at", { ascending: false, nullsFirst: false })
           .order("created_at", { ascending: false })
           .limit(80),
@@ -194,6 +219,8 @@ export async function GET(
   return NextResponse.json({
     student: { ...typedStudent, homeroom_teacher: canonicalTeacherName(typedStudent.homeroom_teacher) },
     line_user_id: lineUserId,
+    line_user_ids: lineUserIds,
+    line_accounts: lineAccounts,
     classes,
     messages,
     interactions,
@@ -204,4 +231,14 @@ export async function GET(
         "Notion項目マッピング、表示ブロック、名寄せ条件を後から変更しやすい前提で構成しています。",
     },
   });
+}
+
+function mergeAccounts<T extends { line_user_id: string }>(
+  explicitAccounts: T[],
+  inferredAccounts: T[],
+) {
+  const byUserId = new Map<string, T>();
+  for (const account of inferredAccounts) byUserId.set(account.line_user_id, account);
+  for (const account of explicitAccounts) byUserId.set(account.line_user_id, account);
+  return [...byUserId.values()];
 }

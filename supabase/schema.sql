@@ -79,6 +79,29 @@ create table if not exists public.student_line_links (
 
 create index if not exists student_line_links_line_user_id_idx
   on public.student_line_links (line_user_id);
+
+create table if not exists public.student_line_accounts (
+  id uuid primary key default gen_random_uuid(),
+  student_number text not null references public.student_roster (student_number) on delete cascade,
+  line_user_id text not null,
+  relation text not null default 'unknown',
+  alias_name text,
+  friend_display_name text,
+  source text not null default 'line_manager_name_match',
+  is_primary boolean not null default false,
+  updated_at timestamptz not null default now(),
+  constraint student_line_accounts_relation_check
+    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown')),
+  constraint student_line_accounts_unique
+    unique (student_number, line_user_id)
+);
+
+create index if not exists student_line_accounts_student_number_idx
+  on public.student_line_accounts (student_number);
+
+create index if not exists student_line_accounts_line_user_id_idx
+  on public.student_line_accounts (line_user_id);
+
 create table if not exists public.line_user_aliases (
   line_user_id text primary key,
   alias_name text, -- nullable: a contact can carry only a group_name (no custom display alias)

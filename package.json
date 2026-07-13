@@ -7,7 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "import:roster": "node scripts/import-roster-from-excel.mjs"
+    "db:apply-student-line-accounts": "node scripts/apply-student-line-accounts-schema.mjs",
+    "import:roster": "node scripts/import-roster-from-excel.mjs",
+    "import:line-history": "node scripts/import-line-history.mjs",
+    "capture:line-manager": "node scripts/capture-line-manager-data.mjs",
+    "link:line-history-via-manager-names": "node scripts/link-line-history-via-manager-names.mjs",
+    "extract:line-manager-chat-list": "node scripts/extract-line-manager-chat-list.mjs",
+    "export:line-manager-chats": "node scripts/export-line-manager-chats.mjs",
+    "export:line-manager-contacts": "node scripts/export-line-manager-contacts.mjs",
+    "import:line-manager-aliases": "node scripts/import-line-manager-aliases.mjs",
+    "export:line-profiles": "node scripts/export-line-profiles.mjs",
+    "link:students": "node scripts/link-students-from-line-history.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",

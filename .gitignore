@@ -44,6 +44,18 @@ groq.txt
 
 # personal data (student/parent names, LINE IDs, rosters) - repo is public, never commit
 line_users_export.csv
+line_manager_capture*.jsonl
+line_manager_current_page_capture*.jsonl
+line_manager_chat_list*.csv
+line_manager_chats*.csv
+line_manager_contacts*.csv
+line_manager_alias_import_report*.csv
+line_manager_roster_match*.csv
+line_history_roster_match_by_name*.csv
+.line-manager-chrome-profile/
+line_profiles_export*.csv
+line_history_import_report*.csv
+line_student_link_candidates*.csv
 *クラス一覧表*.xlsx
 *スケジュール*.xlsm
 
