@@ -84,7 +84,7 @@ export async function GET(
   if (studentsError) return NextResponse.json({ error: studentsError.message }, { status: 500 });
   if (aliasesError) return NextResponse.json({ error: aliasesError.message }, { status: 500 });
   if (linksError) return NextResponse.json({ error: linksError.message }, { status: 500 });
-  if (accountsError && accountsError.code !== "42P01") return NextResponse.json({ error: accountsError.message }, { status: 500 });
+  if (accountsError && !["42P01", "PGRST205"].includes(accountsError.code)) return NextResponse.json({ error: accountsError.message }, { status: 500 });
 
   const aliasRows = (aliases ?? []) as LineAlias[];
   const linkMap = new Map(

@@ -50,7 +50,7 @@ export async function GET(
   if (aliasesError) {
     return NextResponse.json({ error: aliasesError.message }, { status: 500 });
   }
-  if (accountsError && accountsError.code !== "42P01") {
+  if (accountsError && !["42P01", "PGRST205"].includes(accountsError.code)) {
     return NextResponse.json({ error: accountsError.message }, { status: 500 });
   }
 

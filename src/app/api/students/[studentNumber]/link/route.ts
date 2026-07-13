@@ -44,7 +44,7 @@ export async function PUT(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  if (accountError && accountError.code !== "42P01") {
+  if (accountError && !["42P01", "PGRST205"].includes(accountError.code)) {
     return NextResponse.json({ error: accountError.message }, { status: 500 });
   }
 
@@ -71,7 +71,7 @@ export async function DELETE(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  if (accountError && accountError.code !== "42P01") {
+  if (accountError && !["42P01", "PGRST205"].includes(accountError.code)) {
     return NextResponse.json({ error: accountError.message }, { status: 500 });
   }
 
