@@ -29,6 +29,14 @@ export async function GET() {
     }
   }
 
+  // A valid LINE contact may not have sent or received a message yet. Keep
+  // alias-only contacts selectable so they can be linked before first contact.
+  for (const alias of aliases ?? []) {
+    if (!userMap.has(alias.line_user_id)) {
+      userMap.set(alias.line_user_id, null);
+    }
+  }
+
   const aliasMap = Object.fromEntries(
     (aliases ?? []).map((a) => [a.line_user_id, a.alias_name]),
   );
