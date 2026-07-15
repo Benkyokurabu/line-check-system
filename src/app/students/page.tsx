@@ -271,13 +271,7 @@ export default function StudentsPage() {
 
   const contactResults = contactSearch.trim()
     ? contacts
-        .filter((contact) => {
-          const q = contactSearch.trim().toLowerCase();
-          return (
-            (contact.alias_name ?? "").toLowerCase().includes(q) ||
-            (contact.display_name ?? "").toLowerCase().includes(q)
-          );
-        })
+        .filter((contact) => matchesContactSearch(contact, contactSearch))
         .slice(0, 8)
     : [];
 
@@ -302,24 +296,36 @@ export default function StudentsPage() {
           </select>
         ) : (
           <>
-            <select value={selectedCampus} onChange={(e) => { setSelectedCampus(e.target.value); setSelectedGrade(""); setSelectedSubject(""); setSelectedClassId(""); }} style={inputStyle}>
-              <option value="">校舎を選択</option>
-              {campusOptions.map((campus) => <option key={campus} value={campus}>{campus}</option>)}
-            </select>
-            <select value={selectedGrade} disabled={!selectedCampus} onChange={(e) => { setSelectedGrade(e.target.value); setSelectedSubject(""); setSelectedClassId(""); }} style={inputStyle}>
-              <option value="">学年を選択</option>
-              {gradeOptions.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
-            </select>
-            <select value={selectedSubject} disabled={!selectedGrade} onChange={(e) => { setSelectedSubject(e.target.value); setSelectedClassId(""); }} style={inputStyle}>
-              <option value="">科目を選択</option>
-              {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
-            </select>
-            <select value={selectedClassId} disabled={!selectedSubject} onChange={(e) => setSelectedClassId(e.target.value)} style={{ ...inputStyle, minWidth: 180 }}>
-              <option value="">クラスを選択</option>
-              {classOptions.map((classOption) => (
-                <option key={classOption.id} value={classOption.id}>{classOption.class_name}（{classOption.count}名）</option>
-              ))}
-            </select>
+            <FilterButtons
+              label="校舎"
+              options={campusOptions.map((value) => ({ value, label: value }))}
+              selected={selectedCampus}
+              onSelect={(value) => { setSelectedCampus(value); setSelectedGrade(""); setSelectedSubject(""); setSelectedClassId(""); }}
+            />
+            {selectedCampus && (
+              <FilterButtons
+                label="学年"
+                options={gradeOptions.map((value) => ({ value, label: value }))}
+                selected={selectedGrade}
+                onSelect={(value) => { setSelectedGrade(value); setSelectedSubject(""); setSelectedClassId(""); }}
+              />
+            )}
+            {selectedGrade && (
+              <FilterButtons
+                label="科目"
+                options={subjectOptions.map((value) => ({ value, label: value }))}
+                selected={selectedSubject}
+                onSelect={(value) => { setSelectedSubject(value); setSelectedClassId(""); }}
+              />
+            )}
+            {selectedSubject && (
+              <FilterButtons
+                label="クラス"
+                options={classOptions.map((item) => ({ value: item.id, label: `${item.class_name}（${item.count}名）` }))}
+                selected={selectedClassId}
+                onSelect={setSelectedClassId}
+              />
+            )}
           </>
         )}
         <input
@@ -529,6 +535,34 @@ function Th({ children }: { children: React.ReactNode }) {
   return <th style={{ padding: "10px 14px", textAlign: "left", fontSize: "0.78rem", color: "var(--muted)", fontWeight: 700 }}>{children}</th>;
 }
 
+function FilterButtons({
+  label,
+  options,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <span style={{ color: "var(--muted)", fontSize: "0.78rem", fontWeight: 700 }}>{label}</span>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onSelect(option.value)}
+          style={selected === option.value ? btnActive : btnGhost}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function MessageBubble({ message }: { message: Message }) {
   const outbound = message.direction === "outbound";
   return (
@@ -590,6 +624,21 @@ function relationLabel(relation: string) {
     relation === "guardian" ? "保護者" :
     relation === "family" ? "家族" :
     relation === "student" ? "本人" : "関係未設定";
+}
+
+function matchesContactSearch(contact: Contact, query: string) {
+  const compact = (value: string | null | undefined) =>
+    (value ?? "").normalize("NFKC").replace(/[ \t\r\n\u3000]/g, "").toLowerCase();
+  const q = compact(query);
+  const labels = [compact(contact.alias_name), compact(contact.display_name)];
+  if (labels.some((label) => label.includes(q))) return true;
+  const surname = q.slice(0, 2);
+  const givenName = q.slice(2);
+  return Boolean(
+    surname &&
+    givenName &&
+    labels.some((label) => label.includes(surname) && label.includes(givenName)),
+  );
 }
 
 function gradeOrder(grade: string) {

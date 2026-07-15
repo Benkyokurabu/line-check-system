@@ -66,7 +66,18 @@ export function findLinkedLineAccounts(
 
   const matches = aliases.filter((alias) => {
     const normalizedAlias = normalizeStudentName(alias.alias_name);
-    return normalizedAlias === normalizedStudent || normalizedAlias.includes(normalizedStudent);
+    if (normalizedAlias === normalizedStudent || normalizedAlias.includes(normalizedStudent)) return true;
+
+    // Family accounts sometimes contain a sibling name between the surname
+    // and this student's given name (for example: 相良海成・空 父).
+    const surname = normalizedStudent.slice(0, 2);
+    const givenName = normalizedStudent.slice(2);
+    return Boolean(
+      surname &&
+      givenName &&
+      normalizedAlias.includes(surname) &&
+      normalizedAlias.includes(givenName),
+    );
   });
 
   const byUserId = new Map<string, LineAccount>();
