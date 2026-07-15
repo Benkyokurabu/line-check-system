@@ -349,7 +349,14 @@ export default function StudentsPage() {
                       <Th>学籍番号</Th>
                       <Th>名前</Th>
                       <Th>担任</Th>
-                      <Th>LINE</Th>
+                      {mode === "class" ? (
+                        <>
+                          <Th>生徒LINE</Th>
+                          <Th>保護者LINE</Th>
+                        </>
+                      ) : (
+                        <Th>LINE</Th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -366,11 +373,14 @@ export default function StudentsPage() {
                         <td style={tdMono}>{student.student_number}</td>
                         <td style={tdStrong}>{student.student_name}</td>
                         <td style={td}>{student.homeroom_teacher}</td>
-                        <td style={td}>
-                          {mode === "class" ? (
-                            <LineAccountList student={student} />
-                          ) : student.line_user_id ? `${student.message_count}件` : "未紐づけ"}
-                        </td>
+                        {mode === "class" ? (
+                          <>
+                            <td style={td}><LineAccountColumn student={student} kind="student" /></td>
+                            <td style={td}><LineAccountColumn student={student} kind="guardian" /></td>
+                          </>
+                        ) : (
+                          <td style={td}>{student.line_user_id ? `${student.message_count}件` : "未紐づけ"}</td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -544,20 +554,29 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
-function LineAccountList({ student }: { student: Student }) {
+function LineAccountColumn({
+  student,
+  kind,
+}: {
+  student: Student;
+  kind: "student" | "guardian";
+}) {
   const seen = new Set<string>();
-  const accounts = (student.line_accounts ?? []).filter((account) => {
-    const key = account.alias_name ?? account.friend_display_name ?? account.line_user_id;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  if (accounts.length === 0) return <span style={{ color: "var(--muted)" }}>未紐づけ</span>;
+  const accounts = (student.line_accounts ?? [])
+    .filter((account) => kind === "student" ? account.relation === "student" : account.relation !== "student")
+    .filter((account) => {
+      const key = account.alias_name ?? account.friend_display_name ?? account.line_user_id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if (accounts.length === 0) return <span style={{ color: "var(--muted)", fontSize: "0.76rem" }}>なし</span>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {accounts.map((account) => (
         <span key={account.line_user_id} style={{ fontSize: "0.76rem" }}>
-          <strong>{relationLabel(account.relation)}</strong> {account.alias_name ?? account.friend_display_name ?? "名前未設定"}
+          {kind === "guardian" && <><strong>{relationLabel(account.relation)}</strong>{" "}</>}
+          {account.alias_name ?? account.friend_display_name ?? "名前未設定"}
           {account.line_user_id === student.line_user_id && <span style={{ color: "#16a34a" }}> ・送信先</span>}
         </span>
       ))}
