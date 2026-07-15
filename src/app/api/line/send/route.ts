@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import {
+  getLineBotInfo,
+  readLineResponse,
+} from "@/lib/line-send-audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +22,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "LINE_CHANNEL_ACCESS_TOKEN not configured" }, { status: 500 });
   }
 
+  const trimmedText = text.trim();
+  const botInfo = await getLineBotInfo(accessToken);
+
   const lineRes = await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
     headers: {
@@ -26,29 +33,48 @@ export async function POST(request: Request) {
     },
     body: JSON.stringify({
       to: line_user_id,
-      messages: [{ type: "text", text: text.trim() }],
+      messages: [{ type: "text", text: trimmedText }],
     }),
   });
 
+  const lineRequestId = lineRes.headers.get("x-line-request-id");
+  const lineResponse = await readLineResponse(lineRes);
+
   if (!lineRes.ok) {
-    const err = await lineRes.json().catch(() => ({}));
-    console.error("LINE send error", err);
-    return NextResponse.json({ error: "LINE API error", details: err }, { status: 502 });
+    console.error("LINE send error", lineResponse);
+    return NextResponse.json({ error: "LINE API error", details: lineResponse }, { status: 502 });
   }
 
   const supabase = createSupabaseAdminClient();
-  const { error } = await supabase.from("line_messages").insert({
+  const { data: savedMessage, error } = await supabase.from("line_messages").insert({
     line_message_id: `out_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     line_user_id,
     direction: "outbound",
     message_type: "text",
-    text: text.trim(),
+    text: trimmedText,
     sent_by: sent_by?.trim() || null,
     received_at: new Date().toISOString(),
-    raw_event: null,
+    raw_event: {
+      audit_version: 1,
+      operation: "push",
+      line_request_id: lineRequestId,
+      line_http_status: lineRes.status,
+      line_response: lineResponse,
+      bot_user_id: botInfo?.userId ?? null,
+      bot_basic_id: botInfo?.basicId ?? null,
+      bot_display_name: botInfo?.displayName ?? null,
+      line_accepted_at: new Date().toISOString(),
+    },
+  }).select("id").single();
+
+  if (error) {
+    console.error("Failed to save outbound message", error);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    audit_id: savedMessage?.id ?? null,
+    line_request_id: lineRequestId,
+    history_saved: !error,
   });
-
-  if (error) console.error("Failed to save outbound message", error);
-
-  return NextResponse.json({ ok: true });
 }

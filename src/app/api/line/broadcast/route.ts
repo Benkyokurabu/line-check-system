@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import {
+  getLineBotInfo,
+  readLineResponse,
+} from "@/lib/line-send-audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +37,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "このグループに登録されている生徒がいません" }, { status: 400 });
   }
 
+  const trimmedText = text.trim();
+  const botInfo = await getLineBotInfo(accessToken);
+  const lineRequestIds: string[] = [];
+
   for (let i = 0; i < lineUserIds.length; i += MULTICAST_CHUNK_SIZE) {
     const chunk = lineUserIds.slice(i, i + MULTICAST_CHUNK_SIZE);
     const lineRes = await fetch("https://api.line.me/v2/bot/message/multicast", {
@@ -43,32 +51,54 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         to: chunk,
-        messages: [{ type: "text", text: text.trim() }],
+        messages: [{ type: "text", text: trimmedText }],
       }),
     });
 
+    const requestId = lineRes.headers.get("x-line-request-id");
+    if (requestId) lineRequestIds.push(requestId);
+    const lineResponse = await readLineResponse(lineRes);
+
     if (!lineRes.ok) {
-      const err = await lineRes.json().catch(() => ({}));
-      console.error("LINE multicast error", err);
-      return NextResponse.json({ error: "LINE API error", details: err }, { status: 502 });
+      console.error("LINE multicast error", lineResponse);
+      return NextResponse.json({ error: "LINE API error", details: lineResponse }, { status: 502 });
     }
   }
 
   const now = new Date().toISOString();
-  const { error: insertErr } = await supabase.from("line_messages").insert(
+  const { data: savedMessages, error: insertErr } = await supabase.from("line_messages").insert(
     lineUserIds.map((lineUserId, idx) => ({
       line_message_id: `bcast_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 8)}`,
       line_user_id: lineUserId,
       direction: "outbound",
       message_type: "text",
-      text: text.trim(),
+      text: trimmedText,
       sent_by: sent_by?.trim() || null,
       received_at: now,
-      raw_event: null,
+      raw_event: {
+        audit_version: 1,
+        operation: "multicast",
+        group_name: group_name.trim(),
+        target_count: lineUserIds.length,
+        line_request_ids: lineRequestIds,
+        line_http_status: 200,
+        bot_user_id: botInfo?.userId ?? null,
+        bot_basic_id: botInfo?.basicId ?? null,
+        bot_display_name: botInfo?.displayName ?? null,
+        line_accepted_at: now,
+      },
     })),
-  );
+  ).select("id");
 
-  if (insertErr) console.error("Failed to save broadcast messages", insertErr);
+  if (insertErr) {
+    console.error("Failed to save broadcast messages", insertErr);
+  }
 
-  return NextResponse.json({ ok: true, sent: lineUserIds.length });
+  return NextResponse.json({
+    ok: true,
+    sent: lineUserIds.length,
+    audit_ids: savedMessages?.map((message) => message.id) ?? [],
+    line_request_ids: lineRequestIds,
+    history_saved: !insertErr,
+  });
 }
