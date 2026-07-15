@@ -31,8 +31,8 @@ type StudentLineAccount = {
 };
 
 function parseClassId(classId: string) {
-  const [grade, subject, ...rest] = decodeURIComponent(classId).split(":");
-  return { grade, subject, className: rest.join(":") };
+  const [campus, grade, subject, ...rest] = decodeURIComponent(classId).split(":");
+  return { campus, grade, subject, className: rest.join(":") };
 }
 
 export async function GET(
@@ -42,7 +42,7 @@ export async function GET(
   const { classId } = await context.params;
   const parsed = parseClassId(classId);
 
-  if (!parsed.grade || !parsed.subject || !parsed.className) {
+  if (!parsed.campus || !parsed.grade || !parsed.subject || !parsed.className) {
     return NextResponse.json({ error: "invalid class id" }, { status: 400 });
   }
 
@@ -69,11 +69,15 @@ export async function GET(
     { data: links, error: linksError },
     { data: accounts, error: accountsError },
   ] = await Promise.all([
-    supabase
+    (() => {
+      let query = supabase
       .from("student_roster")
       .select("student_number,grade,student_name,homeroom_teacher,campus,gender")
       .in("student_number", studentNumbers)
-      .order("student_number", { ascending: true }),
+      .order("student_number", { ascending: true });
+      query = parsed.campus === "未設定" ? query.is("campus", null) : query.eq("campus", parsed.campus);
+      return query;
+    })(),
     supabase.from("line_user_aliases").select("line_user_id,alias_name"),
     supabase.from("student_line_links").select("student_number,line_user_id"),
     supabase

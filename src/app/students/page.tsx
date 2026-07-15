@@ -18,6 +18,15 @@ type Student = {
   line_user_id: string | null;
   message_count: number;
   latest_at: string | null;
+  line_accounts?: LineAccount[];
+};
+
+type LineAccount = {
+  line_user_id: string;
+  relation: string;
+  alias_name: string | null;
+  friend_display_name?: string | null;
+  is_primary: boolean;
 };
 
 type Contact = {
@@ -29,6 +38,7 @@ type Contact = {
 type ClassOption = {
   id: string;
   label: string;
+  campus: string;
   grade: string;
   subject: string;
   class_name: string;
@@ -60,6 +70,9 @@ export default function StudentsPage() {
   });
   const [teachers, setTeachers] = useState<string[]>([]);
   const [classes, setClasses] = useState<ClassOption[]>([]);
+  const [selectedCampus, setSelectedCampus] = useState("");
+  const [selectedGrade, setSelectedGrade] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedClassId, setSelectedClassId] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +105,6 @@ export default function StudentsPage() {
       setTeachers(names);
       setClasses(classOptions);
       setCurrentTeacher((prev) => prev || names[0] || "");
-      setSelectedClassId((prev) => prev || classOptions[0]?.id || "");
     }
 
     void loadOptions();
@@ -137,6 +149,29 @@ export default function StudentsPage() {
     }
     return [...map.entries()].sort(([a], [b]) => gradeOrder(a) - gradeOrder(b));
   }, [students]);
+
+  const campusOptions = useMemo(
+    () => [...new Set(classes.map((item) => item.campus))],
+    [classes],
+  );
+  const gradeOptions = useMemo(
+    () => [...new Set(classes.filter((item) => item.campus === selectedCampus).map((item) => item.grade))]
+      .sort((a, b) => gradeOrder(a) - gradeOrder(b)),
+    [classes, selectedCampus],
+  );
+  const subjectOptions = useMemo(
+    () => [...new Set(classes
+      .filter((item) => item.campus === selectedCampus && item.grade === selectedGrade)
+      .map((item) => item.subject))],
+    [classes, selectedCampus, selectedGrade],
+  );
+  const classOptions = useMemo(
+    () => classes.filter((item) =>
+      item.campus === selectedCampus &&
+      item.grade === selectedGrade &&
+      item.subject === selectedSubject),
+    [classes, selectedCampus, selectedGrade, selectedSubject],
+  );
 
   const currentTitle = mode === "teacher"
     ? `${currentTeacher || "先生未選択"} 担任生徒`
@@ -266,12 +301,26 @@ export default function StudentsPage() {
             {teachers.map((teacher) => <option key={teacher} value={teacher}>{teacher}</option>)}
           </select>
         ) : (
-          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} style={{ ...inputStyle, minWidth: 220 }}>
-            <option value="">クラスを選択</option>
-            {classes.map((classOption) => (
-              <option key={classOption.id} value={classOption.id}>{classOption.label}（{classOption.count}名）</option>
-            ))}
-          </select>
+          <>
+            <select value={selectedCampus} onChange={(e) => { setSelectedCampus(e.target.value); setSelectedGrade(""); setSelectedSubject(""); setSelectedClassId(""); }} style={inputStyle}>
+              <option value="">校舎を選択</option>
+              {campusOptions.map((campus) => <option key={campus} value={campus}>{campus}</option>)}
+            </select>
+            <select value={selectedGrade} disabled={!selectedCampus} onChange={(e) => { setSelectedGrade(e.target.value); setSelectedSubject(""); setSelectedClassId(""); }} style={inputStyle}>
+              <option value="">学年を選択</option>
+              {gradeOptions.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+            </select>
+            <select value={selectedSubject} disabled={!selectedGrade} onChange={(e) => { setSelectedSubject(e.target.value); setSelectedClassId(""); }} style={inputStyle}>
+              <option value="">科目を選択</option>
+              {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+            </select>
+            <select value={selectedClassId} disabled={!selectedSubject} onChange={(e) => setSelectedClassId(e.target.value)} style={{ ...inputStyle, minWidth: 180 }}>
+              <option value="">クラスを選択</option>
+              {classOptions.map((classOption) => (
+                <option key={classOption.id} value={classOption.id}>{classOption.class_name}（{classOption.count}名）</option>
+              ))}
+            </select>
+          </>
         )}
         <input
           value={senderName}
@@ -317,7 +366,11 @@ export default function StudentsPage() {
                         <td style={tdMono}>{student.student_number}</td>
                         <td style={tdStrong}>{student.student_name}</td>
                         <td style={td}>{student.homeroom_teacher}</td>
-                        <td style={td}>{student.line_user_id ? `${student.message_count}件` : "未紐づけ"}</td>
+                        <td style={td}>
+                          {mode === "class" ? (
+                            <LineAccountList student={student} />
+                          ) : student.line_user_id ? `${student.message_count}件` : "未紐づけ"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -489,6 +542,35 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
     </div>
   );
+}
+
+function LineAccountList({ student }: { student: Student }) {
+  const seen = new Set<string>();
+  const accounts = (student.line_accounts ?? []).filter((account) => {
+    const key = account.alias_name ?? account.friend_display_name ?? account.line_user_id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (accounts.length === 0) return <span style={{ color: "var(--muted)" }}>未紐づけ</span>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {accounts.map((account) => (
+        <span key={account.line_user_id} style={{ fontSize: "0.76rem" }}>
+          <strong>{relationLabel(account.relation)}</strong> {account.alias_name ?? account.friend_display_name ?? "名前未設定"}
+          {account.line_user_id === student.line_user_id && <span style={{ color: "#16a34a" }}> ・送信先</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function relationLabel(relation: string) {
+  return relation === "mother" ? "母" :
+    relation === "father" ? "父" :
+    relation === "guardian" ? "保護者" :
+    relation === "family" ? "家族" :
+    relation === "student" ? "本人" : "関係未設定";
 }
 
 function gradeOrder(grade: string) {
