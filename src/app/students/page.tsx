@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { canonicalTeacherName } from "@/lib/teacher-names";
+import { sendLineMessage } from "@/lib/send-line-message";
 
 const CURRENT_TEACHER_KEY = "line-check:current-teacher";
 
@@ -68,6 +69,7 @@ export default function StudentsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [senderName, setSenderName] = useState("");
@@ -146,22 +148,35 @@ export default function StudentsPage() {
     setReplyText("");
     setSendMsg(null);
     setContactSearch("");
+    setSelectedContact(null);
     setHistoryLoading(true);
     try {
-      const res = await fetch(`/api/students/${encodeURIComponent(student.student_number)}/messages`);
+      const [res, loadedContacts] = await Promise.all([
+        fetch(`/api/students/${encodeURIComponent(student.student_number)}/messages`),
+        loadContacts(),
+      ]);
       const data = await res.json();
       setHistory(data);
+      setSelectedContact(
+        loadedContacts.find((contact) => contact.line_user_id === data.line_user_id) ?? null,
+      );
     } finally {
       setHistoryLoading(false);
     }
   }
 
-  async function ensureContactsLoaded() {
-    if (contactsLoaded) return;
+  async function loadContacts() {
+    if (contactsLoaded) return contacts;
     const res = await fetch("/api/admin/contacts");
     const data = await res.json();
-    setContacts(data.contacts ?? []);
+    const loaded = (data.contacts ?? []) as Contact[];
+    setContacts(loaded);
     setContactsLoaded(true);
+    return loaded;
+  }
+
+  async function ensureContactsLoaded() {
+    await loadContacts();
   }
 
   async function refreshStudents() {
@@ -182,7 +197,10 @@ export default function StudentsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ line_user_id: lineUserId }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setSendMsg("送信先の登録に失敗しました");
+        return;
+      }
       const student = students.find((item) => item.student_number === history.student.student_number);
       if (student) await openHistory(student);
       await refreshStudents();
@@ -192,18 +210,15 @@ export default function StudentsPage() {
   }
 
   async function sendToSelectedStudent() {
-    if (!history?.line_user_id || !replyText.trim()) return;
+    if (!history || !selectedContact || !replyText.trim()) return;
     setSending(true);
     setSendMsg(null);
     try {
-      const res = await fetch("/api/line/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          line_user_id: history.line_user_id,
-          text: replyText,
-          sent_by: senderName.trim() || null,
-        }),
+      const res = await sendLineMessage({
+        lineUserId: selectedContact.line_user_id,
+        text: replyText,
+        sentBy: senderName,
+        context: "student_roster",
       });
       if (!res.ok) {
         setSendMsg("送信に失敗しました");
@@ -374,6 +389,59 @@ export default function StudentsPage() {
                 )}
               </div>
               <div style={{ borderTop: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                {selectedContact ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: "0.82rem" }}>
+                      送信先: <strong>{selectedContact.alias_name ?? selectedContact.display_name ?? "名前未設定"}</strong>
+                      {selectedContact.alias_name && selectedContact.display_name && (
+                        <span style={{ color: "var(--muted)" }}> ({selectedContact.display_name})</span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedContact(null);
+                        setContactSearch(history.student.student_name);
+                        void ensureContactsLoaded();
+                      }}
+                      style={btnGhost}
+                    >
+                      変更
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ padding: 10, border: "1px solid #f59e0b", borderRadius: 8, background: "#fffbeb" }}>
+                    <p style={{ color: "#92400e", fontSize: "0.82rem", marginBottom: 8 }}>
+                      送信先を確認してください。選択した連絡先をこの生徒の送信先として登録します。
+                    </p>
+                    <input
+                      value={contactSearch}
+                      onFocus={ensureContactsLoaded}
+                      onChange={(e) => {
+                        setContactSearch(e.target.value);
+                        void ensureContactsLoaded();
+                      }}
+                      placeholder="LINE名・登録名で検索"
+                      style={{ ...inputStyle, width: "100%", marginBottom: 8 }}
+                    />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {contactResults.map((contact) => (
+                        <button
+                          key={contact.line_user_id}
+                          type="button"
+                          onClick={() => linkContact(contact.line_user_id)}
+                          disabled={linking === contact.line_user_id}
+                          style={contactButton}
+                        >
+                          <span style={{ fontWeight: 700 }}>{contact.alias_name ?? contact.display_name ?? "名前未設定"}</span>
+                          {contact.alias_name && contact.display_name && (
+                            <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>({contact.display_name})</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <textarea
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
@@ -381,7 +449,7 @@ export default function StudentsPage() {
                   rows={3}
                   style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit" }}
                 />
-                <button onClick={sendToSelectedStudent} disabled={sending || !replyText.trim()} style={btnSend}>
+                <button onClick={sendToSelectedStudent} disabled={sending || !selectedContact || !replyText.trim()} style={btnSend}>
                   {sending ? "送信中..." : "この生徒に送信"}
                 </button>
                 {sendMsg && <p style={{ color: sendMsg.includes("失敗") ? "#dc2626" : "#16a34a", fontSize: "0.82rem" }}>{sendMsg}</p>}

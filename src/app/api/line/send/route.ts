@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
-  const { line_user_id, text, sent_by } = (body ?? {}) as Record<string, string>;
+  const { line_user_id, text, sent_by, send_context } = (body ?? {}) as Record<string, string>;
 
   if (!line_user_id || !text?.trim()) {
     return NextResponse.json({ error: "line_user_id and text are required" }, { status: 400 });
@@ -57,6 +57,7 @@ export async function POST(request: Request) {
     raw_event: {
       audit_version: 1,
       operation: "push",
+      send_context: send_context || null,
       line_request_id: lineRequestId,
       line_http_status: lineRes.status,
       line_response: lineResponse,

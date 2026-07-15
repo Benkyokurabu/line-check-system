@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 
 import { canonicalTeacherName } from "@/lib/teacher-names";
+import { sendLineMessage } from "@/lib/send-line-message";
 
 type Message = {
   id: string;
@@ -132,14 +133,11 @@ export default function DashboardPage() {
     setSearchSending(true);
     setSearchSentMsg(null);
     try {
-      const res = await fetch("/api/line/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          line_user_id: selectedContact.line_user_id,
-          text: searchText,
-          sent_by: senderName.trim() || null,
-        }),
+      const res = await sendLineMessage({
+        lineUserId: selectedContact.line_user_id,
+        text: searchText,
+        sentBy: senderName,
+        context: "dashboard_contact_search",
       });
       if (res.ok) {
         setSearchText("");
@@ -209,14 +207,11 @@ export default function DashboardPage() {
     if (!text) return;
     setSending(conv.line_user_id);
     try {
-      const res = await fetch("/api/line/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          line_user_id: conv.line_user_id,
-          text,
-          sent_by: senderName.trim() || null,
-        }),
+      const res = await sendLineMessage({
+        lineUserId: conv.line_user_id,
+        text,
+        sentBy: senderName,
+        context: "dashboard_conversation",
       });
       if (res.ok) {
         setReplyTexts((prev) => ({ ...prev, [conv.line_user_id]: "" }));
