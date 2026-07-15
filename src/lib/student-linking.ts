@@ -11,6 +11,19 @@ export type LineAccount = {
   is_primary: boolean;
 };
 
+export function selectPreferredLineUserId<T extends {
+  line_user_id: string;
+  relation: string;
+  is_primary: boolean;
+}>(accounts: T[]): string | null {
+  return (
+    accounts.find((account) => account.is_primary) ??
+    accounts.find((account) => account.relation === "mother") ??
+    accounts[0] ??
+    null
+  )?.line_user_id ?? null;
+}
+
 export function normalizeStudentName(value: string | null | undefined) {
   return (value ?? "")
     .normalize("NFKC")

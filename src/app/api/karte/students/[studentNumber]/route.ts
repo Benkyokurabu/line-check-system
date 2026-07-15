@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { findLinkedLineAccounts, findLinkedLineUserId, type LineAlias } from "@/lib/student-linking";
+import { findLinkedLineAccounts, findLinkedLineUserId, selectPreferredLineUserId, type LineAlias } from "@/lib/student-linking";
 import { canonicalTeacherName } from "@/lib/teacher-names";
 
 export const runtime = "nodejs";
@@ -151,15 +151,12 @@ export async function GET(
 
   const typedStudent = student as Student;
   const inferredAccounts = findLinkedLineAccounts(typedStudent.student_name, (aliases ?? []) as LineAlias[]);
-  const lineAccounts = mergeAccounts((accounts ?? []) as AccountRow[], inferredAccounts);
-  const primaryAccount =
-    lineAccounts.find((account) => account.is_primary) ??
-    lineAccounts.find((account) => account.relation === "mother") ??
-    lineAccounts[0] ??
-    null;
+  const explicitAccounts = (accounts ?? []) as AccountRow[];
+  const lineAccounts = mergeAccounts(explicitAccounts, inferredAccounts);
   const lineUserId =
-    primaryAccount?.line_user_id ??
+    selectPreferredLineUserId(explicitAccounts) ??
     ((explicitLink as LinkRow | null)?.line_user_id) ??
+    selectPreferredLineUserId(inferredAccounts) ??
     findLinkedLineUserId(typedStudent.student_name, (aliases ?? []) as LineAlias[]);
   const lineUserIds = [
     ...lineAccounts.map((account) => account.line_user_id),
