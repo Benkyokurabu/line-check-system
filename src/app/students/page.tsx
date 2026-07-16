@@ -656,18 +656,7 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 function studentAccount(student: Student): LineAccount | null {
-  const accounts = student.line_accounts ?? [];
-  return accounts.find((account) => account.relation === "student") ??
-    accounts.find((account) => account.line_user_id === student.line_user_id) ??
-    (student.line_user_id
-      ? {
-          line_user_id: student.line_user_id,
-          relation: "student",
-          alias_name: student.student_name,
-          friend_display_name: student.student_name,
-          is_primary: true,
-        }
-      : null);
+  return (student.line_accounts ?? []).find((account) => account.relation === "student") ?? null;
 }
 
 function lineAccountToContact(account: LineAccount, fallback: Contact | null = null): Contact {
