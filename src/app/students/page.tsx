@@ -199,11 +199,11 @@ export default function StudentsPage() {
       ]);
       const data = await res.json();
       setHistory(data);
-      const loadedContact = loadedContacts.find((contact) => contact.line_user_id === data.line_user_id);
+      const loadedContact = loadedContacts.find((contact) => contact.line_user_id === data.line_user_id) ?? null;
       setSelectedContact(
-        loadedContact ?? (accountId && data.line_user_id === accountId && account
-          ? lineAccountToContact(account)
-          : null),
+        accountId && data.line_user_id === accountId && account
+          ? lineAccountToContact(account, loadedContact)
+          : loadedContact,
       );
     } finally {
       setHistoryLoading(false);
@@ -663,11 +663,14 @@ function studentAccount(student: Student): LineAccount | null {
       : null);
 }
 
-function lineAccountToContact(account: LineAccount): Contact {
+function lineAccountToContact(account: LineAccount, fallback: Contact | null = null): Contact {
+  const displayName = account.friend_display_name ?? fallback?.display_name ?? null;
   return {
     line_user_id: account.line_user_id,
-    display_name: account.friend_display_name ?? null,
-    alias_name: accountDisplayName(account),
+    display_name: displayName,
+    alias_name: account.relation === "student"
+      ? account.alias_name ?? fallback?.alias_name ?? displayName
+      : displayName ?? account.alias_name ?? fallback?.alias_name ?? relationLabel(account.relation),
   };
 }
 
