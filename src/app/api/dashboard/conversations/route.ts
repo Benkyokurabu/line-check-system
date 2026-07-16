@@ -11,6 +11,21 @@ const RESOLVED_KEYWORDS = [
   "問題ない", "大丈夫です", "理解しました", "確認しました",
 ];
 
+type RouteByUser = {
+  routeId: string;
+  teacherName: string;
+  handledAt: string | null;
+};
+
+type RecentMessage = {
+  id: string;
+  line_user_id: string;
+  direction: string;
+  text: string | null;
+  received_at: string | null;
+  sent_by: string | null;
+};
+
 function likelyResolved(messages: { direction: string; text: string | null }[]): boolean {
   const lastInbound = [...messages].reverse().find((m) => m.direction === "inbound");
   if (!lastInbound?.text) return false;
@@ -34,14 +49,17 @@ export async function GET(request: Request) {
     .limit(handledStatus === "done" ? 200 : 1000);
 
   if (routesErr) return NextResponse.json({ error: routesErr.message }, { status: 500 });
-  if (!routes || routes.length === 0) return NextResponse.json({ conversations: [] });
 
-  const messageIds = routes.map((r) => r.message_id as string);
+  const routeRows = routes ?? [];
+  const messageIds = routeRows.map((r) => r.message_id as string);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: pivotMsgs, error: pivotErr } = await supabase
-    .from("line_messages")
-    .select("id, line_user_id, display_name")
-    .in("id", messageIds);
+  const { data: pivotMsgs, error: pivotErr } = messageIds.length > 0
+    ? await supabase
+        .from("line_messages")
+        .select("id, line_user_id, display_name")
+        .in("id", messageIds)
+    : { data: [], error: null };
 
   if (pivotErr) return NextResponse.json({ error: pivotErr.message }, { status: 500 });
 
@@ -49,10 +67,10 @@ export async function GET(request: Request) {
     (pivotMsgs ?? []).map((m) => [m.id as string, m as { id: string; line_user_id: string; display_name: string | null }]),
   );
 
-  const routesByUser = new Map<string, { routeId: string; teacherName: string; handledAt: string | null }[]>();
+  const routesByUser = new Map<string, RouteByUser[]>();
   const displayNameByUser = new Map<string, string | null>();
 
-  for (const r of routes) {
+  for (const r of routeRows) {
     const pivot = pivotMap[r.message_id as string];
     if (!pivot) continue;
     const uid = pivot.line_user_id;
@@ -65,10 +83,28 @@ export async function GET(request: Request) {
     if (!displayNameByUser.has(uid)) displayNameByUser.set(uid, pivot.display_name);
   }
 
+  const { data: recentOutbound, error: outboundErr } = handledStatus === "pending"
+    ? await supabase
+        .from("line_messages")
+        .select("line_user_id, display_name")
+        .eq("direction", "outbound")
+        .eq("raw_event->>operation", "push")
+        .gte("received_at", thirtyDaysAgo)
+        .order("received_at", { ascending: false })
+        .limit(500)
+    : { data: [], error: null };
+
+  if (outboundErr) return NextResponse.json({ error: outboundErr.message }, { status: 500 });
+
+  for (const message of recentOutbound ?? []) {
+    const uid = message.line_user_id as string | null;
+    if (!uid) continue;
+    if (!routesByUser.has(uid)) routesByUser.set(uid, []);
+    if (!displayNameByUser.has(uid)) displayNameByUser.set(uid, (message.display_name as string | null) ?? null);
+  }
+
   const uniqueUserIds = [...routesByUser.keys()];
   if (uniqueUserIds.length === 0) return NextResponse.json({ conversations: [] });
-
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const [{ data: recentMsgs, error: msgsErr }, { data: aliases, error: aliasesErr }] =
     await Promise.all([
@@ -93,7 +129,7 @@ export async function GET(request: Request) {
 
   const conversations = uniqueUserIds.map((uid) => {
     const userRoutes = routesByUser.get(uid) ?? [];
-    const userMsgs = (recentMsgs ?? []).filter((m) => m.line_user_id === uid);
+    const userMsgs = ((recentMsgs ?? []) as RecentMessage[]).filter((m) => m.line_user_id === uid);
     const teachers = [...new Set(userRoutes.map((r) => r.teacherName))];
     const displayName = aliasMap[uid] ?? displayNameByUser.get(uid) ?? null;
     const latestMsg = userMsgs[userMsgs.length - 1];
@@ -111,7 +147,7 @@ export async function GET(request: Request) {
         received_at: m.received_at as string | null,
         sent_by: (m.sent_by as string | null) ?? null,
       })),
-      likely_resolved: likelyResolved(userMsgs),
+      likely_resolved: userRoutes.length > 0 && likelyResolved(userMsgs),
       latest_at: (latestMsg?.received_at as string | null) ?? null,
       handled_at: handledAts.length > 0 ? handledAts.sort().at(-1) : null,
     };
@@ -131,3 +167,5 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ conversations });
 }
+
+

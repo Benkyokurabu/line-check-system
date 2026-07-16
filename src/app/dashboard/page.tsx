@@ -142,6 +142,7 @@ export default function DashboardPage() {
       if (res.ok) {
         setSearchText("");
         setSearchSentMsg("送信しました ✓");
+        await fetchConversations();
       } else {
         setSearchSentMsg("送信に失敗しました");
       }
@@ -225,7 +226,7 @@ export default function DashboardPage() {
         setConversations((prev) =>
           prev.map((c) =>
             c.line_user_id === conv.line_user_id
-              ? { ...c, messages: [...c.messages, newMsg] }
+              ? { ...c, messages: [...c.messages, newMsg], latest_at: newMsg.received_at }
               : c,
           ),
         );
@@ -265,7 +266,7 @@ export default function DashboardPage() {
         setConversations((prev) =>
           prev.map((c) =>
             c.line_user_id === conv.line_user_id
-              ? { ...c, messages: [...c.messages, newMsg] }
+              ? { ...c, messages: [...c.messages, newMsg], latest_at: newMsg.received_at }
               : c,
           ),
         );
@@ -535,7 +536,7 @@ function ConversationCard({
               </span>
             )}
             <span style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-              担当: {conv.teachers.join(" / ")}
+              {conv.teachers.length > 0 ? `担当: ${conv.teachers.join(" / ")}` : "送信のみ"}
             </span>
           </div>
           <div style={{ fontSize: "0.8rem", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -557,7 +558,7 @@ function ConversationCard({
             >
               戻す
             </button>
-          ) : (
+          ) : conv.pending_route_ids.length > 0 ? (
             <button
               onClick={(e) => { e.stopPropagation(); onComplete(); }}
               disabled={completing || !canComplete}
@@ -566,6 +567,8 @@ function ConversationCard({
             >
               完了
             </button>
+          ) : (
+            <span style={sentOnlyBadge}>送信のみ</span>
           )}
         </div>
       </div>
@@ -710,6 +713,10 @@ const btnReopen: React.CSSProperties = {
 const btnDoneDisabled: React.CSSProperties = {
   ...btnDone, background: "var(--surface)", color: "var(--muted)", cursor: "not-allowed", border: "1px solid var(--line)",
 };
+const sentOnlyBadge: React.CSSProperties = {
+  padding: "5px 10px", borderRadius: 5, border: "1px solid var(--line)",
+  background: "var(--surface)", color: "var(--muted)", fontSize: "0.75rem", fontWeight: 700,
+};
 const linkBtn: React.CSSProperties = {
   border: "none", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.8rem", padding: 0, textDecoration: "underline",
 };
@@ -754,6 +761,8 @@ function formatTime(iso: string) {
     d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
   );
 }
+
+
 
 
 
