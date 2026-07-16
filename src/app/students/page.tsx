@@ -505,7 +505,7 @@ export default function StudentsPage() {
           ) : (
             <div>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-                <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{history.student.student_name}</h3>
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{selectedPanelTitle(history.student.student_name, selectedContact, registrationRelation)}</h3>
                 <p style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
                   {history.student.grade} / {history.student.student_number} / {selectedAccountLabel(selectedContact, registrationRelation)} / {history.messages.length}件
                 </p>
@@ -681,6 +681,10 @@ function lineAccountToContact(account: LineAccount, fallback: Contact | null = n
   };
 }
 
+function selectedPanelTitle(studentName: string, contact: Contact | null, relation: string) {
+  if (relation === "student") return studentName;
+  return contact?.display_name ?? contact?.alias_name ?? studentName;
+}
 function selectedAccountLabel(contact: Contact | null, relation: string) {
   const name = relation === "student"
     ? contact?.alias_name ?? contact?.display_name ?? "未登録"
