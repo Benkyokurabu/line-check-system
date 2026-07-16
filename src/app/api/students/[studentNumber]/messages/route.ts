@@ -8,11 +8,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ studentNumber: string }> },
 ) {
   const { studentNumber } = await context.params;
   const supabase = createSupabaseAdminClient();
+  const requestedLineUserId = new URL(request.url).searchParams.get("line_user_id");
 
   const { data: student, error: studentError } = await supabase
     .from("student_roster")
@@ -86,10 +87,14 @@ export async function GET(
     });
   }
 
+  const selectedLineUserIds = requestedLineUserId && lineUserIds.includes(requestedLineUserId)
+    ? [requestedLineUserId]
+    : lineUserIds;
+
   const { data: messages, error: messagesError } = await supabase
     .from("line_messages")
     .select("id,line_user_id,direction,text,message_type,received_at,created_at,sent_by")
-    .in("line_user_id", lineUserIds)
+    .in("line_user_id", selectedLineUserIds)
     .order("received_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
     .limit(300);
@@ -103,7 +108,7 @@ export async function GET(
       ...student,
       homeroom_teacher: canonicalTeacherName(student.homeroom_teacher as string),
     },
-    line_user_id: lineUserId,
+    line_user_id: selectedLineUserIds[0] ?? lineUserId,
     line_user_ids: lineUserIds,
     line_accounts: lineAccounts,
     messages: messages ?? [],

@@ -77,6 +77,7 @@ export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -135,6 +136,7 @@ export default function StudentsPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedNumber(null);
+    setSelectedAccountId(null);
     setHistory(null);
     setReplyText("");
     setSendMsg(null);
@@ -178,8 +180,10 @@ export default function StudentsPage() {
     ? `${currentTeacher || "先生未選択"} 担任生徒`
     : classes.find((item) => item.id === selectedClassId)?.label ?? "クラス未選択";
 
-  async function openHistory(student: Student) {
+  async function openHistory(student: Student, account: LineAccount | null = studentAccount(student)) {
+    const accountId = account?.line_user_id ?? null;
     setSelectedNumber(student.student_number);
+    setSelectedAccountId(accountId);
     setHistory(null);
     setReplyText("");
     setSendMsg(null);
@@ -187,8 +191,9 @@ export default function StudentsPage() {
     setSelectedContact(null);
     setHistoryLoading(true);
     try {
+      const query = accountId ? `?line_user_id=${encodeURIComponent(accountId)}` : "";
       const [res, loadedContacts] = await Promise.all([
-        fetch(`/api/students/${encodeURIComponent(student.student_number)}/messages`),
+        fetch(`/api/students/${encodeURIComponent(student.student_number)}/messages${query}`),
         loadContacts(),
       ]);
       const data = await res.json();
@@ -246,7 +251,7 @@ export default function StudentsPage() {
       if (isPrimary) setSelectedContact(contact);
       setSendMsg(`${relationLabel(relation)}として登録しました`);
       const student = students.find((item) => item.student_number === history.student.student_number);
-      if (student) await openHistory(student);
+      if (student) await openHistory(student, contactToLineAccount(contact, relation));
       await refreshStudents();
     } finally {
       setLinking(null);
@@ -271,7 +276,7 @@ export default function StudentsPage() {
       setReplyText("");
       setSendMsg("送信しました");
       const student = students.find((item) => item.student_number === history.student.student_number);
-      if (student) await openHistory(student);
+      if (student) await openHistory(student, selectedContact ? contactToLineAccount(selectedContact, "unknown") : null);
       await refreshStudents();
     } finally {
       setSending(false);
@@ -378,11 +383,11 @@ export default function StudentsPage() {
                     {gradeStudents.flatMap((student) => [
                       <tr
                         key={student.student_number}
-                        onClick={() => openHistory(student)}
+                        onClick={() => openHistory(student, studentAccount(student))}
                         style={{
                           borderBottom: guardianAccounts(student).length > 0 ? "none" : "1px solid var(--line)",
                           cursor: "pointer",
-                          background: selectedNumber === student.student_number ? "#ecfdf3" : "transparent",
+                          background: selectedNumber === student.student_number && selectedAccountId === (studentAccount(student)?.line_user_id ?? null) ? "#ecfdf3" : "transparent",
                         }}
                       >
                         <td style={tdMono}>{student.student_number}</td>
@@ -400,11 +405,11 @@ export default function StudentsPage() {
                       ...guardianAccounts(student).map((account, index) => (
                         <tr
                           key={`${student.student_number}:${account.line_user_id}:${index}`}
-                          onClick={() => openHistory(student)}
+                          onClick={() => openHistory(student, account)}
                           style={{
                             borderBottom: index === guardianAccounts(student).length - 1 ? "1px solid var(--line)" : "none",
                             cursor: "pointer",
-                            background: selectedNumber === student.student_number ? "#ecfdf3" : "#fafafa",
+                            background: selectedNumber === student.student_number && selectedAccountId === account.line_user_id ? "#ecfdf3" : "#fafafa",
                           }}
                         >
                           <td style={guardianBlankCell}></td>
@@ -643,6 +648,30 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
+function studentAccount(student: Student): LineAccount | null {
+  const accounts = student.line_accounts ?? [];
+  return accounts.find((account) => account.relation === "student") ??
+    accounts.find((account) => account.line_user_id === student.line_user_id) ??
+    (student.line_user_id
+      ? {
+          line_user_id: student.line_user_id,
+          relation: "student",
+          alias_name: student.student_name,
+          friend_display_name: null,
+          is_primary: true,
+        }
+      : null);
+}
+
+function contactToLineAccount(contact: Contact, relation: string): LineAccount {
+  return {
+    line_user_id: contact.line_user_id,
+    relation,
+    alias_name: contact.alias_name,
+    friend_display_name: contact.display_name,
+    is_primary: relation === "student",
+  };
+}
 function guardianAccounts(student: { line_accounts?: LineAccount[] }) {
   const seen = new Set<string>();
   return (student.line_accounts ?? [])
