@@ -200,13 +200,16 @@ export default function KartePage() {
             {loading ? <p style={{ padding: 18 }}>読み込み中...</p> : students.length === 0 ? <p style={{ padding: 18 }}>該当する生徒がいません。</p> : students.map((student) => (
               <button key={student.student_number} onClick={() => openStudent(student.student_number)} style={{ ...studentButton, background: selectedNumber === student.student_number ? "#ecfdf3" : "var(--surface)" }}>
                 <span style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <span style={studentNameBlock}>
-                    <strong>{student.student_name}</strong>
-                    <span style={guardianNameLine}>保護者 {guardianDisplayName(student)}</span>
-                  </span>
+                  <strong>{student.student_name}</strong>
                   <span style={mutedMono}>{student.student_number}</span>
                 </span>
                 <span style={mutedLine}>{student.grade} / 校舎 {student.campus ?? "未設定"} / 学校 {student.school_name ?? "未設定"} / 担任 {student.homeroom_teacher}</span>
+                {guardianAccounts(student).map((account, index) => (
+                  <span key={`${account.line_user_id}:${index}`} style={guardianRecordRow}>
+                    <span style={guardianRecordLabel}>{relationLabel(account.relation)}</span>
+                    <span>{accountDisplayName(account)}</span>
+                  </span>
+                ))}
                 <span style={badgeRow}>
                   <Badge label={`LINE ${student.line_message_count}`} tone={student.line_user_id ? "green" : "gray"} />
                   <Badge label={`面談 ${student.interaction_count}`} tone="blue" />
@@ -263,12 +266,28 @@ function Policy({ title, text }: { title: string; text: string }) {
   return <div><strong>{title}</strong><p style={smallText}>{text}</p></div>;
 }
 
-function guardianDisplayName(student: { line_accounts?: LineAccount[] }) {
-  const guardians = (student.line_accounts ?? [])
+function guardianAccounts(student: { line_accounts?: LineAccount[] }) {
+  const seen = new Set<string>();
+  return (student.line_accounts ?? [])
     .filter((account) => ["mother", "father", "guardian", "family"].includes(account.relation))
-    .map((account) => account.alias_name ?? account.friend_display_name)
-    .filter((name): name is string => Boolean(name?.trim()));
-  return guardians.length > 0 ? guardians.join(" / ") : "未登録";
+    .filter((account) => {
+      const key = account.alias_name ?? account.friend_display_name ?? account.line_user_id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function accountDisplayName(account: LineAccount) {
+  return account.alias_name ?? account.friend_display_name ?? "名称未登録";
+}
+
+function relationLabel(relation: string) {
+  if (relation === "mother") return "母";
+  if (relation === "father") return "父";
+  if (relation === "guardian") return "保護者";
+  if (relation === "family") return "家族";
+  return "保護者";
 }
 function EmptyState() {
   return <div style={{ padding: 28 }}><h2 style={{ fontSize: "1.15rem", marginBottom: 8 }}>左から生徒を選択してください</h2><p style={{ fontSize: "0.9rem" }}>現在のクラス一覧・LINE履歴に加えて、Notion同期テーブルに入った面談・アンケートを同じ画面で確認できます。</p></div>;
@@ -328,20 +347,21 @@ const filterGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: 
 const filterButton: React.CSSProperties = { padding: "9px 10px", borderRadius: 6, border: "1px solid var(--accent)", background: "#ecfdf3", color: "var(--accent)", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" };
 const studentButton: React.CSSProperties = { width: "100%", display: "grid", gap: 5, padding: 13, border: "none", borderBottom: "1px solid var(--line)", color: "var(--foreground)", textAlign: "left", cursor: "pointer" };
 const mutedLine: React.CSSProperties = { color: "var(--muted)", fontSize: "0.78rem" };
-const studentNameBlock: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 2,
-  minWidth: 0,
-  textAlign: "left",
-};
-
-const guardianNameLine: React.CSSProperties = {
+const guardianRecordRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "3.4em minmax(0, 1fr)",
+  gap: 6,
+  marginLeft: "1em",
   color: "var(--muted)",
-  fontSize: "0.78rem",
-  paddingLeft: "1em",
+  fontSize: "0.8rem",
   lineHeight: 1.35,
 };
+
+const guardianRecordLabel: React.CSSProperties = {
+  color: "var(--accent)",
+  fontWeight: 700,
+};
+
 const mutedMono: React.CSSProperties = { ...mutedLine, fontFamily: "Consolas, monospace" };
 const badgeRow: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: 5 };
 const karteHeader: React.CSSProperties = { padding: 18, borderBottom: "1px solid var(--line)", background: "var(--background)", display: "flex", justifyContent: "space-between", gap: 16 };

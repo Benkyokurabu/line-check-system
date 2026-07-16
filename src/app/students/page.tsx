@@ -83,6 +83,7 @@ export default function StudentsPage() {
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [registrationRelation, setRegistrationRelation] = useState("guardian");
   const [linking, setLinking] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [senderName, setSenderName] = useState("");
@@ -223,19 +224,27 @@ export default function StudentsPage() {
     setStudents(data.students ?? []);
   }
 
-  async function linkContact(lineUserId: string) {
+  async function linkContact(contact: Contact, relation = registrationRelation) {
     if (!history?.student.student_number) return;
-    setLinking(lineUserId);
+    setLinking(contact.line_user_id);
     try {
+      const isPrimary = relation === "student";
       const res = await fetch(`/api/students/${encodeURIComponent(history.student.student_number)}/link`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ line_user_id: lineUserId }),
+        body: JSON.stringify({
+          line_user_id: contact.line_user_id,
+          relation,
+          alias_name: contact.alias_name ?? contact.display_name,
+          is_primary: isPrimary,
+        }),
       });
       if (!res.ok) {
-        setSendMsg("送信先の登録に失敗しました");
+        setSendMsg("連絡先の登録に失敗しました");
         return;
       }
+      if (isPrimary) setSelectedContact(contact);
+      setSendMsg(`${relationLabel(relation)}として登録しました`);
       const student = students.find((item) => item.student_number === history.student.student_number);
       if (student) await openHistory(student);
       await refreshStudents();
@@ -366,34 +375,55 @@ export default function StudentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {gradeStudents.map((student) => (
+                    {gradeStudents.flatMap((student) => [
                       <tr
                         key={student.student_number}
                         onClick={() => openHistory(student)}
                         style={{
-                          borderBottom: "1px solid var(--line)",
+                          borderBottom: guardianAccounts(student).length > 0 ? "none" : "1px solid var(--line)",
                           cursor: "pointer",
                           background: selectedNumber === student.student_number ? "#ecfdf3" : "transparent",
                         }}
                       >
                         <td style={tdMono}>{student.student_number}</td>
-                        <td style={tdStrong}>
-                          <span style={studentNameBlock}>
-                            <strong>{student.student_name}</strong>
-                            <span style={guardianNameLine}>保護者 {guardianDisplayName(student)}</span>
-                          </span>
-                        </td>
+                        <td style={tdStrong}>{student.student_name}</td>
                         <td style={td}>{student.homeroom_teacher}</td>
                         {mode === "class" ? (
                           <>
                             <td style={td}><LineAccountColumn student={student} kind="student" /></td>
-                            <td style={td}><LineAccountColumn student={student} kind="guardian" /></td>
+                            <td style={td}></td>
                           </>
                         ) : (
                           <td style={td}>{student.line_user_id ? `${student.message_count}件` : "未紐づけ"}</td>
                         )}
-                      </tr>
-                    ))}
+                      </tr>,
+                      ...guardianAccounts(student).map((account, index) => (
+                        <tr
+                          key={`${student.student_number}:${account.line_user_id}:${index}`}
+                          onClick={() => openHistory(student)}
+                          style={{
+                            borderBottom: index === guardianAccounts(student).length - 1 ? "1px solid var(--line)" : "none",
+                            cursor: "pointer",
+                            background: selectedNumber === student.student_number ? "#ecfdf3" : "#fafafa",
+                          }}
+                        >
+                          <td style={guardianBlankCell}></td>
+                          <td style={guardianAccountCell}>
+                            <span style={guardianAccountLabel}>{relationLabel(account.relation)}</span>
+                            <span>{accountDisplayName(account)}</span>
+                          </td>
+                          <td style={guardianBlankCell}></td>
+                          {mode === "class" ? (
+                            <>
+                              <td style={guardianBlankCell}></td>
+                              <td style={guardianAccountLineCell}>{accountDisplayName(account)}</td>
+                            </>
+                          ) : (
+                            <td style={guardianAccountLineCell}>保護者アカウント</td>
+                          )}
+                        </tr>
+                      )),
+                    ])}
                   </tbody>
                 </table>
               </section>
@@ -415,6 +445,16 @@ export default function StudentsPage() {
               <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: 12 }}>
                 この生徒はまだLINE連絡先と紐づいていません。保護者名やLINE表示名で検索して紐づけてください。
               </p>
+                    <div style={registrationRow}>
+                      <span style={registrationLabel}>登録種別</span>
+                      <select value={registrationRelation} onChange={(e) => setRegistrationRelation(e.target.value)} style={inputStyle}>
+                        <option value="guardian">保護者</option>
+                        <option value="mother">母</option>
+                        <option value="father">父</option>
+                        <option value="student">本人</option>
+                        <option value="family">家族</option>
+                      </select>
+                    </div>
               <input
                 value={contactSearch}
                 onFocus={ensureContactsLoaded}
@@ -433,7 +473,7 @@ export default function StudentsPage() {
                     contactResults.map((contact) => (
                       <button
                         key={contact.line_user_id}
-                        onClick={() => linkContact(contact.line_user_id)}
+                        onClick={() => linkContact(contact)}
                         disabled={linking === contact.line_user_id}
                         style={contactButton}
                       >
@@ -486,8 +526,18 @@ export default function StudentsPage() {
                 ) : (
                   <div style={{ padding: 10, border: "1px solid #f59e0b", borderRadius: 8, background: "#fffbeb" }}>
                     <p style={{ color: "#92400e", fontSize: "0.82rem", marginBottom: 8 }}>
-                      送信先を確認してください。選択した連絡先をこの生徒の送信先として登録します。
+                      登録種別を選び、LINE連絡先を検索してこの生徒に登録します。
                     </p>
+                    <div style={registrationRow}>
+                      <span style={registrationLabel}>登録種別</span>
+                      <select value={registrationRelation} onChange={(e) => setRegistrationRelation(e.target.value)} style={inputStyle}>
+                        <option value="guardian">保護者</option>
+                        <option value="mother">母</option>
+                        <option value="father">父</option>
+                        <option value="student">本人</option>
+                        <option value="family">家族</option>
+                      </select>
+                    </div>
                     <input
                       value={contactSearch}
                       onFocus={ensureContactsLoaded}
@@ -503,7 +553,7 @@ export default function StudentsPage() {
                         <button
                           key={contact.line_user_id}
                           type="button"
-                          onClick={() => linkContact(contact.line_user_id)}
+                          onClick={() => linkContact(contact)}
                           disabled={linking === contact.line_user_id}
                           style={contactButton}
                         >
@@ -593,12 +643,20 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
-function guardianDisplayName(student: { line_accounts?: LineAccount[] }) {
-  const guardians = (student.line_accounts ?? [])
+function guardianAccounts(student: { line_accounts?: LineAccount[] }) {
+  const seen = new Set<string>();
+  return (student.line_accounts ?? [])
     .filter((account) => ["mother", "father", "guardian", "family"].includes(account.relation))
-    .map((account) => account.alias_name ?? account.friend_display_name)
-    .filter((name): name is string => Boolean(name?.trim()));
-  return guardians.length > 0 ? guardians.join(" / ") : "未登録";
+    .filter((account) => {
+      const key = account.alias_name ?? account.friend_display_name ?? account.line_user_id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function accountDisplayName(account: LineAccount) {
+  return account.alias_name ?? account.friend_display_name ?? "名称未登録";
 }
 function LineAccountColumn({
   student,
@@ -699,6 +757,19 @@ const btnSend: React.CSSProperties = {
   fontWeight: 700,
 };
 
+const registrationRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "4.5em minmax(0, 1fr)",
+  alignItems: "center",
+  gap: 8,
+  marginBottom: 8,
+};
+
+const registrationLabel: React.CSSProperties = {
+  color: "var(--muted)",
+  fontSize: "0.8rem",
+  fontWeight: 700,
+};
 const contactButton: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -722,24 +793,35 @@ const inputStyle: React.CSSProperties = {
   fontSize: "0.875rem",
 };
 
-const studentNameBlock: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 2,
-  minWidth: 0,
-};
 
-const guardianNameLine: React.CSSProperties = {
-  color: "var(--muted)",
-  fontSize: "0.78rem",
-  fontWeight: 400,
-  paddingLeft: "1em",
-  lineHeight: 1.35,
-};
 const td: React.CSSProperties = {
   padding: "11px 14px",
   fontSize: "0.86rem",
   color: "var(--muted)",
+};
+const guardianAccountCell: React.CSSProperties = {
+  ...td,
+  paddingLeft: "2.2em",
+  color: "var(--muted)",
+  fontSize: "0.82rem",
+};
+
+const guardianAccountLineCell: React.CSSProperties = {
+  ...td,
+  color: "var(--muted)",
+  fontSize: "0.82rem",
+};
+
+const guardianBlankCell: React.CSSProperties = {
+  ...td,
+  color: "var(--muted)",
+};
+
+const guardianAccountLabel: React.CSSProperties = {
+  display: "inline-block",
+  minWidth: "3.4em",
+  color: "var(--accent)",
+  fontWeight: 700,
 };
 
 const tdStrong: React.CSSProperties = {
