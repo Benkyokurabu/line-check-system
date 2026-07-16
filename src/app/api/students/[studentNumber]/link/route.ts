@@ -20,6 +20,9 @@ export async function PUT(
   const relation = allowedRelation(typeof body.relation === "string" ? body.relation : "guardian");
   const isPrimary = typeof body.is_primary === "boolean" ? body.is_primary : relation === "student";
   const aliasName = typeof body.alias_name === "string" && body.alias_name.trim() ? body.alias_name.trim() : null;
+  const friendDisplayName = typeof body.friend_display_name === "string" && body.friend_display_name.trim()
+    ? body.friend_display_name.trim()
+    : null;
 
   if (!lineUserId) {
     return NextResponse.json({ error: "line_user_id is required" }, { status: 400 });
@@ -45,6 +48,7 @@ export async function PUT(
         line_user_id: lineUserId,
         relation,
         alias_name: aliasName,
+        friend_display_name: friendDisplayName,
         source: "manual",
         is_primary: isPrimary,
         updated_at: now,

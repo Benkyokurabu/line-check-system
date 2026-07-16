@@ -115,18 +115,19 @@ export async function GET(
     linkedUserIds.length > 0
       ? await supabase
           .from("line_messages")
-          .select("line_user_id,received_at,created_at")
+          .select("line_user_id,display_name,received_at,created_at")
           .in("line_user_id", linkedUserIds)
       : { data: [], error: null };
 
   if (messagesError) return NextResponse.json({ error: messagesError.message }, { status: 500 });
 
-  const stats = new Map<string, { message_count: number; latest_at: string | null }>();
+  const stats = new Map<string, { message_count: number; latest_at: string | null; display_name: string | null }>();
   for (const message of messages ?? []) {
     const userId = message.line_user_id as string;
     const at = ((message.received_at as string | null) ?? (message.created_at as string | null)) ?? null;
-    const current = stats.get(userId) ?? { message_count: 0, latest_at: null };
+    const current = stats.get(userId) ?? { message_count: 0, latest_at: null, display_name: null };
     current.message_count += 1;
+    if (!current.display_name && message.display_name) current.display_name = message.display_name as string;
     if (at && (!current.latest_at || new Date(at).getTime() > new Date(current.latest_at).getTime())) {
       current.latest_at = at;
     }
@@ -136,9 +137,12 @@ export async function GET(
   const result = ((students ?? []) as RosterRow[]).map((student) => {
     const explicitAccounts = accountsByStudent.get(student.student_number) ?? [];
     const inferredAccounts = findLinkedLineAccounts(student.student_name, aliasRows);
-    const lineAccounts = mergeAccounts(
-      explicitAccounts,
-      inferredAccounts,
+    const lineAccounts = hydrateAccountDisplayNames(
+      mergeAccounts(
+        explicitAccounts,
+        inferredAccounts,
+      ),
+      stats,
     );
     const lineUserId =
       selectPreferredLineUserId(explicitAccounts) ??
@@ -151,7 +155,7 @@ export async function GET(
     ]
       .filter((id, index, ids) => ids.indexOf(id) === index)
       .map((id) => stats.get(id))
-      .filter((stat): stat is { message_count: number; latest_at: string | null } => Boolean(stat));
+      .filter((stat): stat is { message_count: number; latest_at: string | null; display_name: string | null } => Boolean(stat));
     const messageCount = accountStats.reduce((total, stat) => total + stat.message_count, 0);
     const latestAt = accountStats
       .map((stat) => stat.latest_at)
@@ -171,6 +175,16 @@ export async function GET(
   return NextResponse.json({ students: result });
 }
 
+
+function hydrateAccountDisplayNames<T extends { line_user_id: string; friend_display_name?: string | null }>(
+  accounts: T[],
+  stats: Map<string, { display_name: string | null }>,
+) {
+  return accounts.map((account) => ({
+    ...account,
+    friend_display_name: account.friend_display_name ?? stats.get(account.line_user_id)?.display_name ?? null,
+  }));
+}
 function mergeAccounts(
   explicitAccounts: StudentLineAccount[],
   inferredAccounts: LineAccount[],

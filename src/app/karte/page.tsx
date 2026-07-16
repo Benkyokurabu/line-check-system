@@ -207,7 +207,7 @@ export default function KartePage() {
                 {guardianAccounts(student).map((account, index) => (
                   <span key={`${account.line_user_id}:${index}`} style={guardianRecordRow}>
                     <span style={guardianRecordLabel}>{relationLabel(account.relation)}</span>
-                    <span>{accountDisplayName(account)}</span>
+                    <span>{accountDisplayName(account, student.student_name)}</span>
                   </span>
                 ))}
                 <span style={badgeRow}>
@@ -278,8 +278,19 @@ function guardianAccounts(student: { line_accounts?: LineAccount[] }) {
     });
 }
 
-function accountDisplayName(account: LineAccount) {
+function accountDisplayName(account: LineAccount, studentName?: string) {
+  if (account.relation !== "student" && sameName(account.alias_name, studentName)) {
+    return account.friend_display_name ?? relationLabel(account.relation);
+  }
   return account.alias_name ?? account.friend_display_name ?? "名称未登録";
+}
+
+function sameName(a: string | null | undefined, b: string | null | undefined) {
+  return normalizeName(a) !== "" && normalizeName(a) === normalizeName(b);
+}
+
+function normalizeName(value: string | null | undefined) {
+  return (value ?? "").normalize("NFKC").replace(/[ \t\r\n\u3000]/g, "");
 }
 
 function relationLabel(relation: string) {
@@ -374,13 +385,3 @@ const activeTabButton: React.CSSProperties = { ...tabButton, background: "var(--
 const timelineItem: React.CSSProperties = { display: "grid", gridTemplateColumns: "88px minmax(0, 1fr)", gap: 12, alignItems: "start", border: "1px solid var(--line)", borderRadius: 8, padding: 12 };
 const recordCard: React.CSSProperties = { border: "1px solid var(--line)", borderRadius: 8, padding: 12, background: "var(--surface)" };
 const smallText: React.CSSProperties = { color: "var(--muted)", fontSize: "0.82rem", lineHeight: 1.65 };
-
-
-
-
-
-
-
-
-
-
