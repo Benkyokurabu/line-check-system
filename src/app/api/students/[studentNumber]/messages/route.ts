@@ -98,7 +98,7 @@ export async function GET(
 
   const { data: messages, error: messagesError } = await supabase
     .from("line_messages")
-    .select("id,line_user_id,direction,text,message_type,received_at,created_at,sent_by")
+    .select("id,line_user_id,display_name,direction,text,message_type,received_at,created_at,sent_by")
     .in("line_user_id", selectedLineUserIds)
     .order("received_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
@@ -108,14 +108,26 @@ export async function GET(
     return NextResponse.json({ error: messagesError.message }, { status: 500 });
   }
 
+  const selectedLineUserId = selectedLineUserIds[0] ?? lineUserId;
+  const messageDisplayName = (messages ?? []).find((message) => message.display_name)?.display_name as string | null | undefined;
+  const selectedAccount = selectedLineUserId
+    ? lineAccounts.find((account) => account.line_user_id === selectedLineUserId) ?? null
+    : null;
+
   return NextResponse.json({
     student: {
       ...student,
       homeroom_teacher: canonicalTeacherName(student.homeroom_teacher as string),
     },
-    line_user_id: selectedLineUserIds[0] ?? lineUserId,
+    line_user_id: selectedLineUserId,
     line_user_ids: lineUserIds,
     line_accounts: lineAccounts,
+    selected_account: selectedAccount
+      ? {
+          ...selectedAccount,
+          friend_display_name: selectedAccount.friend_display_name ?? messageDisplayName ?? null,
+        }
+      : null,
     messages: messages ?? [],
     link_status: "linked",
   });

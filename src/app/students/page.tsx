@@ -58,6 +58,7 @@ type Message = {
 type HistoryResponse = {
   student: Pick<Student, "student_number" | "grade" | "student_name" | "homeroom_teacher">;
   line_user_id: string | null;
+  selected_account?: LineAccount | null;
   link_status: "linked" | "not_linked";
   messages: Message[];
 };
@@ -200,9 +201,10 @@ export default function StudentsPage() {
       const data = await res.json();
       setHistory(data);
       const loadedContact = loadedContacts.find((contact) => contact.line_user_id === data.line_user_id) ?? null;
+      const selectedAccount = data.selected_account ?? account;
       setSelectedContact(
-        accountId && data.line_user_id === accountId && account
-          ? lineAccountToContact(account, loadedContact)
+        accountId && data.line_user_id === accountId && selectedAccount
+          ? lineAccountToContact(selectedAccount, loadedContact)
           : loadedContact,
       );
     } finally {
@@ -447,6 +449,11 @@ export default function StudentsPage() {
             <p style={{ padding: 20, color: "var(--muted)" }}>読み込み中...</p>
           ) : !history ? (
             <p style={{ padding: 20, color: "var(--muted)" }}>左の一覧から生徒を選択してください。</p>
+          ) : history.link_status !== "linked" && registrationRelation === "student" ? (
+            <div style={{ padding: 20 }}>
+              <h3 style={{ fontSize: "0.95rem", marginBottom: 8 }}>{history.student.student_name}</h3>
+              <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>履歴はありません。</p>
+            </div>
           ) : history.link_status !== "linked" ? (
             <div style={{ padding: 20 }}>
               <h3 style={{ fontSize: "0.95rem", marginBottom: 8 }}>{history.student.student_name}</h3>
