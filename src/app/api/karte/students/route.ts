@@ -51,7 +51,8 @@ async function optionalSelect<T>(
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const search = normalizeStudentName(url.searchParams.get("q"));
+  const rawSearch = url.searchParams.get("q") ?? "";
+  const search = normalizeStudentName(rawSearch);
   const teacher = canonicalTeacherName(url.searchParams.get("teacher")?.trim() ?? "");
   const grade = url.searchParams.get("grade")?.trim();
   const campus = url.searchParams.get("campus")?.trim();
@@ -107,11 +108,33 @@ export async function GET(request: Request) {
       if (teacher && studentTeacher !== teacher) return false;
       if (grade && student.grade !== grade) return false;
       if (campus && student.campus !== campus) return false;
-      if (!search) return true;
+      if (!rawSearch.trim()) return true;
+      const explicitAccounts = accountsByStudent.get(student.student_number) ?? [];
+      const inferredAccounts = findLinkedLineAccounts(student.student_name, aliasRows);
+      const searchTokens = rawSearch
+        .split(/[\s\u3000]+/)
+        .map(normalizeSearchToken)
+        .filter(Boolean);
+      const haystack = [
+        student.student_name,
+        student.student_number,
+        studentTeacher,
+        ...mergeAccounts(explicitAccounts, inferredAccounts).flatMap((account) => [
+          account.alias_name,
+          account.friend_display_name,
+          relationLabel(account.relation),
+        ]),
+      ]
+        .filter((value): value is string => Boolean(value))
+        .map(normalizeStudentName)
+        .join(" ");
       return (
-        normalizeStudentName(student.student_name).includes(search) ||
-        normalizeStudentName(student.student_number).includes(search) ||
-        normalizeStudentName(studentTeacher).includes(search)
+        (Boolean(search) && (
+          normalizeStudentName(student.student_name).includes(search) ||
+          normalizeStudentName(student.student_number).includes(search) ||
+          normalizeStudentName(studentTeacher).includes(search)
+        )) ||
+        searchTokens.every((token) => haystack.includes(token))
       );
     })
     .slice(0, limit);
@@ -231,6 +254,19 @@ function countByStudent(rows: CountRow[]) {
 }
 
 
+function normalizeSearchToken(value: string) {
+  const normalized = normalizeStudentName(value);
+  if (normalized) return normalized;
+  return value.normalize("NFKC").replace(/[ \t\r\n\u3000]/g, "").trim();
+}
+function relationLabel(relation: string) {
+  if (relation === "mother") return "母";
+  if (relation === "father") return "父";
+  if (relation === "guardian") return "保護者";
+  if (relation === "family") return "家族";
+  if (relation === "student") return "本人";
+  return relation;
+}
 function compareGrade(a: string, b: string) {
   const order = ["小1", "小2", "小3", "小4", "小5", "小6", "中1", "中2", "中3", "高1", "高2", "高3", "既卒"];
   const ai = order.indexOf(a);

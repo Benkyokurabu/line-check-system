@@ -377,7 +377,12 @@ export default function StudentsPage() {
                         }}
                       >
                         <td style={tdMono}>{student.student_number}</td>
-                        <td style={tdStrong}>{student.student_name}</td>
+                        <td style={tdStrong}>
+                          <span style={studentNameBlock}>
+                            <strong>{student.student_name}</strong>
+                            <span style={guardianNameLine}>保護者 {guardianDisplayName(student)}</span>
+                          </span>
+                        </td>
                         <td style={td}>{student.homeroom_teacher}</td>
                         {mode === "class" ? (
                           <>
@@ -588,6 +593,13 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
+function guardianDisplayName(student: { line_accounts?: LineAccount[] }) {
+  const guardians = (student.line_accounts ?? [])
+    .filter((account) => ["mother", "father", "guardian", "family"].includes(account.relation))
+    .map((account) => account.alias_name ?? account.friend_display_name)
+    .filter((name): name is string => Boolean(name?.trim()));
+  return guardians.length > 0 ? guardians.join(" / ") : "未登録";
+}
 function LineAccountColumn({
   student,
   kind,
@@ -710,6 +722,20 @@ const inputStyle: React.CSSProperties = {
   fontSize: "0.875rem",
 };
 
+const studentNameBlock: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  minWidth: 0,
+};
+
+const guardianNameLine: React.CSSProperties = {
+  color: "var(--muted)",
+  fontSize: "0.78rem",
+  fontWeight: 400,
+  paddingLeft: "1em",
+  lineHeight: 1.35,
+};
 const td: React.CSSProperties = {
   padding: "11px 14px",
   fontSize: "0.86rem",
