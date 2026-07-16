@@ -13,7 +13,9 @@ export async function GET(
 ) {
   const { studentNumber } = await context.params;
   const supabase = createSupabaseAdminClient();
-  const requestedLineUserId = new URL(request.url).searchParams.get("line_user_id");
+  const searchParams = new URL(request.url).searchParams;
+  const hasRequestedLineUserId = searchParams.has("line_user_id");
+  const requestedLineUserId = searchParams.get("line_user_id");
 
   const { data: student, error: studentError } = await supabase
     .from("student_roster")
@@ -74,22 +76,25 @@ export async function GET(
     ...(lineUserId ? [lineUserId] : []),
   ].filter((id, index, ids) => ids.indexOf(id) === index);
 
-  if (lineUserIds.length === 0) {
+  const selectedLineUserIds = hasRequestedLineUserId
+    ? requestedLineUserId && lineUserIds.includes(requestedLineUserId)
+      ? [requestedLineUserId]
+      : []
+    : lineUserIds;
+
+  if (selectedLineUserIds.length === 0) {
     return NextResponse.json({
       student: {
         ...student,
         homeroom_teacher: canonicalTeacherName(student.homeroom_teacher as string),
       },
       line_user_id: null,
-      line_accounts: [],
+      line_user_ids: lineUserIds,
+      line_accounts: lineAccounts,
       messages: [],
       link_status: "not_linked",
     });
   }
-
-  const selectedLineUserIds = requestedLineUserId && lineUserIds.includes(requestedLineUserId)
-    ? [requestedLineUserId]
-    : lineUserIds;
 
   const { data: messages, error: messagesError } = await supabase
     .from("line_messages")

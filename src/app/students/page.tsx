@@ -182,6 +182,7 @@ export default function StudentsPage() {
 
   async function openHistory(student: Student, account: LineAccount | null = studentAccount(student)) {
     const accountId = account?.line_user_id ?? null;
+    setRegistrationRelation(account?.relation ?? "student");
     setSelectedNumber(student.student_number);
     setSelectedAccountId(accountId);
     setHistory(null);
@@ -191,15 +192,18 @@ export default function StudentsPage() {
     setSelectedContact(null);
     setHistoryLoading(true);
     try {
-      const query = accountId ? `?line_user_id=${encodeURIComponent(accountId)}` : "";
+      const query = `?line_user_id=${encodeURIComponent(accountId ?? "__none__")}`;
       const [res, loadedContacts] = await Promise.all([
         fetch(`/api/students/${encodeURIComponent(student.student_number)}/messages${query}`),
         loadContacts(),
       ]);
       const data = await res.json();
       setHistory(data);
+      const loadedContact = loadedContacts.find((contact) => contact.line_user_id === data.line_user_id);
       setSelectedContact(
-        loadedContacts.find((contact) => contact.line_user_id === data.line_user_id) ?? null,
+        loadedContact ?? (accountId && data.line_user_id === accountId && account
+          ? lineAccountToContact(account)
+          : null),
       );
     } finally {
       setHistoryLoading(false);
@@ -448,7 +452,7 @@ export default function StudentsPage() {
             <div style={{ padding: 20 }}>
               <h3 style={{ fontSize: "0.95rem", marginBottom: 8 }}>{history.student.student_name}</h3>
               <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: 12 }}>
-                この生徒はまだLINE連絡先と紐づいていません。保護者名やLINE表示名で検索して紐づけてください。
+                選択中の登録種別にはまだLINE連絡先がありません。登録種別を確認し、LINE表示名や登録名で検索して紐づけてください。
               </p>
                     <div style={registrationRow}>
                       <span style={registrationLabel}>登録種別</span>
@@ -497,7 +501,7 @@ export default function StudentsPage() {
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
                 <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{history.student.student_name}</h3>
                 <p style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
-                  {history.student.grade} / {history.student.student_number} / {history.messages.length}件
+                  {history.student.grade} / {history.student.student_number} / {selectedAccountLabel(selectedContact, registrationRelation)} / {history.messages.length}件
                 </p>
               </div>
               <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "48vh", overflowY: "auto" }}>
@@ -511,11 +515,7 @@ export default function StudentsPage() {
                 {selectedContact ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                     <span style={{ fontSize: "0.82rem" }}>
-                      送信先: <strong>{selectedContact.alias_name ?? selectedContact.display_name ?? "名前未設定"}</strong>
-                      {selectedContact.alias_name && selectedContact.display_name && (
-                        <span style={{ color: "var(--muted)" }}> ({selectedContact.display_name})</span>
-                      )}
-                    </span>
+                      送信先: <strong>{selectedAccountLabel(selectedContact, registrationRelation)}</strong>`r`n                    </span>
                     <button
                       type="button"
                       onClick={() => {
@@ -531,7 +531,7 @@ export default function StudentsPage() {
                 ) : (
                   <div style={{ padding: 10, border: "1px solid #f59e0b", borderRadius: 8, background: "#fffbeb" }}>
                     <p style={{ color: "#92400e", fontSize: "0.82rem", marginBottom: 8 }}>
-                      登録種別を選び、LINE連絡先を検索してこの生徒に登録します。
+                      登録種別を選び、LINE連絡先を検索して送信先として登録します。
                     </p>
                     <div style={registrationRow}>
                       <span style={registrationLabel}>登録種別</span>
@@ -574,12 +574,12 @@ export default function StudentsPage() {
                 <textarea
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="選択した生徒へ送信するメッセージ"
+                  placeholder="選択中のLINEアカウントへ送信するメッセージ"
                   rows={3}
                   style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit" }}
                 />
                 <button onClick={sendToSelectedStudent} disabled={sending || !selectedContact || !replyText.trim()} style={btnSend}>
-                  {sending ? "送信中..." : "この生徒に送信"}
+                  {sending ? "送信中..." : `${selectedAccountLabel(selectedContact, registrationRelation)}に送信`}
                 </button>
                 {sendMsg && <p style={{ color: sendMsg.includes("失敗") ? "#dc2626" : "#16a34a", fontSize: "0.82rem" }}>{sendMsg}</p>}
               </div>
@@ -663,6 +663,18 @@ function studentAccount(student: Student): LineAccount | null {
       : null);
 }
 
+function lineAccountToContact(account: LineAccount): Contact {
+  return {
+    line_user_id: account.line_user_id,
+    display_name: account.friend_display_name ?? null,
+    alias_name: account.alias_name,
+  };
+}
+
+function selectedAccountLabel(contact: Contact | null, relation: string) {
+  const name = contact?.alias_name ?? contact?.display_name ?? "未登録";
+  return `${relationLabel(relation)}: ${name}`;
+}
 function contactToLineAccount(contact: Contact, relation: string): LineAccount {
   return {
     line_user_id: contact.line_user_id,
