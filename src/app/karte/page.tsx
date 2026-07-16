@@ -206,8 +206,7 @@ export default function KartePage() {
                 <span style={mutedLine}>{student.grade} / 校舎 {student.campus ?? "未設定"} / 学校 {student.school_name ?? "未設定"} / 担任 {student.homeroom_teacher}</span>
                 {guardianAccounts(student).map((account, index) => (
                   <span key={`${account.line_user_id}:${index}`} style={guardianRecordRow}>
-                    <span style={guardianRecordLabel}>{relationLabel(account.relation)}</span>
-                    <span>{accountDisplayName(account, student.student_name)}</span>
+                    <span>{accountDisplayName(account)}</span>
                   </span>
                 ))}
                 <span style={badgeRow}>
@@ -278,19 +277,11 @@ function guardianAccounts(student: { line_accounts?: LineAccount[] }) {
     });
 }
 
-function accountDisplayName(account: LineAccount, studentName?: string) {
-  if (account.relation !== "student" && sameName(account.alias_name, studentName)) {
-    return account.friend_display_name ?? relationLabel(account.relation);
+function accountDisplayName(account: LineAccount) {
+  if (account.relation !== "student") {
+    return account.friend_display_name ?? account.alias_name ?? relationLabel(account.relation);
   }
   return account.alias_name ?? account.friend_display_name ?? "名称未登録";
-}
-
-function sameName(a: string | null | undefined, b: string | null | undefined) {
-  return normalizeName(a) !== "" && normalizeName(a) === normalizeName(b);
-}
-
-function normalizeName(value: string | null | undefined) {
-  return (value ?? "").normalize("NFKC").replace(/[ \t\r\n\u3000]/g, "");
 }
 
 function relationLabel(relation: string) {
@@ -359,18 +350,10 @@ const filterButton: React.CSSProperties = { padding: "9px 10px", borderRadius: 6
 const studentButton: React.CSSProperties = { width: "100%", display: "grid", gap: 5, padding: 13, border: "none", borderBottom: "1px solid var(--line)", color: "var(--foreground)", textAlign: "left", cursor: "pointer" };
 const mutedLine: React.CSSProperties = { color: "var(--muted)", fontSize: "0.78rem" };
 const guardianRecordRow: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "3.4em minmax(0, 1fr)",
-  gap: 6,
   marginLeft: "1em",
   color: "var(--muted)",
   fontSize: "0.8rem",
   lineHeight: 1.35,
-};
-
-const guardianRecordLabel: React.CSSProperties = {
-  color: "var(--accent)",
-  fontWeight: 700,
 };
 
 const mutedMono: React.CSSProperties = { ...mutedLine, fontFamily: "Consolas, monospace" };

@@ -202,7 +202,7 @@ export default function StudentsPage() {
       const loadedContact = loadedContacts.find((contact) => contact.line_user_id === data.line_user_id);
       setSelectedContact(
         loadedContact ?? (accountId && data.line_user_id === accountId && account
-          ? lineAccountToContact(account, student.student_name)
+          ? lineAccountToContact(account)
           : null),
       );
     } finally {
@@ -418,14 +418,13 @@ export default function StudentsPage() {
                         >
                           <td style={guardianBlankCell}></td>
                           <td style={guardianAccountCell}>
-                            <span style={guardianAccountLabel}>{relationLabel(account.relation)}</span>
-                            <span>{accountDisplayName(account, student.student_name)}</span>
+                            <span>{accountDisplayName(account)}</span>
                           </td>
                           <td style={guardianBlankCell}></td>
                           {mode === "class" ? (
                             <>
                               <td style={guardianBlankCell}></td>
-                              <td style={guardianAccountLineCell}>{accountDisplayName(account, student.student_name)}</td>
+                              <td style={guardianAccountLineCell}>{accountDisplayName(account)}</td>
                             </>
                           ) : (
                             <td style={guardianAccountLineCell}>保護者アカウント</td>
@@ -501,7 +500,7 @@ export default function StudentsPage() {
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
                 <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{history.student.student_name}</h3>
                 <p style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
-                  {history.student.grade} / {history.student.student_number} / {selectedAccountLabel(selectedContact, registrationRelation, history.student.student_name)} / {history.messages.length}件
+                  {history.student.grade} / {history.student.student_number} / {selectedAccountLabel(selectedContact, registrationRelation)} / {history.messages.length}件
                 </p>
               </div>
               <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "48vh", overflowY: "auto" }}>
@@ -515,7 +514,7 @@ export default function StudentsPage() {
                 {selectedContact ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                     <span style={{ fontSize: "0.82rem" }}>
-                      送信先: <strong>{selectedAccountLabel(selectedContact, registrationRelation, history.student.student_name)}</strong>
+                      送信先: <strong>{selectedAccountLabel(selectedContact, registrationRelation)}</strong>
                     </span>
                     <button
                       type="button"
@@ -580,7 +579,7 @@ export default function StudentsPage() {
                   style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit" }}
                 />
                 <button onClick={sendToSelectedStudent} disabled={sending || !selectedContact || !replyText.trim()} style={btnSend}>
-                  {sending ? "送信中..." : `${selectedAccountLabel(selectedContact, registrationRelation, history.student.student_name)}に送信`}
+                  {sending ? "送信中..." : `${selectedAccountLabel(selectedContact, registrationRelation)}に送信`}
                 </button>
                 {sendMsg && <p style={{ color: sendMsg.includes("失敗") ? "#dc2626" : "#16a34a", fontSize: "0.82rem" }}>{sendMsg}</p>}
               </div>
@@ -664,19 +663,18 @@ function studentAccount(student: Student): LineAccount | null {
       : null);
 }
 
-function lineAccountToContact(account: LineAccount, studentName?: string): Contact {
+function lineAccountToContact(account: LineAccount): Contact {
   return {
     line_user_id: account.line_user_id,
     display_name: account.friend_display_name ?? null,
-    alias_name: accountDisplayName(account, studentName),
+    alias_name: accountDisplayName(account),
   };
 }
 
-function selectedAccountLabel(contact: Contact | null, relation: string, studentName?: string) {
-  const aliasName = relation !== "student" && sameName(contact?.alias_name, studentName)
-    ? null
-    : contact?.alias_name;
-  const name = aliasName ?? contact?.display_name ?? "未登録";
+function selectedAccountLabel(contact: Contact | null, relation: string) {
+  const name = relation === "student"
+    ? contact?.alias_name ?? contact?.display_name ?? "未登録"
+    : contact?.display_name ?? contact?.alias_name ?? "未登録";
   return `${relationLabel(relation)}: ${name}`;
 }
 function contactToLineAccount(contact: Contact, relation: string): LineAccount {
@@ -700,19 +698,11 @@ function guardianAccounts(student: { line_accounts?: LineAccount[] }) {
     });
 }
 
-function accountDisplayName(account: LineAccount, studentName?: string) {
-  if (account.relation !== "student" && sameName(account.alias_name, studentName)) {
-    return account.friend_display_name ?? relationLabel(account.relation);
+function accountDisplayName(account: LineAccount) {
+  if (account.relation !== "student") {
+    return account.friend_display_name ?? account.alias_name ?? relationLabel(account.relation);
   }
   return account.alias_name ?? account.friend_display_name ?? "名称未登録";
-}
-
-function sameName(a: string | null | undefined, b: string | null | undefined) {
-  return normalizeName(a) !== "" && normalizeName(a) === normalizeName(b);
-}
-
-function normalizeName(value: string | null | undefined) {
-  return (value ?? "").normalize("NFKC").replace(/[ \t\r\n\u3000]/g, "");
 }
 function LineAccountColumn({
   student,
@@ -735,8 +725,7 @@ function LineAccountColumn({
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {accounts.map((account) => (
         <span key={account.line_user_id} style={{ fontSize: "0.76rem" }}>
-          {kind === "guardian" && <><strong>{relationLabel(account.relation)}</strong>{" "}</>}
-          {accountDisplayName(account, student.student_name)}
+          {accountDisplayName(account)}
           {account.line_user_id === student.line_user_id && <span style={{ color: "#16a34a" }}> ・送信先</span>}
         </span>
       ))}
@@ -871,13 +860,6 @@ const guardianAccountLineCell: React.CSSProperties = {
 const guardianBlankCell: React.CSSProperties = {
   ...td,
   color: "var(--muted)",
-};
-
-const guardianAccountLabel: React.CSSProperties = {
-  display: "inline-block",
-  minWidth: "3.4em",
-  color: "var(--accent)",
-  fontWeight: 700,
 };
 
 const tdStrong: React.CSSProperties = {
