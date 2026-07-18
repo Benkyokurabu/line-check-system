@@ -98,9 +98,27 @@ export default function StudentsPage() {
   const historyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!historyRef.current || !history) return;
+    if (!historyRef.current) return;
     historyRef.current.scrollTop = historyRef.current.scrollHeight;
-  }, [history]);
+  }, [history?.messages.length]);
+
+  useEffect(() => {
+    if (!selectedNumber || !selectedAccountId) return;
+    const refreshVisibleHistory = async () => {
+      if (document.visibilityState !== "visible") return;
+      const query = `?line_user_id=${encodeURIComponent(selectedAccountId)}`;
+      const res = await fetch(`/api/students/${encodeURIComponent(selectedNumber)}/messages${query}`);
+      if (!res.ok) return;
+      setHistory(await res.json());
+    };
+    const timer = window.setInterval(() => void refreshVisibleHistory(), 3000);
+    const onVisibilityChange = () => void refreshVisibleHistory();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [selectedNumber, selectedAccountId]);
 
   useEffect(() => {
     let cancelled = false;

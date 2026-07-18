@@ -87,20 +87,42 @@ export async function GET(request: Request) {
     if (!displayNameByUser.has(uid)) displayNameByUser.set(uid, pivot.display_name);
   }
 
-  const { data: recentOutbound, error: outboundErr } = handledStatus === "pending"
-    ? await supabase
-        .from("line_messages")
-        .select("line_user_id, display_name")
-        .eq("direction", "outbound")
-        .or("raw_event->>operation.eq.push,raw_event->>operation.eq.multicast")
-        .gte("received_at", thirtyDaysAgo)
-        .order("received_at", { ascending: false })
-        .limit(500)
+  const [recentInboundResult, recentOutboundResult] = handledStatus === "pending"
+    ? await Promise.all([
+        supabase
+          .from("line_messages")
+          .select("id, line_user_id, display_name")
+          .eq("direction", "inbound")
+          .gte("received_at", thirtyDaysAgo)
+          .order("received_at", { ascending: false })
+          .limit(1000),
+        supabase
+          .from("line_messages")
+          .select("line_user_id, display_name")
+          .eq("direction", "outbound")
+          .or("raw_event->>operation.eq.push,raw_event->>operation.eq.multicast")
+          .gte("received_at", thirtyDaysAgo)
+          .order("received_at", { ascending: false })
+          .limit(500),
+      ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+
+  if (recentInboundResult.error) return NextResponse.json({ error: recentInboundResult.error.message }, { status: 500 });
+  if (recentOutboundResult.error) return NextResponse.json({ error: recentOutboundResult.error.message }, { status: 500 });
+
+  const recentInboundIds = (recentInboundResult.data ?? []).map((message) => message.id as string);
+  const { data: routedRecentInbound, error: routedRecentInboundError } = recentInboundIds.length > 0
+    ? await supabase.from("ai_message_routes").select("message_id").in("message_id", recentInboundIds)
     : { data: [], error: null };
+  if (routedRecentInboundError) {
+    return NextResponse.json({ error: routedRecentInboundError.message }, { status: 500 });
+  }
+  const routedMessageIds = new Set((routedRecentInbound ?? []).map((route) => route.message_id as string));
+  const unroutedInbound = (recentInboundResult.data ?? []).filter(
+    (message) => !routedMessageIds.has(message.id as string),
+  );
 
-  if (outboundErr) return NextResponse.json({ error: outboundErr.message }, { status: 500 });
-
-  for (const message of recentOutbound ?? []) {
+  for (const message of [...unroutedInbound, ...(recentOutboundResult.data ?? [])]) {
     const uid = message.line_user_id as string | null;
     if (!uid) continue;
     if (!routesByUser.has(uid)) routesByUser.set(uid, []);

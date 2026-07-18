@@ -87,8 +87,8 @@ export default function DashboardPage() {
   const [searchSending, setSearchSending] = useState(false);
   const [searchSentMsg, setSearchSentMsg] = useState<string | null>(null);
 
-  const fetchConversations = useCallback(async () => {
-    setLoading(true);
+  const fetchConversations = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/dashboard/conversations?status=${viewMode}`);
       const data = await res.json();
@@ -97,13 +97,25 @@ export default function DashboardPage() {
       const allTeachers = [...new Set(list.flatMap((c) => c.teachers))].sort();
       setTeachers(allTeachers);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [viewMode]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchConversations();
+  }, [fetchConversations]);
+
+  useEffect(() => {
+    const refreshVisiblePage = () => {
+      if (document.visibilityState === "visible") void fetchConversations(true);
+    };
+    const timer = window.setInterval(refreshVisiblePage, 3000);
+    document.addEventListener("visibilitychange", refreshVisiblePage);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshVisiblePage);
+    };
   }, [fetchConversations]);
 
   const toggleSearch = useCallback(async () => {
@@ -309,7 +321,7 @@ export default function DashboardPage() {
           <Link href="/contacts" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
             連絡先管理
           </Link>
-          <button onClick={fetchConversations} style={btnGhost} disabled={loading}>
+          <button onClick={() => void fetchConversations()} style={btnGhost} disabled={loading}>
             {loading ? "読込中…" : "更新"}
           </button>
         </div>
