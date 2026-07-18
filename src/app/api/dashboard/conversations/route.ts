@@ -24,6 +24,10 @@ type RecentMessage = {
   text: string | null;
   received_at: string | null;
   sent_by: string | null;
+  message_type: string;
+  media_status: string;
+  media_content_type: string | null;
+  media_file_name: string | null;
 };
 
 function likelyResolved(messages: { direction: string; text: string | null }[]): boolean {
@@ -110,7 +114,7 @@ export async function GET(request: Request) {
     await Promise.all([
       supabase
         .from("line_messages")
-        .select("id, line_user_id, direction, text, received_at, sent_by")
+        .select("id, line_user_id, direction, text, message_type, received_at, sent_by, media_status, media_content_type, media_file_name")
         .in("line_user_id", uniqueUserIds)
         .gte("received_at", thirtyDaysAgo)
         .order("received_at", { ascending: true }),
@@ -146,6 +150,10 @@ export async function GET(request: Request) {
         text: m.text as string | null,
         received_at: m.received_at as string | null,
         sent_by: (m.sent_by as string | null) ?? null,
+        message_type: m.message_type,
+        media_status: m.media_status,
+        media_content_type: m.media_content_type,
+        media_file_name: m.media_file_name,
       })),
       likely_resolved: userRoutes.length > 0 && likelyResolved(userMsgs),
       latest_at: (latestMsg?.received_at as string | null) ?? null,

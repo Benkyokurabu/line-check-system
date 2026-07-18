@@ -10,12 +10,20 @@ create table if not exists public.line_messages (
   direction text not null,
   received_at timestamptz,
   raw_event jsonb,
+  media_storage_path text,
+  media_content_type text,
+  media_file_name text,
+  media_size_bytes bigint,
+  media_status text not null default 'not_applicable',
+  media_error text,
   created_at timestamptz not null default now(),
   sent_by text,
   constraint line_messages_direction_check
     check (direction in ('inbound', 'outbound')),
   constraint line_messages_message_type_check
-    check (message_type in ('text', 'image', 'video', 'audio', 'file', 'sticker', 'unknown'))
+    check (message_type in ('text', 'image', 'video', 'audio', 'file', 'sticker', 'unknown')),
+  constraint line_messages_media_status_check
+    check (media_status in ('not_applicable', 'pending', 'saved', 'failed', 'too_large'))
 );
 
 create index if not exists line_messages_line_user_id_idx

@@ -53,6 +53,10 @@ type Message = {
   received_at: string | null;
   created_at: string;
   sent_by: string | null;
+  media_status?: string;
+  media_content_type?: string | null;
+  media_file_name?: string | null;
+  media_size_bytes?: number | null;
 };
 
 type HistoryResponse = {
@@ -659,10 +663,27 @@ function MessageBubble({ message }: { message: Message }) {
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
       }}>
-        {message.text ?? `(${message.message_type})`}
+        {message.text ?? <MessageMedia message={message} />}
       </div>
     </div>
   );
+}
+
+function MessageMedia({ message }: { message: Message }) {
+  if (message.media_status === "saved" && message.message_type === "image") {
+    // LINE受信画像は認証付きの動的URLで、元の縦横比も事前には分からない。
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={`/api/line/media/${message.id}`} alt="受信画像" style={{ display: "block", maxWidth: "100%", maxHeight: 320, borderRadius: 6 }} />;
+  }
+  if (message.media_status === "saved") {
+    return <a href={`/api/line/media/${message.id}`} target="_blank" rel="noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>
+      {message.media_file_name || (message.media_content_type === "application/pdf" ? "PDFを開く" : `${message.message_type}を開く`)}
+    </a>;
+  }
+  if (message.media_status === "pending") return <>（保存処理中）</>;
+  if (message.media_status === "too_large") return <>（50MBを超えるため保存対象外）</>;
+  if (message.media_status === "failed") return <>（メディアの保存に失敗）</>;
+  return <>（{message.message_type}）</>;
 }
 
 function studentAccount(student: Student): LineAccount | null {

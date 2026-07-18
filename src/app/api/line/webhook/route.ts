@@ -30,7 +30,13 @@ type LineMessageRow = {
   direction: "inbound";
   received_at: string | null;
   raw_event: unknown;
+  media_file_name: string | null;
+  media_status: "not_applicable" | "pending";
 };
+
+const DOWNLOADABLE_MESSAGE_TYPES = new Set(["image", "video", "audio", "file"]);
+const MEDIA_BUCKET = "line-message-media";
+const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
 
 async function fetchDisplayName(
   userId: string,
@@ -95,6 +101,9 @@ function buildRow(event: unknown): LineMessageRow | null {
     messageType === "text" && typeof message.text === "string"
       ? message.text
       : null;
+  const mediaFileName = messageType === "file" && typeof message.fileName === "string"
+    ? message.fileName
+    : null;
 
   const timestamp =
     typeof e.timestamp === "number" ? new Date(e.timestamp).toISOString() : null;
@@ -108,7 +117,77 @@ function buildRow(event: unknown): LineMessageRow | null {
     direction: "inbound",
     received_at: timestamp,
     raw_event: event,
+    media_file_name: mediaFileName,
+    media_status: DOWNLOADABLE_MESSAGE_TYPES.has(messageType) ? "pending" : "not_applicable",
   };
+}
+
+function safeFileName(value: string) {
+  return value.normalize("NFKC").replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(0, 120) || "file";
+}
+
+function extensionFor(contentType: string | null, messageType: string) {
+  const mime = contentType?.split(";")[0].trim().toLowerCase();
+  const byMime: Record<string, string> = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp",
+    "application/pdf": ".pdf", "video/mp4": ".mp4", "audio/m4a": ".m4a", "audio/mp4": ".m4a",
+  };
+  return byMime[mime ?? ""] ?? (messageType === "image" ? ".jpg" : "");
+}
+
+async function saveMedia(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: { id: string; line_message_id: string; line_user_id: string; message_type: string; media_file_name: string | null },
+  accessToken: string,
+) {
+  try {
+    const response = await fetch(`https://api-data.line.me/v2/bot/message/${row.line_message_id}/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) throw new Error(`LINE content API returned ${response.status}`);
+
+    const declaredSize = Number(response.headers.get("content-length") ?? 0);
+    if (declaredSize > MAX_MEDIA_BYTES) {
+      await supabase.from("line_messages").update({
+        media_status: "too_large", media_size_bytes: declaredSize, media_error: "File exceeds 50 MB limit",
+      }).eq("id", row.id);
+      return;
+    }
+
+    const body = new Uint8Array(await response.arrayBuffer());
+    if (body.byteLength > MAX_MEDIA_BYTES) {
+      await supabase.from("line_messages").update({
+        media_status: "too_large", media_size_bytes: body.byteLength, media_error: "File exceeds 50 MB limit",
+      }).eq("id", row.id);
+      return;
+    }
+
+    const contentType = response.headers.get("content-type")?.split(";")[0] ?? "application/octet-stream";
+    const originalName = row.media_file_name?.trim();
+    const fileName = safeFileName(originalName || `${row.message_type}${extensionFor(contentType, row.message_type)}`);
+    const storagePath = `${row.line_user_id}/${row.line_message_id}/${fileName}`;
+    const { error: uploadError } = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, body, {
+      contentType,
+      upsert: false,
+    });
+    if (uploadError && !uploadError.message.toLowerCase().includes("already exists")) throw uploadError;
+
+    const { error: updateError } = await supabase.from("line_messages").update({
+      media_storage_path: storagePath,
+      media_content_type: contentType,
+      media_file_name: originalName || fileName,
+      media_size_bytes: body.byteLength,
+      media_status: "saved",
+      media_error: null,
+    }).eq("id", row.id);
+    if (updateError) throw updateError;
+  } catch (error) {
+    console.error("Failed to save LINE media", row.line_message_id, error);
+    await supabase.from("line_messages").update({
+      media_status: "failed",
+      media_error: error instanceof Error ? error.message.slice(0, 500) : "Unknown media save error",
+    }).eq("id", row.id);
+  }
 }
 
 export async function POST(request: Request) {
@@ -160,15 +239,22 @@ export async function POST(request: Request) {
 
       const supabase = createSupabaseAdminClient();
       // line_message_id の unique 制約で重複を防ぐ。同一 ID は無視（再送対策）。
-      const { error } = await supabase
+      const { data: savedRows, error } = await supabase
         .from("line_messages")
         .upsert(rowsWithNames, {
           onConflict: "line_message_id",
           ignoreDuplicates: true,
-        });
+        })
+        .select("id,line_message_id,line_user_id,message_type,media_file_name");
 
       if (error) {
         console.error("Failed to upsert line_messages", error);
+      } else if (accessToken) {
+        await Promise.all(
+          (savedRows ?? [])
+            .filter((row) => DOWNLOADABLE_MESSAGE_TYPES.has(row.message_type))
+            .map((row) => saveMedia(supabase, row, accessToken)),
+        );
       }
     } catch (err) {
       // 保存に失敗しても LINE には 200 を返す（リトライ嵐を避ける）。失敗はログで追う。

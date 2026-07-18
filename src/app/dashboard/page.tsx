@@ -12,6 +12,10 @@ type Message = {
   text: string | null;
   received_at: string | null;
   sent_by: string | null;
+  message_type?: string;
+  media_status?: string;
+  media_content_type?: string | null;
+  media_file_name?: string | null;
 };
 
 type Conversation = {
@@ -668,10 +672,27 @@ function MessageBubble({ msg }: { msg: Message }) {
         wordBreak: "break-word",
         border: isOut ? "none" : "1px solid var(--line)",
       }}>
-        {msg.text ?? <span style={{ opacity: 0.6, fontStyle: "italic" }}>(テキストなし)</span>}
+        {msg.text ?? <MessageMedia message={msg} />}
       </div>
     </div>
   );
+}
+
+function MessageMedia({ message }: { message: Message }) {
+  if (message.media_status === "saved" && message.message_type === "image") {
+    // LINE受信画像は認証付きの動的URLで、元の縦横比も事前には分からない。
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={`/api/line/media/${message.id}`} alt="受信画像" style={{ display: "block", maxWidth: "100%", maxHeight: 320, borderRadius: 6 }} />;
+  }
+  if (message.media_status === "saved") {
+    return <a href={`/api/line/media/${message.id}`} target="_blank" rel="noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>
+      {message.media_file_name || (message.media_content_type === "application/pdf" ? "PDFを開く" : `${message.message_type ?? "ファイル"}を開く`)}
+    </a>;
+  }
+  if (message.media_status === "pending") return <span style={{ opacity: 0.7 }}>（保存処理中）</span>;
+  if (message.media_status === "too_large") return <span style={{ opacity: 0.7 }}>（50MBを超えるため保存対象外）</span>;
+  if (message.media_status === "failed") return <span style={{ opacity: 0.7 }}>（メディアの保存に失敗）</span>;
+  return <span style={{ opacity: 0.7 }}>（{message.message_type ?? "テキストなし"}）</span>;
 }
 
 function Tab({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {

@@ -98,7 +98,7 @@ export async function GET(
 
   const { data: messages, error: messagesError } = await supabase
     .from("line_messages")
-    .select("id,line_user_id,display_name,direction,text,message_type,received_at,created_at,sent_by")
+    .select("id,line_user_id,display_name,direction,text,message_type,received_at,created_at,sent_by,media_status,media_content_type,media_file_name,media_size_bytes")
     .in("line_user_id", selectedLineUserIds)
     .order("received_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
