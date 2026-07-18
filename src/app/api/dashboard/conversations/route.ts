@@ -88,7 +88,7 @@ export async function GET(request: Request) {
         .from("line_messages")
         .select("line_user_id, display_name")
         .eq("direction", "outbound")
-        .eq("raw_event->>operation", "push")
+        .or("raw_event->>operation.eq.push,raw_event->>operation.eq.multicast")
         .gte("received_at", thirtyDaysAgo)
         .order("received_at", { ascending: false })
         .limit(500)

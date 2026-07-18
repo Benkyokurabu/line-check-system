@@ -92,13 +92,23 @@ export async function POST(request: Request) {
 
   if (insertErr) {
     console.error("Failed to save broadcast messages", insertErr);
+    return NextResponse.json(
+      {
+        error: "LINE_SENT_HISTORY_SAVE_FAILED",
+        message: "一斉送信は完了しましたが、送信履歴を保存できませんでした。再送せず管理者へ確認してください。",
+        line_delivered: true,
+        sent: lineUserIds.length,
+        line_request_ids: lineRequestIds,
+      },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({
     ok: true,
     sent: lineUserIds.length,
-    audit_ids: savedMessages?.map((message) => message.id) ?? [],
+    audit_ids: savedMessages.map((message) => message.id),
     line_request_ids: lineRequestIds,
-    history_saved: !insertErr,
+    history_saved: true,
   });
 }

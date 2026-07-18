@@ -191,7 +191,9 @@ export default function ContactsPage() {
         setBroadcastText("");
         setBroadcastMsg(`${data.sent} 件に送信しました ✓`);
       } else {
-        setBroadcastMsg(data.error ?? "送信に失敗しました");
+        setBroadcastMsg(data.line_delivered
+          ? `LINEへの一斉送信は完了しましたが履歴保存に失敗しました（${data.sent ?? 0}件）。再送しないでください`
+          : data.error ?? "送信に失敗しました");
       }
     } finally {
       setBroadcasting(false);
