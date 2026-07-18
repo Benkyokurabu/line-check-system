@@ -66,16 +66,28 @@ export async function POST(request: Request) {
       bot_display_name: botInfo?.displayName ?? null,
       line_accepted_at: new Date().toISOString(),
     },
-  }).select("id").single();
+  })
+    .select("id,line_user_id,direction,text,message_type,received_at,created_at,sent_by")
+    .single();
 
   if (error) {
     console.error("Failed to save outbound message", error);
+    return NextResponse.json(
+      {
+        error: "LINE_SENT_HISTORY_SAVE_FAILED",
+        message: "LINEへの送信は完了しましたが、送信履歴を保存できませんでした。再送せず管理者へ確認してください。",
+        line_delivered: true,
+        line_request_id: lineRequestId,
+      },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({
     ok: true,
-    audit_id: savedMessage?.id ?? null,
+    message: savedMessage,
+    audit_id: savedMessage.id,
     line_request_id: lineRequestId,
-    history_saved: !error,
+    history_saved: true,
   });
 }

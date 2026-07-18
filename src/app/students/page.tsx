@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { canonicalTeacherName } from "@/lib/teacher-names";
@@ -91,6 +91,12 @@ export default function StudentsPage() {
   const [senderName, setSenderName] = useState("");
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<string | null>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!historyRef.current || !history) return;
+    historyRef.current.scrollTop = historyRef.current.scrollHeight;
+  }, [history]);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,14 +281,18 @@ export default function StudentsPage() {
         sentBy: senderName,
         context: "student_roster",
       });
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setSendMsg("送信に失敗しました");
+        setSendMsg(data?.line_delivered
+          ? "LINE送信済みですが履歴保存に失敗しました。再送しないでください"
+          : "送信に失敗しました");
         return;
       }
       setReplyText("");
       setSendMsg("送信しました");
-      const student = students.find((item) => item.student_number === history.student.student_number);
-      if (student) await openHistory(student, selectedContact ? contactToLineAccount(selectedContact, "unknown") : null);
+      setHistory((current) => current
+        ? { ...current, messages: [...current.messages, data.message as Message] }
+        : current);
       await refreshStudents();
     } finally {
       setSending(false);
@@ -510,7 +520,7 @@ export default function StudentsPage() {
                   {history.student.grade} / {history.student.student_number} / {selectedAccountLabel(selectedContact, registrationRelation)} / {history.messages.length}件
                 </p>
               </div>
-              <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "48vh", overflowY: "auto" }}>
+              <div ref={historyRef} style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "48vh", overflowY: "auto" }}>
                 {history.messages.length === 0 ? (
                   <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>履歴はありません。</p>
                 ) : (

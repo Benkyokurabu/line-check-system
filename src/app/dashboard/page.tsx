@@ -139,12 +139,15 @@ export default function DashboardPage() {
         sentBy: senderName,
         context: "dashboard_contact_search",
       });
+      const data = await res.json().catch(() => null);
       if (res.ok) {
         setSearchText("");
         setSearchSentMsg("送信しました ✓");
         await fetchConversations();
       } else {
-        setSearchSentMsg("送信に失敗しました");
+        setSearchSentMsg(data?.line_delivered
+          ? "LINE送信済みですが履歴保存に失敗しました。再送しないでください"
+          : "送信に失敗しました");
       }
     } finally {
       setSearchSending(false);
@@ -214,22 +217,27 @@ export default function DashboardPage() {
         sentBy: senderName,
         context: "dashboard_conversation",
       });
+      const data = await res.json().catch(() => null);
       if (res.ok) {
         setReplyTexts((prev) => ({ ...prev, [conv.line_user_id]: "" }));
         const newMsg: Message = {
-          id: `local_${Date.now()}`,
+          id: data.message.id,
           direction: "outbound",
-          text,
-          received_at: new Date().toISOString(),
-          sent_by: senderName.trim() || null,
+          text: data.message.text,
+          received_at: data.message.received_at,
+          sent_by: data.message.sent_by,
         };
         setConversations((prev) =>
-          prev.map((c) =>
-            c.line_user_id === conv.line_user_id
-              ? { ...c, messages: [...c.messages, newMsg], latest_at: newMsg.received_at }
-              : c,
-          ),
+          prev
+            .map((c) =>
+              c.line_user_id === conv.line_user_id
+                ? { ...c, messages: [...c.messages, newMsg], latest_at: newMsg.received_at }
+                : c,
+            )
+            .sort((a, b) => new Date(b.latest_at ?? 0).getTime() - new Date(a.latest_at ?? 0).getTime()),
         );
+      } else if (data?.line_delivered) {
+        window.alert("LINEへの送信は完了しましたが、履歴保存に失敗しました。重複送信を防ぐため再送しないでください。");
       }
     } finally {
       setSending(null);
