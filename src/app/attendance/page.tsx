@@ -76,6 +76,7 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   const [date, setDate] = useState(candidate.event_date ?? "");
   const [eventType, setEventType] = useState(candidate.event_type);
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
+  const [reason, setReason] = useState(candidate.ai_summary ?? "欠席連絡");
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [busy, setBusy] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
@@ -84,13 +85,15 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
     fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`).then((res) => res.json()).then((body) => setLessons(body.lessons ?? []));
   }, [date, studentNumber]);
   async function save() {
-    const response = await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId }) });
+    const response = await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason }) });
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
   }
   async function confirmCandidate() {
     if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
     if (!studentNumber) { setCardMessage("生徒を選択してください。"); return; }
     if (!date) { setCardMessage("対象日を入力してください。"); return; }
+    if (!reason.trim()) { setCardMessage("Notionへ登録する理由を入力してください。"); return; }
+    if (!lessonId) { setCardMessage("欠席する授業を選択してください。"); return; }
     setBusy(true);
     setCardMessage("Notionへ登録しています…");
     try { await save(); const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed_by: confirmedBy }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "Notion登録に失敗しました"); setCardMessage("Notionへ登録しました。"); setMessage("Notionへ登録しました。"); await onChanged(); }
@@ -102,6 +105,7 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><strong>{candidate.ai_summary ?? "欠席連絡候補"}</strong><span>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span></div>
     <div style={{ margin: "14px 0", padding: 12, background: "#f7f7f4", borderRadius: 6, whiteSpace: "pre-wrap" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12 }}>
+      <label>理由（短く）<input style={inputStyle} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例：体調不良" /></label>
       <label>生徒<select style={inputStyle} value={studentNumber} onChange={(e) => { setStudentNumber(e.target.value); setLessonId(""); }}><option value="">要選択（AI候補: {candidate.suggested_student_name ?? "不明"}）</option>{students.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}（{student.student_number}）</option>)}</select></label>
       <label>対象日<input style={inputStyle} type="date" value={date} onChange={(e) => { setDate(e.target.value); setLessonId(""); }} /></label>
       <label>種別<select style={inputStyle} value={eventType} onChange={(e) => setEventType(e.target.value)}><option value="absence">欠席</option><option value="late">遅刻</option><option value="reschedule_request">振替希望</option><option value="other">その他</option></select></label>

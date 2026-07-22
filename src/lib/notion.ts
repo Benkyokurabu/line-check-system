@@ -31,3 +31,7 @@ export function notionAttendanceDataSourceId() {
   if (!value) throw new Error("NOTION_ATTENDANCE_DATA_SOURCE_ID is not configured");
   return value;
 }
+
+export function notionAbsenceDataSourceId() {
+  return process.env.NOTION_ABSENCE_DATA_SOURCE_ID ?? "19ef0120-80a7-805c-ae16-000b7b414034";
+}

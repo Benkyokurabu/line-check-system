@@ -1,18 +1,26 @@
 import { NextResponse } from "next/server";
-import { notionAttendanceDataSourceId, notionRequest } from "@/lib/notion";
+import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
-const eventLabels: Record<string, string> = {
-  absence: "欠席",
-  late: "遅刻",
-  reschedule_request: "振替希望",
-  other: "その他",
-};
-
 const title = (value: string) => ({ title: [{ type: "text", text: { content: value.slice(0, 200) } }] });
 const richText = (value: string | null | undefined) => ({ rich_text: value ? [{ type: "text", text: { content: value.slice(0, 1900) } }] : [] });
+
+const fullWidth = (value: string) => value.normalize("NFKC").replace(/[0-9A-Z]/g, (char) =>
+  String.fromCharCode(char.charCodeAt(0) + 0xfee0),
+);
+
+function notionLessonName(lesson: { label?: string | null; source_payload?: Record<string, unknown> | null } | null) {
+  const payload = lesson?.source_payload ?? {};
+  const gradeMap: Record<string, string> = { j1: "1", j2: "2", j3: "3", e4: "4", e5: "5", e6: "6" };
+  const subjectMap: Record<string, string> = { eng: "英", math: "数", arith: "算", jp: "国", sci: "理", soc: "社" };
+  const grade = gradeMap[String(payload.grade ?? "")] ?? "";
+  const className = String(payload.class ?? "").trim();
+  const subject = subjectMap[String(payload.subject ?? "")] ?? "";
+  if (grade && className && subject) return fullWidth(`${grade}${className}${subject}`);
+  return lesson?.label?.trim() || null;
+}
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -22,7 +30,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const supabase = createSupabaseAdminClient();
   const { data: candidate, error } = await supabase
     .from("attendance_candidates")
-    .select("*,student_roster(student_name,grade,campus),lessons(label,start_time,campus),line_messages(text,received_at)")
+    .select("*,student_roster(student_name,grade,campus),lessons(label,start_time,campus,source_payload)")
     .eq("id", id)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -54,32 +62,29 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const student = Array.isArray(candidate.student_roster) ? candidate.student_roster[0] : candidate.student_roster;
     const lesson = Array.isArray(candidate.lessons) ? candidate.lessons[0] : candidate.lessons;
-    const message = Array.isArray(candidate.line_messages) ? candidate.line_messages[0] : candidate.line_messages;
-    const studentName = student?.student_name ?? candidate.suggested_student_name ?? candidate.student_number;
-    const eventLabel = eventLabels[candidate.event_type] ?? "その他";
-    const existing = await notionRequest(`/data_sources/${notionAttendanceDataSourceId()}/query`, {
+    const lessonName = notionLessonName(lesson);
+    const dataSourceId = notionAbsenceDataSourceId();
+    const filters: unknown[] = [
+      { property: "名前", relation: { contains: profile.notion_page_id } },
+      { property: "日付", date: { equals: candidate.event_date } },
+    ];
+    if (lessonName) filters.push({ property: "授業", select: { equals: lessonName } });
+    const existing = await notionRequest(`/data_sources/${dataSourceId}/query`, {
       method: "POST",
-      body: JSON.stringify({ page_size: 1, filter: { property: "アプリ記録ID", rich_text: { equals: id } } }),
+      body: JSON.stringify({ page_size: 1, filter: { and: filters } }),
     });
     const notionPage = existing.results?.[0] ?? await notionRequest("/pages", {
       method: "POST",
       body: JSON.stringify({
-        parent: { type: "data_source_id", data_source_id: notionAttendanceDataSourceId() },
+        parent: { type: "data_source_id", data_source_id: dataSourceId },
         properties: {
-          "連絡名": title(`${studentName} ${candidate.event_date} ${eventLabel}`),
-          "生徒情報DB": { relation: [{ id: profile.notion_page_id }] },
-          "学籍番号": richText(candidate.student_number),
-          "種別": { select: { name: eventLabel } },
-          "対象日": { date: { start: candidate.event_date } },
-          "授業・クラス": richText(lesson?.label ?? candidate.suggested_class_name),
-          "科目": richText(candidate.suggested_subject),
-          "校舎": { select: student?.campus ? { name: student.campus } : null },
-          "LINE原文": richText(message?.text),
-          "LINE受信日時": { date: message?.received_at ? { start: message.received_at } : null },
-          "確認者": richText(confirmedBy),
-          "確認日時": { date: { start: claimedAt } },
-          "状態": { select: { name: "確認済み" } },
-          "アプリ記録ID": richText(id),
+          "理由": title(candidate.ai_summary?.trim() || "欠席連絡"),
+          "名前": { relation: [{ id: profile.notion_page_id }] },
+          "日付": { date: { start: candidate.event_date } },
+          "授業": { select: lessonName ? { name: lessonName } : null },
+          "授業校舎": { select: (lesson?.campus ?? student?.campus) ? { name: lesson?.campus ?? student?.campus } : null },
+          "備考": richText(null),
+          "連続": richText(null),
         },
       }),
     });
