@@ -1,5 +1,7 @@
 "use client";
 
+// Notion registration settings are supplied by the Vercel production environment.
+
 import { useCallback, useEffect, useState } from "react";
 
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null };
