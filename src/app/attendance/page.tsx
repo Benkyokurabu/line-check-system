@@ -78,12 +78,28 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
   const [reason, setReason] = useState(candidate.ai_summary ?? "欠席連絡");
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [editingLesson, setEditingLesson] = useState(false);
   const [busy, setBusy] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
   useEffect(() => {
     if (!date) return;
-    fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`).then((res) => res.json()).then((body) => setLessons(body.lessons ?? []));
-  }, [date, studentNumber]);
+    fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
+      .then((res) => res.json())
+      .then((body) => {
+        const found = (body.lessons ?? []) as Lesson[];
+        setLessons(found);
+        if (found.some((lesson) => lesson.id === lessonId)) return;
+        const normalize = (value: string | null | undefined) => (value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+        const subject = normalize(candidate.suggested_subject);
+        const className = normalize(candidate.suggested_class_name);
+        const recommended = found.find((lesson) => {
+          const label = normalize(lesson.label);
+          return (subject && label.includes(subject)) || (className && label.includes(className));
+        }) ?? found[0];
+        setLessonId(recommended?.id ?? "");
+      });
+  }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId]);
+  const selectedLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
   async function save() {
     const response = await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason }) });
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
@@ -106,10 +122,10 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
     <div style={{ margin: "14px 0", padding: 12, background: "#f7f7f4", borderRadius: 6, whiteSpace: "pre-wrap" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12 }}>
       <label>理由（短く）<input style={inputStyle} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例：体調不良" /></label>
-      <label>生徒<select style={inputStyle} value={studentNumber} onChange={(e) => { setStudentNumber(e.target.value); setLessonId(""); }}><option value="">要選択（AI候補: {candidate.suggested_student_name ?? "不明"}）</option>{students.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}（{student.student_number}）</option>)}</select></label>
+      <label>生徒<select style={inputStyle} value={studentNumber} onChange={(e) => { setStudentNumber(e.target.value); setLessonId(""); setEditingLesson(false); }}><option value="">要選択（AI候補: {candidate.suggested_student_name ?? "不明"}）</option>{students.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}（{student.student_number}）</option>)}</select></label>
       <label>対象日<input style={inputStyle} type="date" value={date} onChange={(e) => { setDate(e.target.value); setLessonId(""); }} /></label>
       <label>種別<select style={inputStyle} value={eventType} onChange={(e) => setEventType(e.target.value)}><option value="absence">欠席</option><option value="late">遅刻</option><option value="reschedule_request">振替希望</option><option value="other">その他</option></select></label>
-      <label>授業<select style={inputStyle} value={lessonId} onChange={(e) => setLessonId(e.target.value)}><option value="">授業未特定</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.start_time ?? "時刻なし"} {lesson.label} {lesson.campus ?? ""}</option>)}</select></label>
+      <div><span>授業（クラス一覧表から自動設定）</span>{editingLesson ? <select style={inputStyle} value={lessonId} onChange={(e) => setLessonId(e.target.value)}><option value="">授業未特定</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.start_time ?? "時刻なし"} {lesson.label} {lesson.campus ?? ""}</option>)}</select> : <div style={{ ...inputStyle, minHeight: 38, background: "#f7f7f4" }}>{selectedLesson ? `${selectedLesson.start_time ?? "時刻なし"} ${selectedLesson.label} ${selectedLesson.campus ?? ""}` : studentNumber && date ? "該当授業なし" : "生徒と対象日から自動設定"}</div>}<button type="button" onClick={() => setEditingLesson((value) => !value)} style={{ border: 0, background: "transparent", color: "#087a3d", padding: "6px 0", cursor: "pointer", fontWeight: 700 }}>{editingLesson ? "自動表示に戻す" : "授業を修正"}</button></div>
     </div>
     {candidate.notion_error && <p style={{ color: "#b42318", marginTop: 10 }}>前回のNotion登録エラー: {candidate.notion_error}</p>}
     {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
