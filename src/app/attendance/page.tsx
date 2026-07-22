@@ -34,7 +34,7 @@ export default function AttendancePage() {
   useEffect(() => {
     async function initialize() {
       try {
-        const [, studentBody] = await Promise.all([load(), fetch("/api/students").then((res) => res.json())]);
+        const [, studentBody] = await Promise.all([load(), fetch("/api/attendance/students").then((res) => res.json())]);
         setStudents(studentBody.students ?? []);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : String(error));
