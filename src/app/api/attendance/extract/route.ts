@@ -22,7 +22,7 @@ function normalize(value: string) {
   return value.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
 }
 
-async function extractWithAi(input: { text: string; receivedAt: string; students: unknown[] }) {
+async function extractWithAi(input: { text: string; receivedAt: string }) {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error("GROQ_API_KEY is not configured");
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -35,7 +35,7 @@ async function extractWithAi(input: { text: string; receivedAt: string; students
       messages: [
         {
           role: "system",
-          content: "日本の学習塾へのLINEから欠席・遅刻・振替希望を抽出する。推測を確定扱いせずJSONのみ返す。今日・明日はreceived_atの日本時間を基準にYYYY-MM-DDへ直す。生徒は候補一覧から選ぶ。",
+          content: "日本の学習塾へのLINEから欠席・遅刻・振替希望を抽出する。推測を確定扱いせずJSONのみ返す。今日・明日はreceived_atの日本時間を基準にYYYY-MM-DDへ直す。本文に生徒名がなければstudent_nameは空にする。",
         },
         {
           role: "user",
@@ -43,7 +43,6 @@ async function extractWithAi(input: { text: string; receivedAt: string; students
             instruction: "{is_attendance,student_name,event_type,event_date,subject,class_name,summary,confidence,reason}を返す。対象外はis_attendance=false。event_typeはabsence/late/reschedule_request/other。生徒や日付が不明でも欠席系ならtrueにする。",
             received_at: input.receivedAt,
             message: input.text,
-            student_candidates: input.students,
           }),
         },
       ],
@@ -85,12 +84,6 @@ export async function POST(request: Request) {
       const ai = await extractWithAi({
         text: String(message.text ?? ""),
         receivedAt: String(message.received_at ?? message.created_at),
-        students: (roster ?? []).map((student) => ({
-          number: student.student_number,
-          name: student.student_name,
-          grade: student.grade,
-          campus: student.campus,
-        })),
       });
       if (!ai.is_attendance) {
         await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "ignored" });
