@@ -78,6 +78,7 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [busy, setBusy] = useState(false);
+  const [cardMessage, setCardMessage] = useState("");
   useEffect(() => {
     if (!date) return;
     fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`).then((res) => res.json()).then((body) => setLessons(body.lessons ?? []));
@@ -87,10 +88,13 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
   }
   async function confirmCandidate() {
-    if (!confirmedBy.trim()) { setMessage("先に確認者名を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!studentNumber) { setCardMessage("生徒を選択してください。"); return; }
+    if (!date) { setCardMessage("対象日を入力してください。"); return; }
     setBusy(true);
-    try { await save(); const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed_by: confirmedBy }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "Notion登録に失敗しました"); setMessage("Notionへ登録しました。"); await onChanged(); }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    setCardMessage("Notionへ登録しています…");
+    try { await save(); const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed_by: confirmedBy }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "Notion登録に失敗しました"); setCardMessage("Notionへ登録しました。"); setMessage("Notionへ登録しました。"); await onChanged(); }
+    catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
   async function dismiss() { if (!window.confirm("この候補を対応不要にしますか？")) return; await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "DELETE" }); await onChanged(); }
@@ -104,6 +108,7 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
       <label>授業<select style={inputStyle} value={lessonId} onChange={(e) => setLessonId(e.target.value)}><option value="">授業未特定</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.start_time ?? "時刻なし"} {lesson.label} {lesson.campus ?? ""}</option>)}</select></label>
     </div>
     {candidate.notion_error && <p style={{ color: "#b42318", marginTop: 10 }}>前回のNotion登録エラー: {candidate.notion_error}</p>}
+    {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy} onClick={confirmCandidate}>{busy ? "登録中…" : "確認してNotionへ登録"}</button><button style={{ ...buttonStyle, background: "#777" }} onClick={dismiss}>対応不要</button></div>
   </section>;
 }
