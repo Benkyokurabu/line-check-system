@@ -2,6 +2,11 @@ import Link from "next/link";
 
 const menuItems = [
   {
+    href: "/attendance",
+    title: "欠席連絡の確認",
+    description: "LINEから抽出した欠席候補を確認し、Notionへ登録します。",
+  },
+  {
     href: "/dashboard",
     title: "未対応メッセージ",
     description: "LINEで届いた未対応の連絡を先生別に確認し、返信・完了処理をします。",
