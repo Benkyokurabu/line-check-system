@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 
 const title = (value: string) => ({ title: [{ type: "text", text: { content: value.slice(0, 200) } }] });
 const richText = (value: string | null | undefined) => ({ rich_text: value ? [{ type: "text", text: { content: value.slice(0, 1900) } }] : [] });
+const studentRelationProperty = process.env.NOTION_ATTENDANCE_STUDENT_PROPERTY ?? "生徒情報DB";
 
 const fullWidth = (value: string) => value.normalize("NFKC").replace(/[0-9A-Z]/g, (char) =>
   String.fromCharCode(char.charCodeAt(0) + 0xfee0),
@@ -81,7 +82,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const campus = campusOverride ?? campusFromRegisteredName(senderAlias?.alias_name) ?? lesson?.campus ?? student?.campus ?? null;
     const dataSourceId = notionAbsenceDataSourceId();
     const filters: unknown[] = [
-      { property: "名前", relation: { contains: profile.notion_page_id } },
+      { property: studentRelationProperty, relation: { contains: profile.notion_page_id } },
       { property: "日付", date: { equals: candidate.event_date } },
     ];
     if (lessonName) filters.push({ property: "授業", select: { equals: lessonName } });
@@ -95,7 +96,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         parent: { type: "data_source_id", data_source_id: dataSourceId },
         properties: {
           "理由": title(candidate.ai_summary?.trim() || "欠席連絡"),
-          "名前": { relation: [{ id: profile.notion_page_id }] },
+          [studentRelationProperty]: { relation: [{ id: profile.notion_page_id }] },
           "日付": { date: { start: candidate.event_date } },
           "授業": { select: lessonName ? { name: lessonName } : null },
           "授業校舎": { select: campus ? { name: campus } : null },

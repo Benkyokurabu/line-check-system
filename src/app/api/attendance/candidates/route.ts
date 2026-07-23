@@ -8,11 +8,13 @@ type RosterRow = {
   student_name: string;
   grade: string;
   campus: string | null;
+  homeroom_teacher: string | null;
 };
 
 type LineMessageRow = {
   line_user_id: string | null;
   display_name: string | null;
+  received_at: string | null;
 };
 
 type StudentSuggestion = RosterRow & {
@@ -176,6 +178,13 @@ export async function GET(request: Request) {
         aliases: aliasRows,
       }),
     };
+  });
+  candidates.sort((a, b) => {
+    const aMessage = (a.line_messages as LineMessageRow | null) ?? null;
+    const bMessage = (b.line_messages as LineMessageRow | null) ?? null;
+    const aTime = Date.parse(aMessage?.received_at ?? (a.created_at as string | null) ?? "");
+    const bTime = Date.parse(bMessage?.received_at ?? (b.created_at as string | null) ?? "");
+    return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
   });
   return NextResponse.json({ candidates });
 }
