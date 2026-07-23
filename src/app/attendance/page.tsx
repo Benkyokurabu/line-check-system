@@ -93,7 +93,7 @@ export default function AttendancePage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const load = useCallback(async () => {
-    const response = await fetch("/api/attendance/candidates?status=pending");
+    const response = await fetch("/api/attendance/candidates?status=review");
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     setCandidates(body.candidates ?? []);
@@ -170,6 +170,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
   const [campus, setCampus] = useState(initialCampus);
   const [reason, setReason] = useState(candidate.ai_summary ?? fallbackReason(candidate.event_type));
+  const registered = candidate.status === "confirmed";
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
@@ -316,7 +317,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   return <section className="panel" style={{ padding: 20 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
       <strong style={{ fontSize: 18 }}>{titleName}</strong>
-      <span style={{ color: "#666", fontSize: 13 }}>{eventTypeLabel(eventType)} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+      <span style={{ color: registered ? "#087a3d" : "#666", fontSize: 13 }}>{registered ? "登録済み / " : ""}{eventTypeLabel(eventType)} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
     </div>
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 24, marginTop: 8 }}>
       {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
@@ -365,6 +366,6 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       </div>)}
     </div>
     {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
-    <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy} onClick={confirmCandidate}>{busy ? "登録中..." : "確認してNotionへ登録"}</button><button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button></div>
+    <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>
   </section>;
 }

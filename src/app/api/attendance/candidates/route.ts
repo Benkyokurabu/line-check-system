@@ -135,12 +135,13 @@ function buildSenderProfile(input: {
 
 export async function GET(request: Request) {
   const status = new URL(request.url).searchParams.get("status") ?? "pending";
+  const statusList = status === "review" ? ["pending", "notion_failed", "confirmed"] : status === "pending" ? ["pending", "notion_failed"] : [status];
   const supabase = createSupabaseAdminClient();
   const [{ data, error }, { data: roster }, { data: accounts }, { data: links }, { data: aliases }] = await Promise.all([
     supabase
       .from("attendance_candidates")
       .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),line_messages(text,received_at,display_name,line_user_id)")
-      .in("status", status === "pending" ? ["pending", "notion_failed"] : [status])
+      .in("status", statusList)
       .order("created_at", { ascending: false }),
     supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher"),
     supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary"),
