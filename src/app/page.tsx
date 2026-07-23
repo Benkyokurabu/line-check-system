@@ -33,7 +33,7 @@ export default function Home() {
     <main className="shell">
       <section>
         <p className="eyebrow">LINE operations</p>
-        <h1>勉たん -勉強クラブ総合アシスたんトさん-</h1>
+        <h1><span>勉たん</span> <span style={{ fontSize: "60%" }}>-勉強クラブ総合アシスたんトさん-</span></h1>
         <div className="home-menu">
           {menuItems.map((item) => (
             <Link key={item.href} href={item.href} className="home-menu-item">

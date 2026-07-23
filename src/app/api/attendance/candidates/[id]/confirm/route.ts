@@ -62,6 +62,7 @@ function textProperty(property: ResolvedProperty, value: string | null | undefin
   throw new Error(`Notionの${property.name}列はテキスト/セレクト型ではありません`);
 }
 
+
 function dateFilter(property: ResolvedProperty, value: string) {
   return { property: property.name, date: { equals: value } };
 }
@@ -161,7 +162,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const reasonProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["理由", "連絡名"]), "理由");
     const lessonNameProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
     const campusNameProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
-    const teacherProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_TEACHER_PROPERTY", ["担任"]));
     const typeProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_TYPE_PROPERTY", ["種別", "区分"]));
     const filters: unknown[] = [
       { property: studentProperty.name, relation: { contains: profile.notion_page_id } },
@@ -180,7 +180,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     };
     if (lessonNameProperty) pageProperties[lessonNameProperty.name] = lessonProperty(lessonNameProperty, lessonName);
     if (campusNameProperty) pageProperties[campusNameProperty.name] = campusProperty(campusNameProperty, campus);
-    if (teacherProperty) pageProperties[teacherProperty.name] = textProperty(teacherProperty, student?.homeroom_teacher ?? null);
     if (typeProperty) pageProperties[typeProperty.name] = textProperty(typeProperty, eventTypeLabel(candidate.event_type));
     const notionPage = existing.results?.[0] ?? await notionRequest("/pages", {
       method: "POST",
