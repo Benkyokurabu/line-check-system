@@ -22,6 +22,13 @@ function notionLessonName(lesson: { label?: string | null; source_payload?: Reco
   return lesson?.label?.trim() || null;
 }
 
+function campusFromRegisteredName(value: string | null | undefined) {
+  const normalized = (value ?? "").normalize("NFKC").replace(/[ \t\r\n\u3000]/g, "");
+  if (!normalized) return null;
+  if (normalized.includes("南教室") || normalized.includes("南校") || normalized.includes("南")) return "南教室";
+  if (normalized.includes("本校")) return "本校";
+  return null;
+}
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const body = await request.json().catch(() => ({}));
@@ -30,7 +37,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const supabase = createSupabaseAdminClient();
   const { data: candidate, error } = await supabase
     .from("attendance_candidates")
-    .select("*,student_roster(student_name,grade,campus),lessons(label,start_time,campus,source_payload)")
+    .select("*,student_roster(student_name,grade,campus),lessons(label,start_time,campus,source_payload),line_messages(line_user_id)")
     .eq("id", id)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -62,7 +69,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const student = Array.isArray(candidate.student_roster) ? candidate.student_roster[0] : candidate.student_roster;
     const lesson = Array.isArray(candidate.lessons) ? candidate.lessons[0] : candidate.lessons;
+    const lineMessage = Array.isArray(candidate.line_messages) ? candidate.line_messages[0] : candidate.line_messages;
+    const { data: senderAlias } = lineMessage?.line_user_id ? await supabase
+      .from("line_user_aliases")
+      .select("alias_name")
+      .eq("line_user_id", lineMessage.line_user_id)
+      .maybeSingle() : { data: null };
     const lessonName = notionLessonName(lesson);
+    const campus = campusFromRegisteredName(senderAlias?.alias_name) ?? lesson?.campus ?? student?.campus ?? null;
     const dataSourceId = notionAbsenceDataSourceId();
     const filters: unknown[] = [
       { property: "名前", relation: { contains: profile.notion_page_id } },
@@ -82,7 +96,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           "名前": { relation: [{ id: profile.notion_page_id }] },
           "日付": { date: { start: candidate.event_date } },
           "授業": { select: lessonName ? { name: lessonName } : null },
-          "授業校舎": { select: (lesson?.campus ?? student?.campus) ? { name: lesson?.campus ?? student?.campus } : null },
+          "授業校舎": { select: campus ? { name: campus } : null },
           "備考": richText(null),
           "連続": richText(null),
         },
