@@ -32,10 +32,13 @@ export function notionAttendanceDataSourceId() {
   return value;
 }
 
+const ABSENCE_DB_DATA_SOURCE_ID = "19ef0120-80a7-805c-ae16-000b7b414034";
+const DEPRECATED_ATTENDANCE_DATA_SOURCE_IDS = new Set([
+  "f9a142ea-72f4-4660-b4f9-36e8dacf1e08",
+]);
+
 export function notionAbsenceDataSourceId() {
-  return (
-    process.env.NOTION_ABSENCE_DATA_SOURCE_ID ??
-    process.env.NOTION_ATTENDANCE_DATA_SOURCE_ID ??
-    "19ef0120-80a7-805c-ae16-000b7b414034"
-  );
+  const configured = process.env.NOTION_ABSENCE_DATA_SOURCE_ID ?? process.env.NOTION_ATTENDANCE_DATA_SOURCE_ID;
+  if (!configured || DEPRECATED_ATTENDANCE_DATA_SOURCE_IDS.has(configured)) return ABSENCE_DB_DATA_SOURCE_ID;
+  return configured;
 }
