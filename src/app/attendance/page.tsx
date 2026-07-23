@@ -201,9 +201,9 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
           return lesson.enrolled && ((subject && label.includes(subject)) || (className && label.includes(className)));
         }) ?? found.find((lesson) => lesson.enrolled) ?? found[0];
         setLessonId(recommended?.id ?? "");
-        if (!campusFromLineManagedName(lineManagedNames[0])) setCampus(recommended?.campus ?? selectedStudent?.campus ?? "");
+        if (!campus && !campusFromLineManagedName(lineManagedNames[0])) setCampus(recommended?.campus ?? selectedStudent?.campus ?? "");
       });
-  }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId, lineManagedNames, selectedStudent?.campus]);
+  }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId, campus, lineManagedNames, selectedStudent?.campus]);
 
   const currentLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
   const selectedLesson = currentLesson && (!campus || currentLesson.campus === campus) ? currentLesson : null;
