@@ -17,7 +17,9 @@
     "export:line-manager-contacts": "node scripts/export-line-manager-contacts.mjs",
     "import:line-manager-aliases": "node scripts/import-line-manager-aliases.mjs",
     "export:line-profiles": "node scripts/export-line-profiles.mjs",
-    "link:students": "node scripts/link-students-from-line-history.mjs"
+    "link:students": "node scripts/link-students-from-line-history.mjs",
+    "test:attendance": "node --test tests/attendance.test.mjs",
+    "test": "npm run test:attendance"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",

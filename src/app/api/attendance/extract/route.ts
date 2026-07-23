@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { attendanceEventType, normalizeAttendanceItems, normalizeAttendanceText } from "@/lib/attendance-extract-logic.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,81 +34,6 @@ type AiAttendance = {
   reason?: string;
   items?: AiAttendanceItem[];
 };
-
-const validEventTypes = new Set<AttendanceEventType>(["absence", "late", "reschedule_request", "other"]);
-
-function normalize(value: string) {
-  return value.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
-}
-
-function isIsoDate(value: string | null | undefined): value is string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value ?? "");
-}
-
-function eventType(value: string | null | undefined): AttendanceEventType {
-  return validEventTypes.has(value as AttendanceEventType) ? value as AttendanceEventType : "other";
-}
-
-function fallbackReason(value: AttendanceEventType) {
-  if (value === "late") return "遅刻連絡";
-  if (value === "reschedule_request") return "振替希望";
-  if (value === "other") return "連絡";
-  return "欠席連絡";
-}
-
-function expandDates(start: string | null | undefined, end: string | null | undefined) {
-  if (!isIsoDate(start)) return [];
-  if (!isIsoDate(end) || end < start) return [start];
-  const dates: string[] = [];
-  const current = new Date(`${start}T00:00:00+09:00`);
-  const last = new Date(`${end}T00:00:00+09:00`);
-  while (current <= last && dates.length < 31) {
-    dates.push(current.toISOString().slice(0, 10));
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-  return dates;
-}
-
-function normalizeItems(ai: AiAttendance) {
-  const rawItems = Array.isArray(ai.items) && ai.items.length > 0 ? ai.items : [{
-    event_type: ai.event_type,
-    event_date: ai.event_date,
-    date_start: ai.date_start,
-    date_end: ai.date_end,
-    subject: ai.subject,
-    class_name: ai.class_name,
-    summary: ai.summary,
-    reason: ai.reason,
-  }];
-  const rows: Array<{
-    event_type: AttendanceEventType;
-    event_date: string | null;
-    suggested_subject: string | null;
-    suggested_class_name: string | null;
-    ai_summary: string;
-  }> = [];
-  for (const item of rawItems) {
-    const type = eventType(item.event_type ?? ai.event_type);
-    const dates = expandDates(item.date_start ?? item.event_date ?? ai.date_start ?? ai.event_date, item.date_end ?? ai.date_end);
-    const targetDates = dates.length > 0 ? dates : [null];
-    for (const date of targetDates) {
-      rows.push({
-        event_type: type,
-        event_date: date,
-        suggested_subject: item.subject ?? ai.subject ?? null,
-        suggested_class_name: item.class_name ?? ai.class_name ?? null,
-        ai_summary: item.summary ?? ai.summary ?? item.reason ?? ai.reason ?? fallbackReason(type),
-      });
-    }
-  }
-  const seen = new Set<string>();
-  return rows.filter((row) => {
-    const key = [row.event_type, row.event_date ?? "", normalize(row.suggested_subject ?? ""), normalize(row.suggested_class_name ?? ""), normalize(row.ai_summary)].join("|");
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 40);
-}
 
 async function extractWithAi(input: { text: string; receivedAt: string; displayName: string | null }) {
   const key = process.env.GROQ_API_KEY;
@@ -179,17 +105,17 @@ export async function POST(request: Request) {
         ignored += 1;
         continue;
       }
-      const items = normalizeItems(ai);
+      const items = normalizeAttendanceItems(ai);
       const firstItem = items[0];
       const student = ai.student_name
-        ? (roster ?? []).find((row) => normalize(String(row.student_name)) === normalize(ai.student_name!))
+        ? (roster ?? []).find((row) => normalizeAttendanceText(String(row.student_name)) === normalizeAttendanceText(ai.student_name!))
         : null;
       const confidence = Math.max(0, Math.min(1, Number(ai.confidence) || 0));
       const { data: candidate, error: insertError } = await supabase.from("attendance_candidates").insert({
         source_message_id: message.id,
         student_number: student?.student_number ?? null,
         suggested_student_name: ai.student_name ?? null,
-        event_type: firstItem?.event_type ?? eventType(ai.event_type),
+        event_type: firstItem?.event_type ?? attendanceEventType(ai.event_type),
         event_date: firstItem?.event_date ?? null,
         suggested_subject: firstItem?.suggested_subject ?? ai.subject ?? null,
         suggested_class_name: firstItem?.suggested_class_name ?? ai.class_name ?? null,
@@ -223,3 +149,5 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ ok: true, processed: targets.length, candidates, ignored, failed });
 }
+
+
