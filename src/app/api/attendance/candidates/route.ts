@@ -71,7 +71,7 @@ function buildStudentSuggestions(input: {
   roster: RosterRow[];
   accountsByLineUserId: Map<string, LineAccountRow[]>;
   linksByLineUserId: Map<string, string[]>;
-  aliases: { line_user_id: string; alias_name: string | null }[];
+  aliases: { line_user_id: string; alias_name: string | null; group_name?: string | null }[];
 }) {
   const rosterByNumber = new Map(input.roster.map((student) => [student.student_number, student]));
   const suggestions = new Map<string, StudentSuggestion>();
@@ -120,7 +120,7 @@ function buildStudentSuggestions(input: {
 function buildSenderProfile(input: {
   lineMessage: LineMessageRow | null;
   accounts: LineAccountRow[];
-  aliases: { line_user_id: string; alias_name: string | null }[];
+  aliases: { line_user_id: string; alias_name: string | null; group_name?: string | null }[];
 }): SenderProfile {
   const lineUserId = input.lineMessage?.line_user_id;
   const lineAliases = lineUserId ? input.aliases.filter((alias) => alias.line_user_id === lineUserId) : [];
@@ -143,7 +143,7 @@ export async function GET(request: Request) {
     supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher"),
     supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary"),
     supabase.from("student_line_links").select("student_number,line_user_id"),
-    supabase.from("line_user_aliases").select("line_user_id,alias_name"),
+    supabase.from("line_user_aliases").select("line_user_id,alias_name,group_name"),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const rosterRows = (roster ?? []) as RosterRow[];
@@ -159,7 +159,7 @@ export async function GET(request: Request) {
     if (!linksByLineUserId.has(lineUserId)) linksByLineUserId.set(lineUserId, []);
     linksByLineUserId.get(lineUserId)!.push(link.student_number as string);
   }
-  const aliasRows = (aliases ?? []) as { line_user_id: string; alias_name: string | null }[];
+  const aliasRows = (aliases ?? []) as { line_user_id: string; alias_name: string | null; group_name: string | null }[];
   const candidates = (data ?? []).map((candidate) => {
     const lineMessage = (candidate.line_messages as LineMessageRow | null) ?? null;
     const linkedAccounts = lineMessage?.line_user_id ? accountsByLineUserId.get(lineMessage.line_user_id) ?? [] : [];

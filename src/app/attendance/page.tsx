@@ -5,9 +5,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
-type Lesson = { id: string; label: string; start_time: string | null; campus: string | null };
+type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean };
 type StudentSuggestion = Student & { score: number; reason: string };
-type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[] };
+type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[]; tag_names?: string[] };
 type Candidate = {
   id: string; student_number: string | null; suggested_student_name: string | null;
   event_type: string; event_date: string | null; lesson_id: string | null;
@@ -20,16 +20,19 @@ type Candidate = {
   lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null } | null;
 };
 
-const buttonStyle = { border: 0, borderRadius: 6, padding: "10px 14px", background: "var(--accent)", color: "white", fontWeight: 700, cursor: "pointer" } as const;
-const secondaryButtonStyle = { ...buttonStyle, background: "#555" } as const;
-const ghostButtonStyle = { border: "1px solid var(--line)", borderRadius: 6, padding: "8px 10px", background: "white", color: "#222", fontWeight: 700, cursor: "pointer" } as const;
-const inputStyle = { width: "100%", padding: "9px", border: "1px solid var(--line)", borderRadius: 6, background: "white" } as const;
-const readonlyStyle = { ...inputStyle, minHeight: 38, background: "#f7f7f4", display: "flex", alignItems: "center" } as const;
-const replyTemplates = [
+const defaultReplyTemplates = [
   "ご連絡ありがとうございます。承知しました。本日の授業は欠席として登録いたします。",
   "ご連絡ありがとうございます。お大事になさってください。本日の授業は欠席として登録いたします。",
   "承知しました。振替が必要な場合はこちらで確認いたします。",
 ];
+
+const buttonStyle = { border: 0, borderRadius: 6, padding: "10px 14px", background: "var(--accent)", color: "white", fontWeight: 700, cursor: "pointer" } as const;
+const secondaryButtonStyle = { ...buttonStyle, background: "#555" } as const;
+const dangerButtonStyle = { ...buttonStyle, background: "#b42318" } as const;
+const ghostButtonStyle = { border: "1px solid var(--line)", borderRadius: 6, padding: "8px 10px", background: "white", color: "#222", fontWeight: 700, cursor: "pointer" } as const;
+const inputStyle = { width: "100%", padding: "9px", border: "1px solid var(--line)", borderRadius: 6, background: "white" } as const;
+const readonlyStyle = { ...inputStyle, minHeight: 38, background: "#f7f7f4", display: "flex", alignItems: "center" } as const;
+const tagStyle = { display: "inline-flex", alignItems: "center", border: "1px solid #b7d7c2", background: "#f2fbf5", borderRadius: 6, padding: "3px 7px", color: "#087a3d", fontSize: 12, fontWeight: 700 } as const;
 
 function campusFromLineManagedName(value: string | null | undefined) {
   const normalized = (value ?? "").normalize("NFKC");
@@ -48,9 +51,20 @@ function uniqueByNumber(students: Student[]) {
   });
 }
 
+function lessonsByTime(lessons: Lesson[]) {
+  return lessons.reduce<Array<{ time: string; lessons: Lesson[] }>>((groups, lesson) => {
+    const time = lesson.start_time ?? "時刻なし";
+    const current = groups.find((group) => group.time === time);
+    if (current) current.lessons.push(lesson);
+    else groups.push({ time, lessons: [lesson] });
+    return groups;
+  }, []);
+}
+
 export default function AttendancePage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [replyTemplates, setReplyTemplates] = useState(defaultReplyTemplates);
   const [confirmedBy, setConfirmedBy] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -63,14 +77,30 @@ export default function AttendancePage() {
   useEffect(() => {
     async function initialize() {
       try {
-        const [, studentBody] = await Promise.all([load(), fetch("/api/attendance/students").then((res) => res.json())]);
+        const [, studentBody, templateBody] = await Promise.all([
+          load(),
+          fetch("/api/attendance/students").then((res) => res.json()),
+          fetch("/api/attendance/reply-templates").then((res) => res.json()),
+        ]);
         setStudents(studentBody.students ?? []);
+        setReplyTemplates(templateBody.templates ?? defaultReplyTemplates);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : String(error));
       }
     }
     void initialize();
   }, [load]);
+
+  async function updateReplyTemplates(nextTemplates: string[]) {
+    const response = await fetch("/api/attendance/reply-templates", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templates: nextTemplates }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error ?? "文案の保存に失敗しました");
+    setReplyTemplates(body.templates ?? nextTemplates);
+  }
 
   async function analyze() {
     setBusy(true); setMessage("LINEを解析しています...");
@@ -95,15 +125,16 @@ export default function AttendancePage() {
     </section>
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
       {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>未確認の欠席候補はありません。</section>}
-      {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} onChanged={load} setMessage={setMessage} />)}
+      {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
     </div>
   </main>;
 }
 
-function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
+function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
   const lineManagedNames = useMemo(() => (candidate.sender_profile?.alias_names ?? [])
     .filter((value, index, values) => values.indexOf(value) === index), [candidate.sender_profile?.alias_names]);
   const lineManagedName = lineManagedNames.length > 0 ? lineManagedNames.join(" / ") : "未登録";
+  const lineTagNames = candidate.sender_profile?.tag_names ?? [];
   const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? "不明";
   const titleName = `${lineManagedName}（${senderDisplayName}）`;
   const initialStudentNumber = candidate.student_number ?? candidate.student_suggestions?.[0]?.student_number ?? "";
@@ -116,8 +147,11 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   const [reason] = useState(candidate.ai_summary ?? "欠席連絡");
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
-  const [replyText, setReplyText] = useState(replyTemplates[0]);
+  const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
+  const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
   const suggestionNumbers = useMemo(() => new Set(suggestions.map((student) => student.student_number)), [suggestions]);
   const studentOptions = useMemo(() => uniqueByNumber([
@@ -147,18 +181,37 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
         const className = normalize(candidate.suggested_class_name);
         const recommended = found.find((lesson) => {
           const label = normalize(lesson.label);
-          return (subject && label.includes(subject)) || (className && label.includes(className));
-        }) ?? found[0];
+          return lesson.enrolled && ((subject && label.includes(subject)) || (className && label.includes(className)));
+        }) ?? found.find((lesson) => lesson.enrolled) ?? found[0];
         setLessonId(recommended?.id ?? "");
         if (!campusFromLineManagedName(lineManagedNames[0])) setCampus(recommended?.campus ?? selectedStudent?.campus ?? "");
       });
   }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId, lineManagedNames, selectedStudent?.campus]);
 
   const selectedLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
+  const lessonGroups = lessonsByTime(lessons);
 
   function selectStudent(value: string) {
     setStudentNumber(value);
     setLessonId("");
+  }
+
+  function selectTemplate(index: number) {
+    setSelectedTemplateIndex(index);
+    setReplyText(replyTemplates[index] ?? "");
+  }
+
+  async function saveCurrentTemplate() {
+    if (!replyText.trim()) { setCardMessage("保存する文案を入力してください。"); return; }
+    setSavingTemplate(true);
+    setCardMessage("");
+    try {
+      const nextTemplates = [...replyTemplates];
+      nextTemplates[selectedTemplateIndex] = replyText.trim();
+      await onReplyTemplatesChanged(nextTemplates);
+      setCardMessage(`文案${selectedTemplateIndex + 1}を更新しました。`);
+    } catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setSavingTemplate(false); }
   }
 
   async function save() {
@@ -194,6 +247,28 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
     finally { setBusy(false); }
   }
 
+  async function sendReply() {
+    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!replyText.trim()) { setCardMessage("返信文を入力してください。"); return; }
+    if (!window.confirm(`${titleName} にLINE返信を送信します。よろしいですか？`)) return;
+    setSending(true);
+    setCardMessage("LINEへ送信しています...");
+    try {
+      const response = await fetch(`/api/attendance/candidates/${candidate.id}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: replyText, sent_by: confirmedBy }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(body.line_delivered ? "LINE送信済みですが履歴保存に失敗しました。再送しないでください。" : body.error ?? "LINE送信に失敗しました");
+      }
+      setCardMessage("LINEへ送信しました。");
+      setMessage("LINEへ送信しました。");
+    } catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setSending(false); }
+  }
+
   async function dismiss() {
     if (!window.confirm("この候補を対応不要にしますか？")) return;
     await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "DELETE" });
@@ -210,22 +285,27 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
       <strong style={{ fontSize: 18 }}>{titleName}</strong>
       <span style={{ color: "#666", fontSize: 13 }}>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
     </div>
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 24, marginTop: 8 }}>
+      {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
+    </div>
 
     <div style={{ margin: "14px 0", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
 
     <div style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(180px,260px)", gap: 12, alignItems: "start", marginBottom: 16 }}>
-      <label style={{ display: "grid", gap: 6 }}><span>返信文案</span><textarea style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6 }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
+      <label style={{ display: "grid", gap: 6 }}><span>返信文</span><textarea style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6 }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
       <div style={{ display: "grid", gap: 8 }}>
         <span style={{ fontSize: 13, color: "#555" }}>文案</span>
-        {replyTemplates.map((template, index) => <button key={template} type="button" style={ghostButtonStyle} onClick={() => setReplyText(template)}>文案{index + 1}</button>)}
+        {replyTemplates.map((template, index) => <button key={`${index}:${template}`} type="button" style={selectedTemplateIndex === index ? buttonStyle : ghostButtonStyle} onClick={() => selectTemplate(index)}>文案{index + 1}</button>)}
+        <button type="button" style={ghostButtonStyle} disabled={savingTemplate} onClick={saveCurrentTemplate}>{savingTemplate ? "保存中..." : `文案${selectedTemplateIndex + 1}を更新`}</button>
         <button type="button" style={secondaryButtonStyle} onClick={copyReply}>コピー</button>
+        <button type="button" style={dangerButtonStyle} disabled={sending} onClick={sendReply}>{sending ? "送信中..." : "LINEへ送信"}</button>
       </div>
     </div>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
       <label>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>
       <label>授業校舎<select style={inputStyle} value={campus} onChange={(event) => setCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
-      <label>授業<select style={inputStyle} value={lessonId} onChange={(event) => setLessonId(event.target.value)}><option value="">要選択</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.start_time ?? "時刻なし"} {lesson.label} {lesson.campus ?? ""}</option>)}</select></label>
+      <label>授業<div style={readonlyStyle}>{selectedLesson ? `${selectedLesson.start_time ?? "時刻なし"} ${selectedLesson.label}` : "要選択"}</div></label>
       <label>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
         const suggestion = suggestions.find((item) => item.student_number === student.student_number);
         const suffix = suggestion ? ` / ${suggestion.reason}` : "";
@@ -234,8 +314,22 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
       <label>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
     </div>
 
-    {selectedLesson && <p style={{ marginTop: 8, color: "#666", fontSize: 13 }}>選択中の授業: {selectedLesson.start_time ?? "時刻なし"} {selectedLesson.label} {selectedLesson.campus ?? ""}</p>}
-    {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") || cardMessage.includes("コピー") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
+    <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+      {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>この日の授業は見つかりませんでした。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gap: 6 }}>
+        <div style={{ color: "#555", fontSize: 13, fontWeight: 700 }}>{group.time}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 }}>
+          {group.lessons.map((lesson) => {
+            const selected = lesson.id === lessonId;
+            const enrolled = Boolean(lesson.enrolled);
+            return <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? campus); }} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: 10, background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}>
+              <strong>{lesson.label}</strong>
+              <div style={{ color: "#666", fontSize: 12, marginTop: 3 }}>{[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")}</div>
+            </button>;
+          })}
+        </div>
+      </div>)}
+    </div>
+    {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy} onClick={confirmCandidate}>{busy ? "登録中..." : "確認してNotionへ登録"}</button><button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button></div>
   </section>;
 }
