@@ -140,7 +140,7 @@ export async function GET(request: Request) {
   const [{ data, error }, { data: roster }, { data: accounts }, { data: links }, { data: aliases }] = await Promise.all([
     supabase
       .from("attendance_candidates")
-      .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),line_messages(text,received_at,display_name,line_user_id)")
+      .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(text,received_at,display_name,line_user_id)")
       .in("status", statusList)
       .order("created_at", { ascending: false }),
     supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher"),
@@ -189,3 +189,4 @@ export async function GET(request: Request) {
   });
   return NextResponse.json({ candidates });
 }
+

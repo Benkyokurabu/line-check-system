@@ -8,16 +8,26 @@ type Student = { student_number: string; student_name: string; grade: string; ca
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean };
 type StudentSuggestion = Student & { score: number; reason: string };
 type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[]; tag_names?: string[] };
+type CandidateItem = {
+  id: string; event_type: string; event_date: string | null; lesson_id: string | null;
+  suggested_subject: string | null; suggested_class_name: string | null; ai_summary: string | null;
+  status: string; notion_error: string | null; lessons: Lesson | null;
+};
 type Candidate = {
   id: string; student_number: string | null; suggested_student_name: string | null;
   event_type: string; event_date: string | null; lesson_id: string | null;
   suggested_subject: string | null; suggested_class_name: string | null;
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
   status: string; notion_error: string | null;
+  attendance_candidate_items?: CandidateItem[];
   sender_profile?: SenderProfile;
   student_suggestions?: StudentSuggestion[];
   student_roster: { student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null } | null;
   lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null } | null;
+};
+type EditableItem = {
+  client_id: string; id?: string; event_type: string; event_date: string; campus: string; lesson_id: string;
+  suggested_subject: string | null; suggested_class_name: string | null; ai_summary: string; status?: string;
 };
 
 const defaultReplyTemplates = [
@@ -62,16 +72,6 @@ function uniqueByNumber(students: Student[]) {
   });
 }
 
-function lessonsByTime(lessons: Lesson[]) {
-  return lessons.reduce<Array<{ time: string; lessons: Lesson[] }>>((groups, lesson) => {
-    const time = lesson.start_time ?? "時刻なし";
-    const current = groups.find((group) => group.time === time);
-    if (current) current.lessons.push(lesson);
-    else groups.push({ time, lessons: [lesson] });
-    return groups;
-  }, []);
-}
-
 function formatReceivedAt(value: string | null | undefined) {
   if (!value) return "受信日時不明";
   const date = new Date(value);
@@ -83,6 +83,41 @@ function formatReceivedAt(value: string | null | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function normalizeLessonText(value: string | null | undefined) {
+  return (value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+}
+
+function makeClientId() {
+  return Math.random().toString(36).slice(2);
+}
+
+function initialItems(candidate: Candidate, initialCampus: string) {
+  const source = (candidate.attendance_candidate_items ?? []).length > 0 ? candidate.attendance_candidate_items! : [{
+    id: "", event_type: candidate.event_type, event_date: candidate.event_date, lesson_id: candidate.lesson_id,
+    suggested_subject: candidate.suggested_subject, suggested_class_name: candidate.suggested_class_name,
+    ai_summary: candidate.ai_summary, status: candidate.status, notion_error: candidate.notion_error, lessons: candidate.lessons,
+  }];
+  return source.map((item) => ({
+    client_id: item.id || makeClientId(),
+    id: item.id || undefined,
+    event_type: item.event_type || candidate.event_type || "absence",
+    event_date: item.event_date ?? "",
+    campus: item.lessons?.campus ?? initialCampus,
+    lesson_id: item.lesson_id ?? "",
+    suggested_subject: item.suggested_subject,
+    suggested_class_name: item.suggested_class_name,
+    ai_summary: item.ai_summary ?? fallbackReason(item.event_type || candidate.event_type),
+    status: item.status,
+  }));
+}
+
+function candidateLesson(candidate: Candidate, item: EditableItem) {
+  const itemLesson = candidate.attendance_candidate_items?.find((source) => source.id === item.id)?.lessons;
+  if (itemLesson) return itemLesson;
+  if (candidate.lesson_id === item.lesson_id) return candidate.lessons;
+  return null;
 }
 
 export default function AttendancePage() {
@@ -165,13 +200,9 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const initialStudentNumber = candidate.student_number ?? candidate.student_suggestions?.[0]?.student_number ?? "";
   const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
-  const [date, setDate] = useState(candidate.event_date ?? "");
-  const [eventType, setEventType] = useState(candidate.event_type);
-  const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
-  const [campus, setCampus] = useState(initialCampus);
-  const [reason, setReason] = useState(candidate.ai_summary ?? fallbackReason(candidate.event_type));
+  const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus));
   const registered = candidate.status === "confirmed";
-  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [lessonLists, setLessonLists] = useState<Record<string, Lesson[]>>({});
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -193,41 +224,56 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       homeroom_teacher: candidate.student_roster.homeroom_teacher,
     } : null
   );
+  const datesKey = useMemo(() => [...new Set(items.map((item) => item.event_date).filter(Boolean))].sort().join("|"), [items]);
 
   useEffect(() => {
-    if (!date) return;
-    fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
-      .then((res) => res.json())
-      .then((body) => {
-        const found = (body.lessons ?? []) as Lesson[];
-        setLessons(found);
-        if (found.some((lesson) => lesson.id === lessonId)) return;
-        const normalize = (value: string | null | undefined) => (value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
-        const subject = normalize(candidate.suggested_subject);
-        const className = normalize(candidate.suggested_class_name);
-        const recommended = found.find((lesson) => {
-          const label = normalize(lesson.label);
-          return lesson.enrolled && ((subject && label.includes(subject)) || (className && label.includes(className)));
-        }) ?? found.find((lesson) => lesson.enrolled) ?? found[0];
-        setLessonId(recommended?.id ?? "");
-        if (!campus && !campusFromLineManagedName(lineManagedNames[0])) setCampus(recommended?.campus ?? selectedStudent?.campus ?? "");
-      });
-  }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId, campus, lineManagedNames, selectedStudent?.campus]);
+    const dates = datesKey ? datesKey.split("|") : [];
+    for (const date of dates) {
+      fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
+        .then((res) => res.json())
+        .then((body) => {
+          const found = (body.lessons ?? []) as Lesson[];
+          setLessonLists((current) => ({ ...current, [date]: found }));
+          setItems((currentItems) => currentItems.map((item) => {
+            if (item.event_date !== date || item.lesson_id) return item;
+            const subject = normalizeLessonText(item.suggested_subject);
+            const className = normalizeLessonText(item.suggested_class_name);
+            const recommended = found.find((lesson) => {
+              const label = normalizeLessonText(lesson.label);
+              return lesson.enrolled && ((subject && label.includes(subject)) || (className && label.includes(className)));
+            }) ?? found.find((lesson) => lesson.enrolled) ?? null;
+            if (!recommended) return item;
+            return { ...item, lesson_id: recommended.id, campus: item.campus || recommended.campus || selectedStudent?.campus || "" };
+          }));
+        });
+    }
+  }, [datesKey, studentNumber, selectedStudent?.campus]);
 
-  const currentLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
-  const selectedLesson = currentLesson && (!campus || currentLesson.campus === campus) ? currentLesson : null;
-  const filteredLessons = campus ? lessons.filter((lesson) => lesson.campus === campus) : lessons;
-  const lessonGroups = lessonsByTime(filteredLessons);
+  function updateItem(clientId: string, patch: Partial<EditableItem>) {
+    setItems((current) => current.map((item) => item.client_id === clientId ? { ...item, ...patch } : item));
+  }
 
   function selectStudent(value: string) {
     setStudentNumber(value);
-    setLessonId("");
+    setItems((current) => current.map((item) => ({ ...item, lesson_id: "" })));
   }
 
-  function selectCampus(value: string) {
-    setCampus(value);
-    const selected = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
-    if (value && selected?.campus !== value) setLessonId("");
+  function addItem() {
+    const previous = items[items.length - 1];
+    setItems((current) => [...current, {
+      client_id: makeClientId(),
+      event_type: previous?.event_type ?? candidate.event_type ?? "absence",
+      event_date: previous?.event_date ?? candidate.event_date ?? "",
+      campus: previous?.campus ?? initialCampus,
+      lesson_id: "",
+      suggested_subject: null,
+      suggested_class_name: null,
+      ai_summary: previous?.ai_summary ?? fallbackReason(candidate.event_type),
+    }]);
+  }
+
+  function removeItem(clientId: string) {
+    setItems((current) => current.length <= 1 ? current : current.filter((item) => item.client_id !== clientId));
   }
 
   function selectTemplate(index: number) {
@@ -249,10 +295,25 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   async function save() {
+    const firstItem = items[0];
     const response = await fetch(`/api/attendance/candidates/${candidate.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason.trim() || fallbackReason(eventType) }),
+      body: JSON.stringify({
+        student_number: studentNumber,
+        event_date: firstItem?.event_date || null,
+        event_type: firstItem?.event_type || candidate.event_type,
+        lesson_id: firstItem?.lesson_id || null,
+        ai_summary: firstItem?.ai_summary?.trim() || fallbackReason(firstItem?.event_type || candidate.event_type),
+        items: items.map((item) => ({
+          event_type: item.event_type,
+          event_date: item.event_date || null,
+          lesson_id: item.lesson_id || null,
+          suggested_subject: item.suggested_subject,
+          suggested_class_name: item.suggested_class_name,
+          ai_summary: item.ai_summary.trim() || fallbackReason(item.event_type),
+        })),
+      }),
     });
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
   }
@@ -260,9 +321,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   async function confirmCandidate() {
     if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
     if (!studentNumber) { setCardMessage("名前を選択してください。"); return; }
-    if (!date) { setCardMessage("日付を入力してください。"); return; }
-    if (!campus) { setCardMessage("授業校舎を選択してください。"); return; }
-    if (!lessonId) { setCardMessage("授業を選択してください。"); return; }
+    const invalid = items.find((item) => !item.event_date || !item.campus || !item.lesson_id || !item.ai_summary.trim());
+    if (invalid) { setCardMessage("すべての登録行で、日付・校舎・授業・理由を入力してください。"); return; }
     setBusy(true);
     setCardMessage("Notionへ登録しています...");
     try {
@@ -270,11 +330,11 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmed_by: confirmedBy, campus }),
+        body: JSON.stringify({ confirmed_by: confirmedBy }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Notion登録に失敗しました");
-      setCardMessage("Notionへ登録しました。");
+      setCardMessage(`${body.notion_page_ids?.length ?? 1}行をNotionへ登録しました。`);
       setMessage("Notionへ登録しました。");
       await onChanged();
     } catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
@@ -317,7 +377,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   return <section className="panel" style={{ padding: 20 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
       <strong style={{ fontSize: 18 }}>{titleName}</strong>
-      <span style={{ color: registered ? "#087a3d" : "#666", fontSize: 13 }}>{registered ? "登録済み / " : ""}{eventTypeLabel(eventType)} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+      <span style={{ color: registered ? "#087a3d" : "#666", fontSize: 13 }}>{registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
     </div>
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 24, marginTop: 8 }}>
       {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
@@ -337,12 +397,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       </div>
     </div>
 
-    <label style={{ display: "grid", gap: 6, marginBottom: 12 }}><span>理由</span><div style={{ display: "grid", gridTemplateColumns: "130px 140px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={eventType} onChange={(event) => { setEventType(event.target.value); if (!reason.trim() || reason === fallbackReason(eventType)) setReason(fallbackReason(event.target.value)); }}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select style={inputStyle} value={reasonOptions.includes(reason) ? reason : ""} onChange={(event) => { if (event.target.value) setReason(event.target.value); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例：体調不良 / 遅刻連絡" /></div></label>
-
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
-      <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>
-      <label style={fieldStyle}>授業<div style={readonlyStyle}>{selectedLesson ? selectedLesson.label : "要選択"}</div></label>
-      <label style={fieldStyle}>校舎<select style={inputStyle} value={campus} onChange={(event) => selectCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(160px,220px) minmax(0,1fr)", gap: 12, marginBottom: 12 }}>
       <label style={fieldStyle}>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
         const suggestion = suggestions.find((item) => item.student_number === student.student_number);
         const suffix = suggestion ? ` / ${suggestion.reason}` : "";
@@ -351,20 +406,32 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
     </div>
 
-    <div style={{ display: "grid", gap: 6, marginTop: 14 }}>
-      {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{campus ? `${campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "70px minmax(0,1fr)", gap: 8, alignItems: "center" }}>
-        <div style={{ color: "#555", fontSize: 13, fontWeight: 700 }}>{group.time}</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
-          {group.lessons.map((lesson) => {
-            const selected = lesson.id === lessonId;
-            const enrolled = Boolean(lesson.enrolled);
-            return <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? campus); }} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
-              <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
-            </button>;
-          })}
-        </div>
-      </div>)}
+    <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <strong>Notion登録行</strong>
+        {!registered && <button type="button" style={ghostButtonStyle} onClick={addItem}>行を追加</button>}
+      </div>
+      {items.map((item, index) => {
+        const lessons = item.event_date ? lessonLists[item.event_date] ?? [] : [];
+        const currentLesson = lessons.find((lesson) => lesson.id === item.lesson_id) ?? candidateLesson(candidate, item);
+        const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus) : lessons;
+        return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 8, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "110px 120px 130px minmax(140px,1fr) minmax(190px,1.4fr) 42px", gap: 8, alignItems: "end" }}>
+            <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
+            <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={registered} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+            <label style={fieldStyle}>授業<select style={inputStyle} value={item.lesson_id} disabled={registered} onChange={(event) => {
+              const lesson = lessons.find((entry) => entry.id === event.target.value);
+              updateItem(item.client_id, { lesson_id: event.target.value, campus: lesson?.campus ?? item.campus });
+            }}><option value="">要選択</option>{filteredLessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.label}{lesson.enrolled ? " / 受講中" : ""}</option>)}</select></label>
+            <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={registered} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={registered} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
+            <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={registered || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
+          </div>
+          <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {currentLesson?.label ?? "授業未選択"}</div>
+        </div>;
+      })}
     </div>
+
     {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>
   </section>;

@@ -64,6 +64,31 @@ create index if not exists attendance_candidates_status_idx
 create index if not exists attendance_candidates_student_idx
   on public.attendance_candidates (student_number, event_date desc);
 
+create table if not exists public.attendance_candidate_items (
+  id uuid primary key default gen_random_uuid(),
+  candidate_id uuid not null references public.attendance_candidates (id) on delete cascade,
+  event_type text not null default 'absence',
+  event_date date,
+  lesson_id uuid references public.lessons (id) on delete set null,
+  suggested_subject text,
+  suggested_class_name text,
+  ai_summary text,
+  status text not null default 'pending',
+  notion_page_id text,
+  notion_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint attendance_candidate_items_event_type_check
+    check (event_type in ('absence', 'late', 'reschedule_request', 'other')),
+  constraint attendance_candidate_items_status_check
+    check (status in ('pending', 'confirmed', 'notion_failed', 'dismissed'))
+);
+
+create index if not exists attendance_candidate_items_candidate_idx
+  on public.attendance_candidate_items (candidate_id, event_date, created_at);
+create index if not exists attendance_candidate_items_status_idx
+  on public.attendance_candidate_items (status, event_date, created_at desc);
+
 do $$
 begin
   if not exists (
@@ -81,3 +106,4 @@ begin
       for each row execute function public.set_updated_at();
   end if;
 end $$;
+
