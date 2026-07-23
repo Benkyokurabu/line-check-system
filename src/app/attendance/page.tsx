@@ -61,6 +61,19 @@ function lessonsByTime(lessons: Lesson[]) {
   }, []);
 }
 
+function formatReceivedAt(value: string | null | undefined) {
+  if (!value) return "受信日時不明";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "受信日時不明";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default function AttendancePage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -137,6 +150,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const lineTagNames = candidate.sender_profile?.tag_names ?? [];
   const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? "不明";
   const titleName = `${lineManagedName}（${senderDisplayName}）`;
+  const receivedAtText = formatReceivedAt(candidate.line_messages?.received_at);
   const initialStudentNumber = candidate.student_number ?? candidate.student_suggestions?.[0]?.student_number ?? "";
   const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
@@ -297,7 +311,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
     </div>
 
-    <div style={{ margin: "14px 0", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
+    <div style={{ color: "#666", fontSize: 13, fontWeight: 700, marginTop: 12 }}>受信日時: {receivedAtText}</div>
+    <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
 
     <div style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(180px,260px)", gap: 12, alignItems: "start", marginBottom: 16 }}>
       <label style={{ display: "grid", gap: 6 }}><span>返信文</span><textarea style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6 }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
