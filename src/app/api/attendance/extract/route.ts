@@ -22,7 +22,7 @@ function normalize(value: string) {
   return value.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
 }
 
-async function extractWithAi(input: { text: string; receivedAt: string }) {
+async function extractWithAi(input: { text: string; receivedAt: string; displayName: string | null }) {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error("GROQ_API_KEY is not configured");
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -35,13 +35,14 @@ async function extractWithAi(input: { text: string; receivedAt: string }) {
       messages: [
         {
           role: "system",
-          content: "日本の学習塾へのLINEから欠席・遅刻・振替希望を抽出する。推測を確定扱いせずJSONのみ返す。今日・明日はreceived_atの日本時間を基準にYYYY-MM-DDへ直す。本文に生徒名がなければstudent_nameは空にする。",
+          content: "日本の学習塾へのLINEから欠席・遅刻・振替希望を抽出する。推測を確定扱いせずJSONのみ返す。今日・明日はreceived_atの日本時間を基準にYYYY-MM-DDへ直す。本文に生徒名がなければsender_display_nameも参考にする。",
         },
         {
           role: "user",
           content: JSON.stringify({
             instruction: "{is_attendance,student_name,event_type,event_date,subject,class_name,summary,confidence,reason}を返す。対象外はis_attendance=false。event_typeはabsence/late/reschedule_request/other。生徒や日付が不明でも欠席系ならtrueにする。summaryはNotionの理由欄用に「体調不良」「学校行事」など2〜10文字程度にする。",
             received_at: input.receivedAt,
+            sender_display_name: input.displayName,
             message: input.text,
           }),
         },
@@ -68,11 +69,11 @@ export async function POST(request: Request) {
   const since = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: messages, error } = await supabase
     .from("line_messages")
-    .select("id,text,received_at,created_at")
+    .select("id,text,display_name,received_at,created_at")
     .eq("direction", "inbound")
     .eq("message_type", "text")
     .gte("received_at", since)
-    .order("received_at", { ascending: true })
+    .order("received_at", { ascending: false })
     .limit(500);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const targets = (messages ?? []).filter((row) => !reviewedIds.has(row.id as string)).slice(0, limit);
@@ -84,6 +85,7 @@ export async function POST(request: Request) {
       const ai = await extractWithAi({
         text: String(message.text ?? ""),
         receivedAt: String(message.received_at ?? message.created_at),
+        displayName: typeof message.display_name === "string" ? message.display_name : null,
       });
       if (!ai.is_attendance) {
         await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "ignored" });
