@@ -23,12 +23,13 @@ function notionLessonName(lesson: { label?: string | null; source_payload?: Reco
 }
 
 function campusFromRegisteredName(value: string | null | undefined) {
-  const normalized = (value ?? "").normalize("NFKC").replace(/[ \t\r\n\u3000]/g, "");
-  if (!normalized) return null;
-  if (normalized.includes("南教室") || normalized.includes("南校") || normalized.includes("南")) return "南教室";
-  if (normalized.includes("本校")) return "本校";
+  const normalized = (value ?? "").normalize("NFKC");
+  const prefix = normalized.match(/^([本南])\s/);
+  if (prefix?.[1] === "本") return "本校";
+  if (prefix?.[1] === "南") return "南教室";
   return null;
 }
+
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const body = await request.json().catch(() => ({}));
