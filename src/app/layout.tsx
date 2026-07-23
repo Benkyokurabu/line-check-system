@@ -3,7 +3,7 @@ import "./globals.css";
 import { HomeLink } from "./HomeLink";
 
 export const metadata: Metadata = {
-  title: "勉たん -勉強クラブ総合アシスたんトさん-",
+  title: "勉たん（仮） -勉強クラブ総合アシスたんトさん-",
   description: "LINE official account message intake MVP for cram schools.",
 };
 
