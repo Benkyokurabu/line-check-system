@@ -6,8 +6,8 @@ const sampleThreads = [
     receivedAt: "今日 15:15",
     latestText: "今日は欠席します。あと数学の宿題について田中先生に確認お願いします。",
     items: [
-      { id: "a1", category: "欠席連絡", assignee: "受付", status: "未対応", priority: "高", summary: "本日の授業を欠席", action: "欠席登録へ", tone: "absence" },
-      { id: "a2", category: "先生確認", assignee: "田中", status: "未対応", priority: "中", summary: "数学の宿題について確認", action: "返信する", tone: "teacher" },
+      { id: "a1", category: "欠席連絡", assignee: "受付", status: "未対応", handledBy: "-", priority: "高", summary: "本日の授業を欠席", action: "欠席登録へ", tone: "absence" },
+      { id: "a2", category: "先生確認", assignee: "田中", status: "未対応", handledBy: "-", priority: "中", summary: "数学の宿題について確認", action: "返信する", tone: "teacher" },
     ],
   },
   {
@@ -17,9 +17,9 @@ const sampleThreads = [
     receivedAt: "今日 14:42",
     latestText: "数学は鈴木先生に、英語は金城先生に確認お願いします。オンラインで受けたいです。",
     items: [
-      { id: "b1", category: "先生確認", assignee: "鈴木", status: "対応中", priority: "中", summary: "数学について確認", action: "詳細", tone: "teacher" },
-      { id: "b2", category: "先生確認", assignee: "金城", status: "未対応", priority: "中", summary: "英語について確認", action: "返信する", tone: "teacher" },
-      { id: "b3", category: "受講方法", assignee: "事務", status: "未対応", priority: "低", summary: "オンライン受講希望", action: "確認", tone: "office" },
+      { id: "b1", category: "先生確認", assignee: "鈴木", status: "対応中", handledBy: "鈴木 14:50", priority: "中", summary: "数学について確認", action: "詳細", tone: "teacher" },
+      { id: "b2", category: "先生確認", assignee: "金城", status: "未対応", handledBy: "-", priority: "中", summary: "英語について確認", action: "返信する", tone: "teacher" },
+      { id: "b3", category: "受講方法", assignee: "事務", status: "未対応", handledBy: "-", priority: "低", summary: "オンライン受講希望", action: "確認", tone: "office" },
     ],
   },
   {
@@ -29,8 +29,8 @@ const sampleThreads = [
     receivedAt: "昨日 19:08",
     latestText: "熱があるため明日と明後日の英語をお休みします。振替も相談したいです。",
     items: [
-      { id: "c1", category: "欠席連絡", assignee: "受付", status: "未対応", priority: "高", summary: "明日・明後日の英語を欠席", action: "欠席登録へ", tone: "absence" },
-      { id: "c2", category: "振替相談", assignee: "事務", status: "未対応", priority: "中", summary: "振替日程の相談", action: "候補確認", tone: "office" },
+      { id: "c1", category: "欠席連絡", assignee: "受付", status: "未対応", handledBy: "-", priority: "高", summary: "明日・明後日の英語を欠席", action: "欠席登録へ", tone: "absence" },
+      { id: "c2", category: "振替相談", assignee: "事務", status: "未対応", handledBy: "-", priority: "中", summary: "振替日程の相談", action: "候補確認", tone: "office" },
     ],
   },
 ];
@@ -73,7 +73,7 @@ export default function UnhandledSamplePage() {
   return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Prototype / No data changes</p>
     <h1 style={{ fontSize: "2rem" }}>未対応案件 サンプル</h1>
-    <p>これは検証用の画面です。1通のLINEから複数の案件を切り出し、案件ごとに担当者と状態を分けて残す想定です。</p>
+    <p>これは検証用の画面です。最初に先生を選ばず、全員が全体の状態を見られる想定です。完了操作の時だけ、誰が対応したかを記録します。</p>
 
     <section className="panel" style={{ padding: 16, marginTop: 18, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -99,7 +99,7 @@ export default function UnhandledSamplePage() {
             {thread.items.map((item) => {
               const tone = toneStyle(item.tone);
               const status = statusStyle(item.status);
-              return <div key={item.id} style={{ border: `1px solid ${tone.border}`, borderLeft: `5px solid ${tone.border}`, borderRadius: 6, padding: 12, background: tone.bg, display: "grid", gridTemplateColumns: "120px 90px minmax(0,1fr) 90px 120px", gap: 10, alignItems: "center" }}>
+              return <div key={item.id} style={{ border: `1px solid ${tone.border}`, borderLeft: `5px solid ${tone.border}`, borderRadius: 6, padding: 12, background: tone.bg, display: "grid", gridTemplateColumns: "120px 90px minmax(0,1fr) 120px 90px 120px", gap: 10, alignItems: "center" }}>
                 <div style={{ display: "grid", gap: 4 }}>
                   <span style={{ color: tone.text, fontWeight: 800 }}>{item.category}</span>
                   <span style={{ color: "#59635e", fontSize: 12 }}>優先度: {item.priority}</span>
@@ -109,7 +109,7 @@ export default function UnhandledSamplePage() {
                   <div style={{ fontWeight: 700, wordBreak: "break-word" }}>{item.summary}</div>
                   <div style={{ color: "#59635e", fontSize: 12, marginTop: 3 }}>この行だけ完了しても、同じメッセージ内の他案件は残ります。</div>
                 </div>
-                <span style={{ justifySelf: "start", border: `1px solid ${status.border}`, background: status.background, color: status.color, borderRadius: 999, padding: "4px 9px", fontSize: 12, fontWeight: 800 }}>{item.status}</span>
+                <div style={{ color: "#59635e", fontSize: 12, fontWeight: 700 }}>対応: {item.handledBy}</div><span style={{ justifySelf: "start", border: `1px solid ${status.border}`, background: status.background, color: status.color, borderRadius: 999, padding: "4px 9px", fontSize: 12, fontWeight: 800 }}>{item.status}</span>
                 <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                   <button style={ghostButton}>{item.action}</button>
                   <button style={{ ...buttonStyle, padding: "8px 10px" }}>完了</button>
@@ -140,3 +140,4 @@ export default function UnhandledSamplePage() {
     </div>
   </main>;
 }
+

@@ -61,7 +61,6 @@ export default function DashboardPage() {
     const saved = window.localStorage.getItem(CURRENT_TEACHER_KEY);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved) setCurrentTeacher(canonicalTeacherName(saved));
-    else setTeacherPickerOpen(true);
 
     fetch("/api/admin/teachers")
       .then((res) => res.json())
@@ -306,10 +305,10 @@ export default function DashboardPage() {
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>{viewMode === "done" ? "完了済みメッセージ" : "未対応メッセージ"}</h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-            {currentTeacher ? `👤 ${currentTeacher}` : "先生未選択"}
+            {currentTeacher ? `対応者: ${currentTeacher}` : "全員表示"}
             {" "}
             <button onClick={() => setTeacherPickerOpen(true)} style={linkBtn}>
-              切替
+対応者を選ぶ
             </button>
           </span>
           <button onClick={toggleSearch} style={searchOpen ? btnGhostActive : btnGhost}>
@@ -475,9 +474,9 @@ export default function DashboardPage() {
       {teacherPickerOpen && (
         <div style={overlayStyle}>
           <div className="panel" style={{ padding: 20, width: 320 }}>
-            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, marginBottom: 4 }}>あなたはどの先生ですか?</h2>
+            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, marginBottom: 4 }}>対応者を選択</h2>
             <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: 14 }}>
-              「完了」操作を自分の担当分だけに反映するために選択してください。
+              閲覧は全員分できます。完了・戻す操作をするときだけ、誰として操作するか選択してください。
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
               {allTeachers.map((name) => (
@@ -802,6 +801,7 @@ function formatTime(iso: string) {
     d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
   );
 }
+
 
 
 
