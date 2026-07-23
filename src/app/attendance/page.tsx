@@ -32,8 +32,9 @@ const buttonStyle = { border: 0, borderRadius: 6, padding: "10px 14px", backgrou
 const secondaryButtonStyle = { ...buttonStyle, background: "#555" } as const;
 const dangerButtonStyle = { ...buttonStyle, background: "#b42318" } as const;
 const ghostButtonStyle = { border: "1px solid var(--line)", borderRadius: 6, padding: "8px 10px", background: "white", color: "#222", fontWeight: 700, cursor: "pointer" } as const;
-const inputStyle = { width: "100%", padding: "9px", border: "1px solid var(--line)", borderRadius: 6, background: "white" } as const;
-const readonlyStyle = { ...inputStyle, minHeight: 38, background: "#f7f7f4", display: "flex", alignItems: "center" } as const;
+const inputStyle = { width: "100%", height: 40, boxSizing: "border-box", padding: "9px", border: "1px solid var(--line)", borderRadius: 6, background: "white" } as const;
+const readonlyStyle = { ...inputStyle, minHeight: 40, background: "#f7f7f4", display: "flex", alignItems: "center" } as const;
+const fieldStyle = { display: "grid", gap: 6, alignContent: "start" } as const;
 const tagStyle = { display: "inline-flex", alignItems: "center", border: "1px solid #b7d7c2", background: "#f2fbf5", borderRadius: 6, padding: "3px 7px", color: "#087a3d", fontSize: 12, fontWeight: 700 } as const;
 
 function campusFromLineManagedName(value: string | null | undefined) {
@@ -330,15 +331,15 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <label style={{ display: "grid", gap: 6, marginBottom: 12 }}><span>理由</span><div style={{ display: "grid", gridTemplateColumns: "140px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(reason) ? reason : ""} onChange={(event) => { if (event.target.value) setReason(event.target.value); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例：体調不良" /></div></label>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
-      <label>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>
-      <label>授業<div style={readonlyStyle}>{selectedLesson ? selectedLesson.label : "要選択"}</div></label>
-      <label>校舎<select style={inputStyle} value={campus} onChange={(event) => selectCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
-      <label>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
+      <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>
+      <label style={fieldStyle}>授業<div style={readonlyStyle}>{selectedLesson ? selectedLesson.label : "要選択"}</div></label>
+      <label style={fieldStyle}>校舎<select style={inputStyle} value={campus} onChange={(event) => selectCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+      <label style={fieldStyle}>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
         const suggestion = suggestions.find((item) => item.student_number === student.student_number);
         const suffix = suggestion ? ` / ${suggestion.reason}` : "";
         return <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}{suffix}</option>;
       })}</select></label>
-      <label>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
+      <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
     </div>
 
     <div style={{ display: "grid", gap: 6, marginTop: 14 }}>
