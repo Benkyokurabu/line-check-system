@@ -20,6 +20,20 @@ function envFirst(envName: string, fallback: string[]) {
   return value ? [value, ...fallback.filter((item) => item !== value)] : fallback;
 }
 
+function eventTypeLabel(value: string | null | undefined) {
+  if (value === "late") return "遅刻";
+  if (value === "reschedule_request") return "振替希望";
+  if (value === "other") return "その他";
+  return "欠席";
+}
+
+function fallbackReason(value: string | null | undefined) {
+  if (value === "late") return "遅刻連絡";
+  if (value === "reschedule_request") return "振替希望";
+  if (value === "other") return "連絡";
+  return "欠席連絡";
+}
+
 function propertyMap(source: unknown) {
   const properties = (source as NotionDataSource | null)?.properties;
   return properties && typeof properties === "object" ? properties : {};
@@ -148,6 +162,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const lessonNameProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
     const campusNameProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
     const teacherProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_TEACHER_PROPERTY", ["担任"]));
+    const typeProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_TYPE_PROPERTY", ["種別", "区分"]));
     const filters: unknown[] = [
       { property: studentProperty.name, relation: { contains: profile.notion_page_id } },
       dateFilter(dateProperty, candidate.event_date),
@@ -159,13 +174,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       body: JSON.stringify({ page_size: 1, filter: { and: filters } }),
     });
     const pageProperties: Record<string, unknown> = {
-      [reasonProperty.name]: textProperty(reasonProperty, candidate.ai_summary?.trim() || "欠席連絡"),
+      [reasonProperty.name]: textProperty(reasonProperty, candidate.ai_summary?.trim() || fallbackReason(candidate.event_type)),
       [studentProperty.name]: { relation: [{ id: profile.notion_page_id }] },
       [dateProperty.name]: { date: { start: candidate.event_date } },
     };
     if (lessonNameProperty) pageProperties[lessonNameProperty.name] = lessonProperty(lessonNameProperty, lessonName);
     if (campusNameProperty) pageProperties[campusNameProperty.name] = campusProperty(campusNameProperty, campus);
     if (teacherProperty) pageProperties[teacherProperty.name] = textProperty(teacherProperty, student?.homeroom_teacher ?? null);
+    if (typeProperty) pageProperties[typeProperty.name] = textProperty(typeProperty, eventTypeLabel(candidate.event_type));
     const notionPage = existing.results?.[0] ?? await notionRequest("/pages", {
       method: "POST",
       body: JSON.stringify({

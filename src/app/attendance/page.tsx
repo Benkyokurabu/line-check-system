@@ -21,12 +21,20 @@ type Candidate = {
 };
 
 const defaultReplyTemplates = [
-  "ご連絡ありがとうございます。承知しました。本日の授業は欠席として登録いたします。",
-  "ご連絡ありがとうございます。お大事になさってください。本日の授業は欠席として登録いたします。",
-  "承知しました。振替が必要な場合はこちらで確認いたします。",
+  "ご連絡ありがとうございます。承知しました。本日の授業連絡として登録いたします。",
+  "ご連絡ありがとうございます。承知しました。担当にも共有いたします。",
+  "承知しました。必要があればこちらで確認いたします。",
 ];
 
-const reasonOptions = ["体調不良", "発熱", "学校行事", "通院", "家庭都合", "部活動", "交通事情", "振替希望", "欠席連絡"];
+const reasonOptions = ["体調不良", "発熱", "学校行事", "通院", "家庭都合", "部活動", "交通事情", "電車遅延", "到着予定あり", "振替希望", "欠席連絡", "遅刻連絡"];
+const eventTypeOptions = [
+  { value: "absence", label: "欠席" },
+  { value: "late", label: "遅刻" },
+  { value: "reschedule_request", label: "振替希望" },
+  { value: "other", label: "その他" },
+];
+function eventTypeLabel(value: string) { return eventTypeOptions.find((option) => option.value === value)?.label ?? "その他"; }
+function fallbackReason(value: string) { return value === "late" ? "遅刻連絡" : value === "reschedule_request" ? "振替希望" : value === "other" ? "連絡" : "欠席連絡"; }
 
 const buttonStyle = { border: 0, borderRadius: 6, padding: "10px 14px", background: "var(--accent)", color: "white", fontWeight: 700, cursor: "pointer" } as const;
 const secondaryButtonStyle = { ...buttonStyle, background: "#555" } as const;
@@ -124,7 +132,7 @@ export default function AttendancePage() {
       const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
-      setMessage(`${body.processed}件を解析し、欠席候補${body.candidates}件を追加しました。対象外${body.ignored}件、失敗${body.failed}件です。`);
+      setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、失敗${body.failed}件です。`);
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -132,7 +140,7 @@ export default function AttendancePage() {
 
   return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Attendance review</p>
-    <h1>欠席連絡の確認</h1>
+    <h1>欠席・遅刻連絡の確認</h1>
     <p>LINEの確認作業に近い流れで、返信文案とNotion登録内容を確認できます。</p>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
@@ -140,7 +148,7 @@ export default function AttendancePage() {
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
-      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>未確認の欠席候補はありません。</section>}
+      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>未確認の連絡候補はありません。</section>}
       {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
     </div>
   </main>;
@@ -158,10 +166,10 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
   const [date, setDate] = useState(candidate.event_date ?? "");
-  const [eventType] = useState(candidate.event_type);
+  const [eventType, setEventType] = useState(candidate.event_type);
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
   const [campus, setCampus] = useState(initialCampus);
-  const [reason, setReason] = useState(candidate.ai_summary ?? "欠席連絡");
+  const [reason, setReason] = useState(candidate.ai_summary ?? fallbackReason(candidate.event_type));
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
@@ -243,7 +251,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     const response = await fetch(`/api/attendance/candidates/${candidate.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason.trim() || "欠席連絡" }),
+      body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason.trim() || fallbackReason(eventType) }),
     });
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
   }
@@ -308,7 +316,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   return <section className="panel" style={{ padding: 20 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
       <strong style={{ fontSize: 18 }}>{titleName}</strong>
-      <span style={{ color: "#666", fontSize: 13 }}>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+      <span style={{ color: "#666", fontSize: 13 }}>{eventTypeLabel(eventType)} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
     </div>
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 24, marginTop: 8 }}>
       {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
@@ -328,7 +336,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       </div>
     </div>
 
-    <label style={{ display: "grid", gap: 6, marginBottom: 12 }}><span>理由</span><div style={{ display: "grid", gridTemplateColumns: "140px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(reason) ? reason : ""} onChange={(event) => { if (event.target.value) setReason(event.target.value); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例：体調不良" /></div></label>
+    <label style={{ display: "grid", gap: 6, marginBottom: 12 }}><span>理由</span><div style={{ display: "grid", gridTemplateColumns: "130px 140px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={eventType} onChange={(event) => { setEventType(event.target.value); if (!reason.trim() || reason === fallbackReason(eventType)) setReason(fallbackReason(event.target.value)); }}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select style={inputStyle} value={reasonOptions.includes(reason) ? reason : ""} onChange={(event) => { if (event.target.value) setReason(event.target.value); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例：体調不良 / 遅刻連絡" /></div></label>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
       <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>

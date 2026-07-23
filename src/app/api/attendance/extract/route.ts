@@ -40,7 +40,7 @@ async function extractWithAi(input: { text: string; receivedAt: string; displayN
         {
           role: "user",
           content: JSON.stringify({
-            instruction: "{is_attendance,student_name,event_type,event_date,subject,class_name,summary,confidence,reason}を返す。対象外はis_attendance=false。event_typeはabsence/late/reschedule_request/other。生徒や日付が不明でも欠席系ならtrueにする。summaryはNotionの理由欄用に「体調不良」「学校行事」など2〜10文字程度にする。",
+            instruction: "{is_attendance,student_name,event_type,event_date,subject,class_name,summary,confidence,reason}を返す。対象外はis_attendance=false。event_typeはabsence/late/reschedule_request/other。生徒や日付が不明でも欠席・遅刻・振替系ならtrueにする。summaryはNotionの理由欄用に「体調不良」「交通事情」「遅刻連絡」など2〜10文字程度にする。",
             received_at: input.receivedAt,
             sender_display_name: input.displayName,
             message: input.text,
