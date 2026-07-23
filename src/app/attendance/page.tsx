@@ -19,6 +19,7 @@ type Candidate = {
   suggested_subject: string | null; suggested_class_name: string | null;
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
   status: string; notion_error: string | null;
+  reply_status?: { sent: boolean; count: number; last_sent_at: string | null; last_sent_by: string | null };
   attendance_candidate_items?: CandidateItem[];
   sender_profile?: SenderProfile;
   student_suggestions?: StudentSuggestion[];
@@ -83,6 +84,25 @@ function formatReceivedAt(value: string | null | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatStatusTime(value: string | null | undefined) {
+  if (!value) return "";
+  const formatted = formatReceivedAt(value);
+  return formatted === "受信日時不明" ? "" : formatted;
+}
+
+function statusBadgeStyle(kind: "done" | "pending" | "failed" | "partial") {
+  if (kind === "done") return { border: "1px solid #b7d7c2", background: "#f2fbf5", color: "#087a3d" } as const;
+  if (kind === "failed") return { border: "1px solid #fecaca", background: "#fef2f2", color: "#b42318" } as const;
+  if (kind === "partial") return { border: "1px solid #fed7aa", background: "#fff7ed", color: "#c2410c" } as const;
+  return { border: "1px solid var(--line)", background: "#f7f7f4", color: "#59635e" } as const;
+}
+
+function StatusBadge({ label, detail, kind }: { label: string; detail: string; kind: "done" | "pending" | "failed" | "partial" }) {
+  return <span style={{ ...statusBadgeStyle(kind), display: "inline-flex", alignItems: "center", gap: 5, borderRadius: 999, padding: "5px 9px", fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" }}>
+    <span>{label}</span><span style={{ opacity: 0.82 }}>{detail}</span>
+  </span>;
 }
 
 function normalizeLessonText(value: string | null | undefined) {
@@ -212,6 +232,14 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
   const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus));
   const registered = candidate.status === "confirmed";
+  const itemStatuses = candidate.attendance_candidate_items ?? [];
+  const confirmedItems = itemStatuses.filter((item) => item.status === "confirmed").length;
+  const failedItems = itemStatuses.filter((item) => item.status === "notion_failed").length;
+  const notionKind = candidate.notion_error || failedItems > 0 ? "failed" : registered ? "done" : confirmedItems > 0 ? "partial" : "pending";
+  const notionDetail = notionKind === "failed" ? "エラー" : registered ? "登録済み" : confirmedItems > 0 ? `${confirmedItems}/${Math.max(itemStatuses.length, items.length)}行` : "未登録";
+  const replyStatus = candidate.reply_status;
+  const replyKind = replyStatus?.sent ? "done" : "pending";
+  const replyDetail = replyStatus?.sent ? ["送信済み", replyStatus.last_sent_by, formatStatusTime(replyStatus.last_sent_at)].filter(Boolean).join(" / ") : "未送信";
   const [lessonLists, setLessonLists] = useState<Record<string, Lesson[]>>({});
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
@@ -385,9 +413,15 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   return <section className="panel" style={{ padding: 20 }}>
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
-      <strong style={{ fontSize: 18 }}>{titleName}</strong>
-      <span style={{ color: registered ? "#087a3d" : "#666", fontSize: 13 }}>{registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+      <div style={{ display: "grid", gap: 6 }}>
+        <strong style={{ fontSize: 18 }}>{titleName}</strong>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <StatusBadge label="LINE返信" detail={replyDetail} kind={replyKind} />
+          <StatusBadge label="Notion" detail={notionDetail} kind={notionKind} />
+        </div>
+      </div>
+      <span style={{ color: registered ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
     </div>
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 24, marginTop: 8 }}>
       {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
@@ -457,4 +491,5 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>
   </section>;
 }
+
 

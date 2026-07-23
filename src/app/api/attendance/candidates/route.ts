@@ -37,6 +37,13 @@ type SenderProfile = {
   account_names: string[];
 };
 
+type AttendanceReplyRow = {
+  id: string;
+  text: string | null;
+  received_at: string | null;
+  sent_by: string | null;
+  raw_event: { attendance_candidate_id?: string } | null;
+};
 function normalizeName(value: string | null | undefined) {
   return (value ?? "")
     .normalize("NFKC")
@@ -163,12 +170,39 @@ export async function GET(request: Request) {
     linksByLineUserId.get(lineUserId)!.push(link.student_number as string);
   }
   const aliasRows = (aliases ?? []) as { line_user_id: string; alias_name: string | null; group_name: string | null }[];
+  const candidateIds = (data ?? []).map((candidate) => candidate.id as string);
+  const { data: replies, error: repliesError } = candidateIds.length > 0 ? await supabase
+    .from("line_messages")
+    .select("id,text,received_at,sent_by,raw_event")
+    .eq("direction", "outbound")
+    .eq("raw_event->>send_context", "attendance_candidate_reply")
+    .order("received_at", { ascending: false })
+    .limit(1000) : { data: [], error: null };
+  if (repliesError) return NextResponse.json({ error: repliesError.message }, { status: 500 });
+  const repliesByCandidateId = new Map<string, AttendanceReplyRow[]>();
+  for (const reply of (replies ?? []) as AttendanceReplyRow[]) {
+    const candidateId = reply.raw_event?.attendance_candidate_id;
+    if (!candidateId || !candidateIds.includes(candidateId)) continue;
+    if (!repliesByCandidateId.has(candidateId)) repliesByCandidateId.set(candidateId, []);
+    repliesByCandidateId.get(candidateId)!.push(reply);
+  }
+
   const candidates = (data ?? []).map((candidate) => {
     const lineMessage = (candidate.line_messages as LineMessageRow | null) ?? null;
     const linkedAccounts = lineMessage?.line_user_id ? accountsByLineUserId.get(lineMessage.line_user_id) ?? [] : [];
     return {
       ...candidate,
       sender_profile: buildSenderProfile({ lineMessage, accounts: linkedAccounts, aliases: aliasRows }),
+      reply_status: (() => {
+        const candidateReplies = repliesByCandidateId.get(candidate.id as string) ?? [];
+        const latestReply = candidateReplies[0] ?? null;
+        return {
+          sent: candidateReplies.length > 0,
+          count: candidateReplies.length,
+          last_sent_at: latestReply?.received_at ?? null,
+          last_sent_by: latestReply?.sent_by ?? null,
+        };
+      })(),
       student_suggestions: buildStudentSuggestions({
         currentStudentNumber: (candidate.student_number as string | null) ?? null,
         suggestedStudentName: (candidate.suggested_student_name as string | null) ?? null,
@@ -189,4 +223,7 @@ export async function GET(request: Request) {
   });
   return NextResponse.json({ candidates });
 }
+
+
+
 
