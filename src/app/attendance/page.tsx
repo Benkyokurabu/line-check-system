@@ -158,7 +158,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [eventType] = useState(candidate.event_type);
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
   const [campus, setCampus] = useState(initialCampus);
-  const [reason] = useState(candidate.ai_summary ?? "欠席連絡");
+  const [reason, setReason] = useState(candidate.ai_summary ?? "欠席連絡");
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
@@ -324,6 +324,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         <button type="button" style={dangerButtonStyle} disabled={sending} onClick={sendReply}>{sending ? "送信中..." : "LINEへ送信"}</button>
       </div>
     </div>
+
+    <label style={{ display: "grid", gap: 6, marginBottom: 12 }}><span>理由</span><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例：体調不良" /></label>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
       <label>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>

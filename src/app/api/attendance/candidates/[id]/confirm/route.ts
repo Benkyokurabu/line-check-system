@@ -4,13 +4,72 @@ import { createSupabaseAdminClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
+type NotionProperty = { type?: string };
+type NotionDataSource = { properties?: Record<string, NotionProperty> };
+type ResolvedProperty = { name: string; type: string };
+
 const title = (value: string) => ({ title: [{ type: "text", text: { content: value.slice(0, 200) } }] });
 const richText = (value: string | null | undefined) => ({ rich_text: value ? [{ type: "text", text: { content: value.slice(0, 1900) } }] : [] });
-const studentRelationProperty = process.env.NOTION_ATTENDANCE_STUDENT_PROPERTY ?? "生徒情報DB";
 
 const fullWidth = (value: string) => value.normalize("NFKC").replace(/[0-9A-Z]/g, (char) =>
   String.fromCharCode(char.charCodeAt(0) + 0xfee0),
 );
+
+function envFirst(envName: string, fallback: string[]) {
+  const value = process.env[envName]?.trim();
+  return value ? [value, ...fallback.filter((item) => item !== value)] : fallback;
+}
+
+function propertyMap(source: unknown) {
+  const properties = (source as NotionDataSource | null)?.properties;
+  return properties && typeof properties === "object" ? properties : {};
+}
+
+function resolveProperty(properties: Record<string, NotionProperty>, names: string[], label: string): ResolvedProperty {
+  for (const name of names) {
+    const property = properties[name];
+    if (property?.type) return { name, type: property.type };
+  }
+  throw new Error(`Notion欠席DBに${label}列が見つかりません（候補: ${names.join(" / ")}）`);
+}
+
+function optionalProperty(properties: Record<string, NotionProperty>, names: string[]): ResolvedProperty | null {
+  for (const name of names) {
+    const property = properties[name];
+    if (property?.type) return { name, type: property.type };
+  }
+  return null;
+}
+
+function textProperty(property: ResolvedProperty, value: string | null | undefined) {
+  if (property.type === "title") return title(value?.trim() || "欠席連絡");
+  if (property.type === "rich_text") return richText(value?.trim() || null);
+  if (property.type === "select") return { select: value?.trim() ? { name: value.trim() } : null };
+  throw new Error(`Notionの${property.name}列はテキスト/セレクト型ではありません`);
+}
+
+function dateFilter(property: ResolvedProperty, value: string) {
+  return { property: property.name, date: { equals: value } };
+}
+
+function lessonFilter(property: ResolvedProperty, value: string) {
+  if (property.type === "select") return { property: property.name, select: { equals: value } };
+  if (property.type === "rich_text" || property.type === "title") return { property: property.name, rich_text: { contains: value } };
+  return null;
+}
+
+function lessonProperty(property: ResolvedProperty, value: string | null) {
+  if (property.type === "select") return { select: value ? { name: value } : null };
+  if (property.type === "rich_text") return richText(value);
+  if (property.type === "title") return title(value || "欠席連絡");
+  throw new Error(`Notionの${property.name}列は授業名を書ける型ではありません`);
+}
+
+function campusProperty(property: ResolvedProperty, value: string | null) {
+  if (property.type === "select") return { select: value ? { name: value } : null };
+  if (property.type === "rich_text") return richText(value);
+  throw new Error(`Notionの${property.name}列は校舎を書ける型ではありません`);
+}
 
 function notionLessonName(lesson: { label?: string | null; source_payload?: Record<string, unknown> | null } | null) {
   const payload = lesson?.source_payload ?? {};
@@ -81,28 +140,37 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const lessonName = notionLessonName(lesson);
     const campus = campusOverride ?? campusFromRegisteredName(senderAlias?.alias_name) ?? lesson?.campus ?? student?.campus ?? null;
     const dataSourceId = notionAbsenceDataSourceId();
+    const dataSource = await notionRequest(`/data_sources/${dataSourceId}`);
+    const properties = propertyMap(dataSource);
+    const studentProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_STUDENT_PROPERTY", ["生徒情報DB", "名前"]), "生徒");
+    const dateProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_DATE_PROPERTY", ["日付", "対象日"]), "日付");
+    const reasonProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["理由", "連絡名"]), "理由");
+    const lessonNameProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
+    const campusNameProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
+    const teacherProperty = optionalProperty(properties, envFirst("NOTION_ATTENDANCE_TEACHER_PROPERTY", ["担任"]));
     const filters: unknown[] = [
-      { property: studentRelationProperty, relation: { contains: profile.notion_page_id } },
-      { property: "日付", date: { equals: candidate.event_date } },
+      { property: studentProperty.name, relation: { contains: profile.notion_page_id } },
+      dateFilter(dateProperty, candidate.event_date),
     ];
-    if (lessonName) filters.push({ property: "授業", select: { equals: lessonName } });
+    const lessonFilterValue = lessonName && lessonNameProperty ? lessonFilter(lessonNameProperty, lessonName) : null;
+    if (lessonFilterValue) filters.push(lessonFilterValue);
     const existing = await notionRequest(`/data_sources/${dataSourceId}/query`, {
       method: "POST",
       body: JSON.stringify({ page_size: 1, filter: { and: filters } }),
     });
+    const pageProperties: Record<string, unknown> = {
+      [reasonProperty.name]: textProperty(reasonProperty, candidate.ai_summary?.trim() || "欠席連絡"),
+      [studentProperty.name]: { relation: [{ id: profile.notion_page_id }] },
+      [dateProperty.name]: { date: { start: candidate.event_date } },
+    };
+    if (lessonNameProperty) pageProperties[lessonNameProperty.name] = lessonProperty(lessonNameProperty, lessonName);
+    if (campusNameProperty) pageProperties[campusNameProperty.name] = campusProperty(campusNameProperty, campus);
+    if (teacherProperty) pageProperties[teacherProperty.name] = textProperty(teacherProperty, student?.homeroom_teacher ?? null);
     const notionPage = existing.results?.[0] ?? await notionRequest("/pages", {
       method: "POST",
       body: JSON.stringify({
         parent: { type: "data_source_id", data_source_id: dataSourceId },
-        properties: {
-          "理由": title(candidate.ai_summary?.trim() || "欠席連絡"),
-          [studentRelationProperty]: { relation: [{ id: profile.notion_page_id }] },
-          "日付": { date: { start: candidate.event_date } },
-          "授業": { select: lessonName ? { name: lessonName } : null },
-          "授業校舎": { select: campus ? { name: campus } : null },
-          "備考": richText(null),
-          "連続": richText(null),
-        },
+        properties: pageProperties,
       }),
     });
     const { error: saveError } = await supabase.from("attendance_candidates").update({
