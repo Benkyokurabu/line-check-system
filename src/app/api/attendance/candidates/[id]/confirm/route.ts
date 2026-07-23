@@ -34,11 +34,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id } = await context.params;
   const body = await request.json().catch(() => ({}));
   const confirmedBy = typeof body.confirmed_by === "string" ? body.confirmed_by.trim() : "";
+  const campusOverride = typeof body.campus === "string" && ["本校", "南教室"].includes(body.campus) ? body.campus : null;
   if (!confirmedBy) return NextResponse.json({ error: "確認者名を入力してください" }, { status: 400 });
   const supabase = createSupabaseAdminClient();
   const { data: candidate, error } = await supabase
     .from("attendance_candidates")
-    .select("*,student_roster(student_name,grade,campus),lessons(label,start_time,campus,source_payload),line_messages(line_user_id)")
+    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,start_time,campus,source_payload),line_messages(line_user_id)")
     .eq("id", id)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -77,7 +78,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       .eq("line_user_id", lineMessage.line_user_id)
       .maybeSingle() : { data: null };
     const lessonName = notionLessonName(lesson);
-    const campus = campusFromRegisteredName(senderAlias?.alias_name) ?? lesson?.campus ?? student?.campus ?? null;
+    const campus = campusOverride ?? campusFromRegisteredName(senderAlias?.alias_name) ?? lesson?.campus ?? student?.campus ?? null;
     const dataSourceId = notionAbsenceDataSourceId();
     const filters: unknown[] = [
       { property: "名前", relation: { contains: profile.notion_page_id } },

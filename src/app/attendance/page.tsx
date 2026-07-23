@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Student = { student_number: string; student_name: string; grade: string; campus: string | null };
+type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null };
 type StudentSuggestion = Student & { score: number; reason: string };
 type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[] };
@@ -16,12 +16,37 @@ type Candidate = {
   status: string; notion_error: string | null;
   sender_profile?: SenderProfile;
   student_suggestions?: StudentSuggestion[];
-  student_roster: { student_name: string; grade: string; campus: string | null } | null;
+  student_roster: { student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null } | null;
   lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null } | null;
 };
 
 const buttonStyle = { border: 0, borderRadius: 6, padding: "10px 14px", background: "var(--accent)", color: "white", fontWeight: 700, cursor: "pointer" } as const;
+const secondaryButtonStyle = { ...buttonStyle, background: "#555" } as const;
+const ghostButtonStyle = { border: "1px solid var(--line)", borderRadius: 6, padding: "8px 10px", background: "white", color: "#222", fontWeight: 700, cursor: "pointer" } as const;
 const inputStyle = { width: "100%", padding: "9px", border: "1px solid var(--line)", borderRadius: 6, background: "white" } as const;
+const readonlyStyle = { ...inputStyle, minHeight: 38, background: "#f7f7f4", display: "flex", alignItems: "center" } as const;
+const replyTemplates = [
+  "ご連絡ありがとうございます。承知しました。本日の授業は欠席として登録いたします。",
+  "ご連絡ありがとうございます。お大事になさってください。本日の授業は欠席として登録いたします。",
+  "承知しました。振替が必要な場合はこちらで確認いたします。",
+];
+
+function campusFromLineManagedName(value: string | null | undefined) {
+  const normalized = (value ?? "").normalize("NFKC");
+  const prefix = normalized.match(/^([本南])\s/);
+  if (prefix?.[1] === "本") return "本校";
+  if (prefix?.[1] === "南") return "南教室";
+  return "";
+}
+
+function uniqueByNumber(students: Student[]) {
+  const seen = new Set<string>();
+  return students.filter((student) => {
+    if (seen.has(student.student_number)) return false;
+    seen.add(student.student_number);
+    return true;
+  });
+}
 
 export default function AttendancePage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -48,7 +73,7 @@ export default function AttendancePage() {
   }, [load]);
 
   async function analyze() {
-    setBusy(true); setMessage("LINEを解析しています…");
+    setBusy(true); setMessage("LINEを解析しています...");
     try {
       const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
       const body = await response.json();
@@ -59,13 +84,13 @@ export default function AttendancePage() {
     finally { setBusy(false); }
   }
 
-  return <main className="shell" style={{ maxWidth: 1100 }}>
+  return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Attendance review</p>
     <h1>欠席連絡の確認</h1>
-    <p>AIの抽出結果は未確定です。生徒・日付・授業を確認してからNotionへ登録してください。</p>
+    <p>LINEの確認作業に近い流れで、返信文案とNotion登録内容を確認できます。</p>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
-      <button style={buttonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中…" : "新しいLINEを解析"}</button>
+      <button style={buttonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中..." : "新しいLINEを解析"}</button>
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
@@ -76,22 +101,39 @@ export default function AttendancePage() {
 }
 
 function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
+  const lineManagedNames = useMemo(() => (candidate.sender_profile?.alias_names ?? [])
+    .filter((value, index, values) => values.indexOf(value) === index), [candidate.sender_profile?.alias_names]);
+  const lineManagedName = lineManagedNames.length > 0 ? lineManagedNames.join(" / ") : "未登録";
+  const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? "不明";
+  const titleName = `${lineManagedName}（${senderDisplayName}）`;
   const initialStudentNumber = candidate.student_number ?? candidate.student_suggestions?.[0]?.student_number ?? "";
+  const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
   const [date, setDate] = useState(candidate.event_date ?? "");
-  const [eventType, setEventType] = useState(candidate.event_type);
+  const [eventType] = useState(candidate.event_type);
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
-  const [reason, setReason] = useState(candidate.ai_summary ?? "欠席連絡");
+  const [campus, setCampus] = useState(initialCampus);
+  const [reason] = useState(candidate.ai_summary ?? "欠席連絡");
   const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [editingLesson, setEditingLesson] = useState(false);
   const [busy, setBusy] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
+  const [replyText, setReplyText] = useState(replyTemplates[0]);
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
-  const primarySuggestion = suggestions[0];
-  const lineManagedNames = (candidate.sender_profile?.alias_names ?? [])
-    .filter((value, index, values) => values.indexOf(value) === index);
-  const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? null;
-  const lineManagedName = lineManagedNames.length > 0 ? lineManagedNames.join(" / ") : "未登録";
+  const suggestionNumbers = useMemo(() => new Set(suggestions.map((student) => student.student_number)), [suggestions]);
+  const studentOptions = useMemo(() => uniqueByNumber([
+    ...suggestions,
+    ...students.filter((student) => !suggestionNumbers.has(student.student_number)),
+  ]), [students, suggestions, suggestionNumbers]);
+  const selectedStudent = studentOptions.find((student) => student.student_number === studentNumber) ?? (
+    candidate.student_number && candidate.student_roster ? {
+      student_number: candidate.student_number,
+      student_name: candidate.student_roster.student_name,
+      grade: candidate.student_roster.grade,
+      campus: candidate.student_roster.campus,
+      homeroom_teacher: candidate.student_roster.homeroom_teacher,
+    } : null
+  );
+
   useEffect(() => {
     if (!date) return;
     fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
@@ -108,62 +150,92 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
           return (subject && label.includes(subject)) || (className && label.includes(className));
         }) ?? found[0];
         setLessonId(recommended?.id ?? "");
+        if (!campusFromLineManagedName(lineManagedNames[0])) setCampus(recommended?.campus ?? selectedStudent?.campus ?? "");
       });
-  }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId]);
+  }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId, lineManagedNames, selectedStudent?.campus]);
+
   const selectedLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
+
   function selectStudent(value: string) {
     setStudentNumber(value);
     setLessonId("");
-    setEditingLesson(false);
   }
+
   async function save() {
-    const response = await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason }) });
+    const response = await fetch(`/api/attendance/candidates/${candidate.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason }),
+    });
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
   }
+
   async function confirmCandidate() {
     if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
-    if (!studentNumber) { setCardMessage("生徒を選択してください。"); return; }
-    if (!date) { setCardMessage("対象日を入力してください。"); return; }
-    if (!reason.trim()) { setCardMessage("Notionへ登録する理由を入力してください。"); return; }
-    if (!lessonId) { setCardMessage("欠席する授業を選択してください。"); return; }
+    if (!studentNumber) { setCardMessage("名前を選択してください。"); return; }
+    if (!date) { setCardMessage("日付を入力してください。"); return; }
+    if (!campus) { setCardMessage("授業校舎を選択してください。"); return; }
+    if (!lessonId) { setCardMessage("授業を選択してください。"); return; }
     setBusy(true);
-    setCardMessage("Notionへ登録しています…");
-    try { await save(); const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed_by: confirmedBy }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "Notion登録に失敗しました"); setCardMessage("Notionへ登録しました。"); setMessage("Notionへ登録しました。"); await onChanged(); }
-    catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
+    setCardMessage("Notionへ登録しています...");
+    try {
+      await save();
+      const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed_by: confirmedBy, campus }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Notion登録に失敗しました");
+      setCardMessage("Notionへ登録しました。");
+      setMessage("Notionへ登録しました。");
+      await onChanged();
+    } catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
-  async function dismiss() { if (!window.confirm("この候補を対応不要にしますか？")) return; await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "DELETE" }); await onChanged(); }
+
+  async function dismiss() {
+    if (!window.confirm("この候補を対応不要にしますか？")) return;
+    await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "DELETE" });
+    await onChanged();
+  }
+
+  async function copyReply() {
+    await navigator.clipboard.writeText(replyText);
+    setCardMessage("返信文案をコピーしました。");
+  }
+
   return <section className="panel" style={{ padding: 20 }}>
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><strong>{candidate.ai_summary ?? "欠席連絡候補"}</strong><span>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span></div>
-    <div style={{ marginTop: 10, display: "grid", gap: 6, color: "#555", fontSize: 13, border: "1px solid var(--line)", borderRadius: 6, padding: 10, background: "#fbfbf8" }}>
-      <div>送信者名: <strong style={{ color: "#222" }}>{senderDisplayName ?? "不明"}</strong></div>
-      <div>LINE上で入力した名前: <strong style={{ color: "#222" }}>{lineManagedName}</strong></div>
-      <div>AI抽出生徒名: <strong style={{ color: "#222" }}>{candidate.suggested_student_name ?? "不明"}</strong></div>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
+      <strong style={{ fontSize: 18 }}>{titleName}</strong>
+      <span style={{ color: "#666", fontSize: 13 }}>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
     </div>
-    <div style={{ margin: "14px 0", padding: 12, background: "#f7f7f4", borderRadius: 6, whiteSpace: "pre-wrap" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
-    <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
-      {primarySuggestion ? <div style={{ border: "1px solid #b7d7c2", background: "#f2fbf5", borderRadius: 6, padding: 12, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontSize: 12, color: "#087a3d", fontWeight: 700 }}>第一候補（{primarySuggestion.reason}・{primarySuggestion.score}%）</div>
-          <div style={{ fontWeight: 800 }}>{primarySuggestion.grade} {primarySuggestion.student_name}（{primarySuggestion.student_number}）{primarySuggestion.campus ? ` / ${primarySuggestion.campus}` : ""}</div>
-        </div>
-        <button type="button" style={{ ...buttonStyle, padding: "8px 12px" }} onClick={() => selectStudent(primarySuggestion.student_number)}>この生徒にする</button>
-      </div> : <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>送信者名からの生徒候補は見つかりませんでした。下の生徒欄から選択してください。</div>}
-      {suggestions.length > 1 && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {suggestions.slice(1).map((student) => <button key={student.student_number} type="button" onClick={() => selectStudent(student.student_number)} style={{ border: studentNumber === student.student_number ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, background: "white", padding: "8px 10px", cursor: "pointer", textAlign: "left" }}>
-          {student.grade} {student.student_name}<span style={{ color: "#777" }}>（{student.reason}）</span>
-        </button>)}
-      </div>}
+
+    <div style={{ margin: "14px 0", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
+
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(180px,260px)", gap: 12, alignItems: "start", marginBottom: 16 }}>
+      <label style={{ display: "grid", gap: 6 }}><span>返信文案</span><textarea style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6 }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
+      <div style={{ display: "grid", gap: 8 }}>
+        <span style={{ fontSize: 13, color: "#555" }}>文案</span>
+        {replyTemplates.map((template, index) => <button key={template} type="button" style={ghostButtonStyle} onClick={() => setReplyText(template)}>文案{index + 1}</button>)}
+        <button type="button" style={secondaryButtonStyle} onClick={copyReply}>コピー</button>
+      </div>
     </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12 }}>
-      <label>理由（短く）<input style={inputStyle} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例：体調不良" /></label>
-      <label>生徒<select style={inputStyle} value={studentNumber} onChange={(e) => selectStudent(e.target.value)}><option value="">要選択（AI候補: {candidate.suggested_student_name ?? "不明"}）</option>{students.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}（{student.student_number}）</option>)}</select></label>
-      <label>対象日<input style={inputStyle} type="date" value={date} onChange={(e) => { setDate(e.target.value); setLessonId(""); }} /></label>
-      <label>種別<select style={inputStyle} value={eventType} onChange={(e) => setEventType(e.target.value)}><option value="absence">欠席</option><option value="late">遅刻</option><option value="reschedule_request">振替希望</option><option value="other">その他</option></select></label>
-      <div><span>授業（クラス一覧表から自動設定）</span>{editingLesson ? <select style={inputStyle} value={lessonId} onChange={(e) => setLessonId(e.target.value)}><option value="">授業未特定</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.start_time ?? "時刻なし"} {lesson.label} {lesson.campus ?? ""}</option>)}</select> : <div style={{ ...inputStyle, minHeight: 38, background: "#f7f7f4" }}>{selectedLesson ? `${selectedLesson.start_time ?? "時刻なし"} ${selectedLesson.label} ${selectedLesson.campus ?? ""}` : studentNumber && date ? "該当授業なし" : "生徒と対象日から自動設定"}</div>}<button type="button" onClick={() => setEditingLesson((value) => !value)} style={{ border: 0, background: "transparent", color: "#087a3d", padding: "6px 0", cursor: "pointer", fontWeight: 700 }}>{editingLesson ? "自動表示に戻す" : "授業を修正"}</button></div>
+
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
+      <label>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>
+      <label>授業校舎<select style={inputStyle} value={campus} onChange={(event) => setCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+      <label>授業<select style={inputStyle} value={lessonId} onChange={(event) => setLessonId(event.target.value)}><option value="">要選択</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.start_time ?? "時刻なし"} {lesson.label} {lesson.campus ?? ""}</option>)}</select></label>
+      <label>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
+        const suggestion = suggestions.find((item) => item.student_number === student.student_number);
+        const suffix = suggestion ? ` / ${suggestion.reason}` : "";
+        return <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}{suffix}</option>;
+      })}</select></label>
+      <label>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
     </div>
-    {candidate.notion_error && <p style={{ color: "#b42318", marginTop: 10 }}>前回のNotion登録エラー: {candidate.notion_error}</p>}
-    {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
-    <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy} onClick={confirmCandidate}>{busy ? "登録中…" : "確認してNotionへ登録"}</button><button style={{ ...buttonStyle, background: "#777" }} onClick={dismiss}>対応不要</button></div>
+
+    {selectedLesson && <p style={{ marginTop: 8, color: "#666", fontSize: 13 }}>選択中の授業: {selectedLesson.start_time ?? "時刻なし"} {selectedLesson.label} {selectedLesson.campus ?? ""}</p>}
+    {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") || cardMessage.includes("コピー") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
+    <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy} onClick={confirmCandidate}>{busy ? "登録中..." : "確認してNotionへ登録"}</button><button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button></div>
   </section>;
 }
