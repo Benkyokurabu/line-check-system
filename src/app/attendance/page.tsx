@@ -188,12 +188,20 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       });
   }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId, lineManagedNames, selectedStudent?.campus]);
 
-  const selectedLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
-  const lessonGroups = lessonsByTime(lessons);
+  const currentLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
+  const selectedLesson = currentLesson && (!campus || currentLesson.campus === campus) ? currentLesson : null;
+  const filteredLessons = campus ? lessons.filter((lesson) => lesson.campus === campus) : lessons;
+  const lessonGroups = lessonsByTime(filteredLessons);
 
   function selectStudent(value: string) {
     setStudentNumber(value);
     setLessonId("");
+  }
+
+  function selectCampus(value: string) {
+    setCampus(value);
+    const selected = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
+    if (value && selected?.campus !== value) setLessonId("");
   }
 
   function selectTemplate(index: number) {
@@ -304,7 +312,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
       <label>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>
-      <label>授業校舎<select style={inputStyle} value={campus} onChange={(event) => setCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+      <label>授業校舎<select style={inputStyle} value={campus} onChange={(event) => selectCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
       <label>授業<div style={readonlyStyle}>{selectedLesson ? `${selectedLesson.start_time ?? "時刻なし"} ${selectedLesson.label}` : "要選択"}</div></label>
       <label>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
         const suggestion = suggestions.find((item) => item.student_number === student.student_number);
@@ -314,16 +322,15 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       <label>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
     </div>
 
-    <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-      {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>この日の授業は見つかりませんでした。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gap: 6 }}>
+    <div style={{ display: "grid", gap: 6, marginTop: 14 }}>
+      {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{campus ? `${campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "70px minmax(0,1fr)", gap: 8, alignItems: "center" }}>
         <div style={{ color: "#555", fontSize: 13, fontWeight: 700 }}>{group.time}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
           {group.lessons.map((lesson) => {
             const selected = lesson.id === lessonId;
             const enrolled = Boolean(lesson.enrolled);
-            return <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? campus); }} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: 10, background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}>
-              <strong>{lesson.label}</strong>
-              <div style={{ color: "#666", fontSize: 12, marginTop: 3 }}>{[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")}</div>
+            return <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? campus); }} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
+              <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
             </button>;
           })}
         </div>
