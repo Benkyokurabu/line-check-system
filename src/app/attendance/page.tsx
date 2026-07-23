@@ -89,6 +89,16 @@ function normalizeLessonText(value: string | null | undefined) {
   return (value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
 }
 
+function lessonsByTime(lessons: Lesson[]) {
+  return lessons.reduce<Array<{ time: string; lessons: Lesson[] }>>((groups, lesson) => {
+    const time = lesson.start_time ?? "時刻なし";
+    const current = groups.find((group) => group.time === time);
+    if (current) current.lessons.push(lesson);
+    else groups.push({ time, lessons: [lesson] });
+    return groups;
+  }, []);
+}
+
 function makeClientId() {
   return Math.random().toString(36).slice(2);
 }
@@ -415,19 +425,30 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         const lessons = item.event_date ? lessonLists[item.event_date] ?? [] : [];
         const currentLesson = lessons.find((lesson) => lesson.id === item.lesson_id) ?? candidateLesson(candidate, item);
         const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus) : lessons;
-        return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 8, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "110px 120px 130px minmax(140px,1fr) minmax(190px,1.4fr) 42px", gap: 8, alignItems: "end" }}>
+        const lessonGroups = lessonsByTime(filteredLessons);
+        return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "110px 120px 130px minmax(220px,1fr) 42px", gap: 8, alignItems: "end" }}>
             <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
             <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={registered} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
-            <label style={fieldStyle}>授業<select style={inputStyle} value={item.lesson_id} disabled={registered} onChange={(event) => {
-              const lesson = lessons.find((entry) => entry.id === event.target.value);
-              updateItem(item.client_id, { lesson_id: event.target.value, campus: lesson?.campus ?? item.campus });
-            }}><option value="">要選択</option>{filteredLessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.label}{lesson.enrolled ? " / 受講中" : ""}</option>)}</select></label>
             <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={registered} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={registered} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
             <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={registered || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
           </div>
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {currentLesson?.label ?? "授業未選択"}</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
+              <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
+                {group.lessons.map((lesson) => {
+                  const selected = lesson.id === item.lesson_id;
+                  const enrolled = Boolean(lesson.enrolled);
+                  return <button key={lesson.id} type="button" disabled={registered} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: registered ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                    <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
+                  </button>;
+                })}
+              </div>
+            </div>)}
+          </div>
         </div>;
       })}
     </div>
@@ -436,3 +457,4 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>
   </section>;
 }
+
