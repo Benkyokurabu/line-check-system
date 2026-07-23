@@ -88,12 +88,10 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   const [cardMessage, setCardMessage] = useState("");
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
   const primarySuggestion = suggestions[0];
-  const senderAliases = [
-    ...(candidate.sender_profile?.alias_names ?? []),
-    ...(candidate.sender_profile?.account_names ?? []),
-  ].filter((value, index, values) => values.indexOf(value) === index);
+  const lineManagedNames = (candidate.sender_profile?.alias_names ?? [])
+    .filter((value, index, values) => values.indexOf(value) === index);
   const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? null;
-  const registeredSenderName = senderAliases.length > 0 ? senderAliases.join(" / ") : "未登録";
+  const lineManagedName = lineManagedNames.length > 0 ? lineManagedNames.join(" / ") : "未登録";
   useEffect(() => {
     if (!date) return;
     fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
@@ -139,7 +137,7 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><strong>{candidate.ai_summary ?? "欠席連絡候補"}</strong><span>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span></div>
     <div style={{ marginTop: 10, display: "grid", gap: 6, color: "#555", fontSize: 13, border: "1px solid var(--line)", borderRadius: 6, padding: 10, background: "#fbfbf8" }}>
       <div>送信者名: <strong style={{ color: "#222" }}>{senderDisplayName ?? "不明"}</strong></div>
-      <div>こちらで付けた名前: <strong style={{ color: "#222" }}>{registeredSenderName}</strong></div>
+      <div>LINE上で入力した名前: <strong style={{ color: "#222" }}>{lineManagedName}</strong></div>
       <div>AI抽出生徒名: <strong style={{ color: "#222" }}>{candidate.suggested_student_name ?? "不明"}</strong></div>
     </div>
     <div style={{ margin: "14px 0", padding: 12, background: "#f7f7f4", borderRadius: 6, whiteSpace: "pre-wrap" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
