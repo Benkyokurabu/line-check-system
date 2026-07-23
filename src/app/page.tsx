@@ -32,7 +32,7 @@ export default function Home() {
   return (
     <main className="shell">
       <section>
-        <p className="eyebrow">LINE operations</p>
+        <p className="eyebrow">Integrated Assistant System</p>
         <h1><span>勉たん（仮）</span> <span style={{ fontSize: "60%" }}>-勉強クラブ総合アシスたんトさん-</span></h1>
         <div className="home-menu">
           {menuItems.map((item) => (
