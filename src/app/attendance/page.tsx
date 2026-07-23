@@ -7,12 +7,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null };
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null };
 type StudentSuggestion = Student & { score: number; reason: string };
+type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[] };
 type Candidate = {
   id: string; student_number: string | null; suggested_student_name: string | null;
   event_type: string; event_date: string | null; lesson_id: string | null;
   suggested_subject: string | null; suggested_class_name: string | null;
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
   status: string; notion_error: string | null;
+  sender_profile?: SenderProfile;
   student_suggestions?: StudentSuggestion[];
   student_roster: { student_name: string; grade: string; campus: string | null } | null;
   lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null } | null;
@@ -86,6 +88,11 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   const [cardMessage, setCardMessage] = useState("");
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
   const primarySuggestion = suggestions[0];
+  const senderAliases = [
+    ...(candidate.sender_profile?.alias_names ?? []),
+    ...(candidate.sender_profile?.account_names ?? []),
+  ].filter((value, index, values) => values.indexOf(value) === index);
+  const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? null;
   useEffect(() => {
     if (!date) return;
     fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
@@ -130,7 +137,8 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   return <section className="panel" style={{ padding: 20 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><strong>{candidate.ai_summary ?? "欠席連絡候補"}</strong><span>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span></div>
     <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", color: "#555", fontSize: 13 }}>
-      <span>送信者: {candidate.line_messages?.display_name ?? "不明"}</span>
+      <span>送信者: {senderDisplayName ?? "不明"}</span>
+      <span>登録名: {senderAliases.length > 0 ? senderAliases.join(" / ") : "未登録"}</span>
       <span>AI抽出生徒名: {candidate.suggested_student_name ?? "不明"}</span>
     </div>
     <div style={{ margin: "14px 0", padding: 12, background: "#f7f7f4", borderRadius: 6, whiteSpace: "pre-wrap" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>

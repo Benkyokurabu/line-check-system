@@ -20,6 +20,21 @@ type StudentSuggestion = RosterRow & {
   reason: string;
 };
 
+type LineAccountRow = {
+  student_number: string;
+  line_user_id: string;
+  relation: string;
+  alias_name: string | null;
+  friend_display_name: string | null;
+  is_primary: boolean;
+};
+
+type SenderProfile = {
+  display_name: string | null;
+  alias_names: string[];
+  account_names: string[];
+};
+
 function normalizeName(value: string | null | undefined) {
   return (value ?? "")
     .normalize("NFKC")
@@ -27,6 +42,10 @@ function normalizeName(value: string | null | undefined) {
     .replace(/(さん|様|くん|君|ちゃん)$/g, "")
     .replace(/(父|母|保護者|お父様|お母様)$/g, "")
     .toLowerCase();
+}
+
+function uniqueFilled(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
 function addSuggestion(
@@ -50,7 +69,7 @@ function buildStudentSuggestions(input: {
   suggestedStudentName: string | null;
   lineMessage: LineMessageRow | null;
   roster: RosterRow[];
-  accountsByLineUserId: Map<string, { student_number: string; relation: string; is_primary: boolean }[]>;
+  accountsByLineUserId: Map<string, LineAccountRow[]>;
   linksByLineUserId: Map<string, string[]>;
   aliases: { line_user_id: string; alias_name: string | null }[];
 }) {
@@ -98,6 +117,20 @@ function buildStudentSuggestions(input: {
   return [...suggestions.values()].sort((a, b) => b.score - a.score).slice(0, 5);
 }
 
+function buildSenderProfile(input: {
+  lineMessage: LineMessageRow | null;
+  accounts: LineAccountRow[];
+  aliases: { line_user_id: string; alias_name: string | null }[];
+}): SenderProfile {
+  const lineUserId = input.lineMessage?.line_user_id;
+  const lineAliases = lineUserId ? input.aliases.filter((alias) => alias.line_user_id === lineUserId) : [];
+  return {
+    display_name: input.lineMessage?.display_name ?? null,
+    alias_names: uniqueFilled(lineAliases.map((alias) => alias.alias_name)),
+    account_names: uniqueFilled(input.accounts.flatMap((account) => [account.alias_name, account.friend_display_name])),
+  };
+}
+
 export async function GET(request: Request) {
   const status = new URL(request.url).searchParams.get("status") ?? "pending";
   const supabase = createSupabaseAdminClient();
@@ -108,17 +141,17 @@ export async function GET(request: Request) {
       .in("status", status === "pending" ? ["pending", "notion_failed"] : [status])
       .order("created_at", { ascending: false }),
     supabase.from("student_roster").select("student_number,student_name,grade,campus"),
-    supabase.from("student_line_accounts").select("student_number,line_user_id,relation,is_primary"),
+    supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary"),
     supabase.from("student_line_links").select("student_number,line_user_id"),
     supabase.from("line_user_aliases").select("line_user_id,alias_name"),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const rosterRows = (roster ?? []) as RosterRow[];
-  const accountsByLineUserId = new Map<string, { student_number: string; relation: string; is_primary: boolean }[]>();
+  const accountsByLineUserId = new Map<string, LineAccountRow[]>();
   for (const account of accounts ?? []) {
     const lineUserId = account.line_user_id as string;
     if (!accountsByLineUserId.has(lineUserId)) accountsByLineUserId.set(lineUserId, []);
-    accountsByLineUserId.get(lineUserId)!.push(account as { student_number: string; relation: string; is_primary: boolean });
+    accountsByLineUserId.get(lineUserId)!.push(account as LineAccountRow);
   }
   const linksByLineUserId = new Map<string, string[]>();
   for (const link of links ?? []) {
@@ -127,17 +160,22 @@ export async function GET(request: Request) {
     linksByLineUserId.get(lineUserId)!.push(link.student_number as string);
   }
   const aliasRows = (aliases ?? []) as { line_user_id: string; alias_name: string | null }[];
-  const candidates = (data ?? []).map((candidate) => ({
-    ...candidate,
-    student_suggestions: buildStudentSuggestions({
-      currentStudentNumber: (candidate.student_number as string | null) ?? null,
-      suggestedStudentName: (candidate.suggested_student_name as string | null) ?? null,
-      lineMessage: (candidate.line_messages as LineMessageRow | null) ?? null,
-      roster: rosterRows,
-      accountsByLineUserId,
-      linksByLineUserId,
-      aliases: aliasRows,
-    }),
-  }));
+  const candidates = (data ?? []).map((candidate) => {
+    const lineMessage = (candidate.line_messages as LineMessageRow | null) ?? null;
+    const linkedAccounts = lineMessage?.line_user_id ? accountsByLineUserId.get(lineMessage.line_user_id) ?? [] : [];
+    return {
+      ...candidate,
+      sender_profile: buildSenderProfile({ lineMessage, accounts: linkedAccounts, aliases: aliasRows }),
+      student_suggestions: buildStudentSuggestions({
+        currentStudentNumber: (candidate.student_number as string | null) ?? null,
+        suggestedStudentName: (candidate.suggested_student_name as string | null) ?? null,
+        lineMessage,
+        roster: rosterRows,
+        accountsByLineUserId,
+        linksByLineUserId,
+        aliases: aliasRows,
+      }),
+    };
+  });
   return NextResponse.json({ candidates });
 }
