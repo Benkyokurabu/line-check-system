@@ -26,6 +26,8 @@ const defaultReplyTemplates = [
   "承知しました。振替が必要な場合はこちらで確認いたします。",
 ];
 
+const reasonOptions = ["体調不良", "発熱", "学校行事", "通院", "家庭都合", "部活動", "交通事情", "振替希望", "欠席連絡"];
+
 const buttonStyle = { border: 0, borderRadius: 6, padding: "10px 14px", background: "var(--accent)", color: "white", fontWeight: 700, cursor: "pointer" } as const;
 const secondaryButtonStyle = { ...buttonStyle, background: "#555" } as const;
 const dangerButtonStyle = { ...buttonStyle, background: "#b42318" } as const;
@@ -240,7 +242,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     const response = await fetch(`/api/attendance/candidates/${candidate.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason }),
+      body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason.trim() || "欠席連絡" }),
     });
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
   }
@@ -325,9 +327,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       </div>
     </div>
 
-    <label style={{ display: "grid", gap: 6, marginBottom: 12 }}><span>理由</span><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例：体調不良" /></label>
-
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
+      <label>理由<div style={{ display: "grid", gridTemplateColumns: "minmax(90px,130px) minmax(0,1fr)", gap: 6 }}><select style={inputStyle} value={reasonOptions.includes(reason) ? reason : ""} onChange={(event) => { if (event.target.value) setReason(event.target.value); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例：体調不良" /></div></label>
       <label>日付<input style={inputStyle} type="date" value={date} onChange={(event) => { setDate(event.target.value); setLessonId(""); }} /></label>
       <label>授業校舎<select style={inputStyle} value={campus} onChange={(event) => selectCampus(event.target.value)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
       <label>授業<div style={readonlyStyle}>{selectedLesson ? `${selectedLesson.start_time ?? "時刻なし"} ${selectedLesson.label}` : "要選択"}</div></label>
