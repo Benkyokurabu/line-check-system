@@ -2,16 +2,18 @@
 
 // Notion registration settings are supplied by the Vercel production environment.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null };
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null };
+type StudentSuggestion = Student & { score: number; reason: string };
 type Candidate = {
   id: string; student_number: string | null; suggested_student_name: string | null;
   event_type: string; event_date: string | null; lesson_id: string | null;
   suggested_subject: string | null; suggested_class_name: string | null;
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
   status: string; notion_error: string | null;
+  student_suggestions?: StudentSuggestion[];
   student_roster: { student_name: string; grade: string; campus: string | null } | null;
   lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null } | null;
 };
@@ -72,7 +74,8 @@ export default function AttendancePage() {
 }
 
 function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
-  const [studentNumber, setStudentNumber] = useState(candidate.student_number ?? "");
+  const initialStudentNumber = candidate.student_number ?? candidate.student_suggestions?.[0]?.student_number ?? "";
+  const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
   const [date, setDate] = useState(candidate.event_date ?? "");
   const [eventType, setEventType] = useState(candidate.event_type);
   const [lessonId, setLessonId] = useState(candidate.lesson_id ?? "");
@@ -81,6 +84,8 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   const [editingLesson, setEditingLesson] = useState(false);
   const [busy, setBusy] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
+  const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
+  const primarySuggestion = suggestions[0];
   useEffect(() => {
     if (!date) return;
     fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
@@ -100,6 +105,11 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
       });
   }, [date, studentNumber, candidate.suggested_subject, candidate.suggested_class_name, lessonId]);
   const selectedLesson = lessons.find((lesson) => lesson.id === lessonId) ?? candidate.lessons;
+  function selectStudent(value: string) {
+    setStudentNumber(value);
+    setLessonId("");
+    setEditingLesson(false);
+  }
   async function save() {
     const response = await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ student_number: studentNumber, event_date: date, event_type: eventType, lesson_id: lessonId, ai_summary: reason }) });
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
@@ -119,10 +129,28 @@ function CandidateCard({ candidate, students, confirmedBy, onChanged, setMessage
   async function dismiss() { if (!window.confirm("この候補を対応不要にしますか？")) return; await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "DELETE" }); await onChanged(); }
   return <section className="panel" style={{ padding: 20 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><strong>{candidate.ai_summary ?? "欠席連絡候補"}</strong><span>AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span></div>
+    <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", color: "#555", fontSize: 13 }}>
+      <span>送信者: {candidate.line_messages?.display_name ?? "不明"}</span>
+      <span>AI抽出生徒名: {candidate.suggested_student_name ?? "不明"}</span>
+    </div>
     <div style={{ margin: "14px 0", padding: 12, background: "#f7f7f4", borderRadius: 6, whiteSpace: "pre-wrap" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
+    <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+      {primarySuggestion ? <div style={{ border: "1px solid #b7d7c2", background: "#f2fbf5", borderRadius: 6, padding: 12, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 12, color: "#087a3d", fontWeight: 700 }}>第一候補（{primarySuggestion.reason}・{primarySuggestion.score}%）</div>
+          <div style={{ fontWeight: 800 }}>{primarySuggestion.grade} {primarySuggestion.student_name}（{primarySuggestion.student_number}）{primarySuggestion.campus ? ` / ${primarySuggestion.campus}` : ""}</div>
+        </div>
+        <button type="button" style={{ ...buttonStyle, padding: "8px 12px" }} onClick={() => selectStudent(primarySuggestion.student_number)}>この生徒にする</button>
+      </div> : <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>送信者名からの生徒候補は見つかりませんでした。下の生徒欄から選択してください。</div>}
+      {suggestions.length > 1 && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {suggestions.slice(1).map((student) => <button key={student.student_number} type="button" onClick={() => selectStudent(student.student_number)} style={{ border: studentNumber === student.student_number ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, background: "white", padding: "8px 10px", cursor: "pointer", textAlign: "left" }}>
+          {student.grade} {student.student_name}<span style={{ color: "#777" }}>（{student.reason}）</span>
+        </button>)}
+      </div>}
+    </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12 }}>
       <label>理由（短く）<input style={inputStyle} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例：体調不良" /></label>
-      <label>生徒<select style={inputStyle} value={studentNumber} onChange={(e) => { setStudentNumber(e.target.value); setLessonId(""); setEditingLesson(false); }}><option value="">要選択（AI候補: {candidate.suggested_student_name ?? "不明"}）</option>{students.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}（{student.student_number}）</option>)}</select></label>
+      <label>生徒<select style={inputStyle} value={studentNumber} onChange={(e) => selectStudent(e.target.value)}><option value="">要選択（AI候補: {candidate.suggested_student_name ?? "不明"}）</option>{students.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}（{student.student_number}）</option>)}</select></label>
       <label>対象日<input style={inputStyle} type="date" value={date} onChange={(e) => { setDate(e.target.value); setLessonId(""); }} /></label>
       <label>種別<select style={inputStyle} value={eventType} onChange={(e) => setEventType(e.target.value)}><option value="absence">欠席</option><option value="late">遅刻</option><option value="reschedule_request">振替希望</option><option value="other">その他</option></select></label>
       <div><span>授業（クラス一覧表から自動設定）</span>{editingLesson ? <select style={inputStyle} value={lessonId} onChange={(e) => setLessonId(e.target.value)}><option value="">授業未特定</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.start_time ?? "時刻なし"} {lesson.label} {lesson.campus ?? ""}</option>)}</select> : <div style={{ ...inputStyle, minHeight: 38, background: "#f7f7f4" }}>{selectedLesson ? `${selectedLesson.start_time ?? "時刻なし"} ${selectedLesson.label} ${selectedLesson.campus ?? ""}` : studentNumber && date ? "該当授業なし" : "生徒と対象日から自動設定"}</div>}<button type="button" onClick={() => setEditingLesson((value) => !value)} style={{ border: 0, background: "transparent", color: "#087a3d", padding: "6px 0", cursor: "pointer", fontWeight: 700 }}>{editingLesson ? "自動表示に戻す" : "授業を修正"}</button></div>
