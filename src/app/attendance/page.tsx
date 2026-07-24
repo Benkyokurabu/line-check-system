@@ -32,6 +32,7 @@ type EditableItem = {
   client_id: string; id?: string; event_type: string; event_date: string; campus: string; lesson_id: string;
   suggested_subject: string | null; suggested_class_name: string | null; ai_summary: string; status?: string;
 };
+type HistoryDays = "none" | 3 | 5 | 7 | 14;
 
 const defaultReplyTemplates = [
   "ご連絡ありがとうございます。承知しました。本日の授業連絡として登録いたします。",
@@ -157,11 +158,12 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [replyTemplates, setReplyTemplates] = useState(defaultReplyTemplates);
   const [confirmedBy, setConfirmedBy] = useState("");
-  const [historyDays, setHistoryDays] = useState(5);
+  const [historyDays, setHistoryDays] = useState<HistoryDays>(5);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const load = useCallback(async () => {
-    const response = await fetch(`/api/attendance/candidates?status=review&days=${historyDays}`);
+    const query = historyDays === "none" ? "status=pending" : `status=review&days=${historyDays}`;
+    const response = await fetch(`/api/attendance/candidates?${query}`);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     setCandidates(body.candidates ?? []);
@@ -213,11 +215,11 @@ export default function AttendancePage() {
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中..." : "新しいLINEを解析"}</button>
-      <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value))}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
+      <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(event.target.value === "none" ? "none" : Number(event.target.value) as HistoryDays)}><option value="none">しない</option><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
-      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>未確認・対応済みの連絡候補はありません。</section>}
+      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{historyDays === "none" ? "未確認の連絡候補はありません。" : "未確認・対応済みの連絡候補はありません。"}</section>}
       {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
     </div>
   </main>;
