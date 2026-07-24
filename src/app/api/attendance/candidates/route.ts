@@ -141,15 +141,21 @@ function buildSenderProfile(input: {
 }
 
 export async function GET(request: Request) {
-  const status = new URL(request.url).searchParams.get("status") ?? "pending";
-  const statusList = status === "review" ? ["pending", "notion_failed", "confirmed"] : status === "pending" ? ["pending", "notion_failed"] : [status];
+  const url = new URL(request.url);
+  const status = url.searchParams.get("status") ?? "pending";
+  const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? "5") || 5, 1), 14);
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const statusList = status === "done" ? ["confirmed", "dismissed"] : status === "review" ? ["pending", "notion_failed", "confirmed"] : status === "pending" ? ["pending", "notion_failed"] : [status];
   const supabase = createSupabaseAdminClient();
+  let candidateQuery = supabase
+    .from("attendance_candidates")
+    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(text,received_at,display_name,line_user_id)")
+    .in("status", statusList)
+    .order(status === "done" ? "updated_at" : "created_at", { ascending: false });
+  if (status === "done") candidateQuery = candidateQuery.gte("updated_at", cutoff).limit(80);
+
   const [{ data, error }, { data: roster }, { data: accounts }, { data: links }, { data: aliases }] = await Promise.all([
-    supabase
-      .from("attendance_candidates")
-      .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(text,received_at,display_name,line_user_id)")
-      .in("status", statusList)
-      .order("created_at", { ascending: false }),
+    candidateQuery,
     supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher"),
     supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary"),
     supabase.from("student_line_links").select("student_number,line_user_id"),
@@ -193,6 +199,7 @@ export async function GET(request: Request) {
     return {
       ...candidate,
       sender_profile: buildSenderProfile({ lineMessage, accounts: linkedAccounts, aliases: aliasRows }),
+      reply_messages: repliesByCandidateId.get(candidate.id as string) ?? [],
       reply_status: (() => {
         const candidateReplies = repliesByCandidateId.get(candidate.id as string) ?? [];
         const latestReply = candidateReplies[0] ?? null;

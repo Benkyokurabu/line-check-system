@@ -8,6 +8,7 @@ type Student = { student_number: string; student_name: string; grade: string; ca
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean };
 type StudentSuggestion = Student & { score: number; reason: string };
 type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[]; tag_names?: string[] };
+type ReplyMessage = { id: string; text: string | null; received_at: string | null; sent_by: string | null };
 type CandidateItem = {
   id: string; event_type: string; event_date: string | null; lesson_id: string | null;
   suggested_subject: string | null; suggested_class_name: string | null; ai_summary: string | null;
@@ -20,6 +21,7 @@ type Candidate = {
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
   status: string; notion_error: string | null;
   reply_status?: { sent: boolean; count: number; last_sent_at: string | null; last_sent_by: string | null };
+  reply_messages?: ReplyMessage[];
   attendance_candidate_items?: CandidateItem[];
   sender_profile?: SenderProfile;
   student_suggestions?: StudentSuggestion[];
@@ -155,14 +157,16 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [replyTemplates, setReplyTemplates] = useState(defaultReplyTemplates);
   const [confirmedBy, setConfirmedBy] = useState("");
+  const [viewMode, setViewMode] = useState<"pending" | "done">("pending");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const load = useCallback(async () => {
-    const response = await fetch("/api/attendance/candidates?status=review");
+    const query = viewMode === "done" ? "status=done&days=5" : "status=pending";
+    const response = await fetch(`/api/attendance/candidates?${query}`);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     setCandidates(body.candidates ?? []);
-  }, []);
+  }, [viewMode]);
   useEffect(() => {
     async function initialize() {
       try {
@@ -198,7 +202,8 @@ export default function AttendancePage() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
       setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、失敗${body.failed}件です。`);
-      await load();
+      if (viewMode !== "pending") setViewMode("pending");
+      else await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
@@ -210,10 +215,13 @@ export default function AttendancePage() {
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中..." : "新しいLINEを解析"}</button>
+      <button type="button" style={viewMode === "pending" ? buttonStyle : ghostButtonStyle} onClick={() => setViewMode("pending")}>未対応</button>
+      <button type="button" style={viewMode === "done" ? buttonStyle : ghostButtonStyle} onClick={() => setViewMode("done")}>対応済み（直近5日）</button>
+      <button type="button" style={ghostButtonStyle} onClick={() => void load()}>更新</button>
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
-      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>未確認の連絡候補はありません。</section>}
+      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{viewMode === "done" ? "直近5日の対応済み連絡はありません。" : "未確認の連絡候補はありません。"}</section>}
       {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
     </div>
   </main>;
@@ -429,6 +437,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
     <div style={{ color: "#666", fontSize: 13, fontWeight: 700, marginTop: 12 }}>受信日時: {receivedAtText}</div>
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
+    <ReplyHistory replies={candidate.reply_messages ?? []} />
 
     <div style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(180px,260px)", gap: 12, alignItems: "start", marginBottom: 16 }}>
       <label style={{ display: "grid", gap: 6 }}><span>返信文</span><textarea style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6 }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
@@ -491,5 +500,13 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>
   </section>;
 }
-
-
+function ReplyHistory({ replies }: { replies: ReplyMessage[] }) {
+  if (replies.length === 0) return null;
+  return <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+    <strong>送信済み返信</strong>
+    {replies.map((reply) => <div key={reply.id} style={{ border: "1px solid #b7d7c2", background: "#f2fbf5", borderRadius: 6, padding: 12 }}>
+      <div style={{ color: "#087a3d", fontSize: 12, fontWeight: 800, marginBottom: 4 }}>{[reply.sent_by, formatStatusTime(reply.received_at)].filter(Boolean).join(" / ") || "送信履歴"}</div>
+      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{reply.text ?? "（本文なし）"}</div>
+    </div>)}
+  </div>;
+}
