@@ -145,14 +145,34 @@ export async function GET(request: Request) {
   const status = url.searchParams.get("status") ?? "pending";
   const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? "5") || 5, 1), 14);
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const statusList = status === "done" ? ["confirmed", "dismissed"] : status === "review" ? ["pending", "notion_failed", "confirmed"] : status === "pending" ? ["pending", "notion_failed"] : [status];
   const supabase = createSupabaseAdminClient();
-  let candidateQuery = supabase
+  const candidateSelect = "*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(text,received_at,display_name,line_user_id)";
+  const openCandidateQuery = supabase
     .from("attendance_candidates")
-    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(text,received_at,display_name,line_user_id)")
-    .in("status", statusList)
-    .order(status === "done" ? "updated_at" : "created_at", { ascending: false });
-  if (status === "done") candidateQuery = candidateQuery.gte("updated_at", cutoff).limit(80);
+    .select(candidateSelect)
+    .in("status", ["pending", "notion_failed"])
+    .order("created_at", { ascending: false });
+  const doneCandidateQuery = supabase
+    .from("attendance_candidates")
+    .select(candidateSelect)
+    .in("status", ["confirmed", "dismissed"])
+    .gte("updated_at", cutoff)
+    .order("updated_at", { ascending: false })
+    .limit(120);
+  const candidateQuery = status === "review"
+    ? Promise.all([openCandidateQuery, doneCandidateQuery]).then(([openResult, doneResult]) => ({
+        data: [...(openResult.data ?? []), ...(doneResult.data ?? [])],
+        error: openResult.error ?? doneResult.error,
+      }))
+    : status === "done"
+      ? doneCandidateQuery
+      : status === "pending"
+        ? openCandidateQuery
+        : supabase
+            .from("attendance_candidates")
+            .select(candidateSelect)
+            .in("status", [status])
+            .order("created_at", { ascending: false });
 
   const [{ data, error }, { data: roster }, { data: accounts }, { data: links }, { data: aliases }] = await Promise.all([
     candidateQuery,

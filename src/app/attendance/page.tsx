@@ -157,16 +157,15 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [replyTemplates, setReplyTemplates] = useState(defaultReplyTemplates);
   const [confirmedBy, setConfirmedBy] = useState("");
-  const [viewMode, setViewMode] = useState<"pending" | "done">("pending");
+  const [historyDays, setHistoryDays] = useState(5);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const load = useCallback(async () => {
-    const query = viewMode === "done" ? "status=done&days=5" : "status=pending";
-    const response = await fetch(`/api/attendance/candidates?${query}`);
+    const response = await fetch(`/api/attendance/candidates?status=review&days=${historyDays}`);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     setCandidates(body.candidates ?? []);
-  }, [viewMode]);
+  }, [historyDays]);
   useEffect(() => {
     async function initialize() {
       try {
@@ -202,8 +201,7 @@ export default function AttendancePage() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
       setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、失敗${body.failed}件です。`);
-      if (viewMode !== "pending") setViewMode("pending");
-      else await load();
+      await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
@@ -215,13 +213,11 @@ export default function AttendancePage() {
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中..." : "新しいLINEを解析"}</button>
-      <button type="button" style={viewMode === "pending" ? buttonStyle : ghostButtonStyle} onClick={() => setViewMode("pending")}>未対応</button>
-      <button type="button" style={viewMode === "done" ? buttonStyle : ghostButtonStyle} onClick={() => setViewMode("done")}>対応済み（直近5日）</button>
-      <button type="button" style={ghostButtonStyle} onClick={() => void load()}>更新</button>
+      <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value))}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
-      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{viewMode === "done" ? "直近5日の対応済み連絡はありません。" : "未確認の連絡候補はありません。"}</section>}
+      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>未確認・対応済みの連絡候補はありません。</section>}
       {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
     </div>
   </main>;
