@@ -3,6 +3,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 
+import { autoLinkLineSenders } from "@/lib/line-auto-link";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 
 // LINE Webhook は Node.js ランタイムで実行する（HMAC 署名検証に crypto を使うため）。
@@ -245,11 +246,23 @@ export async function POST(request: Request) {
           onConflict: "line_message_id",
           ignoreDuplicates: true,
         })
-        .select("id,line_message_id,line_user_id,message_type,media_file_name");
+        .select("id,line_message_id,line_user_id,display_name,text,message_type,media_file_name");
 
       if (error) {
         console.error("Failed to upsert line_messages", error);
       } else if (accessToken) {
+        await autoLinkLineSenders(
+          supabase,
+          (savedRows ?? []).map((row) => ({
+            id: row.id,
+            line_user_id: row.line_user_id,
+            display_name: row.display_name,
+            text: row.text,
+          })),
+        ).catch((linkError) => {
+          console.error("Failed to auto-link LINE sender", linkError);
+        });
+
         await Promise.all(
           (savedRows ?? [])
             .filter((row) => DOWNLOADABLE_MESSAGE_TYPES.has(row.message_type))

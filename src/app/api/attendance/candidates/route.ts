@@ -194,7 +194,7 @@ export async function GET(request: Request) {
             .in("status", [status])
             .order("created_at", { ascending: false });
 
-  const [{ data, error }, { data: roster }, { data: accounts }, { data: links }, { data: aliases }] = await Promise.all([
+  const [{ data, error }, { data: roster }, accountsResult, { data: links }, { data: aliases }] = await Promise.all([
     candidateQuery,
     supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher"),
     supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary"),
@@ -202,6 +202,10 @@ export async function GET(request: Request) {
     supabase.from("line_user_aliases").select("line_user_id,alias_name,group_name"),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (accountsResult.error && !["42P01", "PGRST205"].includes(accountsResult.error.code ?? "")) {
+    return NextResponse.json({ error: accountsResult.error.message }, { status: 500 });
+  }
+  const accounts = accountsResult.error ? [] : accountsResult.data;
   const rosterRows = (roster ?? []) as RosterRow[];
   const accountsByLineUserId = new Map<string, LineAccountRow[]>();
   for (const account of accounts ?? []) {
