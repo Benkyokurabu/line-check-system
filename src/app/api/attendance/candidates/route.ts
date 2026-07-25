@@ -236,6 +236,15 @@ export async function GET(request: Request) {
   const candidates = (data ?? []).map((candidate) => {
     const lineMessage = (candidate.line_messages as LineMessageRow | null) ?? null;
     const linkedAccounts = lineMessage?.line_user_id ? accountsByLineUserId.get(lineMessage.line_user_id) ?? [] : [];
+    const suggestionResult = buildStudentSuggestions({
+      currentStudentNumber: (candidate.student_number as string | null) ?? null,
+      suggestedStudentName: (candidate.suggested_student_name as string | null) ?? null,
+      lineMessage,
+      roster: rosterRows,
+      accountsByLineUserId,
+      linksByLineUserId,
+      aliases: aliasRows,
+    });
     return {
       ...candidate,
       sender_profile: buildSenderProfile({ lineMessage, accounts: linkedAccounts, aliases: aliasRows }),
@@ -250,15 +259,9 @@ export async function GET(request: Request) {
           last_sent_by: latestReply?.sent_by ?? null,
         };
       })(),
-      student_suggestions: buildStudentSuggestions({
-        currentStudentNumber: (candidate.student_number as string | null) ?? null,
-        suggestedStudentName: (candidate.suggested_student_name as string | null) ?? null,
-        lineMessage,
-        roster: rosterRows,
-        accountsByLineUserId,
-        linksByLineUserId,
-        aliases: aliasRows,
-      }),
+      student_suggestions: suggestionResult.suggestions,
+      student_selection_required: suggestionResult.requiresSelection,
+      student_selection_reason: suggestionResult.reason,
     };
   });
   candidates.sort((a, b) => {
