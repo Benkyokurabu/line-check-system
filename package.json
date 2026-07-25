@@ -19,7 +19,8 @@
     "export:line-profiles": "node scripts/export-line-profiles.mjs",
     "link:students": "node scripts/link-students-from-line-history.mjs",
     "test:attendance": "node --test tests/attendance.test.mjs",
-    "test": "npm run test:attendance"
+    "test": "npm run test:attendance",
+    "verify": "node scripts/verify-before-report.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
