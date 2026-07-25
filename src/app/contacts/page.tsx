@@ -3,6 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
+type RosterImportFile = { file: string; status?: string };
+type RosterImportPreview = { changed?: boolean; first_import?: boolean; message?: string; files?: RosterImportFile[]; changed_files?: RosterImportFile[]; students?: number; class_enrollments?: number; skipped?: boolean };
+
 type Contact = {
   line_user_id: string;
   display_name: string | null;
@@ -23,6 +26,8 @@ export default function ContactsPage() {
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [rosterImportMsg, setRosterImportMsg] = useState<string | null>(null);
+  const [rosterImportPreview, setRosterImportPreview] = useState<RosterImportPreview | null>(null);
+  const [rosterImporting, setRosterImporting] = useState(false);
 
   // グループへ一斉送信
   const [broadcastGroup, setBroadcastGroup] = useState("");
@@ -132,10 +137,51 @@ export default function ContactsPage() {
     }
   }
 
-  function handleRosterImportClick() {
-    setRosterImportMsg(
-      "クラス一覧表の取り込み処理は次の段階で接続します。ボタンの配置だけ完了しています。",
-    );
+  async function handleRosterImportClick() {
+    setRosterImporting(true);
+    setRosterImportMsg("クラス一覧表を確認しています...");
+    setRosterImportPreview(null);
+    try {
+      const response = await fetch("/api/admin/roster-import");
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "クラス一覧表の確認に失敗しました");
+      setRosterImportPreview(body);
+      const files = body.first_import ? body.files ?? [] : body.changed_files ?? [];
+      if (body.first_import) {
+        setRosterImportMsg(`初回取り込みです。フォルダ内のクラス一覧表 ${files.length}件を表示しています。`);
+      } else if (body.changed) {
+        setRosterImportMsg(`新しくなっていたクラス一覧表 ${files.length}件を取り込みます。`);
+      } else {
+        setRosterImportMsg("前回取り込み後に新しくなったクラス一覧表はありません。");
+      }
+    } catch (error) {
+      setRosterImportMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRosterImporting(false);
+    }
+  }
+
+  async function confirmRosterImport() {
+    if (!rosterImportPreview?.changed) return;
+    const files = rosterImportPreview.first_import ? rosterImportPreview.files ?? [] : rosterImportPreview.changed_files ?? [];
+    if (!window.confirm(`${files.map((file) => file.file).join("\n")}\n\nこれらのファイルを取り込みます。よろしいですか？`)) return;
+    setRosterImporting(true);
+    setRosterImportMsg("クラス一覧表を取り込んでいます...");
+    try {
+      const response = await fetch("/api/admin/roster-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "クラス一覧表の取り込みに失敗しました");
+      setRosterImportPreview(body);
+      setRosterImportMsg(body.skipped ? "新しくなったクラス一覧表はありません。" : `${body.students}名、${body.class_enrollments}件のクラス登録を取り込みました。`);
+    } catch (error) {
+      setRosterImportMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRosterImporting(false);
+    }
   }
 
   function startEditGroup(c: Contact) {
@@ -238,12 +284,26 @@ export default function ContactsPage() {
         {importMsg && <span style={{ fontSize: "0.875rem", color: "var(--accent)" }}>{importMsg}</span>}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
-        <span style={{ fontSize: "0.875rem", color: "var(--muted)", flexShrink: 0 }}>クラス一覧表:</span>
-        <button onClick={handleRosterImportClick} style={btnEdit}>
-          クラス一覧表を再取り込み
-        </button>
-        {rosterImportMsg && <span style={{ fontSize: "0.875rem", color: "var(--muted)" }}>{rosterImportMsg}</span>}
+      <div style={{ display: "grid", gap: 8, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: "0.875rem", color: "var(--muted)", flexShrink: 0 }}>クラス一覧表:</span>
+          <button onClick={handleRosterImportClick} style={btnEdit} disabled={rosterImporting}>
+            {rosterImporting ? "確認中..." : "取り込み"}
+          </button>
+          {rosterImportPreview?.changed && (
+            <button onClick={confirmRosterImport} style={btnSave} disabled={rosterImporting}>
+              確定
+            </button>
+          )}
+          {rosterImportMsg && <span style={{ fontSize: "0.875rem", color: rosterImportMsg.includes("失敗") ? "#dc2626" : "var(--muted)" }}>{rosterImportMsg}</span>}
+        </div>
+        {rosterImportPreview && (
+          <div style={{ display: "grid", gap: 4, fontSize: "0.82rem", color: "var(--muted)" }}>
+            {(rosterImportPreview.first_import ? rosterImportPreview.files ?? [] : rosterImportPreview.changed_files ?? []).map((file) => (
+              <span key={file.file}>・{file.file}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* グループへ一斉送信 */}
