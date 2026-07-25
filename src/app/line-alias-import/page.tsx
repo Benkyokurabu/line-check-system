@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 type ImportRow = {
   id: string;
@@ -12,6 +12,14 @@ type ImportRow = {
   group_name: string;
   source_status: string;
   note: string;
+};
+
+type ImportPreview = {
+  ok: boolean;
+  file: string;
+  rows: ImportRow[];
+  enabled_count: number;
+  message: string;
 };
 
 const inputStyle: React.CSSProperties = {
@@ -45,79 +53,6 @@ const ghostButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-function parseCsv(text: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-  const source = text.replace(/^\uFEFF/, "");
-
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    const next = source[index + 1];
-    if (quoted) {
-      if (char === '"' && next === '"') {
-        cell += '"';
-        index += 1;
-      } else if (char === '"') {
-        quoted = false;
-      } else {
-        cell += char;
-      }
-    } else if (char === '"') {
-      quoted = true;
-    } else if (char === ",") {
-      row.push(cell);
-      cell = "";
-    } else if (char === "\n") {
-      row.push(cell.replace(/\r$/, ""));
-      rows.push(row);
-      row = [];
-      cell = "";
-    } else {
-      cell += char;
-    }
-  }
-  if (cell || row.length > 0) {
-    row.push(cell.replace(/\r$/, ""));
-    rows.push(row);
-  }
-  return rows.filter((values) => values.some((value) => value.trim()));
-}
-
-function valueByHeaders(record: Record<string, string>, names: string[]) {
-  for (const name of names) {
-    const value = record[name];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-
-function rowsFromCsv(text: string) {
-  const parsed = parseCsv(text);
-  const headers = parsed.shift()?.map((header) => header.trim()) ?? [];
-  if (!headers.includes("line_user_id")) throw new Error("line_user_id 列があるCSVを選択してください");
-
-  return parsed.map((values, index) => {
-    const record = Object.fromEntries(headers.map((header, headerIndex) => [header, values[headerIndex] ?? ""]));
-    const lineUserId = valueByHeaders(record, ["line_user_id"]);
-    const aliasName = valueByHeaders(record, ["alias_name", "登録名", "registered_name"]);
-    const displayName = valueByHeaders(record, ["display_name", "stored_display_name", "profile_display_name", "LINE名"]);
-    const groupName = valueByHeaders(record, ["group_name", "グループ", "group"]);
-    const sourceStatus = valueByHeaders(record, ["status", "source", "match_method"]);
-    return {
-      id: `${lineUserId || "row"}-${index}`,
-      enabled: Boolean(lineUserId && aliasName),
-      line_user_id: lineUserId,
-      display_name: displayName,
-      alias_name: aliasName,
-      group_name: groupName,
-      source_status: sourceStatus,
-      note: !lineUserId ? "LINE IDなし" : !aliasName ? "登録名なし" : "",
-    } satisfies ImportRow;
-  });
-}
-
 function duplicateIds(rows: ImportRow[]) {
   const counts = new Map<string, number>();
   for (const row of rows) {
@@ -128,29 +63,32 @@ function duplicateIds(rows: ImportRow[]) {
 }
 
 export default function LineAliasImportPage() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
+  const [selectedFile, setSelectedFile] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const duplicateLineIds = useMemo(() => duplicateIds(rows), [rows]);
   const enabledRows = rows.filter((row) => row.enabled && row.line_user_id.trim() && row.alias_name.trim());
 
-  function loadText(text: string) {
+  async function loadImportCandidates() {
+    setLoading(true);
+    setMessage("取り込み候補を確認しています...");
     try {
-      const nextRows = rowsFromCsv(text);
-      setRows(nextRows);
-      setMessage(`${nextRows.length}件を読み込みました。内容を確認して、必要なら編集してください。`);
+      const response = await fetch("/api/admin/contacts/import");
+      const body = await response.json() as ImportPreview | { error?: string };
+      if (!response.ok) throw new Error("error" in body ? body.error ?? "読み込みに失敗しました" : "読み込みに失敗しました");
+      const preview = body as ImportPreview;
+      setRows(preview.rows ?? []);
+      setSelectedFile(preview.file ?? "");
+      setMessage(preview.message ?? `${preview.rows?.length ?? 0}件を読み込みました。内容を確認して、問題なければ確定してください。`);
     } catch (error) {
+      setRows([]);
+      setSelectedFile("");
       setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
     }
-  }
-
-  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    loadText(text);
-    event.target.value = "";
   }
 
   function updateRow(id: string, patch: Partial<ImportRow>) {
@@ -194,17 +132,17 @@ export default function LineAliasImportPage() {
     </div>
 
     <section className="panel" style={{ padding: 16, display: "grid", gap: 12, marginBottom: 16 }}>
-      <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: "none" }} />
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" style={buttonStyle} onClick={() => fileInputRef.current?.click()}>取り込み</button>
-        <button type="button" style={buttonStyle} onClick={confirmImport} disabled={saving || enabledRows.length === 0}>{saving ? "確定中..." : "確定"}</button>
+        <button type="button" style={buttonStyle} onClick={loadImportCandidates} disabled={loading || saving}>{loading ? "確認中..." : "取り込み"}</button>
+        <button type="button" style={buttonStyle} onClick={confirmImport} disabled={loading || saving || enabledRows.length === 0}>{saving ? "確定中..." : "確定"}</button>
         <strong style={{ marginLeft: 4 }}>取り込み候補 {enabledRows.length}件 / 読み込み {rows.length}件</strong>
       </div>
-      {message && <p role="status" style={{ color: message.includes("失敗") || message.includes("なし") ? "#b42318" : "var(--muted)", fontWeight: 700 }}>{message}</p>}
+      {selectedFile && <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>対象ファイル: {selectedFile}</p>}
+      {message && <p role="status" style={{ color: message.includes("失敗") || message.includes("なし") || message.includes("見つかりません") ? "#b42318" : "var(--muted)", fontWeight: 700 }}>{message}</p>}
     </section>
 
     <section className="panel" style={{ padding: 0, overflow: "hidden" }}>
-      {rows.length === 0 ? <p style={{ padding: 24 }}>CSVを読み込むと、ここに登録候補が表示されます。</p> : <div style={{ overflowX: "auto" }}>
+      {rows.length === 0 ? <p style={{ padding: 24 }}>取り込みを押すと、候補ファイルを自動で読み込んでここに表示します。</p> : <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
           <thead>
             <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
