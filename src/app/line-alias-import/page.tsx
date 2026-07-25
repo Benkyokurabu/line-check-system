@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 type ImportRow = {
   id: string;
@@ -128,8 +128,8 @@ function duplicateIds(rows: ImportRow[]) {
 }
 
 export default function LineAliasImportPage() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
-  const [pasteText, setPasteText] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const duplicateLineIds = useMemo(() => duplicateIds(rows), [rows]);
@@ -155,10 +155,6 @@ export default function LineAliasImportPage() {
 
   function updateRow(id: string, patch: Partial<ImportRow>) {
     setRows((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
-  }
-
-  function removeDisabled() {
-    setRows((current) => current.filter((row) => row.enabled));
   }
 
   async function confirmImport() {
@@ -198,30 +194,21 @@ export default function LineAliasImportPage() {
     </div>
 
     <section className="panel" style={{ padding: 16, display: "grid", gap: 12, marginBottom: 16 }}>
+      <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: "none" }} />
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <label style={{ ...buttonStyle, display: "inline-flex" }}>
-          CSVを選択
-          <input type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: "none" }} />
-        </label>
-        <button type="button" style={ghostButtonStyle} onClick={() => loadText(pasteText)} disabled={!pasteText.trim()}>貼り付けCSVを読み込み</button>
-        <button type="button" style={ghostButtonStyle} onClick={removeDisabled} disabled={rows.length === 0}>チェックなし行を非表示</button>
+        <button type="button" style={buttonStyle} onClick={() => fileInputRef.current?.click()}>取り込み</button>
+        <button type="button" style={buttonStyle} onClick={confirmImport} disabled={saving || enabledRows.length === 0}>{saving ? "確定中..." : "確定"}</button>
+        <strong style={{ marginLeft: 4 }}>取り込み候補 {enabledRows.length}件 / 読み込み {rows.length}件</strong>
       </div>
-      <textarea value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder="CSVの中身を貼り付けても読み込めます" style={{ ...inputStyle, minHeight: 88, resize: "vertical", fontFamily: "Consolas, monospace" }} />
-      <p>LINE管理画面から出したCSV、または取り込みレポートCSVを読み込み、登録名を確認してから確定します。</p>
       {message && <p role="status" style={{ color: message.includes("失敗") || message.includes("なし") ? "#b42318" : "var(--muted)", fontWeight: 700 }}>{message}</p>}
     </section>
 
     <section className="panel" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <strong>取り込み候補 {enabledRows.length}件 / 読み込み {rows.length}件</strong>
-        <button type="button" style={buttonStyle} onClick={confirmImport} disabled={saving || enabledRows.length === 0}>{saving ? "登録中..." : "全部OKなので登録を確定"}</button>
-      </div>
       {rows.length === 0 ? <p style={{ padding: 24 }}>CSVを読み込むと、ここに登録候補が表示されます。</p> : <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
           <thead>
             <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
-              <Th>対象</Th>
-              <Th>LINE ID</Th>
+              <Th>登録</Th>
               <Th>LINE名</Th>
               <Th>登録名</Th>
               <Th>グループ</Th>
@@ -234,8 +221,10 @@ export default function LineAliasImportPage() {
               const invalid = !row.line_user_id || !row.alias_name;
               return <tr key={row.id} style={{ borderBottom: "1px solid var(--line)", background: row.enabled ? "white" : "#f7f7f4" }}>
                 <td style={td}><input type="checkbox" checked={row.enabled} onChange={(event) => updateRow(row.id, { enabled: event.target.checked })} /></td>
-                <td style={{ ...td, fontFamily: "Consolas, monospace", fontSize: 12 }}>{row.line_user_id || "-"}</td>
-                <td style={td}><input value={row.display_name} onChange={(event) => updateRow(row.id, { display_name: event.target.value })} style={inputStyle} placeholder="LINE名" /></td>
+                <td style={td}>
+                  <strong>{row.display_name || "LINE名なし"}</strong>
+                  <div style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: 11, marginTop: 3 }}>{row.line_user_id || "LINE IDなし"}</div>
+                </td>
                 <td style={td}><input value={row.alias_name} onChange={(event) => updateRow(row.id, { alias_name: event.target.value, enabled: Boolean(row.line_user_id && event.target.value.trim()) })} style={inputStyle} placeholder="例: 本 山田太郎 母" /></td>
                 <td style={td}><input value={row.group_name} onChange={(event) => updateRow(row.id, { group_name: event.target.value })} style={inputStyle} placeholder="例: 中3本科" /></td>
                 <td style={td}><span style={{ color: invalid || duplicated ? "#b42318" : "var(--muted)", fontWeight: 700 }}>{invalid ? row.note : duplicated ? "重複ID" : row.source_status || "OK"}</span></td>

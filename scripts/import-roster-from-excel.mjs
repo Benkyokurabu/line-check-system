@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import XLSX from "xlsx";
 
 const root = process.cwd();
+const MANIFEST_KEY = "roster_excel_import_manifest";
+const force = process.argv.includes("--force");
 const CLASS_COLUMNS = [
   { subject: "数学", classroomIndex: 6, classIndex: 7 },
   { subject: "英語", classroomIndex: 9, classIndex: 10 },
@@ -50,7 +52,27 @@ if (!supabaseUrl || !supabaseKey) {
 
 const files = fs
   .readdirSync(root)
-  .filter((file) => file.includes("クラス一覧表") && file.endsWith(".xlsx"));
+  .filter((file) => file.includes("クラス一覧表") && file.endsWith(".xlsx"))
+  .sort((a, b) => a.localeCompare(b, "ja"));
+
+function fileManifest(fileNames) {
+  return fileNames.map((file) => {
+    const stat = fs.statSync(path.join(root, file));
+    return {
+      file,
+      size: stat.size,
+      mtime_ms: Math.trunc(stat.mtimeMs),
+    };
+  });
+}
+
+function sameManifest(current, previous) {
+  if (!Array.isArray(previous) || current.length !== previous.length) return false;
+  return current.every((file, index) => {
+    const before = previous[index];
+    return before?.file === file.file && before?.size === file.size && before?.mtime_ms === file.mtime_ms;
+  });
+}
 
 if (files.length === 0) {
   console.error("No roster Excel files found.");
@@ -114,6 +136,28 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+const currentManifest = fileManifest(files);
+const { data: previousManifestRow, error: previousManifestError } = await supabase
+  .from("app_settings")
+  .select("value")
+  .eq("key", MANIFEST_KEY)
+  .maybeSingle();
+
+if (previousManifestError && !["42P01", "PGRST205"].includes(previousManifestError.code)) {
+  console.error(previousManifestError);
+  process.exit(1);
+}
+
+if (!force && sameManifest(currentManifest, previousManifestRow?.value)) {
+  console.log(JSON.stringify({
+    ok: true,
+    skipped: true,
+    reason: "Roster Excel files are unchanged since the last import.",
+    files: currentManifest.map((item) => item.file),
+  }, null, 2));
+  process.exit(0);
+}
+
 const uniqueRows = [...new Map(rows.map((row) => [row.student_number, row])).values()];
 const uniqueEnrollments = [
   ...new Map(
@@ -154,4 +198,25 @@ if (uniqueEnrollments.length > 0) {
   }
 }
 
-console.log(`Imported ${uniqueRows.length} students and ${uniqueEnrollments.length} class enrollments. ${rows.length - uniqueRows.length} duplicate roster rows were skipped.`);
+const { error: manifestError } = await supabase
+  .from("app_settings")
+  .upsert({
+    key: MANIFEST_KEY,
+    value: currentManifest,
+    description: "Last imported roster Excel file names, sizes, and mtimes.",
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "key" });
+
+if (manifestError && !["42P01", "PGRST205"].includes(manifestError.code)) {
+  console.error(manifestError);
+  process.exit(1);
+}
+
+console.log(JSON.stringify({
+  ok: true,
+  skipped: false,
+  students: uniqueRows.length,
+  class_enrollments: uniqueEnrollments.length,
+  duplicate_roster_rows_skipped: rows.length - uniqueRows.length,
+  files: currentManifest.map((item) => item.file),
+}, null, 2));
