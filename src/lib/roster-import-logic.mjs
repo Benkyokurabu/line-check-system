@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readFile, utils } from "xlsx";
+import * as XLSX from "xlsx";
 
 export const ROSTER_MANIFEST_KEY = "roster_excel_import_manifest";
 
@@ -108,9 +108,9 @@ export function readRosterExcelRows(files, root = process.cwd()) {
       continue;
     }
 
-    const workbook = readFile(path.join(root, file));
+    const workbook = XLSX.readFile(path.join(root, file));
     const sheet = workbook.Sheets["クラス一覧表"] ?? workbook.Sheets[workbook.SheetNames[0]];
-    const records = utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" });
+    const records = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" });
 
     for (const record of records.slice(2)) {
       const studentNumber = cellText(record[1]);
