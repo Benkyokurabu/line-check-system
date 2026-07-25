@@ -147,7 +147,7 @@ export default function LineAliasImportPage() {
           <thead>
             <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
               <Th>登録</Th>
-              <Th>LINE名</Th>
+              <Th>確認用表示</Th>
               <Th>登録名</Th>
               <Th>グループ</Th>
               <Th>状態</Th>
@@ -160,7 +160,10 @@ export default function LineAliasImportPage() {
               return <tr key={row.id} style={{ borderBottom: "1px solid var(--line)", background: row.enabled ? "white" : "#f7f7f4" }}>
                 <td style={td}><input type="checkbox" checked={row.enabled} onChange={(event) => updateRow(row.id, { enabled: event.target.checked })} /></td>
                 <td style={td}>
-                  <strong>{row.display_name || "LINE名なし"}</strong>
+                  <strong>{row.display_name || row.alias_name || "名前未取得"}</strong>
+                  <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 3 }}>
+                    {row.display_name ? "LINE名取得済み" : "LINE名未取得"}
+                  </div>
                   <div style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: 11, marginTop: 3 }}>{row.line_user_id || "LINE IDなし"}</div>
                 </td>
                 <td style={td}><input value={row.alias_name} onChange={(event) => updateRow(row.id, { alias_name: event.target.value, enabled: Boolean(row.line_user_id && event.target.value.trim()) })} style={inputStyle} placeholder="例: 本 山田太郎 母" /></td>
@@ -184,3 +187,5 @@ const td: React.CSSProperties = {
   verticalAlign: "middle",
   fontSize: "0.85rem",
 };
+
+

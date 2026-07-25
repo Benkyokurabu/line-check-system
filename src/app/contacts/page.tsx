@@ -252,7 +252,8 @@ export default function ContactsPage() {
     if (!q) return true;
     return (
       (c.alias_name ?? "").toLowerCase().includes(q) ||
-      (c.display_name ?? "").toLowerCase().includes(q)
+      (c.display_name ?? "").toLowerCase().includes(q) ||
+      c.line_user_id.toLowerCase().includes(q)
     );
   });
 
@@ -407,9 +408,15 @@ export default function ContactsPage() {
                   }}
                 >
                   <td style={td}>
-                    <span style={{ color: "var(--muted)", fontSize: "0.875rem" }}>
-                      {c.display_name ?? <span style={{ fontSize: "0.8rem" }}>未取得</span>}
-                    </span>
+                    <div style={{ display: "grid", gap: 3 }}>
+                      <span style={{ color: c.display_name ? "var(--muted)" : "var(--foreground)", fontSize: "0.875rem", fontWeight: c.display_name ? 400 : 700 }}>
+                        {c.display_name ?? c.alias_name ?? "名前未取得"}
+                      </span>
+                      <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
+                        {c.display_name ? "LINE名取得済み" : "LINE名未取得"}
+                      </span>
+                      <span style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: "0.68rem" }}>{c.line_user_id}</span>
+                    </div>
                   </td>
                   <td style={td}>
                     {editingId === c.line_user_id ? (
@@ -562,4 +569,5 @@ const editInput: React.CSSProperties = {
   padding: "5px 10px", borderRadius: 5, border: "1px solid var(--accent)",
   background: "var(--surface)", color: "var(--foreground)", fontSize: "0.875rem", width: 220,
 };
+
 
