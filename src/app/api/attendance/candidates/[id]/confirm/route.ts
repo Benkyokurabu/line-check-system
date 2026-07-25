@@ -10,12 +10,16 @@ type ResolvedProperty = { name: string; type: string };
 type LessonRow = { label?: string | null; start_time?: string | null; campus?: string | null; source_payload?: Record<string, unknown> | null } | null;
 type CandidateItem = {
   id: string;
+  student_number: string | null;
   event_type: string | null;
   event_date: string | null;
   lesson_id: string | null;
   suggested_subject: string | null;
   suggested_class_name: string | null;
   ai_summary: string | null;
+  arrival_expected_time: string | null;
+  note_internal: string | null;
+  note_for_classroom: string | null;
   status: string | null;
   notion_page_id: string | null;
   lessons?: LessonRow | LessonRow[];
@@ -35,6 +39,7 @@ function envFirst(envName: string, fallback: string[]) {
 
 function eventTypeLabel(value: string | null | undefined) {
   if (value === "late") return "遅刻";
+  if (value === "early_leave") return "早退";
   if (value === "reschedule_request") return "振替希望";
   if (value === "other") return "その他";
   return "欠席";
@@ -42,6 +47,7 @@ function eventTypeLabel(value: string | null | undefined) {
 
 function fallbackReason(value: string | null | undefined) {
   if (value === "late") return "遅刻連絡";
+  if (value === "early_leave") return "早退連絡";
   if (value === "reschedule_request") return "振替希望";
   if (value === "other") return "連絡";
   return "欠席連絡";
@@ -127,18 +133,79 @@ function fallbackItems(candidate: Record<string, unknown>): CandidateItem[] {
   if (activeItems.length > 0) return activeItems;
   return [{
     id: "legacy",
+    student_number: candidate.student_number as string | null,
     event_type: candidate.event_type as string | null,
     event_date: candidate.event_date as string | null,
     lesson_id: candidate.lesson_id as string | null,
     suggested_subject: candidate.suggested_subject as string | null,
     suggested_class_name: candidate.suggested_class_name as string | null,
     ai_summary: candidate.ai_summary as string | null,
+    arrival_expected_time: null,
+    note_internal: null,
+    note_for_classroom: null,
     status: candidate.status as string | null,
     notion_page_id: candidate.notion_page_id as string | null,
     lessons: candidate.lessons as LessonRow | LessonRow[] | undefined,
   }];
 }
 
+function confirmedEventType(value: string | null | undefined) {
+  if (value === "late") return "late";
+  if (value === "early_leave") return "early_leave";
+  return "absence";
+}
+
+async function upsertAttendanceEvent(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  candidate: Record<string, unknown>;
+  item: CandidateItem;
+  studentNumber: string;
+  confirmedBy: string;
+  confirmedAt: string;
+  notionPageId?: string | null;
+  notionStatus?: "not_requested" | "pending" | "success" | "failed";
+  notionError?: string | null;
+}) {
+  if (!input.item.event_date) throw new Error("対象日を入力してください");
+  if (!input.item.lesson_id) throw new Error("授業を選択してください");
+  const eventRow = {
+    source_candidate_id: input.candidate.id,
+    source_message_id: input.candidate.source_message_id,
+    source_candidate_item_id: input.item.id === "legacy" ? null : input.item.id,
+    contact_method: "line",
+    contact_received_at: firstRelation(input.candidate.line_messages as { received_at?: string | null } | { received_at?: string | null }[] | null)?.received_at ?? null,
+    received_by: input.confirmedBy,
+    student_number: input.studentNumber,
+    lesson_id: input.item.lesson_id,
+    event_date: input.item.event_date,
+    event_type: confirmedEventType(input.item.event_type),
+    reason: input.item.ai_summary?.trim() || fallbackReason(input.item.event_type),
+    arrival_expected_time: input.item.arrival_expected_time?.trim() || null,
+    note_internal: input.item.note_internal?.trim() || null,
+    note_for_classroom: input.item.note_for_classroom?.trim() || null,
+    status: "confirmed",
+    confirmed_by: input.confirmedBy,
+    confirmed_at: input.confirmedAt,
+    cancelled_by: null,
+    cancelled_at: null,
+    notion_page_id: input.notionPageId ?? null,
+    notion_status: input.notionStatus ?? "pending",
+    notion_error: input.notionError ?? null,
+  };
+  const { data, error } = await input.supabase
+    .from("attendance_events")
+    .upsert(eventRow, { onConflict: "student_number,lesson_id" })
+    .select("*")
+    .single();
+  if (error) throw error;
+  await input.supabase.from("attendance_event_audit_logs").insert({
+    event_id: data.id,
+    action: "upsert_from_line_candidate",
+    actor: input.confirmedBy,
+    after_data: data,
+  });
+  return data as { id: string };
+}
 async function registerItem(input: {
   dataSourceId: string;
   item: CandidateItem;
@@ -195,28 +262,38 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const supabase = createSupabaseAdminClient();
   const { data: candidate, error } = await supabase
     .from("attendance_candidates")
-    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,start_time,campus,source_payload),attendance_candidate_items(*,lessons(label,start_time,campus,source_payload)),line_messages(line_user_id)")
+    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,start_time,campus,source_payload),attendance_candidate_items(*,lessons(label,start_time,campus,source_payload)),line_messages(line_user_id,received_at)")
     .eq("id", id)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!candidate) return NextResponse.json({ error: "候補が見つかりません" }, { status: 404 });
-  if (!candidate.student_number) return NextResponse.json({ error: "生徒を確定してください" }, { status: 400 });
 
   const items = fallbackItems(candidate).filter((item) => item.status !== "confirmed");
   if (items.length === 0 && candidate.status === "confirmed") {
     return NextResponse.json({ ok: true, already_registered: true });
   }
   if (items.length === 0) return NextResponse.json({ error: "登録する行がありません" }, { status: 400 });
-
-  const { data: profile } = await supabase
-    .from("notion_student_profiles")
-    .select("notion_page_id")
-    .eq("student_number", candidate.student_number)
-    .limit(1)
-    .maybeSingle();
-  if (!profile?.notion_page_id) {
-    return NextResponse.json({ error: "この生徒はNotion生徒情報DBと紐づいていません" }, { status: 400 });
+  const itemStudentNumbers = [...new Set(items.map((item) => item.student_number ?? candidate.student_number as string | null).filter((value): value is string => Boolean(value)))];
+  if (itemStudentNumbers.length === 0 || items.some((item) => !(item.student_number ?? candidate.student_number))) {
+    return NextResponse.json({ error: "すべての登録行で生徒を確定してください" }, { status: 400 });
   }
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("notion_student_profiles")
+    .select("student_number,notion_page_id")
+    .in("student_number", itemStudentNumbers);
+  if (profileError) return NextResponse.json({ error: profileError.message }, { status: 500 });
+  const profileByStudent = new Map((profiles ?? []).map((profile) => [profile.student_number as string, profile.notion_page_id as string]));
+  const missingProfile = itemStudentNumbers.find((studentNumber) => !profileByStudent.get(studentNumber));
+  if (missingProfile) {
+    return NextResponse.json({ error: "Notion生徒情報DBと紐づいていない生徒がいます" }, { status: 400 });
+  }
+  const { data: rosterRows, error: rosterError } = await supabase
+    .from("student_roster")
+    .select("student_number,campus")
+    .in("student_number", itemStudentNumbers);
+  if (rosterError) return NextResponse.json({ error: rosterError.message }, { status: 500 });
+  const campusByStudent = new Map((rosterRows ?? []).map((row) => [row.student_number as string, row.campus as string | null]));
   const claimedAt = new Date().toISOString();
   const { data: claimed } = await supabase
     .from("attendance_candidates")
@@ -228,7 +305,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!claimed) return NextResponse.json({ error: "別の登録処理が進行中です" }, { status: 409 });
 
   try {
-    const student = firstRelation(candidate.student_roster) as { campus?: string | null } | null;
     const lineMessage = firstRelation(candidate.line_messages) as { line_user_id?: string | null } | null;
     const { data: senderAlias } = lineMessage?.line_user_id ? await supabase
       .from("line_user_aliases")
@@ -242,22 +318,54 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const pageIds: string[] = [];
 
     for (const item of items) {
-      const notionPageId = await registerItem({
-        dataSourceId,
+      const studentNumber = item.student_number ?? candidate.student_number as string;
+      const event = await upsertAttendanceEvent({
+        supabase,
+        candidate,
         item,
-        profilePageId: profile.notion_page_id,
-        campus,
-        studentCampus: student?.campus ?? null,
-        properties,
+        studentNumber,
+        confirmedBy,
+        confirmedAt: claimedAt,
+        notionStatus: "pending",
       });
-      pageIds.push(notionPageId);
-      if (item.id !== "legacy") {
-        const { error: itemSaveError } = await supabase.from("attendance_candidate_items").update({
-          status: "confirmed",
+      const profilePageId = profileByStudent.get(studentNumber);
+      if (!profilePageId) throw new Error("Notion生徒情報DBと紐づいていない生徒がいます");
+      try {
+        const notionPageId = await registerItem({
+          dataSourceId,
+          item,
+          profilePageId,
+          campus,
+          studentCampus: campusByStudent.get(studentNumber) ?? null,
+          properties,
+        });
+        pageIds.push(notionPageId);
+        await supabase.from("attendance_events").update({
           notion_page_id: notionPageId,
+          notion_status: "success",
           notion_error: null,
-        }).eq("id", item.id);
-        if (itemSaveError) throw new Error(`Notion登録後の行保存に失敗しました: ${itemSaveError.message}`);
+        }).eq("id", event.id);
+        if (item.id !== "legacy") {
+          const { error: itemSaveError } = await supabase.from("attendance_candidate_items").update({
+            status: "confirmed",
+            notion_page_id: notionPageId,
+            notion_error: null,
+          }).eq("id", item.id);
+          if (itemSaveError) throw new Error(`Notion登録後の行保存に失敗しました: ${itemSaveError.message}`);
+        }
+      } catch (itemCause) {
+        const itemMessage = itemCause instanceof Error ? itemCause.message : String(itemCause);
+        await supabase.from("attendance_events").update({
+          notion_status: "failed",
+          notion_error: itemMessage.slice(0, 500),
+        }).eq("id", event.id);
+        if (item.id !== "legacy") {
+          await supabase.from("attendance_candidate_items").update({
+            status: "notion_failed",
+            notion_error: itemMessage.slice(0, 500),
+          }).eq("id", item.id);
+        }
+        throw itemCause;
       }
     }
 

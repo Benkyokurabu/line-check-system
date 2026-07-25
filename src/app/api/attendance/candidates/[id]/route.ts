@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 
-const eventTypes = new Set(["absence", "late", "reschedule_request", "other"]);
+const eventTypes = new Set(["absence", "late", "early_leave", "reschedule_request", "other"]);
 
 function cleanDate(value: unknown) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
@@ -27,12 +27,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (Array.isArray(body.items)) {
     const rows = body.items.slice(0, 80).map((item: Record<string, unknown>) => ({
       candidate_id: id,
+      student_number: cleanText(item.student_number),
       event_type: cleanEventType(item.event_type),
       event_date: cleanDate(item.event_date),
       lesson_id: cleanText(item.lesson_id),
       suggested_subject: cleanText(item.suggested_subject),
       suggested_class_name: cleanText(item.suggested_class_name),
       ai_summary: cleanText(item.ai_summary),
+      arrival_expected_time: cleanText(item.arrival_expected_time),
+      note_internal: cleanText(item.note_internal),
+      note_for_classroom: cleanText(item.note_for_classroom),
       status: "pending",
     }));
     const { error: deleteError } = await supabase
