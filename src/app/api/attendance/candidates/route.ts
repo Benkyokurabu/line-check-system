@@ -22,6 +22,12 @@ type StudentSuggestion = RosterRow & {
   reason: string;
 };
 
+type StudentSuggestionResult = {
+  suggestions: StudentSuggestion[];
+  requiresSelection: boolean;
+  reason: string | null;
+};
+
 type LineAccountRow = {
   student_number: string;
   line_user_id: string;
@@ -97,6 +103,11 @@ function buildStudentSuggestions(input: {
     addSuggestion(suggestions, rosterByNumber, studentNumber, 94, "LINE履歴");
   }
 
+  const linkedStudentNumbers = lineUserId ? [...new Set([
+    ...(input.accountsByLineUserId.get(lineUserId) ?? []).map((account) => account.student_number),
+    ...(input.linksByLineUserId.get(lineUserId) ?? []),
+  ])] : [];
+
   const searchTexts = [
     input.suggestedStudentName,
     input.lineMessage?.display_name,
@@ -123,7 +134,16 @@ function buildStudentSuggestions(input: {
     }
   }
 
-  return [...suggestions.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+  const sorted = [...suggestions.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+  const hasExplicitStudent = Boolean(input.currentStudentNumber) || sorted.some((student) =>
+    ["名前一致", "送信者名に生徒名", "送信者名に姓名の一部"].includes(student.reason),
+  );
+  const requiresSelection = linkedStudentNumbers.length > 1 && !hasExplicitStudent;
+  return {
+    suggestions: sorted,
+    requiresSelection,
+    reason: requiresSelection ? "同じLINE連絡先に兄弟姉妹が複数紐づいています。本文から生徒を特定できないため、登録前に人間が名前を選択してください。" : null,
+  } satisfies StudentSuggestionResult;
 }
 
 function buildSenderProfile(input: {

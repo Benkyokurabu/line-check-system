@@ -26,6 +26,8 @@ type Candidate = {
   attendance_candidate_items?: CandidateItem[];
   sender_profile?: SenderProfile;
   student_suggestions?: StudentSuggestion[];
+  student_selection_required?: boolean;
+  student_selection_reason?: string | null;
   student_roster: { student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null } | null;
   lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null; line_user_id?: string | null } | null;
 };
@@ -346,7 +348,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const titleName = `${lineManagedName}（${senderDisplayName}）`;
   const senderLineUserId = candidate.line_messages?.line_user_id ?? null;
   const receivedAtText = formatReceivedAt(candidate.line_messages?.received_at);
-  const initialStudentNumber = candidate.student_number ?? candidate.student_suggestions?.[0]?.student_number ?? "";
+  const initialStudentNumber = candidate.student_number ?? (candidate.student_selection_required ? "" : candidate.student_suggestions?.[0]?.student_number ?? "");
   const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
   const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus));
@@ -603,6 +605,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       </div>
     </div>
 
+    {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 6, padding: 10, marginBottom: 12, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</div>}
     <div style={{ display: "grid", gridTemplateColumns: "minmax(160px,220px) minmax(0,1fr) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
       <label style={fieldStyle}>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
         const suggestion = suggestions.find((item) => item.student_number === student.student_number);

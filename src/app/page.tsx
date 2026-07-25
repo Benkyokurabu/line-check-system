@@ -26,6 +26,11 @@ const menuItems = [
     title: "連絡先管理",
     description: "LINE名、登録名、グループを管理し、一斉送信の対象を整えます。",
   },
+  {
+    href: "/line-alias-import",
+    title: "LINE登録名の取り込み",
+    description: "LINE管理画面で入力した登録名を一覧確認し、編集してから一括反映します。",
+  },
 ];
 
 export default function Home() {
