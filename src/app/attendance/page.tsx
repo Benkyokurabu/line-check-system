@@ -129,7 +129,7 @@ function makeClientId() {
   return Math.random().toString(36).slice(2);
 }
 
-function initialItems(candidate: Candidate, initialCampus: string) {
+function initialItems(candidate: Candidate, initialCampus: string, fallbackStudentNumber: string) {
   const source = (candidate.attendance_candidate_items ?? []).length > 0 ? candidate.attendance_candidate_items! : [{
     id: "", student_number: candidate.student_number, event_type: candidate.event_type, event_date: candidate.event_date, lesson_id: candidate.lesson_id,
     suggested_subject: candidate.suggested_subject, suggested_class_name: candidate.suggested_class_name,
@@ -138,7 +138,7 @@ function initialItems(candidate: Candidate, initialCampus: string) {
   return source.map((item) => ({
     client_id: item.id || makeClientId(),
     id: item.id || undefined,
-    student_number: item.student_number ?? candidate.student_number ?? "",
+    student_number: item.student_number ?? candidate.student_number ?? fallbackStudentNumber,
     event_type: item.event_type || candidate.event_type || "absence",
     event_date: item.event_date ?? "",
     campus: item.lessons?.campus ?? initialCampus,
@@ -351,7 +351,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const initialStudentNumber = candidate.student_number ?? (candidate.student_selection_required ? "" : candidate.student_suggestions?.[0]?.student_number ?? "");
   const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
-  const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus));
+  const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus, initialStudentNumber));
   const registered = candidate.status === "confirmed";
   const itemStatuses = candidate.attendance_candidate_items ?? [];
   const confirmedItems = itemStatuses.filter((item) => item.status === "confirmed").length;
