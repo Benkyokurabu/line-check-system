@@ -31,6 +31,7 @@ type ClassroomResponse = {
   selected_lesson: Lesson | null;
   events: ClassroomEvent[];
   message: string | null;
+  notion_warning?: string | null;
   fetched_at: string;
   error?: string;
 };
@@ -249,6 +250,7 @@ export default function ClassroomPage() {
         </div>
 
         {message && <div style={{ border: "1px solid #fca5a5", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: 12, fontWeight: 800 }}>{message}</div>}
+        {data?.notion_warning && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", color: "#9a3412", borderRadius: 8, padding: 12, fontWeight: 800 }}>{data.notion_warning}</div>}
         {loading && !data && <p>読み込み中...</p>}
 
         {data && <>
@@ -281,8 +283,4 @@ export default function ClassroomPage() {
     </section>
   </main>;
 }
-
-
-
-
 
