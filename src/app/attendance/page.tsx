@@ -27,7 +27,7 @@ type Candidate = {
   sender_profile?: SenderProfile;
   student_suggestions?: StudentSuggestion[];
   student_roster: { student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null } | null;
-  lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null } | null;
+  lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null; line_user_id?: string | null } | null;
 };
 type EditableItem = {
   client_id: string; id?: string; student_number: string; event_type: string; event_date: string; campus: string; lesson_id: string;
@@ -344,6 +344,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const lineTagNames = candidate.sender_profile?.tag_names ?? [];
   const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? "不明";
   const titleName = `${lineManagedName}（${senderDisplayName}）`;
+  const senderLineUserId = candidate.line_messages?.line_user_id ?? null;
   const receivedAtText = formatReceivedAt(candidate.line_messages?.received_at);
   const initialStudentNumber = candidate.student_number ?? candidate.student_suggestions?.[0]?.student_number ?? "";
   const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
@@ -365,6 +366,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [cardMessage, setCardMessage] = useState("");
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
   const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
+  const [linkingSender, setLinkingSender] = useState(false);
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
   const suggestionNumbers = useMemo(() => new Set(suggestions.map((student) => student.student_number)), [suggestions]);
   const studentOptions = useMemo(() => uniqueByNumber([
@@ -414,6 +416,38 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     setItems((current) => current.map((item) => ({ ...item, student_number: value, lesson_id: "" })));
   }
 
+  async function linkSenderToSelectedStudent() {
+    if (!senderLineUserId) { setCardMessage("このLINE連絡先のIDを取得できません。"); return; }
+    if (!studentNumber) { setCardMessage("先に名前を選択してください。"); return; }
+    const student = studentOptions.find((item) => item.student_number === studentNumber);
+    if (!student) { setCardMessage("選択中の生徒を確認できません。"); return; }
+    const aliasName = lineManagedName !== "未登録" ? lineManagedName : senderDisplayName;
+    if (!window.confirm(`${student.grade} ${student.student_name} に ${titleName} を保護者LINEとして登録します。よろしいですか？`)) return;
+    setLinkingSender(true);
+    setCardMessage("LINE連絡先を登録しています...");
+    try {
+      const response = await fetch(`/api/students/${encodeURIComponent(studentNumber)}/link`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          line_user_id: senderLineUserId,
+          relation: "guardian",
+          alias_name: aliasName,
+          friend_display_name: senderDisplayName === "不明" ? null : senderDisplayName,
+          is_primary: false,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "LINE連絡先の登録に失敗しました");
+      setCardMessage("選択中の生徒へ保護者LINEとして登録しました。");
+      setMessage("LINE連絡先を登録しました。");
+      await onChanged();
+    } catch (error) {
+      setCardMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLinkingSender(false);
+    }
+  }
   function addItem() {
     const previous = items[items.length - 1];
     setItems((current) => [...current, {
@@ -569,13 +603,14 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       </div>
     </div>
 
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(160px,220px) minmax(0,1fr)", gap: 12, marginBottom: 12 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(160px,220px) minmax(0,1fr) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
       <label style={fieldStyle}>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
         const suggestion = suggestions.find((item) => item.student_number === student.student_number);
         const suffix = suggestion ? ` / ${suggestion.reason}` : "";
         return <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}{suffix}</option>;
       })}</select></label>
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
+      {!registered && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
 
     <div style={{ display: "grid", gap: 8 }}>
