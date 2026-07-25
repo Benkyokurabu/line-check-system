@@ -2,6 +2,11 @@ import Link from "next/link";
 
 const menuItems = [
   {
+    href: "/classroom",
+    title: "教室PC 欠席表示",
+    description: "各教室で、確定済みの欠席・遅刻・早退だけを安全に確認します。",
+  },
+  {
     href: "/attendance",
     title: "欠席連絡の確認",
     description: "LINEから抽出した欠席候補を確認し、Notionへ登録します。",
