@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { relationFromAliasName } from "@/lib/student-linking";
+import { normalizeStudentName, relationFromAliasName } from "@/lib/student-linking";
 
 type SavedLineMessage = {
   id: string;
@@ -40,10 +40,8 @@ type LinkCandidate = {
 };
 
 function normalizeName(value: string | null | undefined) {
-  return (value ?? "")
-    .normalize("NFKC")
+  return normalizeStudentName(value)
     .toLowerCase()
-    .replace(/[ \t\r\n\u3000]/g, "")
     .replace(/[・･.。､,，、]/g, "")
     .replace(/(さん|様|くん|君|ちゃん)$/g, "")
     .replace(/(お父様|お母様|お父さん|お母さん|保護者|父|母)$/g, "");

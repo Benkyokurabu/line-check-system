@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { normalizeStudentName } from "@/lib/student-linking";
 
 export const dynamic = "force-dynamic";
 
@@ -51,9 +52,7 @@ type AttendanceReplyRow = {
   raw_event: { attendance_candidate_id?: string } | null;
 };
 function normalizeName(value: string | null | undefined) {
-  return (value ?? "")
-    .normalize("NFKC")
-    .replace(/[ \t\r\n\u3000]/g, "")
+  return normalizeStudentName(value)
     .replace(/(さん|様|くん|君|ちゃん)$/g, "")
     .replace(/(父|母|保護者|お父様|お母様)$/g, "")
     .toLowerCase();
