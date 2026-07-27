@@ -27,18 +27,20 @@ function loadEnvFile(filePath) {
   }
 }
 
-function readPassword() {
+function readPasswordCandidates() {
   const explicit = process.env.SUPABASE_DB_PASSWORD;
-  if (explicit) return explicit;
+  if (explicit) return [explicit];
 
   const filePath = path.resolve("supabase で設定したパスワード.txt");
   if (!fs.existsSync(filePath)) {
     throw new Error("SUPABASE_DB_PASSWORD or local Supabase password file is required.");
   }
 
-  const text = fs.readFileSync(filePath, "utf8").trim();
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.at(-1) ?? "";
+  return fs.readFileSync(filePath, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 12 && line.length <= 64 && !line.includes(":") && !line.includes(" "))
+    .reverse();
 }
 
 function projectRefFromUrl() {
@@ -89,7 +91,7 @@ end $$;
 async function main() {
   loadEnvFile(path.resolve(".env.local"));
   const projectRef = projectRefFromUrl();
-  const password = readPassword();
+  const passwords = readPasswordCandidates();
   const candidates = [
     { host: `db.${projectRef}.supabase.co`, port: 5432, user: "postgres" },
     ...[
@@ -101,39 +103,41 @@ async function main() {
       "us-west-1",
       "eu-west-1",
       "eu-central-1",
-    ].flatMap((region) => [
-      { host: `aws-0-${region}.pooler.supabase.com`, port: 6543, user: `postgres.${projectRef}` },
-      { host: `aws-0-${region}.pooler.supabase.com`, port: 5432, user: `postgres.${projectRef}` },
-    ]),
+    ].flatMap((region) => [0, 1].flatMap((poolerIndex) => [
+      { host: `aws-${poolerIndex}-${region}.pooler.supabase.com`, port: 6543, user: `postgres.${projectRef}` },
+      { host: `aws-${poolerIndex}-${region}.pooler.supabase.com`, port: 5432, user: `postgres.${projectRef}` },
+    ])),
   ];
 
   const errors = [];
   for (const candidate of candidates) {
-    const client = new Client({
-      ...candidate,
-      database: "postgres",
-      password,
-      ssl: { rejectUnauthorized: false },
-      connectionTimeoutMillis: 7000,
-    });
-    try {
-      await client.connect();
-      await client.query(sql);
-      await client.end();
-      console.log(JSON.stringify({
-        ok: true,
-        table: "student_line_accounts",
-        host: candidate.host,
-        port: candidate.port,
-      }, null, 2));
-      return;
-    } catch (error) {
+    for (const password of passwords) {
+      const client = new Client({
+        ...candidate,
+        database: "postgres",
+        password,
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 7000,
+      });
       try {
+        await client.connect();
+        await client.query(sql);
         await client.end();
-      } catch {
-        // Ignore close failures while trying connection candidates.
+        console.log(JSON.stringify({
+          ok: true,
+          table: "student_line_accounts",
+          host: candidate.host,
+          port: candidate.port,
+        }, null, 2));
+        return;
+      } catch (error) {
+        try {
+          await client.end();
+        } catch {
+          // Ignore close failures while trying connection candidates.
+        }
+        errors.push(`${candidate.host}:${candidate.port}:${error instanceof Error ? error.message : error}`);
       }
-      errors.push(`${candidate.host}:${candidate.port}:${error instanceof Error ? error.message : error}`);
     }
   }
 
