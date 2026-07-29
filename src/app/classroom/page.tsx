@@ -139,7 +139,7 @@ export default function ClassroomPage() {
   const [remaining, setRemaining] = useState(180);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [now, setNow] = useState(new Date());
-  const [selectedLessonId, setSelectedLessonId] = useState("");
+  const [manuallySelectedLessonId, setManuallySelectedLessonId] = useState("");
   const [data, setData] = useState<ClassroomResponse | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -151,7 +151,7 @@ export default function ClassroomPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const load = useCallback(async (lessonId = selectedLessonId) => {
+  const load = useCallback(async (lessonId = manuallySelectedLessonId) => {
     setLoading(true);
     setMessage("");
     try {
@@ -161,14 +161,13 @@ export default function ClassroomPage() {
       const body = await response.json() as ClassroomResponse;
       if (!response.ok) throw new Error(body.error ?? "教室表示を取得できませんでした");
       setData(body);
-      if (body.selected_lesson?.id && !lessonId) setSelectedLessonId(body.selected_lesson.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [campus, effectiveClassroom, selectedLessonId]);
+  }, [campus, effectiveClassroom, manuallySelectedLessonId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -193,7 +192,7 @@ export default function ClassroomPage() {
   function saveSettings() {
     localStorage.setItem("classroom.campus", campus);
     localStorage.setItem("classroom.classroom", effectiveClassroom);
-    setSelectedLessonId("");
+    setManuallySelectedLessonId("");
     setData(null);
     setSettingsOpen(false);
   }
@@ -202,11 +201,12 @@ export default function ClassroomPage() {
     setVisible(true);
     setCheckedAt(new Date());
     setRemaining(180);
+    setManuallySelectedLessonId("");
     void load("");
   }
 
   function changeLesson(lessonId: string) {
-    setSelectedLessonId(lessonId);
+    setManuallySelectedLessonId(lessonId);
     void load(lessonId);
   }
 
