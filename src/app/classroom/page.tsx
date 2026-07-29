@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Lesson = {
   id: string;
@@ -143,6 +143,7 @@ export default function ClassroomPage() {
   const [data, setData] = useState<ClassroomResponse | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const requestControllerRef = useRef<AbortController | null>(null);
   const classOptions = useMemo(() => classrooms[campus as keyof typeof classrooms] ?? classrooms["南教室"], [campus]);
   const effectiveClassroom = classOptions.includes(classroom as never) ? classroom : classOptions[0];
 
@@ -152,22 +153,31 @@ export default function ClassroomPage() {
   }, []);
 
   const load = useCallback(async (lessonId = manuallySelectedLessonId) => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
     setLoading(true);
     setMessage("");
     try {
       const query = new URLSearchParams({ campus, classroom: effectiveClassroom, date: todayJst() });
       if (lessonId) query.set("lesson_id", lessonId);
-      const response = await fetch(`/api/classroom/attendance?${query.toString()}`, { cache: "no-store" });
+      const response = await fetch(`/api/classroom/attendance?${query.toString()}`, { cache: "no-store", signal: controller.signal });
       const body = await response.json() as ClassroomResponse;
       if (!response.ok) throw new Error(body.error ?? "教室表示を取得できませんでした");
       setData(body);
     } catch (error) {
+      if (controller.signal.aborted) return;
       setMessage(error instanceof Error ? error.message : String(error));
       setData(null);
     } finally {
-      setLoading(false);
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+        setLoading(false);
+      }
     }
   }, [campus, effectiveClassroom, manuallySelectedLessonId]);
+
+  useEffect(() => () => requestControllerRef.current?.abort(), []);
 
   useEffect(() => {
     if (!visible) return;
@@ -195,6 +205,7 @@ export default function ClassroomPage() {
     setManuallySelectedLessonId("");
     setData(null);
     setSettingsOpen(false);
+    if (visible) void load("");
   }
 
   function showAttendance() {

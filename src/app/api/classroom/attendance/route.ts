@@ -40,6 +40,10 @@ type NotionPage = {
   properties?: Record<string, unknown>;
 };
 
+const NOTION_SCHEMA_CACHE_MS = 5 * 60 * 1000;
+let notionPropertiesPromise: Promise<Record<string, NotionProperty>> | null = null;
+let notionPropertiesExpiresAt = 0;
+
 type ClassroomEvent = {
   id: string;
   lesson_id: string;
@@ -197,15 +201,27 @@ function isSharedNotionPage(page: NotionPage, statusProperty: ResolvedProperty |
   return true;
 }
 
+function notionProperties(dataSourceId: string) {
+  const now = Date.now();
+  if (notionPropertiesPromise && now < notionPropertiesExpiresAt) return notionPropertiesPromise;
+  notionPropertiesExpiresAt = now + NOTION_SCHEMA_CACHE_MS;
+  notionPropertiesPromise = notionRequest(`/data_sources/${dataSourceId}`)
+    .then((dataSource) => ((dataSource as { properties?: Record<string, NotionProperty> }).properties ?? {}))
+    .catch((error) => {
+      notionPropertiesPromise = null;
+      notionPropertiesExpiresAt = 0;
+      throw error;
+    });
+  return notionPropertiesPromise;
+}
+
 async function fetchNotionClassroomEvents(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   date: string;
   selectedLesson: LessonRow;
-  dbEvents: ClassroomEvent[];
 }) {
   const dataSourceId = notionAbsenceDataSourceId();
-  const dataSource = await notionRequest(`/data_sources/${dataSourceId}`);
-  const properties = ((dataSource as { properties?: Record<string, NotionProperty> }).properties ?? {});
+  const properties = await notionProperties(dataSourceId);
   const studentProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_STUDENT_PROPERTY", ["生徒情報DB", "名前"]));
   const dateProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_DATE_PROPERTY", ["日付", "対象日"]));
   const reasonProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["理由", "連絡名"]));
@@ -249,7 +265,7 @@ async function fetchNotionClassroomEvents(input: {
       grade: roster?.grade ?? null,
     }];
   }));
-  const existingKeys = new Set(input.dbEvents.map((event) => `${event.student_number}:${event.lesson_id}`));
+  const existingKeys = new Set<string>();
   const events: ClassroomEvent[] = [];
   for (const page of pages) {
     const studentPageId = notionRelationIds(page.properties?.[studentProperty.name])[0];
@@ -312,12 +328,22 @@ export async function GET(request: Request) {
     });
   }
 
-  const { data: eventData, error: eventError } = await supabase
+  const eventRequest = supabase
     .from("attendance_events")
     .select("id,lesson_id,student_number,event_type,reason,arrival_expected_time,note_for_classroom,confirmed_at,student_roster(student_name,grade)")
     .eq("lesson_id", selectedLesson.id)
     .eq("status", "confirmed");
 
+  const [eventResult, notionResult] = await Promise.all([
+    eventRequest,
+    fetchNotionClassroomEvents({ supabase, date, selectedLesson })
+      .then((events) => ({ events, warning: null as string | null }))
+      .catch((error) => ({
+        events: [] as ClassroomEvent[],
+        warning: error instanceof Error ? `Notionの欠席連絡を取得できませんでした: ${error.message}` : "Notionの欠席連絡を取得できませんでした",
+      })),
+  ]);
+  const { data: eventData, error: eventError } = eventResult;
   if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
 
   const dbEvents = ((eventData ?? []) as EventRow[])
@@ -337,14 +363,8 @@ export async function GET(request: Request) {
       };
     });
 
-  let notionWarning: string | null = null;
-  let notionEvents: ClassroomEvent[] = [];
-  try {
-    notionEvents = await fetchNotionClassroomEvents({ supabase, date, selectedLesson, dbEvents });
-  } catch (error) {
-    notionWarning = error instanceof Error ? `Notionの欠席連絡を取得できませんでした: ${error.message}` : "Notionの欠席連絡を取得できませんでした";
-  }
-
+  const dbEventKeys = new Set(dbEvents.map((event) => `${event.student_number}:${event.lesson_id}`));
+  const notionEvents = notionResult.events.filter((event) => !dbEventKeys.has(`${event.student_number}:${event.lesson_id}`));
   const events = [...dbEvents, ...notionEvents]
     .sort((a, b) => eventTypeRank(a.event_type) - eventTypeRank(b.event_type) || a.student_name.localeCompare(b.student_name, "ja"));
 
@@ -356,7 +376,7 @@ export async function GET(request: Request) {
     selected_lesson: selectedLesson,
     events,
     message: events.length === 0 ? "欠席・遅刻連絡はありません" : null,
-    notion_warning: notionWarning,
+    notion_warning: notionResult.warning,
     fetched_at: new Date().toISOString(),
   });
 }
