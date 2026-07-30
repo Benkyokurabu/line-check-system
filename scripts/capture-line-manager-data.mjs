@@ -8,6 +8,8 @@ const DEFAULT_PORT = 9222;
 const DEFAULT_SECONDS = 180;
 const DEFAULT_OUTPUT = "line_manager_capture.jsonl";
 const DEFAULT_PROFILE_DIR = ".line-manager-chrome-profile";
+const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_PARAMS = ["limit", "count", "pageSize", "page_size", "size", "perPage", "per_page"];
 
 const CHROME_CANDIDATES = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -23,6 +25,9 @@ function parseArgs(argv) {
     port: DEFAULT_PORT,
     profileDir: DEFAULT_PROFILE_DIR,
     chromePath: null,
+    pageSize: DEFAULT_PAGE_SIZE,
+    resume: false,
+    state: null,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -43,6 +48,14 @@ function parseArgs(argv) {
     } else if (arg === "--chrome" && next) {
       args.chromePath = next;
       i += 1;
+    } else if (arg === "--page-size" && next) {
+      args.pageSize = Number(next);
+      i += 1;
+    } else if (arg === "--state" && next) {
+      args.state = next;
+      i += 1;
+    } else if (arg === "--resume") {
+      args.resume = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -53,6 +66,8 @@ function parseArgs(argv) {
 
   if (!Number.isFinite(args.seconds) || args.seconds < 30) args.seconds = DEFAULT_SECONDS;
   if (!Number.isFinite(args.port) || args.port < 1) args.port = DEFAULT_PORT;
+  if (!Number.isFinite(args.pageSize) || args.pageSize < 1) args.pageSize = DEFAULT_PAGE_SIZE;
+  if (!args.state) args.state = `${args.output}.state.json`;
   return args;
 }
 
@@ -65,6 +80,9 @@ Options:
   --output <path>       JSONL output path. Default: ${DEFAULT_OUTPUT}
   --profile-dir <path>  Chrome profile directory for this capture. Default: ${DEFAULT_PROFILE_DIR}
   --port <num>          DevTools port. Default: ${DEFAULT_PORT}
+  --page-size <num>     Cap LINE Manager pagination query params when present. Default: ${DEFAULT_PAGE_SIZE}
+  --resume              Append to output and skip already captured response URLs from the state file.
+  --state <path>        Resume state path. Default: <output>.state.json
 
 This opens a visible Chrome window, records LINE Manager network responses and visible page text locally,
 and does not send data outside this machine.`);
@@ -178,17 +196,89 @@ function writeJsonl(stream, record) {
   stream.write(`${JSON.stringify(record)}\n`);
 }
 
+function loadCaptureState(statePath) {
+  if (!statePath || !fs.existsSync(statePath)) {
+    return {
+      seenResponses: new Set(),
+      capturedNetworkResponses: 0,
+      rewrittenRequests: 0,
+      lastPage: null,
+    };
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  return {
+    seenResponses: new Set(Array.isArray(parsed.seen_responses) ? parsed.seen_responses : []),
+    capturedNetworkResponses: Number(parsed.captured_network_responses ?? 0),
+    rewrittenRequests: Number(parsed.rewritten_requests ?? 0),
+    lastPage: parsed.last_page ?? null,
+  };
+}
+
+function saveCaptureState(statePath, state) {
+  fs.writeFileSync(
+    statePath,
+    `${JSON.stringify(
+      {
+        updated_at: new Date().toISOString(),
+        captured_network_responses: state.capturedNetworkResponses,
+        rewritten_requests: state.rewrittenRequests,
+        last_page: state.lastPage,
+        seen_responses: [...state.seenResponses],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
+function responseKey(meta) {
+  return `${meta.status}|${meta.url}`;
+}
+
+function capPageSize(rawUrl, pageSize) {
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+
+  if (!/(\.|^)line\.biz$/i.test(url.hostname) && !/(\.|^)line\.me$/i.test(url.hostname)) {
+    return rawUrl;
+  }
+
+  let changed = false;
+  for (const param of PAGE_SIZE_PARAMS) {
+    const current = url.searchParams.get(param);
+    if (!current) continue;
+    const numeric = Number(current);
+    if (!Number.isFinite(numeric) || numeric <= pageSize) continue;
+    url.searchParams.set(param, String(pageSize));
+    changed = true;
+  }
+
+  return changed ? url.toString() : rawUrl;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const chromePath = findChrome(args.chromePath);
   const profileDir = path.resolve(args.profileDir);
   fs.mkdirSync(profileDir, { recursive: true });
 
-  const output = fs.createWriteStream(args.output, { flags: "w", encoding: "utf8" });
+  const state = args.resume ? loadCaptureState(args.state) : loadCaptureState(null);
+  const output = fs.createWriteStream(args.output, {
+    flags: args.resume ? "a" : "w",
+    encoding: "utf8",
+  });
   writeJsonl(output, {
-    type: "capture_start",
+    type: args.resume ? "capture_resume" : "capture_start",
     captured_at: new Date().toISOString(),
     seconds: args.seconds,
+    page_size: args.pageSize,
+    state: args.state,
   });
 
   const chrome = spawn(
@@ -214,6 +304,24 @@ async function main() {
   await cdp.ready;
 
   const responses = new Map();
+  cdp.on("Fetch.requestPaused", async (params) => {
+    const originalUrl = params.request?.url ?? "";
+    const rewrittenUrl = capPageSize(originalUrl, args.pageSize);
+    try {
+      if (rewrittenUrl !== originalUrl) {
+        state.rewrittenRequests += 1;
+        await cdp.send("Fetch.continueRequest", {
+          requestId: params.requestId,
+          url: rewrittenUrl,
+        });
+        saveCaptureState(args.state, state);
+      } else {
+        await cdp.send("Fetch.continueRequest", { requestId: params.requestId });
+      }
+    } catch {
+      // The request may already be gone during navigation.
+    }
+  });
   cdp.on("Network.responseReceived", (params) => {
     const { requestId, response, type } = params;
     responses.set(requestId, {
@@ -232,17 +340,25 @@ async function main() {
         ? Buffer.from(result.body, "base64").toString("utf8")
         : result.body;
       if (!shouldKeepResponse(meta.url, body, meta.mimeType)) return;
+      const key = responseKey(meta);
+      if (state.seenResponses.has(key)) return;
+      state.seenResponses.add(key);
+      state.capturedNetworkResponses += 1;
       writeJsonl(output, {
         type: "network_response",
         captured_at: new Date().toISOString(),
         ...meta,
         body,
       });
+      saveCaptureState(args.state, state);
     } catch {
       // Some responses have no retrievable body. Ignore them.
     }
   });
 
+  await cdp.send("Fetch.enable", {
+    patterns: [{ urlPattern: "*", requestStage: "Request" }],
+  });
   await cdp.send("Network.enable");
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
@@ -259,6 +375,11 @@ async function main() {
       });
       const value = result.result?.value;
       if (value?.text) {
+        state.lastPage = {
+          captured_at: new Date().toISOString(),
+          url: value.url,
+          title: value.title,
+        };
         writeJsonl(output, {
           type: "page_text",
           captured_at: new Date().toISOString(),
@@ -266,6 +387,7 @@ async function main() {
           title: value.title,
           text: value.text,
         });
+        saveCaptureState(args.state, state);
       }
     } catch {
       // Page may be navigating.
@@ -275,16 +397,21 @@ async function main() {
   console.log(`Chrome opened. Capture is running for ${args.seconds} seconds.`);
   console.log("If login is required, complete login in the opened Chrome window.");
   console.log("Open LINE Manager chat list/profile screens; captured data stays local.");
+  console.log(`Page size cap: ${args.pageSize}. Resume state: ${args.state}`);
 
   await new Promise((resolve) => setTimeout(resolve, args.seconds * 1000));
   clearInterval(interval);
   writeJsonl(output, {
     type: "capture_end",
     captured_at: new Date().toISOString(),
+    captured_network_responses: state.capturedNetworkResponses,
+    rewritten_requests: state.rewrittenRequests,
   });
+  saveCaptureState(args.state, state);
   output.end();
   cdp.close();
   console.log(`Capture saved: ${args.output}`);
+  console.log(`Resume state saved: ${args.state}`);
 }
 
 main().catch((error) => {

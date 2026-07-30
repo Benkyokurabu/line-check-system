@@ -10,7 +10,10 @@ const PAGE_SIZE = 1000;
 function parseArgs(argv) {
   const args = {
     output: DEFAULT_OUTPUT,
+    cache: null,
     limit: null,
+    forceRefresh: false,
+    retryFailed: true,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -19,9 +22,16 @@ function parseArgs(argv) {
     if (arg === "--output" && next) {
       args.output = next;
       i += 1;
+    } else if (arg === "--cache" && next) {
+      args.cache = next;
+      i += 1;
     } else if (arg === "--limit" && next) {
       args.limit = Number(next);
       i += 1;
+    } else if (arg === "--force-refresh") {
+      args.forceRefresh = true;
+    } else if (arg === "--no-retry-failed") {
+      args.retryFailed = false;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -33,6 +43,7 @@ function parseArgs(argv) {
   if (args.limit !== null && (!Number.isFinite(args.limit) || args.limit < 1)) {
     args.limit = null;
   }
+  if (!args.cache) args.cache = fs.existsSync(args.output) ? args.output : null;
 
   return args;
 }
@@ -42,8 +53,11 @@ function printHelp() {
   npm run export:line-profiles -- [options]
 
 Options:
-  --output <path>  CSV output path. Default: ${DEFAULT_OUTPUT}
-  --limit <num>    Fetch only the first N users for verification.`);
+  --output <path>       CSV output path. Default: ${DEFAULT_OUTPUT}
+  --cache <path>        Existing CSV cache. Default: output path when it exists.
+  --limit <num>         Fetch only the first N users for verification.
+  --force-refresh       Ignore cached profile API results and refetch all selected users.
+  --no-retry-failed     Keep cached failed rows instead of retrying them.`);
 }
 
 function loadEnvFile(filePath) {
@@ -142,6 +156,53 @@ function csvValue(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let quoted = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (quoted) {
+      if (char === '"' && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        current += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      values.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  values.push(current);
+  return values;
+}
+
+function readCsv(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+  const content = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  const lines = content.split(/\r?\n/).filter((line) => line.length > 0);
+  if (!lines.length) return [];
+
+  const headers = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+  });
+}
+
+function buildCache(cachePath) {
+  const rows = readCsv(cachePath);
+  return new Map(rows.filter((row) => row.line_user_id).map((row) => [row.line_user_id, row]));
+}
+
 function writeCsv(outputPath, rows) {
   const headers = [
     "line_user_id",
@@ -159,6 +220,14 @@ function writeCsv(outputPath, rows) {
   fs.writeFileSync(outputPath, `\uFEFF${lines.join("\r\n")}\r\n`, "utf8");
 }
 
+function shouldUseCache(input) {
+  const { cached, storedDisplayName, forceRefresh, retryFailed } = input;
+  if (!cached || forceRefresh) return false;
+  if (cached.stored_display_name !== storedDisplayName) return false;
+  if (cached.profile_fetch_status !== "ok" && retryFailed) return false;
+  return true;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   loadEnvFile(path.resolve(".env.local"));
@@ -173,9 +242,35 @@ async function main() {
   let users = await selectAllLineUsers(supabase);
   if (args.limit) users = users.slice(0, args.limit);
 
+  const cache = buildCache(args.cache);
   const rows = [];
+  let cacheHits = 0;
+  let fetched = 0;
+  let changedStoredName = 0;
+  let retriedFailed = 0;
+
   for (const user of users) {
+    const cached = cache.get(user.lineUserId);
+    if (shouldUseCache({
+      cached,
+      storedDisplayName: user.storedDisplayName,
+      forceRefresh: args.forceRefresh,
+      retryFailed: args.retryFailed,
+    })) {
+      cacheHits += 1;
+      rows.push(cached);
+      continue;
+    }
+
+    if (cached?.stored_display_name !== undefined && cached.stored_display_name !== user.storedDisplayName) {
+      changedStoredName += 1;
+    }
+    if (cached && cached.profile_fetch_status !== "ok") {
+      retriedFailed += 1;
+    }
+
     const profile = await fetchProfile(user.lineUserId, accessToken);
+    fetched += 1;
     rows.push({
       line_user_id: user.lineUserId,
       stored_display_name: user.storedDisplayName,
@@ -193,6 +288,11 @@ async function main() {
   const failed = rows.filter((row) => row.profile_fetch_status !== "ok").length;
   console.log(JSON.stringify({
     checked: rows.length,
+    cache: args.cache,
+    cache_hits: cacheHits,
+    fetched,
+    changed_stored_display_name: changedStoredName,
+    retried_failed: retriedFailed,
     with_status_message: withStatusMessage,
     failed,
     output: args.output,
