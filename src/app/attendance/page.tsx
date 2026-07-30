@@ -38,6 +38,8 @@ type EditableItem = {
 };
 type HistoryDays = "none" | 3 | 5 | 7 | 14;
 
+const pageTitle = "遅刻・欠席確認";
+
 const defaultReplyTemplates = [
   "ご連絡ありがとうございます。承知しました。本日の授業連絡として登録いたします。",
   "ご連絡ありがとうございます。承知しました。担当にも共有いたします。",
@@ -169,6 +171,9 @@ export default function AttendancePage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
+  useEffect(() => {
+    document.title = pageTitle;
+  }, []);
   const load = useCallback(async () => {
     const query = historyDays === "none" ? "status=pending" : `status=review&days=${historyDays}`;
     const response = await fetch(`/api/attendance/candidates?${query}`);
