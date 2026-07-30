@@ -36,6 +36,15 @@ type EditableItem = {
   suggested_subject: string | null; suggested_class_name: string | null; ai_summary: string;
   arrival_expected_time: string; note_internal: string; note_for_classroom: string; status?: string;
 };
+type ManualEvent = {
+  id: string; contact_method: string; contact_received_at: string | null; received_by: string | null;
+  student_number: string; lesson_id: string; event_date: string; event_type: string; reason: string | null;
+  arrival_expected_time: string | null; note_internal: string | null; note_for_classroom: string | null;
+  status: string; confirmed_by: string | null; confirmed_at: string | null; cancelled_by: string | null; cancelled_at: string | null;
+  notion_page_id: string | null; notion_status: string; notion_error: string | null;
+  student_roster: { student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null } | null;
+  lessons: Lesson | null;
+};
 type HistoryDays = "none" | 3 | 5 | 7 | 14;
 
 const pageTitle = "遅刻・欠席確認";
@@ -171,6 +180,7 @@ export default function AttendancePage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualRefreshKey, setManualRefreshKey] = useState(0);
   useEffect(() => {
     document.title = pageTitle;
   }, []);
@@ -232,7 +242,8 @@ export default function AttendancePage() {
       <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(event.target.value === "none" ? "none" : Number(event.target.value) as HistoryDays)}><option value="none">しない</option><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
-    {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualOpen(false); }} />}
+    {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
+    <ManualEventsPanel students={students} confirmedBy={confirmedBy} refreshKey={manualRefreshKey} onChanged={() => setManualRefreshKey((value) => value + 1)} />
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
       {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{historyDays === "none" ? "未確認の連絡候補はありません。" : "未確認・対応済みの連絡候補はありません。"}</section>}
       {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
@@ -245,10 +256,57 @@ function todayJst() {
   return formatter.format(new Date());
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+}
+
+function studentMatches(student: Student, query: string) {
+  const normalized = normalizeSearchText(query);
+  if (!normalized) return true;
+  return normalizeSearchText(`${student.grade}${student.student_name}${student.student_number}${student.campus ?? ""}${student.homeroom_teacher ?? ""}`).includes(normalized);
+}
+
+function orderedStudentOptions(students: Student[], selectedNumber: string, query: string, candidates: Student[] = []) {
+  const candidateNumbers = new Set(candidates.map((student) => student.student_number));
+  const selected = students.find((student) => student.student_number === selectedNumber);
+  const primary = [selected, ...candidates].filter((student): student is Student => Boolean(student));
+  const seen = new Set<string>();
+  const ordered = [
+    ...primary,
+    ...students.filter((student) => !candidateNumbers.has(student.student_number)),
+  ].filter((student) => {
+    if (seen.has(student.student_number)) return false;
+    seen.add(student.student_number);
+    return studentMatches(student, query);
+  });
+  return ordered.slice(0, query.trim() ? 80 : 160);
+}
+
+function StudentPicker({ label, students, value, onChange, query, onQueryChange, candidates = [], disabled = false }: {
+  label: string;
+  students: Student[];
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  candidates?: Student[];
+  disabled?: boolean;
+}) {
+  const candidateNumbers = new Set(candidates.map((student) => student.student_number));
+  const options = orderedStudentOptions(students, value, query, candidates);
+  return <label style={fieldStyle}>{label}<div style={{ display: "grid", gap: 6 }}>
+    <input style={inputStyle} value={query} disabled={disabled} onChange={(event) => onQueryChange(event.target.value)} placeholder="名前・学年・校舎で検索" />
+    <select style={inputStyle} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+      <option value="">要選択</option>
+      {options.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}{candidateNumbers.has(student.student_number) ? " / 候補" : ""}</option>)}
+    </select>
+  </div></label>;
+}
 function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student[]; confirmedBy: string; onSaved: () => Promise<void> }) {
   const [contactMethod, setContactMethod] = useState("phone");
   const [receivedBy, setReceivedBy] = useState(confirmedBy);
   const [studentNumber, setStudentNumber] = useState("");
+  const [studentQuery, setStudentQuery] = useState("");
   const [eventDate, setEventDate] = useState(todayJst());
   const [campus, setCampus] = useState("");
   const [lessonId, setLessonId] = useState("");
@@ -273,6 +331,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
   }, [eventDate, studentNumber]);
   const effectiveReceivedBy = receivedBy || confirmedBy;
   const effectiveCampus = campus || selectedStudent?.campus || "";
+  const candidateStudents = effectiveCampus ? students.filter((student) => student.campus === effectiveCampus) : [];
 
   async function saveManualEvent() {
     if (!effectiveReceivedBy.trim()) { setMessage("受付者名を入力してください。"); return; }
@@ -322,7 +381,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10 }}>
       <label style={fieldStyle}>連絡経路<select style={inputStyle} value={contactMethod} onChange={(event) => setContactMethod(event.target.value)}><option value="phone">電話</option><option value="oral">口頭</option><option value="other">その他</option></select></label>
       <label style={fieldStyle}>受付者名<input style={inputStyle} value={effectiveReceivedBy} onChange={(event) => setReceivedBy(event.target.value)} placeholder="例: 吉川" /></label>
-      <label style={fieldStyle}>生徒<select style={inputStyle} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value); setLessonId(""); }}><option value="">要選択</option>{students.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}</option>)}</select></label>
+      <StudentPicker label="生徒" students={students} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} candidates={candidateStudents} onChange={(value) => { setStudentNumber(value); setLessonId(""); }} />
       <label style={fieldStyle}>対象日<input style={inputStyle} type="date" value={eventDate} onChange={(event) => { setEventDate(event.target.value); setLessonId(""); }} /></label>
       <label style={fieldStyle}>種別<select style={inputStyle} value={eventType} onChange={(event) => setEventType(event.target.value)}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <label style={fieldStyle}>校舎<select style={inputStyle} value={effectiveCampus} onChange={(event) => { setCampus(event.target.value); setLessonId(""); }}><option value="">校舎すべて</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
@@ -342,6 +401,177 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
     </div>
     {message && <p style={{ color: message.includes("保存しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{message}</p>}
     <div><button type="button" style={buttonStyle} disabled={saving} onClick={saveManualEvent}>{saving ? "保存中..." : "確定データとして保存"}</button></div>
+  </section>;
+}
+function contactMethodLabel(value: string) {
+  if (value === "phone") return "電話";
+  if (value === "oral") return "口頭";
+  return "その他";
+}
+
+function eventStudent(event: ManualEvent) {
+  return event.student_roster ? `${event.student_roster.grade} ${event.student_roster.student_name}` : event.student_number;
+}
+
+function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { students: Student[]; confirmedBy: string; refreshKey: number; onChanged: () => void }) {
+  const [events, setEvents] = useState<ManualEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [studentQuery, setStudentQuery] = useState("");
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [draft, setDraft] = useState({
+    contact_method: "phone",
+    received_by: confirmedBy,
+    student_number: "",
+    event_date: todayJst(),
+    campus: "",
+    lesson_id: "",
+    event_type: "absence",
+    reason: "体調不良",
+    arrival_expected_time: "",
+    note_internal: "",
+    note_for_classroom: "",
+  });
+
+  const loadManualEvents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/attendance/events?days=14");
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "手入力済み一覧を取得できませんでした");
+      setEvents(body.events ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadManualEvents();
+  }, [loadManualEvents, refreshKey]);
+
+  useEffect(() => {
+    if (!editingId || !draft.event_date) return;
+    const query = new URLSearchParams({ date: draft.event_date });
+    if (draft.student_number) query.set("student_number", draft.student_number);
+    fetch(`/api/attendance/lessons?${query.toString()}`)
+      .then((response) => response.json())
+      .then((body) => setLessons(body.lessons ?? []))
+      .catch(() => setLessons([]));
+  }, [editingId, draft.event_date, draft.student_number]);
+
+  function startEdit(event: ManualEvent) {
+    setEditingId(event.id);
+    setStudentQuery(event.student_roster?.student_name ?? "");
+    setMessage("");
+    setDraft({
+      contact_method: event.contact_method,
+      received_by: event.received_by ?? confirmedBy,
+      student_number: event.student_number,
+      event_date: event.event_date,
+      campus: event.lessons?.campus ?? event.student_roster?.campus ?? "",
+      lesson_id: event.lesson_id,
+      event_type: event.event_type,
+      reason: event.reason ?? fallbackReason(event.event_type),
+      arrival_expected_time: event.arrival_expected_time ?? "",
+      note_internal: event.note_internal ?? "",
+      note_for_classroom: event.note_for_classroom ?? "",
+    });
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    setMessage("保存しています...");
+    const response = await fetch(`/api/attendance/events/${editingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setMessage(body.error ?? "修正に失敗しました");
+      return;
+    }
+    setMessage(body.notion_failed ? `修正しました。Notion反映に失敗しました: ${body.notion_error}` : "修正してNotionへ反映しました。");
+    setEditingId(null);
+    await loadManualEvents();
+    onChanged();
+  }
+
+  async function cancelEvent(event: ManualEvent) {
+    if (!window.confirm(`${eventStudent(event)} / ${event.lessons?.label ?? "授業未取得"} を取り消しますか？`)) return;
+    setMessage("取り消しています...");
+    const response = await fetch(`/api/attendance/events/${event.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cancelled_by: confirmedBy }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setMessage(body.error ?? "取消しに失敗しました");
+      return;
+    }
+    setMessage(body.notion_failed ? `取り消しました。Notion反映に失敗しました: ${body.notion_error}` : "取り消してNotionへ反映しました。");
+    await loadManualEvents();
+    onChanged();
+  }
+
+  const currentStudent = students.find((student) => student.student_number === draft.student_number) ?? null;
+  const effectiveCampus = draft.campus || currentStudent?.campus || "";
+  const candidateStudents = effectiveCampus ? students.filter((student) => student.campus === effectiveCampus) : [];
+  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus) : lessons;
+  const lessonGroups = lessonsByTime(filteredLessons);
+
+  return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <strong>手入力済み連絡</strong>
+      <button type="button" style={ghostButtonStyle} onClick={() => void loadManualEvents()}>{loading ? "更新中..." : "更新"}</button>
+    </div>
+    {message && <p style={{ color: message.includes("失敗") ? "#b42318" : "#087a3d", fontWeight: 700 }}>{message}</p>}
+    {events.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>直近14日の手入力済み連絡はありません。</div> : <div style={{ display: "grid", gap: 8 }}>
+      {events.map((event) => <div key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 8, background: event.status === "cancelled" ? "#f7f7f4" : "white" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "grid", gap: 4 }}>
+            <strong>{event.event_date} {event.lessons?.start_time ?? "時刻なし"} {event.lessons?.label ?? "授業未取得"}</strong>
+            <span style={{ color: "#555", fontSize: 13, fontWeight: 700 }}>{eventStudent(event)} / {event.lessons?.campus ?? "校舎不明"}{event.lessons?.classroom ? ` ${event.lessons.classroom}教室` : ""} / {eventTypeLabel(event.event_type)} / {event.reason ?? fallbackReason(event.event_type)}</span>
+            <span style={{ color: "#666", fontSize: 12 }}>{contactMethodLabel(event.contact_method)} / 受付: {event.received_by ?? "未入力"} / Notion: {event.notion_status}{event.notion_error ? ` / ${event.notion_error}` : ""}</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "start" }}>
+            {event.status === "cancelled" ? <span style={{ color: "#b42318", fontWeight: 800 }}>取消済み</span> : <>
+              <button type="button" style={ghostButtonStyle} onClick={() => startEdit(event)}>修正</button>
+              <button type="button" style={dangerButtonStyle} onClick={() => void cancelEvent(event)}>取消し</button>
+            </>}
+          </div>
+        </div>
+        {editingId === event.id && <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10 }}>
+            <label style={fieldStyle}>連絡経路<select style={inputStyle} value={draft.contact_method} onChange={(e) => setDraft((d) => ({ ...d, contact_method: e.target.value }))}><option value="phone">電話</option><option value="oral">口頭</option><option value="other">その他</option></select></label>
+            <label style={fieldStyle}>受付者名<input style={inputStyle} value={draft.received_by} onChange={(e) => setDraft((d) => ({ ...d, received_by: e.target.value }))} /></label>
+            <StudentPicker label="生徒" students={students} value={draft.student_number} query={studentQuery} onQueryChange={setStudentQuery} candidates={candidateStudents} onChange={(value) => setDraft((d) => ({ ...d, student_number: value, lesson_id: "" }))} />
+            <label style={fieldStyle}>対象日<input style={inputStyle} type="date" value={draft.event_date} onChange={(e) => setDraft((d) => ({ ...d, event_date: e.target.value, lesson_id: "" }))} /></label>
+            <label style={fieldStyle}>種別<select style={inputStyle} value={draft.event_type} onChange={(e) => setDraft((d) => ({ ...d, event_type: e.target.value }))}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label style={fieldStyle}>校舎<select style={inputStyle} value={effectiveCampus} onChange={(e) => setDraft((d) => ({ ...d, campus: e.target.value, lesson_id: "" }))}><option value="">校舎すべて</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+            <label style={fieldStyle}>理由<input style={inputStyle} value={draft.reason} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} /></label>
+            <label style={fieldStyle}>到着予定時刻<input style={inputStyle} value={draft.arrival_expected_time} disabled={draft.event_type !== "late"} onChange={(e) => setDraft((d) => ({ ...d, arrival_expected_time: e.target.value }))} /></label>
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 700 }}>授業</span>
+            {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
+              <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: lesson.id === draft.lesson_id ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === draft.lesson_id ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
+            </div>)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
+            <label style={fieldStyle}>教室向けメモ<input style={inputStyle} value={draft.note_for_classroom} onChange={(e) => setDraft((d) => ({ ...d, note_for_classroom: e.target.value }))} /></label>
+            <label style={fieldStyle}>内部メモ<textarea style={{ ...inputStyle, minHeight: 72, resize: "vertical" }} value={draft.note_internal} onChange={(e) => setDraft((d) => ({ ...d, note_internal: e.target.value }))} /></label>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}><button type="button" style={buttonStyle} onClick={() => void saveEdit()}>保存してNotion反映</button><button type="button" style={ghostButtonStyle} onClick={() => setEditingId(null)}>閉じる</button></div>
+        </div>}
+      </div>)}
+    </div>}
   </section>;
 }
 function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const contactMethods = new Set(["line", "phone", "oral", "other"]);
 const eventTypes = new Set(["absence", "late", "early_leave"]);
+const manualContactMethods = ["phone", "oral", "other"];
 
 function cleanText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -30,6 +32,11 @@ function cleanReceivedAt(value: unknown) {
 }
 
 type ManualEventInput = Record<string, unknown>;
+type EventWithLesson = AttendanceNotionEvent & {
+  id: string;
+  notion_page_id: string | null;
+  lessons: AttendanceNotionEvent["lessons"];
+};
 
 function parseEvent(input: ManualEventInput, common: Record<string, unknown>) {
   const studentNumber = cleanText(input.student_number);
@@ -56,9 +63,82 @@ function parseEvent(input: ManualEventInput, common: Record<string, unknown>) {
     confirmed_at: new Date().toISOString(),
     cancelled_by: null,
     cancelled_at: null,
-    notion_status: "not_requested",
+    notion_status: "pending",
     notion_error: null,
   };
+}
+
+async function attachNotionPages(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  events: EventWithLesson[];
+}) {
+  if (input.events.length === 0) return [];
+  const studentNumbers = [...new Set(input.events.map((event) => event.student_number))];
+  const { data: profiles, error: profileError } = await input.supabase
+    .from("notion_student_profiles")
+    .select("student_number,notion_page_id")
+    .in("student_number", studentNumbers);
+  if (profileError) throw profileError;
+  const profileByStudent = new Map((profiles ?? []).map((profile) => [profile.student_number as string, profile.notion_page_id as string]));
+  const results: Array<{ id: string; notion_page_id: string | null; notion_status: "success" | "failed"; notion_error: string | null }> = [];
+
+  for (const event of input.events) {
+    const profilePageId = profileByStudent.get(event.student_number);
+    if (!profilePageId) {
+      const message = "Notion生徒情報DBと紐づいていない生徒です";
+      await input.supabase.from("attendance_events").update({ notion_status: "failed", notion_error: message }).eq("id", event.id);
+      results.push({ id: event.id, notion_page_id: null, notion_status: "failed", notion_error: message });
+      continue;
+    }
+    try {
+      const notionPageId = await upsertAttendanceNotionPage({
+        event,
+        profilePageId,
+        notionPageId: event.notion_page_id,
+      });
+      await input.supabase.from("attendance_events").update({
+        notion_page_id: notionPageId,
+        notion_status: "success",
+        notion_error: null,
+      }).eq("id", event.id);
+      results.push({ id: event.id, notion_page_id: notionPageId, notion_status: "success", notion_error: null });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      await input.supabase.from("attendance_events").update({
+        notion_status: "failed",
+        notion_error: message.slice(0, 500),
+      }).eq("id", event.id);
+      results.push({ id: event.id, notion_page_id: event.notion_page_id, notion_status: "failed", notion_error: message.slice(0, 500) });
+    }
+  }
+  return results;
+}
+
+async function fetchEventsByIds(supabase: ReturnType<typeof createSupabaseAdminClient>, ids: string[]) {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase
+    .from("attendance_events")
+    .select("id,event_date,event_type,reason,student_number,lesson_id,notion_page_id,lessons(label,start_time,campus,source_payload)")
+    .in("id", ids);
+  if (error) throw error;
+  return (data ?? []) as EventWithLesson[];
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? "7") || 7, 1), 60);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("attendance_events")
+    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus,classroom,subject,class_name)")
+    .in("contact_method", manualContactMethods)
+    .gte("event_date", since)
+    .order("event_date", { ascending: false })
+    .order("confirmed_at", { ascending: false })
+    .limit(200);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ events: data ?? [] });
 }
 
 export async function POST(request: Request) {
@@ -91,5 +171,12 @@ export async function POST(request: Request) {
     })));
   }
 
-  return NextResponse.json({ ok: true, events: data ?? [] });
+  const events = await fetchEventsByIds(supabase, (data ?? []).map((event) => event.id as string));
+  const notionResults = await attachNotionPages({ supabase, events });
+  return NextResponse.json({
+    ok: true,
+    events: data ?? [],
+    notion_results: notionResults,
+    notion_failed: notionResults.filter((result) => result.notion_status === "failed").length,
+  });
 }
