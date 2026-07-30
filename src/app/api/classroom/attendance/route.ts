@@ -88,7 +88,7 @@ function currentJstMinutes() {
 function lessonEndMinutes(lesson: LessonRow) {
   const start = minutesFromStart(lesson.start_time);
   if (!Number.isFinite(start)) return start;
-  return start + 95;
+  return start + 90;
 }
 
 function pickLesson(lessons: LessonRow[], selectedLessonId: string | null) {
