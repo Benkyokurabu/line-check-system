@@ -202,3 +202,43 @@ begin
   end if;
 end $$;
 
+
+create index if not exists line_messages_attendance_unreviewed_scan_idx
+  on public.line_messages (received_at desc, created_at desc)
+  where direction = 'inbound' and message_type = 'text';
+
+create or replace function public.unreviewed_attendance_line_messages(
+  p_limit integer default 10,
+  p_since timestamptz default now() - interval '45 days'
+)
+returns table (
+  id uuid,
+  text text,
+  display_name text,
+  received_at timestamptz,
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    messages.id,
+    messages.text,
+    messages.display_name,
+    messages.received_at,
+    messages.created_at
+  from public.line_messages as messages
+  where messages.direction = 'inbound'
+    and messages.message_type = 'text'
+    and messages.received_at >= p_since
+    and not exists (
+      select 1
+      from public.attendance_message_reviews as reviews
+      where reviews.message_id = messages.id
+        and reviews.result <> 'failed'
+    )
+  order by messages.received_at desc nulls last, messages.created_at desc
+  limit least(greatest(p_limit, 1), 30)
+$$;

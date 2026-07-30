@@ -73,23 +73,14 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const limit = Math.min(Math.max(Number(body.limit) || 10, 1), 30);
   const supabase = createSupabaseAdminClient();
-  const [{ data: reviewed }, { data: roster, error: rosterError }] = await Promise.all([
-    supabase.from("attendance_message_reviews").select("message_id,result"),
+  const since = new Date(Date.now() - 45 * 86400000).toISOString();
+  const [{ data: messages, error: messagesError }, { data: roster, error: rosterError }] = await Promise.all([
+    supabase.rpc("unreviewed_attendance_line_messages", { p_limit: limit, p_since: since }),
     supabase.from("student_roster").select("student_number,student_name,grade,campus"),
   ]);
+  if (messagesError) return NextResponse.json({ error: messagesError.message }, { status: 500 });
   if (rosterError) return NextResponse.json({ error: rosterError.message }, { status: 500 });
-  const reviewedIds = new Set((reviewed ?? []).filter((row) => row.result !== "failed").map((row) => row.message_id as string));
-  const since = new Date(Date.now() - 45 * 86400000).toISOString();
-  const { data: messages, error } = await supabase
-    .from("line_messages")
-    .select("id,text,display_name,received_at,created_at")
-    .eq("direction", "inbound")
-    .eq("message_type", "text")
-    .gte("received_at", since)
-    .order("received_at", { ascending: false })
-    .limit(500);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const targets = (messages ?? []).filter((row) => !reviewedIds.has(row.id as string)).slice(0, limit);
+  const targets = messages ?? [];
   let candidates = 0;
   let ignored = 0;
   let failed = 0;
