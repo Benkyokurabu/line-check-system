@@ -223,7 +223,7 @@ export default function AttendancePage() {
 
   return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Attendance review</p>
-    <h1>欠席・遅刻連絡の確認</h1>
+    <h1>遅刻・欠席連絡の確認</h1>
     <p>LINEの確認作業に近い流れで、返信文案とNotion登録内容を確認できます。</p>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
