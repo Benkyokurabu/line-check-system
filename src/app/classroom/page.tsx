@@ -48,10 +48,10 @@ const classrooms = {
 const buttonStyle: React.CSSProperties = {
   border: 0,
   borderRadius: 8,
-  padding: "14px 18px",
+  padding: "12px 14px",
   background: "var(--accent)",
   color: "white",
-  fontSize: "1rem",
+  fontSize: "0.92rem",
   fontWeight: 800,
   cursor: "pointer",
 };
@@ -59,10 +59,10 @@ const buttonStyle: React.CSSProperties = {
 const ghostButtonStyle: React.CSSProperties = {
   border: "1px solid var(--line)",
   borderRadius: 8,
-  padding: "12px 16px",
+  padding: "10px 12px",
   background: "var(--surface)",
   color: "var(--foreground)",
-  fontSize: "0.95rem",
+  fontSize: "0.86rem",
   fontWeight: 800,
   cursor: "pointer",
 };
@@ -75,7 +75,7 @@ const selectStyle: React.CSSProperties = {
   padding: "10px 12px",
   background: "var(--surface)",
   color: "var(--foreground)",
-  fontSize: "1rem",
+  fontSize: "0.92rem",
 };
 
 function todayJst() {
@@ -154,6 +154,9 @@ export default function ClassroomPage() {
   const classOptions = useMemo(() => classrooms[campus as keyof typeof classrooms] ?? classrooms["南教室"], [campus]);
   const effectiveClassroom = classOptions.includes(classroom as never) ? classroom : classOptions[0];
 
+  useEffect(() => {
+    document.title = "遅刻・欠席確認";
+  }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
@@ -241,10 +244,6 @@ export default function ClassroomPage() {
     if (visible) void load("");
   }
   async function installApp() {
-    if (isStandalone) {
-      setInstallHelp("アプリとして起動中です");
-      return;
-    }
     if (!installPrompt) {
       setInstallHelp("Chrome/Edge右上のメニューから「アプリとしてインストール」を選んでください。表示されない場合は、通常ウィンドウでこのページを30秒ほど開いてから再度確認してください。");
       return;
@@ -272,16 +271,16 @@ export default function ClassroomPage() {
   const selectedLesson = data?.selected_lesson ?? null;
   const events = data?.events ?? [];
 
-  return <main className="shell" style={{ maxWidth: 760, paddingTop: 42 }}>
+  return <main className="shell" style={{ maxWidth: 720, paddingTop: 30 }}>
     <section style={{ display: "grid", gap: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div>
-          <p className="eyebrow">Classroom attendance</p>
-          <h1 style={{ fontSize: "2.15rem", marginBottom: 8 }}>{campus} {effectiveClassroom}教室</h1>
-          <p style={{ fontSize: "1.15rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>
+          <p className="eyebrow" style={{ fontSize: "0.74rem", marginBottom: 8 }}>Classroom attendance</p>
+          <h1 style={{ fontSize: "1.72rem", marginBottom: 6 }}>{campus} {effectiveClassroom}教室</h1>
+          <p style={{ fontSize: "1rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <button type="button" style={ghostButtonStyle} onClick={installApp}>{isStandalone ? "アプリ起動中" : "アプリ化"}</button>
+          {!isStandalone && <button type="button" style={ghostButtonStyle} onClick={installApp}>アプリ化</button>}
           <button type="button" style={ghostButtonStyle} onClick={() => setSettingsOpen((value) => !value)}>教室変更</button>
         </div>
       </div>
@@ -296,9 +295,9 @@ export default function ClassroomPage() {
         <button type="button" style={buttonStyle} onClick={saveSettings}>この教室で保存</button>
       </section>}
 
-      {!visible && <section className="panel" style={{ padding: 22, display: "grid", gap: 14 }}>
-        <p style={{ fontSize: "1rem" }}>確認ボタンを押した時だけ、確定済みの欠席・遅刻・早退を表示します。</p>
-        <button type="button" style={{ ...buttonStyle, minHeight: 58, fontSize: "1.15rem" }} onClick={showAttendance}>欠席・遅刻を確認</button>
+      {!visible && <section className="panel" style={{ padding: 18, display: "grid", gap: 12 }}>
+        <p style={{ fontSize: "0.92rem" }}>確認ボタンを押した時だけ、確定済みの欠席・遅刻・早退を表示します。</p>
+        <button type="button" style={{ ...buttonStyle, minHeight: 50, fontSize: "1.02rem" }} onClick={showAttendance}>欠席・遅刻を確認</button>
       </section>}
 
       {visible && <section className="panel" style={{ padding: 18, display: "grid", gap: 14 }}>
