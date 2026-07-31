@@ -35,6 +35,10 @@ type ClassroomResponse = {
   fetched_at: string;
   error?: string;
 };
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
 
 const classrooms = {
   "本校": ["1", "2", "3", "4", "6", "7"],
@@ -143,6 +147,9 @@ export default function ClassroomPage() {
   const [data, setData] = useState<ClassroomResponse | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installHelp, setInstallHelp] = useState("");
+  const [isStandalone, setIsStandalone] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
   const classOptions = useMemo(() => classrooms[campus as keyof typeof classrooms] ?? classrooms["南教室"], [campus]);
   const effectiveClassroom = classOptions.includes(classroom as never) ? classroom : classOptions[0];
@@ -150,6 +157,32 @@ export default function ClassroomPage() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const standaloneTimer = window.setTimeout(() => {
+      const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+        ((window.navigator as Navigator & { standalone?: boolean }).standalone === true);
+      setIsStandalone(standalone);
+    }, 0);
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+      setInstallHelp("");
+    };
+    const handleAppInstalled = () => {
+      setIsStandalone(true);
+      setInstallPrompt(null);
+      setInstallHelp("アプリとして追加済みです");
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    return () => {
+      window.clearTimeout(standaloneTimer);
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
   }, []);
 
   const load = useCallback(async (lessonId = manuallySelectedLessonId) => {
@@ -207,6 +240,21 @@ export default function ClassroomPage() {
     setSettingsOpen(false);
     if (visible) void load("");
   }
+  async function installApp() {
+    if (isStandalone) {
+      setInstallHelp("アプリとして起動中です");
+      return;
+    }
+    if (!installPrompt) {
+      setInstallHelp("Chrome/Edge右上のメニューから「アプリとしてインストール」を選んでください。表示されない場合は、通常ウィンドウでこのページを30秒ほど開いてから再度確認してください。");
+      return;
+    }
+
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    setInstallHelp(choice.outcome === "accepted" ? "インストールを開始しました" : "インストールはキャンセルされました");
+  }
 
   function showAttendance() {
     setVisible(true);
@@ -232,8 +280,13 @@ export default function ClassroomPage() {
           <h1 style={{ fontSize: "2.15rem", marginBottom: 8 }}>{campus} {effectiveClassroom}教室</h1>
           <p style={{ fontSize: "1.15rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>
         </div>
-        <button type="button" style={ghostButtonStyle} onClick={() => setSettingsOpen((value) => !value)}>教室変更</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button type="button" style={ghostButtonStyle} onClick={installApp}>{isStandalone ? "アプリ起動中" : "アプリ化"}</button>
+          <button type="button" style={ghostButtonStyle} onClick={() => setSettingsOpen((value) => !value)}>教室変更</button>
+        </div>
       </div>
+
+      {installHelp && <div style={{ border: "1px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", borderRadius: 8, padding: 12, fontWeight: 800, lineHeight: 1.7 }}>{installHelp}</div>}
 
       {settingsOpen && <section className="panel" style={{ padding: 16, display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
