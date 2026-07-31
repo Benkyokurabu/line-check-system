@@ -13,15 +13,21 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "portrait",
     icons: [
       {
-        src: "/classroom-icon.svg",
+        src: "/classroom-icon-192.png",
         sizes: "192x192",
-        type: "image/svg+xml",
+        type: "image/png",
         purpose: "any",
       },
       {
-        src: "/classroom-icon.svg",
+        src: "/classroom-icon-512.png",
         sizes: "512x512",
-        type: "image/svg+xml",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/classroom-icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
         purpose: "maskable",
       },
     ],
@@ -33,9 +39,9 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/classroom",
         icons: [
           {
-            src: "/classroom-icon.svg",
+            src: "/classroom-icon-192.png",
             sizes: "192x192",
-            type: "image/svg+xml",
+            type: "image/png",
           },
         ],
       },

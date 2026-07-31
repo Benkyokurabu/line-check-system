@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { HomeLink } from "./HomeLink";
+import { PwaRegistration } from "./PwaRegistration";
 
 export const metadata: Metadata = {
   title: "勉たん（仮） -勉強クラブ総合アシスたんトさん-",
@@ -14,10 +15,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/classroom-icon.svg", type: "image/svg+xml" },
+      { url: "/classroom-icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/classroom-icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: [
-      { url: "/classroom-icon.svg", type: "image/svg+xml" },
+      { url: "/classroom-icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/classroom-icon-512.png", sizes: "512x512", type: "image/png" },
     ],
   },
 };
@@ -33,7 +36,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body><HomeLink />{children}</body>
+      <body><PwaRegistration /><HomeLink />{children}</body>
     </html>
   );
 }
