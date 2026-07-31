@@ -294,15 +294,15 @@ export default function ClassroomPage() {
   const events = data?.events ?? [];
   const classroomMessages = data?.messages ?? [];
 
-  return <main className="shell" style={{ maxWidth: 500, padding: "10px 10px" }}>
+  return <main className="shell" style={{ maxWidth: 340, padding: "8px 8px" }}>
     <section style={{ display: "grid", gap: 5 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 5, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow" style={{ fontSize: "0.58rem", marginBottom: 3 }}>Classroom attendance</p>
           <h1 style={{ fontSize: "1.08rem", marginBottom: 2 }}>{campus} {effectiveClassroom}教室</h1>
           <p style={{ fontSize: "0.74rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>
         </div>
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-start" }}>
           {!isStandalone && <button type="button" style={ghostButtonStyle} onClick={installApp}>アプリ化</button>}
           <button type="button" style={ghostButtonStyle} onClick={() => setSettingsOpen((value) => !value)}>教室変更</button>
         </div>
@@ -311,7 +311,7 @@ export default function ClassroomPage() {
       {installHelp && <div style={{ border: "1px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", borderRadius: 8, padding: 10, fontSize: "0.7rem", fontWeight: 800, lineHeight: 1.45 }}>{installHelp}</div>}
 
       {settingsOpen && <section className="panel" style={{ padding: 12, display: "grid", gap: 5 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 5 }}>
           <label style={{ display: "grid", gap: 5, fontWeight: 800 }}>校舎<select style={selectStyle} value={campus} onChange={(event) => { const nextCampus = event.target.value; setCampus(nextCampus); setClassroom((classrooms[nextCampus as keyof typeof classrooms] ?? classrooms["南教室"])[0]); }}><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
           <label style={{ display: "grid", gap: 5, fontWeight: 800 }}>教室<select style={selectStyle} value={effectiveClassroom} onChange={(event) => setClassroom(event.target.value)}>{classOptions.map((room) => <option key={room} value={room}>{room}教室</option>)}</select></label>
         </div>
