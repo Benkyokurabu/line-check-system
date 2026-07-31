@@ -359,14 +359,14 @@ export default function ClassroomPage() {
 
           {events.length > 0 && <div style={{ display: "grid", gap: 5 }}>
             {events.map((event) => <article key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 8, background: "white", padding: 8, display: "grid", gap: 4 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-                <strong style={{ fontSize: "0.92rem" }}>{event.student_name}</strong>
-                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "2px 6px", fontWeight: 900 }}>{eventTypeLabel(event.event_type)}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 5, alignItems: "center", minWidth: 0 }}>
+                <strong style={{ fontSize: "0.92rem", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.student_name}</strong>
+                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "2px 6px", fontWeight: 900, flexShrink: 0 }}>{eventTypeLabel(event.event_type)}</span>
               </div>
-              <div style={{ color: "var(--foreground)", fontSize: "0.8rem", lineHeight: 1.45 }}>
+              <div style={{ color: "var(--foreground)", fontSize: "0.8rem", lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {[event.reason, event.event_type === "late" && event.arrival_expected_time ? `${event.arrival_expected_time}頃到着予定` : null, event.note_for_classroom].filter(Boolean).join(" / ") || "詳細なし"}
+                <span style={{ color: "var(--muted)", fontWeight: 700 }}> / 確認 {formatConfirmedAt(event.confirmed_at)}</span>
               </div>
-              <div style={{ color: "var(--muted)", fontSize: "0.84rem", fontWeight: 700 }}>確認 {formatConfirmedAt(event.confirmed_at)}</div>
             </article>)}
           </div>}
 
