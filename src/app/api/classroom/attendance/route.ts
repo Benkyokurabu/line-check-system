@@ -82,7 +82,10 @@ function minutesFromStart(value: string | null) {
   if (!value) return Number.POSITIVE_INFINITY;
   const match = value.match(/(\d{1,2}):(\d{2})/);
   if (!match) return Number.POSITIVE_INFINITY;
-  return Number(match[1]) * 60 + Number(match[2]);
+  const rawHour = Number(match[1]);
+  const minute = Number(match[2]);
+  const hour = rawHour >= 1 && rawHour <= 8 ? rawHour + 12 : rawHour;
+  return hour * 60 + minute;
 }
 
 function currentJstMinutes() {
