@@ -242,3 +242,33 @@ as $$
   order by messages.received_at desc nulls last, messages.created_at desc
   limit least(greatest(p_limit, 1), 30)
 $$;
+create table if not exists public.classroom_messages (
+  id uuid primary key default gen_random_uuid(),
+  campus text not null,
+  classroom text not null,
+  message text not null,
+  created_by text,
+  expires_at timestamptz,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint classroom_messages_message_not_blank
+    check (length(btrim(message)) > 0)
+);
+
+create index if not exists classroom_messages_active_idx
+  on public.classroom_messages (campus, classroom, archived_at, expires_at, created_at desc);
+
+create index if not exists classroom_messages_recent_idx
+  on public.classroom_messages (created_at desc);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger where tgname = 'set_classroom_messages_updated_at'
+      and tgrelid = 'public.classroom_messages'::regclass
+  ) then
+    create trigger set_classroom_messages_updated_at before update on public.classroom_messages
+      for each row execute function public.set_updated_at();
+  end if;
+end $$;

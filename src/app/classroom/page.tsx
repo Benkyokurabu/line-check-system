@@ -23,6 +23,14 @@ type ClassroomEvent = {
   confirmed_at: string | null;
 };
 
+type ClassroomMessage = {
+  id: string;
+  message: string;
+  created_by: string | null;
+  expires_at: string | null;
+  created_at: string;
+};
+
 type ClassroomResponse = {
   date: string;
   campus: string;
@@ -30,6 +38,7 @@ type ClassroomResponse = {
   lessons: Lesson[];
   selected_lesson: Lesson | null;
   events: ClassroomEvent[];
+  messages?: ClassroomMessage[];
   message: string | null;
   notion_warning?: string | null;
   fetched_at: string;
@@ -113,6 +122,19 @@ function formatConfirmedAt(value: string | null) {
   }).format(date);
 }
 
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 function eventTypeLabel(value: string) {
   if (value === "late") return "遅刻";
   if (value === "early_leave") return "早退";
@@ -270,6 +292,7 @@ export default function ClassroomPage() {
 
   const selectedLesson = data?.selected_lesson ?? null;
   const events = data?.events ?? [];
+  const classroomMessages = data?.messages ?? [];
 
   return <main className="shell" style={{ maxWidth: 620, padding: "18px 14px" }}>
     <section style={{ display: "grid", gap: 8 }}>
@@ -314,6 +337,13 @@ export default function ClassroomPage() {
 
         {message && <div style={{ border: "1px solid #fca5a5", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: 12, fontWeight: 800 }}>{message}</div>}
         {data?.notion_warning && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", color: "#9a3412", borderRadius: 8, padding: 12, fontWeight: 800 }}>{data.notion_warning}</div>}
+        {classroomMessages.length > 0 && <section style={{ border: "1px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+          <strong style={{ fontSize: "0.86rem" }}>事務部から</strong>
+          {classroomMessages.map((item) => <article key={item.id} style={{ display: "grid", gap: 3 }}>
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, fontSize: "0.9rem", fontWeight: 900 }}>{item.message}</div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>{item.created_by || "事務部"} / {formatDateTime(item.created_at)}{item.expires_at ? ` / 期限 ${formatDateTime(item.expires_at)}` : ""}</div>
+          </article>)}
+        </section>}
         {loading && !data && <p>読み込み中...</p>}
 
         {data && <>

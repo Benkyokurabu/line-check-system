@@ -44,6 +44,18 @@ const NOTION_SCHEMA_CACHE_MS = 5 * 60 * 1000;
 let notionPropertiesPromise: Promise<Record<string, NotionProperty>> | null = null;
 let notionPropertiesExpiresAt = 0;
 
+type ClassroomMessage = {
+  id: string;
+  campus: string;
+  classroom: string;
+  message: string;
+  created_by: string | null;
+  expires_at: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type ClassroomEvent = {
   id: string;
   lesson_id: string;
@@ -290,6 +302,24 @@ async function fetchNotionClassroomEvents(input: {
   return events;
 }
 
+
+async function fetchClassroomMessages(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  campus: string;
+  classroom: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("classroom_messages")
+    .select("id,campus,classroom,message,created_by,expires_at,archived_at,created_at,updated_at")
+    .eq("campus", input.campus)
+    .eq("classroom", input.classroom)
+    .is("archived_at", null)
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as ClassroomMessage[];
+}
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const campus = url.searchParams.get("campus")?.trim();
@@ -313,6 +343,8 @@ export async function GET(request: Request) {
   if (lessonError) return NextResponse.json({ error: lessonError.message }, { status: 500 });
   const lessons = (lessonData ?? []) as LessonRow[];
   const selectedLesson = pickLesson(lessons, lessonId);
+  const classroomMessages = await fetchClassroomMessages({ supabase, campus, classroom })
+    .catch(() => [] as ClassroomMessage[]);
 
   if (!selectedLesson) {
     return NextResponse.json({
@@ -322,6 +354,7 @@ export async function GET(request: Request) {
       lessons,
       selected_lesson: null,
       events: [],
+      messages: classroomMessages,
       message: "本日この教室の授業はありません",
       notion_warning: null,
       fetched_at: new Date().toISOString(),
@@ -375,6 +408,7 @@ export async function GET(request: Request) {
     lessons,
     selected_lesson: selectedLesson,
     events,
+    messages: classroomMessages,
     message: events.length === 0 ? "欠席・遅刻連絡はありません" : null,
     notion_warning: notionResult.warning,
     fetched_at: new Date().toISOString(),
