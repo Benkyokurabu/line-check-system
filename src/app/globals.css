@@ -105,6 +105,12 @@ li {
   color: var(--accent);
 }
 
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .home-link {
+    display: none;
+  }
+}
+
 .home-menu {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">教室欠席確認</title>
+  <desc id="desc">Green app icon with a classroom board and attendance check mark.</desc>
+  <rect width="512" height="512" rx="96" fill="#06c755"/>
+  <rect x="82" y="112" width="348" height="242" rx="28" fill="#f7f7f4"/>
+  <rect x="112" y="145" width="288" height="144" rx="14" fill="#1d2320"/>
+  <path d="M154 214h104" stroke="#f7f7f4" stroke-width="22" stroke-linecap="round"/>
+  <path d="M154 254h68" stroke="#f7f7f4" stroke-width="22" stroke-linecap="round"/>
+  <path d="M294 237l36 36 76-86" fill="none" stroke="#06c755" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M194 354h124v34H194z" fill="#f7f7f4"/>
+  <path d="M150 388h212" stroke="#f7f7f4" stroke-width="30" stroke-linecap="round"/>
+</svg>
