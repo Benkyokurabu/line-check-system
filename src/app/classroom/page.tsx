@@ -57,10 +57,10 @@ const classrooms = {
 const buttonStyle: React.CSSProperties = {
   border: 0,
   borderRadius: 8,
-  padding: "9px 12px",
+  padding: "7px 9px",
   background: "var(--accent)",
   color: "white",
-  fontSize: "0.82rem",
+  fontSize: "0.74rem",
   fontWeight: 800,
   cursor: "pointer",
 };
@@ -68,23 +68,23 @@ const buttonStyle: React.CSSProperties = {
 const ghostButtonStyle: React.CSSProperties = {
   border: "1px solid var(--line)",
   borderRadius: 8,
-  padding: "8px 10px",
+  padding: "6px 8px",
   background: "var(--surface)",
   color: "var(--foreground)",
-  fontSize: "0.78rem",
+  fontSize: "0.7rem",
   fontWeight: 800,
   cursor: "pointer",
 };
 
 const selectStyle: React.CSSProperties = {
   width: "100%",
-  minHeight: 36,
+  minHeight: 30,
   border: "1px solid var(--line)",
   borderRadius: 8,
-  padding: "8px 10px",
+  padding: "6px 8px",
   background: "var(--surface)",
   color: "var(--foreground)",
-  fontSize: "0.82rem",
+  fontSize: "0.74rem",
 };
 
 function todayJst() {
@@ -294,42 +294,42 @@ export default function ClassroomPage() {
   const events = data?.events ?? [];
   const classroomMessages = data?.messages ?? [];
 
-  return <main className="shell" style={{ maxWidth: 620, padding: "18px 14px" }}>
-    <section style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+  return <main className="shell" style={{ maxWidth: 500, padding: "10px 10px" }}>
+    <section style={{ display: "grid", gap: 5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 5 }}>
         <div>
-          <p className="eyebrow" style={{ fontSize: "0.64rem", marginBottom: 5 }}>Classroom attendance</p>
-          <h1 style={{ fontSize: "1.32rem", marginBottom: 4 }}>{campus} {effectiveClassroom}教室</h1>
-          <p style={{ fontSize: "0.84rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>
+          <p className="eyebrow" style={{ fontSize: "0.58rem", marginBottom: 3 }}>Classroom attendance</p>
+          <h1 style={{ fontSize: "1.08rem", marginBottom: 2 }}>{campus} {effectiveClassroom}教室</h1>
+          <p style={{ fontSize: "0.74rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {!isStandalone && <button type="button" style={ghostButtonStyle} onClick={installApp}>アプリ化</button>}
           <button type="button" style={ghostButtonStyle} onClick={() => setSettingsOpen((value) => !value)}>教室変更</button>
         </div>
       </div>
 
-      {installHelp && <div style={{ border: "1px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", borderRadius: 8, padding: 10, fontSize: "0.78rem", fontWeight: 800, lineHeight: 1.55 }}>{installHelp}</div>}
+      {installHelp && <div style={{ border: "1px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", borderRadius: 8, padding: 10, fontSize: "0.7rem", fontWeight: 800, lineHeight: 1.45 }}>{installHelp}</div>}
 
-      {settingsOpen && <section className="panel" style={{ padding: 12, display: "grid", gap: 8 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>校舎<select style={selectStyle} value={campus} onChange={(event) => { const nextCampus = event.target.value; setCampus(nextCampus); setClassroom((classrooms[nextCampus as keyof typeof classrooms] ?? classrooms["南教室"])[0]); }}><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
-          <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>教室<select style={selectStyle} value={effectiveClassroom} onChange={(event) => setClassroom(event.target.value)}>{classOptions.map((room) => <option key={room} value={room}>{room}教室</option>)}</select></label>
+      {settingsOpen && <section className="panel" style={{ padding: 12, display: "grid", gap: 5 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+          <label style={{ display: "grid", gap: 5, fontWeight: 800 }}>校舎<select style={selectStyle} value={campus} onChange={(event) => { const nextCampus = event.target.value; setCampus(nextCampus); setClassroom((classrooms[nextCampus as keyof typeof classrooms] ?? classrooms["南教室"])[0]); }}><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+          <label style={{ display: "grid", gap: 5, fontWeight: 800 }}>教室<select style={selectStyle} value={effectiveClassroom} onChange={(event) => setClassroom(event.target.value)}>{classOptions.map((room) => <option key={room} value={room}>{room}教室</option>)}</select></label>
         </div>
         <button type="button" style={buttonStyle} onClick={saveSettings}>この教室で保存</button>
       </section>}
 
-      {!visible && <section className="panel" style={{ padding: 10, display: "grid", gap: 6 }}>
-        <p style={{ fontSize: "0.82rem" }}>確認ボタンを押した時だけ、確定済みの欠席・遅刻・早退を表示します。</p>
-        <button type="button" style={{ ...buttonStyle, minHeight: 42, fontSize: "0.88rem" }} onClick={showAttendance}>欠席・遅刻を確認</button>
+      {!visible && <section className="panel" style={{ padding: 8, display: "grid", gap: 4 }}>
+        <p style={{ fontSize: "0.74rem" }}>確認ボタンを押した時だけ、確定済みの欠席・遅刻・早退を表示します。</p>
+        <button type="button" style={{ ...buttonStyle, minHeight: 34, fontSize: "0.68rem" }} onClick={showAttendance}>欠席・遅刻を確認</button>
       </section>}
 
-      {visible && <section className="panel" style={{ padding: 10, display: "grid", gap: 6 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      {visible && <section className="panel" style={{ padding: 8, display: "grid", gap: 4 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ display: "grid", gap: 2 }}>
-            <strong style={{ fontSize: "0.9rem" }}>確認表示 {checkedAt ? formatClock(checkedAt) : "--:--"}</strong>
+            <strong style={{ fontSize: "0.78rem" }}>確認表示 {checkedAt ? formatClock(checkedAt) : "--:--"}</strong>
             {!keepVisible && <span style={{ color: "var(--muted)", fontWeight: 700 }}>自動で隠すまで {remaining}秒</span>}
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
             <button type="button" style={ghostButtonStyle} onClick={() => setKeepVisible((value) => { if (value) setRemaining(180); return !value; })}>{keepVisible ? "自動で隠す" : "自動で隠さない"}</button>
             <button type="button" style={ghostButtonStyle} onClick={() => setVisible(false)}>閉じる</button>
           </div>
@@ -337,40 +337,40 @@ export default function ClassroomPage() {
 
         {message && <div style={{ border: "1px solid #fca5a5", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: 12, fontWeight: 800 }}>{message}</div>}
         {data?.notion_warning && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", color: "#9a3412", borderRadius: 8, padding: 12, fontWeight: 800 }}>{data.notion_warning}</div>}
-        {classroomMessages.length > 0 && <section style={{ border: "1px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+        {classroomMessages.length > 0 && <section style={{ border: "1px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", borderRadius: 8, padding: 8, display: "grid", gap: 4 }}>
           <strong style={{ fontSize: "0.86rem" }}>事務部から</strong>
           {classroomMessages.map((item) => <article key={item.id} style={{ display: "grid", gap: 3 }}>
-            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, fontSize: "0.9rem", fontWeight: 900 }}>{item.message}</div>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>{item.created_by || "事務部"} / {formatDateTime(item.created_at)}{item.expires_at ? ` / 期限 ${formatDateTime(item.expires_at)}` : ""}</div>
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45, fontSize: "0.78rem", fontWeight: 900 }}>{item.message}</div>
+            <div style={{ fontSize: "0.64rem", fontWeight: 700 }}>{item.created_by || "事務部"} / {formatDateTime(item.created_at)}{item.expires_at ? ` / 期限 ${formatDateTime(item.expires_at)}` : ""}</div>
           </article>)}
         </section>}
         {loading && !data && <p>読み込み中...</p>}
 
         {data && <>
-          {data.lessons.length > 1 && <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>表示する授業<select style={selectStyle} value={selectedLesson?.id ?? ""} onChange={(event) => changeLesson(event.target.value)}>{data.lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{formatShortTime(lesson.start_time)} {lesson.label}</option>)}</select></label>}
+          {data.lessons.length > 1 && <label style={{ display: "grid", gap: 5, fontWeight: 800 }}>表示する授業<select style={selectStyle} value={selectedLesson?.id ?? ""} onChange={(event) => changeLesson(event.target.value)}>{data.lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{formatShortTime(lesson.start_time)} {lesson.label}</option>)}</select></label>}
 
-          {selectedLesson ? <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, background: "#f7f7f4", display: "grid", gap: 4 }}>
-            <span style={{ color: "var(--muted)", fontSize: "0.76rem", fontWeight: 800 }}>表示中の授業</span>
-            <strong style={{ fontSize: "1rem" }}>{formatShortTime(selectedLesson.start_time)} {selectedLesson.label}</strong>
+          {selectedLesson ? <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 8, background: "#f7f7f4", display: "grid", gap: 4 }}>
+            <span style={{ color: "var(--muted)", fontSize: "0.68rem", fontWeight: 800 }}>表示中の授業</span>
+            <strong style={{ fontSize: "0.84rem" }}>{formatShortTime(selectedLesson.start_time)} {selectedLesson.label}</strong>
             <span style={{ color: "var(--muted)", fontWeight: 700 }}>担当: {selectedLesson.teacher_name || "未設定"}</span>
-          </div> : <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, fontSize: "0.94rem", fontWeight: 800 }}>{data.message ?? "本日の次の授業はありません"}</div>}
+          </div> : <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 8, fontSize: "0.8rem", fontWeight: 800 }}>{data.message ?? "本日の次の授業はありません"}</div>}
 
-          {selectedLesson && events.length === 0 && <div style={{ border: "1px solid #b7d7c2", background: "#f2fbf5", color: "#087a3d", borderRadius: 8, padding: 14, fontSize: "0.98rem", fontWeight: 900 }}>欠席・遅刻連絡はありません</div>}
+          {selectedLesson && events.length === 0 && <div style={{ border: "1px solid #b7d7c2", background: "#f2fbf5", color: "#087a3d", borderRadius: 8, padding: 10, fontSize: "0.84rem", fontWeight: 900 }}>欠席・遅刻連絡はありません</div>}
 
-          {events.length > 0 && <div style={{ display: "grid", gap: 8 }}>
-            {events.map((event) => <article key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 8, background: "white", padding: 10, display: "grid", gap: 6 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <strong style={{ fontSize: "1.02rem" }}>{event.student_name}</strong>
-                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "3px 8px", fontWeight: 900 }}>{eventTypeLabel(event.event_type)}</span>
+          {events.length > 0 && <div style={{ display: "grid", gap: 5 }}>
+            {events.map((event) => <article key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 8, background: "white", padding: 8, display: "grid", gap: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                <strong style={{ fontSize: "0.86rem" }}>{event.student_name}</strong>
+                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "2px 6px", fontWeight: 900 }}>{eventTypeLabel(event.event_type)}</span>
               </div>
-              <div style={{ color: "var(--foreground)", fontSize: "0.82rem", lineHeight: 1.55 }}>
+              <div style={{ color: "var(--foreground)", fontSize: "0.74rem", lineHeight: 1.45 }}>
                 {[event.reason, event.event_type === "late" && event.arrival_expected_time ? `${event.arrival_expected_time}頃到着予定` : null, event.note_for_classroom].filter(Boolean).join(" / ") || "詳細なし"}
               </div>
-              <div style={{ color: "var(--muted)", fontSize: "0.9rem", fontWeight: 700 }}>確認 {formatConfirmedAt(event.confirmed_at)}</div>
+              <div style={{ color: "var(--muted)", fontSize: "0.78rem", fontWeight: 700 }}>確認 {formatConfirmedAt(event.confirmed_at)}</div>
             </article>)}
           </div>}
 
-          <p style={{ fontSize: "0.72rem" }}>最終更新 {formatConfirmedAt(data.fetched_at)}</p>
+          <p style={{ fontSize: "0.64rem" }}>最終更新 {formatConfirmedAt(data.fetched_at)}</p>
         </>}
       </section>}
     </section>
