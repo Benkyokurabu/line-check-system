@@ -166,7 +166,7 @@ export type RosterSyncPreview = {
   generated_at: string;
   target: { student_number_min_exclusive: number };
   notion: { data_source_id: string; students: number; skipped: number };
-  excel: { files: ReturnType<typeof fileManifest>; students: number; class_enrollments: number };
+  excel: { files: ReturnType<typeof fileManifest>; students: number; class_enrollments: number; source: "files" | "database" };
   app: { students: number; class_enrollments: number };
   counts: Record<RosterSyncCandidate["kind"], number>;
   candidates: RosterSyncCandidate[];
@@ -293,6 +293,13 @@ async function readAppRows(supabase: SupabaseClient, threshold = currentStudentN
   return { students, enrollments };
 }
 
+function importedRosterFromAppRows(app: { students: AppStudentRow[]; enrollments: AppEnrollmentRow[] }) {
+  return {
+    rows: app.students.map((row) => ({ ...row })),
+    enrollments: app.enrollments.map((row) => ({ ...row })),
+  };
+}
+
 function mapByStudent<T extends { student_number: string }>(rows: T[]) {
   const map = new Map<string, T[]>();
   for (const row of rows) {
@@ -343,7 +350,8 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
   ]);
   const files = listRosterExcelFiles(root);
   const manifest = fileManifest(files, root) as ReturnType<typeof fileManifest>;
-  const excel = readRosterExcelRowsForSync(files, root, threshold);
+  const excelSource: "files" | "database" = files.length > 0 ? "files" : "database";
+  const excel = files.length > 0 ? readRosterExcelRowsForSync(files, root, threshold) : importedRosterFromAppRows(app);
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelEnrollments = [
     ...new Map(excel.enrollments.map((row) => [`${row.student_number}:${row.subject}:${row.class_name}`, row])).values(),
@@ -484,6 +492,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
       files: manifest,
       students: excelRows.length,
       class_enrollments: excelEnrollments.length,
+      source: excelSource,
     },
     app: {
       students: app.students.length,
@@ -500,7 +509,7 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   if (selected.length === 0) throw new Error(`反映対象の生徒が選択されていません。対象は学籍番号 ${threshold} より大きい生徒です`);
 
   const files = listRosterExcelFiles(root);
-  const excel = readRosterExcelRowsForSync(files, root, threshold);
+  const excel = files.length > 0 ? readRosterExcelRowsForSync(files, root, threshold) : importedRosterFromAppRows(await readAppRows(supabase, threshold));
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelByNumber = new Map(excelRows.map((row) => [row.student_number, row]));
   const enrollmentsByNumber = mapByStudent(excel.enrollments as ExcelEnrollmentRow[]);

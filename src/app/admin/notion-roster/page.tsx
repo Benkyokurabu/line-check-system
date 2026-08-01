@@ -31,7 +31,7 @@ type Preview = {
   generated_at: string;
   target: { student_number_min_exclusive: number };
   notion: { data_source_id: string; students: number; skipped: number };
-  excel: { files: Array<{ file: string; size: number; mtime: string }>; students: number; class_enrollments: number };
+  excel: { files: Array<{ file: string; size: number; mtime: string }>; students: number; class_enrollments: number; source?: "files" | "database" };
   app: { students: number; class_enrollments: number };
   counts: Record<CandidateKind, number>;
   candidates: Candidate[];
@@ -165,7 +165,7 @@ export default function NotionRosterPage() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10 }}>
               <Metric label="Notion生徒情報" value={`${preview.notion.students}名`} detail={preview.notion.skipped ? `未読取 ${preview.notion.skipped}件` : "読取OK"} />
-              <Metric label="クラス一覧Excel" value={`${preview.excel.students}名`} detail={`${preview.excel.class_enrollments}件のクラス所属`} />
+              <Metric label="クラス一覧Excel" value={`${preview.excel.students}名`} detail={preview.excel.source === "database" ? `DB取り込み済み ${preview.excel.class_enrollments}件` : `${preview.excel.class_enrollments}件のクラス所属`} />
               <Metric label="アプリ側名簿" value={`${preview.app.students}名`} detail={`${preview.app.class_enrollments}件のクラス所属`} />
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -179,7 +179,7 @@ export default function NotionRosterPage() {
               <button type="button" style={buttonStyle} onClick={clearVisible}>表示中を解除</button>
             </div>
             <div style={{ color: "var(--muted)", fontSize: "0.82rem", display: "grid", gap: 3 }}>
-              {preview.excel.files.map((file) => <span key={file.file}>・{file.file}</span>)}
+              {preview.excel.files.length > 0 ? preview.excel.files.map((file) => <span key={file.file}>・{file.file}</span>) : <span>・本番環境ではDB取り込み済みクラス一覧を使用</span>}
             </div>
           </section>
 
