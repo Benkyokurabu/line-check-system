@@ -244,6 +244,22 @@ export default function ClassroomPage() {
   }, [load, visible]);
 
   useEffect(() => {
+    if (!visible) return;
+    const refreshIfActive = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const refreshOnFocus = () => void load();
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshIfActive);
+    return () => {
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshIfActive);
+    };
+  }, [load, visible]);
+
+  useEffect(() => {
     if (!visible || keepVisible) return;
     const timer = window.setInterval(() => {
       setRemaining((current) => {
