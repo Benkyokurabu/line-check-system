@@ -26,6 +26,8 @@ type ClassroomMessage = {
   created_by: string | null;
   created_at: string;
   expires_at: string | null;
+  archived_at: string | null;
+  updated_at?: string | null;
 };
 
 type ClassroomResponse = {
@@ -108,6 +110,26 @@ function formatDateTime(value: string | null | undefined) {
   }).format(date);
 }
 
+function toDatetimeLocal(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function isExpired(value: string | null | undefined) {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now();
+}
+
+function messageStatus(item: ClassroomMessage) {
+  if (item.archived_at) return { label: "取り下げ済み", color: "#59635e", background: "#f7f7f4", border: "var(--line)" };
+  if (isExpired(item.expires_at)) return { label: "期限切れ", color: "#9a3412", background: "#fff7ed", border: "#fdba74" };
+  return { label: "表示中", color: "#087a3d", background: "#f2fbf5", border: "#b7d7c2" };
+}
+
 function eventTypeLabel(value: string) {
   if (value === "late") return "遅刻";
   if (value === "early_leave") return "早退";
@@ -128,12 +150,22 @@ export default function ClassroomOfficePage() {
   const [messageText, setMessageText] = useState("");
   const [createdBy, setCreatedBy] = useState("事務部");
   const [expiresAt, setExpiresAt] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [messageHistory, setMessageHistory] = useState<ClassroomMessage[]>([]);
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
 
   const classOptions = useMemo(() => classrooms[campus as keyof typeof classrooms] ?? classrooms["南教室"], [campus]);
   const effectiveClassroom = classOptions.includes(classroom as never) ? classroom : classOptions[0];
+
+  const loadMessages = useCallback(async () => {
+    const params = new URLSearchParams({ campus, classroom: effectiveClassroom, include_archived: "1", limit: "50" });
+    const response = await fetch(`/api/classroom/messages?${params.toString()}`, { cache: "no-store" });
+    const body = await response.json() as { messages?: ClassroomMessage[]; error?: string };
+    if (!response.ok) throw new Error(body.error ?? "教室メッセージ履歴を取得できませんでした");
+    setMessageHistory(body.messages ?? []);
+  }, [campus, effectiveClassroom]);
 
   const load = useCallback(async (nextLessonId = lessonId) => {
     setLoading(true);
@@ -146,13 +178,14 @@ export default function ClassroomOfficePage() {
       if (!response.ok) throw new Error(body.error ?? "教室情報を取得できませんでした");
       setData(body);
       if (!nextLessonId) setLessonId(body.selected_lesson?.id ?? "");
+      await loadMessages();
     } catch (error) {
       setData(null);
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
-  }, [campus, effectiveClassroom, lessonId]);
+  }, [campus, effectiveClassroom, lessonId, loadMessages]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -166,14 +199,31 @@ export default function ClassroomOfficePage() {
     await load(nextLessonId);
   }
 
-  async function sendMessage() {
+  function resetMessageForm() {
+    setEditingMessageId(null);
+    setMessageText("");
+    setExpiresAt("");
+  }
+
+  function startEditingMessage(item: ClassroomMessage) {
+    setEditingMessageId(item.id);
+    setMessageText(item.message);
+    setCreatedBy(item.created_by || "事務部");
+    setExpiresAt(toDatetimeLocal(item.expires_at));
+    setNotice("文面と期限を修正できます。保存すると教室画面にも反映されます。");
+  }
+
+  async function saveMessage() {
     setSending(true);
     setNotice("");
     try {
+      const wasEditing = Boolean(editingMessageId);
       const response = await fetch("/api/classroom/messages", {
-        method: "POST",
+        method: editingMessageId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: editingMessageId,
+          action: editingMessageId ? "update" : undefined,
           campus,
           classroom: effectiveClassroom,
           message: messageText,
@@ -182,9 +232,9 @@ export default function ClassroomOfficePage() {
         }),
       });
       const body = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(body.error ?? "メッセージを登録できませんでした");
-      setMessageText("");
-      setNotice("教室メッセージを登録しました");
+      if (!response.ok) throw new Error(body.error ?? (wasEditing ? "メッセージを更新できませんでした" : "メッセージを登録できませんでした"));
+      resetMessageForm();
+      setNotice(wasEditing ? "教室メッセージを更新しました" : "教室メッセージを登録しました");
       await load(lessonId);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -193,24 +243,24 @@ export default function ClassroomOfficePage() {
     }
   }
 
-  async function archiveMessage(id: string) {
+  async function updateMessageStatus(id: string, action: "archive" | "restore") {
     setNotice("");
     const response = await fetch("/api/classroom/messages", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, action }),
     });
     const body = await response.json() as { error?: string };
     if (!response.ok) {
-      setNotice(body.error ?? "メッセージを取り下げできませんでした");
+      setNotice(body.error ?? (action === "archive" ? "メッセージを取り下げできませんでした" : "メッセージを再表示できませんでした"));
       return;
     }
-    setNotice("教室メッセージを取り下げました");
+    setNotice(action === "archive" ? "教室メッセージを取り下げました" : "教室メッセージを再表示しました");
     await load(lessonId);
   }
-
   const events = data?.events ?? [];
   const messages = data?.messages ?? [];
+  const historyMessages = messageHistory.length > 0 ? messageHistory : messages;
 
   return <main className="shell" style={{ maxWidth: 980, paddingTop: 42 }}>
     <section style={{ display: "grid", gap: 18 }}>
@@ -268,16 +318,26 @@ export default function ClassroomOfficePage() {
           <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>送信者<input style={inputStyle} value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} /></label>
           <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>表示期限<input style={inputStyle} type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
           <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>メッセージ<textarea style={{ ...inputStyle, minHeight: 104, resize: "vertical", lineHeight: 1.6 }} value={messageText} maxLength={500} onChange={(event) => setMessageText(event.target.value)} placeholder="例: 休み時間に事務室までプリントを取りに来てください。" /></label>
-          <button type="button" style={buttonStyle} onClick={sendMessage} disabled={sending}>{sending ? "登録中" : "この教室へ出す"}</button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" style={buttonStyle} onClick={saveMessage} disabled={sending}>{sending ? "保存中" : editingMessageId ? "変更を保存" : "この教室へ出す"}</button>{editingMessageId && <button type="button" style={ghostButtonStyle} onClick={resetMessageForm}>編集をやめる</button>}</div>
 
           <div style={{ display: "grid", gap: 8 }}>
-            <strong>表示中のメッセージ</strong>
-            {messages.length === 0 && <p style={{ fontSize: "0.9rem" }}>現在表示中のメッセージはありません。</p>}
-            {messages.map((item) => <article key={item.id} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65, fontWeight: 800 }}>{item.message}</div>
-              <div style={{ color: "var(--muted)", fontSize: "0.82rem", fontWeight: 700 }}>{item.created_by || "事務部"} / {formatDateTime(item.created_at)}{item.expires_at ? ` / 期限 ${formatDateTime(item.expires_at)}` : ""}</div>
-              <button type="button" style={ghostButtonStyle} onClick={() => void archiveMessage(item.id)}>取り下げ</button>
-            </article>)}
+            <strong>メッセージ履歴と操作</strong>
+            {historyMessages.length === 0 && <p style={{ fontSize: "0.9rem" }}>この教室のメッセージ履歴はありません。</p>}
+            {historyMessages.map((item) => {
+              const status = messageStatus(item);
+              return <article key={item.id} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 7, opacity: item.archived_at ? 0.72 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ border: `1px solid ${status.border}`, borderRadius: 999, padding: "3px 8px", background: status.background, color: status.color, fontSize: "0.78rem", fontWeight: 900 }}>{status.label}</span>
+                  <span style={{ color: "var(--muted)", fontSize: "0.78rem", fontWeight: 700 }}>{formatDateTime(item.created_at)}</span>
+                </div>
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65, fontWeight: 800 }}>{item.message}</div>
+                <div style={{ color: "var(--muted)", fontSize: "0.82rem", fontWeight: 700 }}>{item.created_by || "事務部"}{item.expires_at ? ` / 期限 ${formatDateTime(item.expires_at)}` : " / 期限なし"}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button type="button" style={ghostButtonStyle} onClick={() => startEditingMessage(item)}>編集</button>
+                  {item.archived_at ? <button type="button" style={ghostButtonStyle} onClick={() => void updateMessageStatus(item.id, "restore")}>再表示</button> : <button type="button" style={ghostButtonStyle} onClick={() => void updateMessageStatus(item.id, "archive")}>取り下げ</button>}
+                </div>
+              </article>;
+            })}
           </div>
         </section>
       </section>

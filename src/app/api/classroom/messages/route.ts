@@ -20,6 +20,11 @@ function cleanExpiresAt(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function cleanAction(value: unknown) {
+  if (value === "archive" || value === "restore" || value === "update") return value;
+  return "archive";
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const campus = cleanText(url.searchParams.get("campus"));
@@ -81,12 +86,29 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const body = await request.json().catch(() => ({}));
   const id = cleanText(body.id);
+  const action = cleanAction(body.action);
   if (!id) return NextResponse.json({ error: "メッセージIDを指定してください" }, { status: 400 });
+
+  const updates: Record<string, string | null> = {};
+  if (action === "archive") {
+    updates.archived_at = new Date().toISOString();
+  } else if (action === "restore") {
+    updates.archived_at = null;
+  } else {
+    const message = cleanText(body.message);
+    const createdBy = cleanText(body.created_by);
+    const expiresAt = cleanExpiresAt(body.expires_at);
+    if (!message) return NextResponse.json({ error: "メッセージを入力してください" }, { status: 400 });
+    if (message.length > 500) return NextResponse.json({ error: "メッセージは500文字以内で入力してください" }, { status: 400 });
+    updates.message = message;
+    updates.created_by = createdBy ?? "事務部";
+    updates.expires_at = expiresAt;
+  }
 
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("classroom_messages")
-    .update({ archived_at: new Date().toISOString() })
+    .update(updates)
     .eq("id", id)
     .select("id,campus,classroom,message,created_by,expires_at,archived_at,created_at,updated_at")
     .single();
