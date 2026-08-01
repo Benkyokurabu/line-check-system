@@ -172,6 +172,7 @@ export default function ClassroomPage() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installHelp, setInstallHelp] = useState("");
   const [isStandalone, setIsStandalone] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
   const requestControllerRef = useRef<AbortController | null>(null);
   const classOptions = useMemo(() => classrooms[campus as keyof typeof classrooms] ?? classrooms["南教室"], [campus]);
   const effectiveClassroom = classOptions.includes(classroom as never) ? classroom : classOptions[0];
@@ -182,6 +183,28 @@ export default function ClassroomPage() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+    useEffect(() => {
+    async function loadVersion() {
+      try {
+        const response = await fetch(`/api/app-version?t=${Date.now()}`, { cache: "no-store" });
+        const body = await response.json() as { version?: string };
+        const version = typeof body.version === "string" ? body.version : "";
+        setAppVersion(version && version !== "local" ? version.slice(0, 7) : "local");
+      } catch {
+        setAppVersion("取得不可");
+      }
+    }
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void loadVersion();
+    };
+    void loadVersion();
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
   }, []);
   useEffect(() => {
     const standaloneTimer = window.setTimeout(() => {
@@ -316,7 +339,7 @@ export default function ClassroomPage() {
         <div>
           <p className="eyebrow" style={{ fontSize: "0.62rem", marginBottom: 3 }}>Classroom attendance</p>
           <h1 style={{ fontSize: "1.18rem", marginBottom: 3 }}>{campus} {effectiveClassroom}教室</h1>
-          <p style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>
+          <p style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--foreground)" }}>現在 {formatClock(now)}</p>{appVersion && <p style={{ fontSize: "0.68rem", lineHeight: 1.35, fontWeight: 800, color: "var(--muted)" }}>版 {appVersion}</p>}
         </div>
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-start" }}>
           {!isStandalone && <button type="button" style={ghostButtonStyle} onClick={installApp}>アプリ化</button>}
