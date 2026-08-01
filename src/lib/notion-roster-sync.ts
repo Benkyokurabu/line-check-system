@@ -90,7 +90,7 @@ function normalizeCampus(value: unknown) {
   return text || null;
 }
 
-function readRosterExcelRowsForSync(files: string[], root = process.cwd()) {
+function readRosterExcelRowsForSync(files: string[], root = process.cwd(), threshold = currentStudentNumberThreshold()) {
   const rows: ExcelStudentRow[] = [];
   const enrollments: ExcelEnrollmentRow[] = [];
   const timestamp = new Date().toISOString();
@@ -114,6 +114,7 @@ function readRosterExcelRowsForSync(files: string[], root = process.cwd()) {
 
       if (!studentNumber || !studentName || !teacher) continue;
       if (!/^\d+$/.test(studentNumber)) continue;
+      if (!isTargetStudentNumber(studentNumber, threshold)) continue;
 
       rows.push({
         student_number: studentNumber,
@@ -163,6 +164,7 @@ export type RosterSyncCandidate = {
 export type RosterSyncPreview = {
   ok: true;
   generated_at: string;
+  target: { student_number_min_exclusive: number };
   notion: { data_source_id: string; students: number; skipped: number };
   excel: { files: ReturnType<typeof fileManifest>; students: number; class_enrollments: number };
   app: { students: number; class_enrollments: number };
@@ -199,6 +201,15 @@ function firstProperty(properties: Record<string, NotionPropertyValue>, names: s
   return "";
 }
 
+function currentStudentNumberThreshold(date = new Date()) {
+  const month = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", month: "numeric" }).format(date));
+  return month >= 3 ? 2019000 : 2018000;
+}
+
+function isTargetStudentNumber(value: string, threshold = currentStudentNumberThreshold()) {
+  const number = Number(normalizeStudentNumber(value));
+  return Number.isFinite(number) && number > threshold;
+}
 function normalizeStudentNumber(value: string) {
   return value.normalize("NFKC").replace(/[^\d]/g, "");
 }
@@ -219,7 +230,7 @@ function classLabels(rows: Array<Pick<ExcelEnrollmentRow, "subject" | "class_nam
     .sort((a, b) => a.localeCompare(b, "ja"));
 }
 
-async function fetchNotionStudents() {
+async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) {
   const dataSourceId = notionStudentDataSourceId();
   const students: SyncStudent[] = [];
   let skipped = 0;
@@ -242,6 +253,7 @@ async function fetchNotionStudents() {
         skipped += 1;
         continue;
       }
+      if (!isTargetStudentNumber(studentNumber, threshold)) continue;
       students.push({
         student_number: studentNumber,
         student_name: studentName,
@@ -268,17 +280,17 @@ function targetRosterRow(notion: SyncStudent | undefined, excel: ExcelStudentRow
   };
 }
 
-async function readAppRows(supabase: SupabaseClient) {
+async function readAppRows(supabase: SupabaseClient, threshold = currentStudentNumberThreshold()) {
   const [studentsResult, enrollmentsResult] = await Promise.all([
     supabase.from("student_roster").select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,source_file,updated_at"),
     supabase.from("student_class_enrollments").select("student_number,grade,subject,class_name,classroom,source_file,updated_at"),
   ]);
   if (studentsResult.error) throw new Error(studentsResult.error.message);
   if (enrollmentsResult.error) throw new Error(enrollmentsResult.error.message);
-  return {
-    students: (studentsResult.data ?? []) as AppStudentRow[],
-    enrollments: (enrollmentsResult.data ?? []) as AppEnrollmentRow[],
-  };
+  const students = ((studentsResult.data ?? []) as AppStudentRow[]).filter((row) => isTargetStudentNumber(row.student_number, threshold));
+  const targetNumbers = new Set(students.map((row) => row.student_number));
+  const enrollments = ((enrollmentsResult.data ?? []) as AppEnrollmentRow[]).filter((row) => targetNumbers.has(row.student_number));
+  return { students, enrollments };
 }
 
 function mapByStudent<T extends { student_number: string }>(rows: T[]) {
@@ -324,13 +336,14 @@ function buildChangeList(target: ExcelStudentRow, app: AppStudentRow | undefined
 }
 
 export async function buildRosterSyncPreview({ supabase, root = process.cwd() }: { supabase: SupabaseClient; root?: string }): Promise<RosterSyncPreview> {
+  const threshold = currentStudentNumberThreshold();
   const [notionResult, app] = await Promise.all([
-    fetchNotionStudents(),
-    readAppRows(supabase),
+    fetchNotionStudents(threshold),
+    readAppRows(supabase, threshold),
   ]);
   const files = listRosterExcelFiles(root);
   const manifest = fileManifest(files, root) as ReturnType<typeof fileManifest>;
-  const excel = readRosterExcelRowsForSync(files, root);
+  const excel = readRosterExcelRowsForSync(files, root, threshold);
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelEnrollments = [
     ...new Map(excel.enrollments.map((row) => [`${row.student_number}:${row.subject}:${row.class_name}`, row])).values(),
@@ -427,6 +440,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
   return {
     ok: true,
     generated_at: new Date().toISOString(),
+    target: { student_number_min_exclusive: threshold },
     notion: {
       data_source_id: notionResult.dataSourceId,
       students: notionResult.students.length,
@@ -447,12 +461,13 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
 }
 
 export async function syncSelectedRosterStudents({ supabase, root = process.cwd(), studentNumbers }: { supabase: SupabaseClient; root?: string; studentNumbers: string[] }) {
-  const selected = [...new Set(studentNumbers.map(normalizeStudentNumber).filter(Boolean))];
-  if (selected.length === 0) throw new Error("反映する生徒が選択されていません");
+  const threshold = currentStudentNumberThreshold();
+  const selected = [...new Set(studentNumbers.map(normalizeStudentNumber).filter((studentNumber) => studentNumber && isTargetStudentNumber(studentNumber, threshold)))];
+  if (selected.length === 0) throw new Error(`反映対象の生徒が選択されていません。対象は学籍番号 ${threshold} より大きい生徒です`);
 
-  const notionResult = await fetchNotionStudents();
+  const notionResult = await fetchNotionStudents(threshold);
   const files = listRosterExcelFiles(root);
-  const excel = readRosterExcelRowsForSync(files, root);
+  const excel = readRosterExcelRowsForSync(files, root, threshold);
   const notionByNumber = new Map(notionResult.students.map((row) => [row.student_number, row]));
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelByNumber = new Map(excelRows.map((row) => [row.student_number, row]));

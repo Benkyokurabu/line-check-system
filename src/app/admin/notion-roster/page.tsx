@@ -29,6 +29,7 @@ type StudentSnapshot = {
 
 type Preview = {
   generated_at: string;
+  target: { student_number_min_exclusive: number };
   notion: { data_source_id: string; students: number; skipped: number };
   excel: { files: Array<{ file: string; size: number; mtime: string }>; students: number; class_enrollments: number };
   app: { students: number; class_enrollments: number };
@@ -157,6 +158,9 @@ export default function NotionRosterPage() {
       {preview && (
         <>
           <section className="panel" style={{ padding: 16, display: "grid", gap: 14, marginBottom: 16 }}>
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, background: "#f7f7f4", fontWeight: 800 }}>
+              現在の照合対象: 学籍番号 {preview.target.student_number_min_exclusive} より大きい生徒
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10 }}>
               <Metric label="Notion生徒情報" value={`${preview.notion.students}名`} detail={preview.notion.skipped ? `未読取 ${preview.notion.skipped}件` : "読取OK"} />
               <Metric label="クラス一覧Excel" value={`${preview.excel.students}名`} detail={`${preview.excel.class_enrollments}件のクラス所属`} />
