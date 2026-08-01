@@ -78,6 +78,16 @@ function todayJst() {
   }).format(new Date());
 }
 
+function todayJstStart() {
+  return new Date(`${todayJst()}T00:00:00+09:00`).toISOString();
+}
+
+function isActiveClassroomMessage(row: ClassroomMessage, nowIso = new Date().toISOString()) {
+  if (row.archived_at) return false;
+  if (row.expires_at) return row.expires_at > nowIso;
+  return row.created_at >= todayJstStart();
+}
+
 function minutesFromStart(value: string | null) {
   if (!value) return Number.POSITIVE_INFINITY;
   const match = value.match(/(\d{1,2}):(\d{2})/);
@@ -317,11 +327,10 @@ async function fetchClassroomMessages(input: {
     .eq("campus", input.campus)
     .eq("classroom", input.classroom)
     .is("archived_at", null)
-    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(100);
   if (error) throw error;
-  return (data ?? []) as ClassroomMessage[];
+  return ((data ?? []) as ClassroomMessage[]).filter((row) => isActiveClassroomMessage(row)).slice(0, 20);
 }
 export async function GET(request: Request) {
   const url = new URL(request.url);

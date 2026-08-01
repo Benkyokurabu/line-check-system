@@ -118,15 +118,27 @@ function toDatetimeLocal(value: string | null | undefined) {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
-function isExpired(value: string | null | undefined) {
+function todayEndDatetimeLocal() {
+  return `${todayJst()}T23:59`;
+}
+
+function isBeforeToday(value: string | null | undefined) {
   if (!value) return false;
   const date = new Date(value);
-  return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now();
+  return !Number.isNaN(date.getTime()) && date < new Date(`${todayJst()}T00:00:00+09:00`);
+}
+
+function isExpiredMessage(item: ClassroomMessage) {
+  if (item.expires_at) {
+    const date = new Date(item.expires_at);
+    return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now();
+  }
+  return isBeforeToday(item.created_at);
 }
 
 function messageStatus(item: ClassroomMessage) {
   if (item.archived_at) return { label: "取り下げ済み", color: "#59635e", background: "#f7f7f4", border: "var(--line)" };
-  if (isExpired(item.expires_at)) return { label: "期限切れ", color: "#9a3412", background: "#fff7ed", border: "#fdba74" };
+  if (isExpiredMessage(item)) return { label: "期限切れ", color: "#9a3412", background: "#fff7ed", border: "#fdba74" };
   return { label: "表示中", color: "#087a3d", background: "#f2fbf5", border: "#b7d7c2" };
 }
 
@@ -149,7 +161,7 @@ export default function ClassroomOfficePage() {
   const [data, setData] = useState<ClassroomResponse | null>(null);
   const [messageText, setMessageText] = useState("");
   const [createdBy, setCreatedBy] = useState("事務部");
-  const [expiresAt, setExpiresAt] = useState("");
+  const [expiresAt, setExpiresAt] = useState(todayEndDatetimeLocal);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [messageHistory, setMessageHistory] = useState<ClassroomMessage[]>([]);
   const [notice, setNotice] = useState("");
@@ -202,7 +214,7 @@ export default function ClassroomOfficePage() {
   function resetMessageForm() {
     setEditingMessageId(null);
     setMessageText("");
-    setExpiresAt("");
+    setExpiresAt(todayEndDatetimeLocal());
   }
 
   function startEditingMessage(item: ClassroomMessage) {
@@ -256,6 +268,22 @@ export default function ClassroomOfficePage() {
       return;
     }
     setNotice(action === "archive" ? "教室メッセージを取り下げました" : "教室メッセージを再表示しました");
+    await load(lessonId);
+  }
+
+  async function archiveOldMessages() {
+    setNotice("");
+    const response = await fetch("/api/classroom/messages", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "archive_old", campus, classroom: effectiveClassroom }),
+    });
+    const body = await response.json() as { archived_count?: number; error?: string };
+    if (!response.ok) {
+      setNotice(body.error ?? "期限切れメッセージを取り下げできませんでした");
+      return;
+    }
+    setNotice(`${body.archived_count ?? 0}件の期限切れ・昨日以前のメッセージを取り下げました`);
     await load(lessonId);
   }
   const events = data?.events ?? [];
@@ -316,12 +344,12 @@ export default function ClassroomOfficePage() {
         <section className="panel" style={{ padding: 18, display: "grid", gap: 12 }}>
           <h2 style={{ fontSize: "1.2rem" }}>教室メッセージ</h2>
           <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>送信者<input style={inputStyle} value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} /></label>
-          <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>表示期限<input style={inputStyle} type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+          <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>表示期限<input style={inputStyle} type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /><span style={{ color: "var(--muted)", fontSize: "0.78rem", fontWeight: 700 }}>未変更なら今日の23:59で自動終了します。</span></label>
           <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>メッセージ<textarea style={{ ...inputStyle, minHeight: 104, resize: "vertical", lineHeight: 1.6 }} value={messageText} maxLength={500} onChange={(event) => setMessageText(event.target.value)} placeholder="例: 休み時間に事務室までプリントを取りに来てください。" /></label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" style={buttonStyle} onClick={saveMessage} disabled={sending}>{sending ? "保存中" : editingMessageId ? "変更を保存" : "この教室へ出す"}</button>{editingMessageId && <button type="button" style={ghostButtonStyle} onClick={resetMessageForm}>編集をやめる</button>}</div>
 
           <div style={{ display: "grid", gap: 8 }}>
-            <strong>メッセージ履歴と操作</strong>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}><strong>メッセージ履歴と操作</strong><button type="button" style={ghostButtonStyle} onClick={() => void archiveOldMessages()}>期限切れ・昨日以前を取り下げ</button></div>
             {historyMessages.length === 0 && <p style={{ fontSize: "0.9rem" }}>この教室のメッセージ履歴はありません。</p>}
             {historyMessages.map((item) => {
               const status = messageStatus(item);
