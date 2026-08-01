@@ -6,6 +6,7 @@ import {
   expandAttendanceDates,
   fallbackAttendanceReason,
   normalizeAttendanceItems,
+  normalizeAttendanceText,
 } from "../src/lib/attendance-extract-logic.mjs";
 
 test("date ranges are expanded into one registration row per day", () => {
@@ -21,6 +22,10 @@ test("invalid or reversed ranges stay conservative", () => {
   assert.deepEqual(expandAttendanceDates("2026-07-25", "2026-07-23"), ["2026-07-25"]);
 });
 
+
+test("name text treats 高 and 髙 as the same character", () => {
+  assert.equal(normalizeAttendanceText("髙田 真帆"), normalizeAttendanceText("高田真帆"));
+});
 test("unknown event types are normalized to other", () => {
   assert.equal(attendanceEventType("absence"), "absence");
   assert.equal(attendanceEventType("late"), "late");

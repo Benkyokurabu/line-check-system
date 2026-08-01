@@ -136,6 +136,7 @@ function normalize(value) {
   return String(value ?? "")
     .normalize("NFKC")
     .toLowerCase()
+    .replace(/髙/g, "高")
     .replace(/[ \t\r\n\u3000]/g, "")
     .replace(/[・･.。､,，、]/g, "");
 }

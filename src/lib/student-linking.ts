@@ -29,6 +29,7 @@ export function normalizeStudentName(value: string | null | undefined) {
     .normalize("NFKC")
     .replace(/[ \t\r\n\u3000]/g, "")
     .replace(/[齊齋斉]/g, "斎")
+    .replace(/髙/g, "高")
     .replace(/(さん|様|くん|君|ちゃん)$/g, "")
     .replace(/(父|母|保護者|お父様|お母様)$/g, "")
     .trim();

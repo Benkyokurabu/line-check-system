@@ -174,6 +174,7 @@ function normalizeHeader(value) {
     .normalize("NFKC")
     .trim()
     .toLowerCase()
+    .replace(/髙/g, "高")
     .replace(/[\s_＿\-－:：]/g, "");
 }
 
@@ -182,6 +183,7 @@ function normalizeName(value) {
     .normalize("NFKC")
     .trim()
     .toLowerCase()
+    .replace(/髙/g, "高")
     .replace(/\s+/g, "");
 }
 

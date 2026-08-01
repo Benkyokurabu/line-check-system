@@ -1,7 +1,7 @@
 export const validAttendanceEventTypes = new Set(["absence", "late", "reschedule_request", "other"]);
 
 export function normalizeAttendanceText(value) {
-  return String(value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+  return String(value ?? "").normalize("NFKC").replace(/髙/g, "高").replace(/[\s　]/g, "").toLowerCase();
 }
 
 export function isIsoDate(value) {
@@ -71,4 +71,3 @@ export function normalizeAttendanceItems(ai) {
     return true;
   }).slice(0, 40);
 }
-

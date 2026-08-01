@@ -5,6 +5,7 @@ import path from "node:path";
 import * as XLSX from "xlsx";
 
 import { fileManifest, listRosterExcelFiles } from "@/lib/roster-import-logic.mjs";
+import { normalizeStudentName } from "@/lib/student-linking";
 import { notionRequest } from "@/lib/notion";
 import type { createSupabaseAdminClient } from "@/lib/supabase";
 
@@ -216,7 +217,7 @@ function normalizeStudentNumber(value: string) {
 
 
 function normalizeName(value: string | null | undefined) {
-  return (value ?? "").normalize("NFKC").replace(/[\s\u3000]/g, "").trim();
+  return normalizeStudentName(value);
 }
 function classKeys(rows: Array<Pick<ExcelEnrollmentRow, "subject" | "class_name" | "classroom">>) {
   return rows
