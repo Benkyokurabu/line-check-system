@@ -333,7 +333,7 @@ export default function ClassroomPage() {
   const events = data?.events ?? [];
   const classroomMessages = data?.messages ?? [];
 
-  return <main className="shell" style={{ width: "100%", maxWidth: 680, margin: "0 auto", padding: "8px 6px" }}>
+  return <main className="shell" style={{ width: "100%", maxWidth: 460, margin: "0 auto", padding: "8px 6px" }}>
     <section style={{ display: "grid", gap: 5 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 5, flexWrap: "wrap" }}>
         <div>
