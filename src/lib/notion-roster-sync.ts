@@ -241,6 +241,10 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
       method: "POST",
       body: JSON.stringify({
         page_size: 100,
+        filter: {
+          property: "状態",
+          select: { equals: "在塾" },
+        },
         ...(cursor ? { start_cursor: cursor } : {}),
       }),
     }) as NotionQueryResponse;
