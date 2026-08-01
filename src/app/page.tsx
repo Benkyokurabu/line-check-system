@@ -32,6 +32,11 @@ const menuItems = [
     description: "LINE名、登録名、グループを管理し、一斉送信の対象を整えます。",
   },
   {
+    href: "/admin/notion-roster",
+    title: "Notion・クラス一覧 照合",
+    description: "Notion生徒情報、クラス一覧Excel、アプリ側名簿の差分を確認して反映します。",
+  },
+  {
     href: "/line-alias-import",
     title: "LINE登録名の取り込み",
     description: "LINE管理画面で入力した登録名を一覧確認し、編集してから一括反映します。",
