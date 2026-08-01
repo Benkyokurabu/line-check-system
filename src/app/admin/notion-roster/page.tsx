@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-type CandidateKind = "add" | "update" | "class_update" | "name_variant" | "notion_only" | "excel_only" | "app_only";
+type CandidateKind = "add" | "update" | "class_update" | "name_variant" | "matched" | "notion_only" | "excel_only" | "app_only";
 
 type Candidate = {
   student_number: string;
@@ -48,6 +48,7 @@ const kindLabels: Record<CandidateKind, string> = {
   update: "基本情報更新",
   class_update: "クラス更新",
   name_variant: "氏名表記差分",
+  matched: "一致済み",
   notion_only: "Notionのみ",
   excel_only: "Excelのみ",
   app_only: "アプリのみ",

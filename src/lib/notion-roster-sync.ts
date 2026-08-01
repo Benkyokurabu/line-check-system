@@ -151,7 +151,7 @@ type AppEnrollmentRow = ExcelEnrollmentRow;
 
 export type RosterSyncCandidate = {
   student_number: string;
-  kind: "add" | "update" | "class_update" | "name_variant" | "notion_only" | "excel_only" | "app_only";
+  kind: "add" | "update" | "class_update" | "name_variant" | "matched" | "notion_only" | "excel_only" | "app_only";
   severity: "apply" | "review" | "info";
   selected_by_default: boolean;
   can_apply: boolean;
@@ -443,7 +443,20 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
         app: summarizeRow(appRow, classLabels(appClassRows)),
         changes: [nameVariantChange],
       });
+      continue;
     }
+
+    candidates.push({
+      student_number: studentNumber,
+      kind: "matched",
+      severity: "info",
+      selected_by_default: false,
+      can_apply: false,
+      notion,
+      excel: summarizeRow(excelRow ?? null, classLabels(excelClassRows)),
+      app: summarizeRow(appRow, classLabels(appClassRows)),
+      changes: ["Excel・Notion・アプリが学籍番号で一致しています"],
+    });
   }
 
   const counts = {
@@ -451,6 +464,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
     update: 0,
     class_update: 0,
     name_variant: 0,
+    matched: 0,
     notion_only: 0,
     excel_only: 0,
     app_only: 0,
