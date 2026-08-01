@@ -151,7 +151,7 @@ type AppEnrollmentRow = ExcelEnrollmentRow;
 
 export type RosterSyncCandidate = {
   student_number: string;
-  kind: "add" | "update" | "class_update" | "notion_only" | "excel_only" | "app_only";
+  kind: "add" | "update" | "class_update" | "name_variant" | "notion_only" | "excel_only" | "app_only";
   severity: "apply" | "review" | "info";
   selected_by_default: boolean;
   can_apply: boolean;
@@ -271,11 +271,11 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
   };
 }
 
-function targetRosterRow(notion: SyncStudent | undefined, excel: ExcelStudentRow | undefined) {
+function targetRosterRow(excel: ExcelStudentRow | undefined) {
   if (!excel) return null;
   return {
     ...excel,
-    student_name: notion?.student_name?.trim() && normalizeName(notion.student_name) !== normalizeName(excel.student_name) ? notion.student_name.trim() : excel.student_name,
+    student_name: excel.student_name,
     updated_at: new Date().toISOString(),
   };
 }
@@ -361,10 +361,13 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
     const notion = notionByNumber.get(studentNumber);
     const excelRow = excelByNumber.get(studentNumber);
     const appRow = appByNumber.get(studentNumber);
-    const target = targetRosterRow(notion, excelRow);
+    const target = targetRosterRow(excelRow);
     const excelClassRows = excelClasses.get(studentNumber) ?? [];
     const appClassRows = appClasses.get(studentNumber) ?? [];
     const classChanged = classKeys(excelClassRows).join("|") !== classKeys(appClassRows).join("|");
+    const nameVariantChange = notion && excelRow && normalizeName(notion.student_name) !== normalizeName(excelRow.student_name)
+      ? `氏名表記差分: Notion「${notion.student_name}」 / Excel「${excelRow.student_name}」`
+      : null;
 
     if (!target) {
       candidates.push({
@@ -397,6 +400,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
     }
 
     const fieldChanges = buildChangeList(target, appRow);
+    const displayChanges = [...fieldChanges, ...(nameVariantChange ? [nameVariantChange] : [])];
     if (!appRow) {
       candidates.push({
         student_number: studentNumber,
@@ -407,7 +411,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
         notion,
         excel: summarizeRow(excelRow ?? null, classLabels(excelClassRows)),
         app: null,
-        changes: fieldChanges,
+        changes: displayChanges,
       });
       continue;
     }
@@ -422,7 +426,22 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
         notion,
         excel: summarizeRow(excelRow ?? null, classLabels(excelClassRows)),
         app: summarizeRow(appRow, classLabels(appClassRows)),
-        changes: [...fieldChanges, ...(classChanged ? ["クラス所属をExcelに合わせて更新"] : [])],
+        changes: [...displayChanges, ...(classChanged ? ["クラス所属をExcelに合わせて更新"] : [])],
+      });
+      continue;
+    }
+
+    if (nameVariantChange) {
+      candidates.push({
+        student_number: studentNumber,
+        kind: "name_variant",
+        severity: "review",
+        selected_by_default: false,
+        can_apply: false,
+        notion,
+        excel: summarizeRow(excelRow ?? null, classLabels(excelClassRows)),
+        app: summarizeRow(appRow, classLabels(appClassRows)),
+        changes: [nameVariantChange],
       });
     }
   }
@@ -431,6 +450,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
     add: 0,
     update: 0,
     class_update: 0,
+    name_variant: 0,
     notion_only: 0,
     excel_only: 0,
     app_only: 0,
@@ -465,16 +485,14 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   const selected = [...new Set(studentNumbers.map(normalizeStudentNumber).filter((studentNumber) => studentNumber && isTargetStudentNumber(studentNumber, threshold)))];
   if (selected.length === 0) throw new Error(`反映対象の生徒が選択されていません。対象は学籍番号 ${threshold} より大きい生徒です`);
 
-  const notionResult = await fetchNotionStudents(threshold);
   const files = listRosterExcelFiles(root);
   const excel = readRosterExcelRowsForSync(files, root, threshold);
-  const notionByNumber = new Map(notionResult.students.map((row) => [row.student_number, row]));
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelByNumber = new Map(excelRows.map((row) => [row.student_number, row]));
   const enrollmentsByNumber = mapByStudent(excel.enrollments as ExcelEnrollmentRow[]);
 
   const rosterRows = selected
-    .map((studentNumber) => targetRosterRow(notionByNumber.get(studentNumber), excelByNumber.get(studentNumber)))
+    .map((studentNumber) => targetRosterRow(excelByNumber.get(studentNumber)))
     .filter((row): row is ExcelStudentRow => Boolean(row));
   if (rosterRows.length === 0) throw new Error("選択した生徒はクラス一覧Excelに見つかりませんでした");
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-type CandidateKind = "add" | "update" | "class_update" | "notion_only" | "excel_only" | "app_only";
+type CandidateKind = "add" | "update" | "class_update" | "name_variant" | "notion_only" | "excel_only" | "app_only";
 
 type Candidate = {
   student_number: string;
@@ -47,6 +47,7 @@ const kindLabels: Record<CandidateKind, string> = {
   add: "追加",
   update: "基本情報更新",
   class_update: "クラス更新",
+  name_variant: "氏名表記差分",
   notion_only: "Notionのみ",
   excel_only: "Excelのみ",
   app_only: "アプリのみ",
@@ -192,7 +193,7 @@ export default function NotionRosterPage() {
                       <label style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
                         <input type="checkbox" checked={selected.has(candidate.student_number)} disabled={!candidate.can_apply} onChange={() => toggle(candidate.student_number)} />
                         <span style={{ display: "grid", gap: 3 }}>
-                          <strong>{candidate.student_number} {candidate.notion?.student_name ?? candidate.excel?.student_name ?? candidate.app?.student_name ?? "氏名不明"}</strong>
+                          <strong>{candidate.student_number} {candidate.excel?.student_name ?? candidate.app?.student_name ?? candidate.notion?.student_name ?? "氏名不明"}</strong>
                           <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>{candidate.changes.join(" / ")}</span>
                         </span>
                       </label>
