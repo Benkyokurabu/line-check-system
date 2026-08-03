@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { pickClassroomLessonByEndBoundary } from "@/lib/classroom-lesson-picker.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,16 +89,6 @@ function isActiveClassroomMessage(row: ClassroomMessage, nowIso = new Date().toI
   return row.created_at >= todayJstStart();
 }
 
-function minutesFromStart(value: string | null) {
-  if (!value) return Number.POSITIVE_INFINITY;
-  const match = value.match(/(\d{1,2}):(\d{2})/);
-  if (!match) return Number.POSITIVE_INFINITY;
-  const rawHour = Number(match[1]);
-  const minute = Number(match[2]);
-  const hour = rawHour >= 1 && rawHour <= 8 ? rawHour + 12 : rawHour;
-  return hour * 60 + minute;
-}
-
 function currentJstMinutes() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Tokyo",
@@ -110,22 +101,12 @@ function currentJstMinutes() {
   return hour * 60 + minute;
 }
 
-function lessonEndMinutes(lesson: LessonRow) {
-  const start = minutesFromStart(lesson.start_time);
-  if (!Number.isFinite(start)) return start;
-  return start + 90;
-}
-
 function pickLesson(lessons: LessonRow[], selectedLessonId: string | null) {
   if (selectedLessonId) {
     const selected = lessons.find((lesson) => lesson.id === selectedLessonId);
     if (selected) return selected;
   }
-  const now = currentJstMinutes();
-  return lessons.find((lesson) => {
-    const start = minutesFromStart(lesson.start_time);
-    return Number.isFinite(start) && start <= now && now <= lessonEndMinutes(lesson);
-  }) ?? lessons.find((lesson) => minutesFromStart(lesson.start_time) >= now) ?? lessons[0] ?? null;
+  return pickClassroomLessonByEndBoundary(lessons, currentJstMinutes());
 }
 
 function firstRoster(value: EventRow["student_roster"]) {
