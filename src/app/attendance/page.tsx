@@ -176,11 +176,13 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [replyTemplates, setReplyTemplates] = useState(defaultReplyTemplates);
   const [confirmedBy, setConfirmedBy] = useState("");
-  const [historyDays, setHistoryDays] = useState<HistoryDays>(5);
+  const [historyDays, setHistoryDays] = useState<HistoryDays>("none");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualEventsOpen, setManualEventsOpen] = useState(false);
   const [manualRefreshKey, setManualRefreshKey] = useState(0);
+  const [visibleCandidateCount, setVisibleCandidateCount] = useState(20);
   useEffect(() => {
     document.title = pageTitle;
   }, []);
@@ -190,6 +192,7 @@ export default function AttendancePage() {
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     setCandidates(body.candidates ?? []);
+    setVisibleCandidateCount(20);
   }, [historyDays]);
   useEffect(() => {
     async function initialize() {
@@ -243,10 +246,14 @@ export default function AttendancePage() {
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
-    <ManualEventsPanel students={students} confirmedBy={confirmedBy} refreshKey={manualRefreshKey} onChanged={() => setManualRefreshKey((value) => value + 1)} />
+    <div style={{ marginTop: 16 }}>
+      <button type="button" style={secondaryButtonStyle} onClick={() => setManualEventsOpen((value) => !value)}>{manualEventsOpen ? "手入力済み連絡を閉じる" : "本日以降の手入力済み連絡を表示"}</button>
+    </div>
+    {manualEventsOpen && <ManualEventsPanel students={students} confirmedBy={confirmedBy} refreshKey={manualRefreshKey} onChanged={() => setManualRefreshKey((value) => value + 1)} />}
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
       {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{historyDays === "none" ? "未確認の連絡候補はありません。" : "未確認・対応済みの連絡候補はありません。"}</section>}
-      {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
+      {candidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
+      {visibleCandidateCount < candidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{candidates.length - visibleCandidateCount}件）</button>}
     </div>
   </main>;
 }

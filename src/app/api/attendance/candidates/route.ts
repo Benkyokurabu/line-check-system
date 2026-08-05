@@ -225,13 +225,15 @@ export async function GET(request: Request) {
     .select("id,text,received_at,sent_by,raw_event")
     .eq("direction", "outbound")
     .eq("raw_event->>send_context", "attendance_candidate_reply")
+    .in("raw_event->>attendance_candidate_id", candidateIds)
     .order("received_at", { ascending: false })
-    .limit(1000) : { data: [], error: null };
+    .limit(500) : { data: [], error: null };
   if (repliesError) return NextResponse.json({ error: repliesError.message }, { status: 500 });
+  const candidateIdSet = new Set(candidateIds);
   const repliesByCandidateId = new Map<string, AttendanceReplyRow[]>();
   for (const reply of (replies ?? []) as AttendanceReplyRow[]) {
     const candidateId = reply.raw_event?.attendance_candidate_id;
-    if (!candidateId || !candidateIds.includes(candidateId)) continue;
+    if (!candidateId || !candidateIdSet.has(candidateId)) continue;
     if (!repliesByCandidateId.has(candidateId)) repliesByCandidateId.set(candidateId, []);
     repliesByCandidateId.get(candidateId)!.push(reply);
   }
