@@ -437,7 +437,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
   const loadManualEvents = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/attendance/events?days=14");
+      const response = await fetch("/api/attendance/events");
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "手入力済み一覧を取得できませんでした");
       setEvents(body.events ?? []);
@@ -531,7 +531,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
       <button type="button" style={ghostButtonStyle} onClick={() => void loadManualEvents()}>{loading ? "更新中..." : "更新"}</button>
     </div>
     {message && <p style={{ color: message.includes("失敗") ? "#b42318" : "#087a3d", fontWeight: 700 }}>{message}</p>}
-    {events.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>直近14日の手入力済み連絡はありません。</div> : <div style={{ display: "grid", gap: 8 }}>
+    {events.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>本日以降の手入力済み連絡はありません。</div> : <div style={{ display: "grid", gap: 8 }}>
       {events.map((event) => <div key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 8, background: event.status === "cancelled" ? "#f7f7f4" : "white" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "grid", gap: 4 }}>

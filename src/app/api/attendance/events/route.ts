@@ -125,15 +125,19 @@ async function fetchEventsByIds(supabase: ReturnType<typeof createSupabaseAdminC
 }
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? "7") || 7, 1), 60);
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  void request;
+  const todayInJapan = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("attendance_events")
     .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus,classroom,subject,class_name)")
     .in("contact_method", manualContactMethods)
-    .gte("event_date", since)
+    .gte("event_date", todayInJapan)
     .order("event_date", { ascending: false })
     .order("confirmed_at", { ascending: false })
     .limit(200);
