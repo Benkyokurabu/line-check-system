@@ -43,6 +43,11 @@ export type SyncStudent = {
   student_number: string;
   student_name: string;
   notion_page_id?: string | null;
+  grade?: string | null;
+  campus?: string | null;
+  homeroom_teacher?: string | null;
+  school_name?: string | null;
+  gender?: string | null;
 };
 
 type ExcelStudentRow = {
@@ -263,6 +268,11 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
         student_number: studentNumber,
         student_name: studentName,
         notion_page_id: page.id,
+        grade: firstProperty(properties, ["学年"]) || null,
+        campus: firstProperty(properties, ["所属"]) || null,
+        homeroom_teacher: firstProperty(properties, ["担任"]) || null,
+        school_name: firstProperty(properties, ["中学校", "小学校"]) || null,
+        gender: firstProperty(properties, ["性別"]) || null,
       });
     }
 
@@ -505,6 +515,50 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
     },
     counts,
     candidates,
+  };
+}
+
+export async function syncActiveNotionStudents({ supabase }: { supabase: SupabaseClient }) {
+  const threshold = currentStudentNumberThreshold();
+  const notionResult = await fetchNotionStudents(threshold);
+  const studentNumbers = notionResult.students.map((student) => student.student_number);
+  if (studentNumbers.length === 0) {
+    return { ok: true, active_students: 0, synced_students: 0 };
+  }
+
+  const { data: currentRows, error: currentError } = await supabase
+    .from("student_roster")
+    .select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,source_file")
+    .in("student_number", studentNumbers);
+  if (currentError) throw new Error(currentError.message);
+
+  const currentByNumber = new Map((currentRows ?? []).map((row) => [row.student_number as string, row]));
+  const updatedAt = new Date().toISOString();
+  const rows = notionResult.students.map((student) => {
+    const current = currentByNumber.get(student.student_number);
+    return {
+      student_number: student.student_number,
+      student_name: student.student_name,
+      grade: student.grade || current?.grade || "未設定",
+      homeroom_teacher: student.homeroom_teacher || current?.homeroom_teacher || "未設定",
+      campus: student.campus || current?.campus || null,
+      school_name: student.school_name || current?.school_name || null,
+      gender: student.gender || current?.gender || null,
+      source_file: current?.source_file || "Notion生徒情報DB",
+      updated_at: updatedAt,
+    };
+  });
+
+  const { error: syncError } = await supabase
+    .from("student_roster")
+    .upsert(rows, { onConflict: "student_number" });
+  if (syncError) throw new Error(syncError.message);
+
+  return {
+    ok: true,
+    active_students: notionResult.students.length,
+    synced_students: rows.length,
+    synced_at: updatedAt,
   };
 }
 
