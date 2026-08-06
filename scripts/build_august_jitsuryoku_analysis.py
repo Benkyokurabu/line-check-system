@@ -289,7 +289,7 @@ def build_students(records, roster, hokushin, report_cards):
             subject_recent = []
             for test_key in recent_defs.get((grade, subject), []):
                 past = past_lookup.get((sid, grade, subject), {}).get(test_key)
-                subject_recent.append({"label": f"{test_key[3]} {test_key[2]}", "score": past["score"] if past else None, "dev": past["deviation"] if past else None})
+                subject_recent.append({"label": f"{test_key[3]} {test_key[2]}", "score": past["score"] if past else None, "dev": past["deviation"] if past else None, "class": past["klass"] if past else ""})
             hs = hokushin.get(sid, {}).get("subjects", {}).get(subject, {}) if hokushin.get(sid) else {}
             row["subjects"][subject] = {
                 "class": base.get("classes", {}).get(subject, ""),
@@ -362,6 +362,11 @@ def class_select(student, subject):
     return f'<select class="class-change" data-subject="{esc(subject)}" data-current="{esc(current)}">{"".join(option_html)}</select>'
 
 
+def score_with_class(record):
+    if not record or record.get("score") is None:
+        return fmt(None)
+    klass = str(record.get("class") or "").strip().upper()
+    return f"{klass} {fmt(record.get('score'))}" if klass else fmt(record.get("score"))
 def placement_cells(student):
     cells = []
     for subject in PLACEMENT_SUBJECTS:
@@ -377,8 +382,8 @@ def placement_cells(student):
                 {"value": class_select(student, subject), "html": True, "subject": subject},
                 {"value": fmt(s.get("current")), "sort": s.get("current"), "subject": subject},
                 {"value": fmt(s.get("current_dev")), "sort": s.get("current_dev"), "subject": subject},
-                {"value": fmt(r1.get("score")), "sort": r1.get("score"), "subject": subject},
-                {"value": fmt(r2.get("score")), "sort": r2.get("score"), "subject": subject},
+                {"value": score_with_class(r1), "sort": r1.get("score"), "subject": subject},
+                {"value": score_with_class(r2), "sort": r2.get("score"), "subject": subject},
                 {"value": fmt(total_score), "sort": total_score, "subject": subject},
                 {"value": fmt(s.get("hokushin_dev")), "sort": s.get("hokushin_dev"), "subject": subject},
             ]
