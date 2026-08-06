@@ -468,25 +468,30 @@ function updateClassCounts() {{
   if (!classCounts) return;
   const counts = {{}};
   visiblePlacementRows().forEach(row => {{
+    const grade = row.dataset.grade || '学年未設定';
     const campus = row.dataset.campus || '校舎未設定';
     row.querySelectorAll('.class-change').forEach(select => {{
       const subject = select.dataset.subject;
       const value = select.value || '未定';
-      counts[campus] ??= {{}};
-      counts[campus][subject] ??= {{}};
-      counts[campus][subject][value] = (counts[campus][subject][value] || 0) + 1;
+      counts[grade] ??= {{}};
+      counts[grade][campus] ??= {{}};
+      counts[grade][campus][subject] ??= {{}};
+      counts[grade][campus][subject][value] = (counts[grade][campus][subject][value] || 0) + 1;
       select.closest('td').classList.toggle('changed', select.value !== select.dataset.current);
     }});
   }});
-  const campuses = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ja', {{ numeric: true }}));
-  classCounts.innerHTML = campuses.flatMap(campus => ['国語','数学','英語'].map(subject => {{
-    const subjectCounts = counts[campus]?.[subject] || {{}};
-    const chips = [...new Set([...classOrder.map(x => x || '未定'), ...Object.keys(subjectCounts)])]
-      .filter(k => subjectCounts[k])
-      .map(k => `<span class="chip">${{k}}: ${{subjectCounts[k]}}</span>`)
-      .join('');
-    return `<section class="count-card"><h3>${{campus}} ${{subject}} 変更案人数</h3><div class="chips">${{chips || '<span class="chip">対象なし</span>'}}</div></section>`;
-  }})).join('') || '<section class="count-card"><h3>変更案人数</h3><div class="chips"><span class="chip">対象なし</span></div></section>';
+  const grades = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ja', {{ numeric: true }}));
+  classCounts.innerHTML = grades.flatMap(grade => {{
+    const campuses = Object.keys(counts[grade]).sort((a, b) => a.localeCompare(b, 'ja', {{ numeric: true }}));
+    return campuses.flatMap(campus => ['国語','数学','英語'].map(subject => {{
+      const subjectCounts = counts[grade]?.[campus]?.[subject] || {{}};
+      const chips = [...new Set([...classOrder.map(x => x || '未定'), ...Object.keys(subjectCounts)])]
+        .filter(k => subjectCounts[k])
+        .map(k => `<span class="chip">${{k}}: ${{subjectCounts[k]}}</span>`)
+        .join('');
+      return `<section class="count-card"><h3>${{grade}} ${{campus}} ${{subject}} 変更案人数</h3><div class="chips">${{chips || '<span class="chip">対象なし</span>'}}</div></section>`;
+    }}));
+  }}).join('') || '<section class="count-card"><h3>変更案人数</h3><div class="chips"><span class="chip">対象なし</span></div></section>';
   updateStickyOffsets();
 }}
 function applyFilters() {{
