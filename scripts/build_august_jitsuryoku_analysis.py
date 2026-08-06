@@ -272,7 +272,7 @@ def render_table(rows, columns):
 
 def class_select(student, subject):
     current = student["subjects"].get(subject, {}).get("class") or ""
-    options = ["", "Ｓ", "Ａ", "Ｂ", "Ｃ", "X", "個"]
+    options = ["", "Ｓ", "Ａ", "Ｂ", "Ｃ", "X", "個", "非受講"]
     option_html = []
     for option in options:
         selected = " selected" if option == current else ""
@@ -429,7 +429,7 @@ const gradeFilter = document.getElementById('gradeFilter');
 const campusFilter = document.getElementById('campusFilter');
 const searchFilter = document.getElementById('searchFilter');
 const classCounts = document.getElementById('classCounts');
-const classOrder = ['', 'Ｓ', 'Ａ', 'Ｂ', 'Ｃ', 'X', '個'];
+const classOrder = ['', 'Ｓ', 'Ａ', 'Ｂ', 'Ｃ', 'X', '個', '非受講'];
 function addOptions(select, values) {{
   [...new Set(values.filter(Boolean))].sort().forEach(v => {{
     const o = document.createElement('option');
@@ -529,6 +529,7 @@ applyFilters();
 
 if __name__ == "__main__":
     main()
+
 
 
 
