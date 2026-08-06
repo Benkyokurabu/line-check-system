@@ -17,6 +17,8 @@ TARGET_YEAR = 2026
 TARGET_MONTH = 8
 TARGET_TEST = "前期実力テスト"
 SUBJECTS = ["国語", "数学", "英語", "理科", "社会"]
+PLACEMENT_SUBJECTS = ["国語", "数学", "英語"]
+REPORT_SUBJECTS = ["国語", "社会", "数学", "理科", "英語", "５科", "９科"]
 
 
 def to_float(value):
@@ -167,6 +169,53 @@ def read_hokushin(wb):
     return latest
 
 
+def grade_number(grade):
+    digits = str(grade).translate(str.maketrans("１２３", "123"))
+    for ch in digits:
+        if ch.isdigit():
+            return int(ch)
+    return None
+
+
+def compact_grade_label(grade):
+    number = grade_number(grade)
+    return f"中{number}" if number else str(grade)
+
+
+def read_report_cards(wb):
+    report_cards = defaultdict(dict)
+    for row in read_sheet_rows(wb, "DB_通知票", 1, 2):
+        sid = str(row.get("学籍番号") or "")
+        if not sid:
+            continue
+        year = to_float(row.get("年度"))
+        if year is None:
+            continue
+        year = int(year)
+        grade = str(row.get("学年") or "")
+        term = str(row.get("学期") or "")
+        values = {subject: row.get(subject) for subject in REPORT_SUBJECTS}
+        report_cards[sid][(year, grade, term)] = values
+    return report_cards
+
+
+def report_plan(grade):
+    number = grade_number(grade)
+    if number == 1:
+        return [(TARGET_YEAR, "中１", "一学期", "中1一学期")]
+    if number == 2:
+        return [(TARGET_YEAR - 1, "中１", "年評定", "中1年評定"), (TARGET_YEAR, "中２", "一学期", "中2一学期")]
+    if number == 3:
+        return [(TARGET_YEAR - 2, "中１", "年評定", "中1年評定"), (TARGET_YEAR - 1, "中２", "年評定", "中2年評定"), (TARGET_YEAR, "中３", "一学期", "中3一学期")]
+    return []
+
+
+def select_report_cards(report_cards, sid, grade):
+    source = report_cards.get(sid, {})
+    selected = []
+    for year, grade_label, term, label in report_plan(grade):
+        selected.append({"label": label, "values": source.get((year, grade_label, term), {})})
+    return selected
 def group_stats(records, keys):
     groups = defaultdict(list)
     for record in records:
@@ -192,7 +241,7 @@ def find_recent_tests(records):
     return result
 
 
-def build_students(records, roster, hokushin):
+def build_students(records, roster, hokushin, report_cards):
     current = [r for r in records if r["year"] == TARGET_YEAR and r["month"] == TARGET_MONTH and r["test"] == TARGET_TEST]
     recent_defs = find_recent_tests(records)
     by_student = defaultdict(list)
@@ -229,6 +278,7 @@ def build_students(records, roster, hokushin):
             "hokushin": hokushin.get(sid),
             "flags": [],
             "suggestion_score": 0,
+            "report_cards": select_report_cards(report_cards, sid, grade),
         }
         for subject in SUBJECTS:
             current_record = current_by_subject.get(subject)
@@ -270,6 +320,28 @@ def render_table(rows, columns):
     return f"<div class=\"table-wrap\"><table><thead><tr>{thead}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
 
 
+def report_summary_html(card):
+    if not card:
+        return "-"
+    values = card.get("values") or {}
+    if not values:
+        return f'<span class="report-label">{esc(card.get("label", ""))}</span> -'
+    parts = []
+    short = {"国語": "国", "社会": "社", "数学": "数", "理科": "理", "英語": "英", "５科": "5科", "９科": "9科"}
+    for subject in REPORT_SUBJECTS:
+        value = values.get(subject)
+        subject_attr = f' data-subject-cell="{esc(subject)}"' if subject in PLACEMENT_SUBJECTS else ""
+        parts.append(f'<span{subject_attr}>{esc(short.get(subject, subject))}{esc(fmt(value))}</span>')
+    return f'<span class="report-label">{esc(card.get("label", ""))}</span> ' + " ".join(parts)
+
+
+def report_card_cells(student):
+    cards = list(student.get("report_cards") or [])[:3]
+    while len(cards) < 3:
+        cards.append(None)
+    return [{"value": report_summary_html(card), "html": True, "class": "report-cell"} for card in cards]
+
+
 def class_select(student, subject):
     current = student["subjects"].get(subject, {}).get("class") or ""
     options = ["", "Ｓ", "Ａ", "Ｂ", "Ｃ", "X", "個", "非受講"]
@@ -283,20 +355,23 @@ def class_select(student, subject):
 
 def placement_cells(student):
     cells = []
-    for subject in ["国語", "数学", "英語"]:
+    for subject in PLACEMENT_SUBJECTS:
         s = student["subjects"].get(subject, {})
         recent = s.get("recent", [])
         r1 = recent[0] if len(recent) > 0 else {}
         r2 = recent[1] if len(recent) > 1 else {}
+        total_score_values = [s.get("current"), r1.get("score"), r2.get("score")]
+        total_score = sum(v for v in total_score_values if v is not None) if any(v is not None for v in total_score_values) else None
         cells.extend(
             [
-                {"value": fmt(s.get("class"))},
-                {"value": class_select(student, subject), "html": True},
-                {"value": fmt(s.get("current")), "sort": s.get("current")},
-                {"value": fmt(s.get("current_dev")), "sort": s.get("current_dev")},
-                {"value": fmt(r1.get("score")), "sort": r1.get("score")},
-                {"value": fmt(r2.get("score")), "sort": r2.get("score")},
-                {"value": fmt(s.get("hokushin_dev")), "sort": s.get("hokushin_dev")},
+                {"value": fmt(s.get("class")), "subject": subject},
+                {"value": class_select(student, subject), "html": True, "subject": subject},
+                {"value": fmt(s.get("current")), "sort": s.get("current"), "subject": subject},
+                {"value": fmt(s.get("current_dev")), "sort": s.get("current_dev"), "subject": subject},
+                {"value": fmt(r1.get("score")), "sort": r1.get("score"), "subject": subject},
+                {"value": fmt(r2.get("score")), "sort": r2.get("score"), "subject": subject},
+                {"value": fmt(total_score), "sort": total_score, "subject": subject},
+                {"value": fmt(s.get("hokushin_dev")), "sort": s.get("hokushin_dev"), "subject": subject},
             ]
         )
     hs = student.get("hokushin") or {}
@@ -307,6 +382,7 @@ def placement_cells(student):
             {"value": fmt(hs.get("three_dev")), "sort": hs.get("three_dev")},
             {"value": fmt(hs.get("five_score")), "sort": hs.get("five_score")},
             {"value": fmt(hs.get("five_dev")), "sort": hs.get("five_dev")},
+            {"value": '<textarea class="student-note" placeholder="メモ"></textarea>', "html": True, "class": "memo-cell"},
         ]
     )
     return cells
@@ -314,29 +390,52 @@ def placement_cells(student):
 
 def make_td(cell):
     if isinstance(cell, dict):
+        attrs = []
         sort = cell.get("sort")
-        sort_attr = "" if sort in (None, "") else f' data-sort="{esc(sort)}"'
+        if sort not in (None, ""):
+            attrs.append(f'data-sort="{esc(sort)}"')
+        if cell.get("subject"):
+            attrs.append(f'data-subject-cell="{esc(cell["subject"])}"')
+        if cell.get("class"):
+            attrs.append(f'class="{esc(cell["class"])}"')
+        attr_text = " " + " ".join(attrs) if attrs else ""
         value = cell.get("value", "")
         if cell.get("html"):
-            return f"<td{sort_attr}>{value}</td>"
-        return f"<td{sort_attr}>{esc(value)}</td>"
+            return f"<td{attr_text}>{value}</td>"
+        return f"<td{attr_text}>{esc(value)}</td>"
     return f"<td>{esc(cell)}</td>"
 
 
+def make_th(label, subject=None, class_name=None):
+    attrs = []
+    if subject:
+        attrs.append(f'data-subject-cell="{esc(subject)}"')
+    if class_name:
+        attrs.append(f'class="{esc(class_name)}"')
+    attr_text = " " + " ".join(attrs) if attrs else ""
+    return f"<th{attr_text}>{esc(label)}</th>"
+
+
 def make_placement_table(students, table_id="placementTable"):
-    fixed = ["学年", "校舎", "学籍番号", "氏名", "学校", "担任", "現平均", "判定用", "注意"]
+    left = ["学年", "校舎", "学籍番号", "氏名"]
+    report_cols = ["通知表1", "通知表2", "通知表3"]
+    fixed = ["学校", "担任", "現平均", "判定用", "注意"]
     subject_cols = []
-    for subject in ["国語", "数学", "英語"]:
-        subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}実力テスト", f"{subject}実力偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}北辰偏"]
-    tail = ["北辰回", "北辰3科", "北辰3科偏", "北辰5科", "北辰5科偏"]
-    header = "".join(f"<th>{esc(x)}</th>" for x in fixed + subject_cols + tail)
+    for subject in PLACEMENT_SUBJECTS:
+        subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}実力テスト", f"{subject}実力偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}3回合計", f"{subject}北辰偏"]
+    tail = ["北辰回", "北辰3科", "北辰3科偏", "北辰5科", "北辰5科偏", "自由入力"]
+    header = "".join(make_th(x) for x in left) + "".join(make_th(x, class_name="report-cell") for x in report_cols) + "".join(make_th(x) for x in fixed)
+    header += "".join(make_th(label, subject) for subject in PLACEMENT_SUBJECTS for label in [f"{subject}現クラス", f"{subject}変更案", f"{subject}実力テスト", f"{subject}実力偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}3回合計", f"{subject}北辰偏"])
+    header += "".join(make_th(x) for x in tail)
     rows = []
     for st in students:
-        base = [
+        base_left = [
             {"value": st["grade"]},
             {"value": st["campus"]},
             {"value": st["student_id"]},
             {"value": st["name"]},
+        ]
+        base_rest = [
             {"value": st["school"]},
             {"value": st["teacher"]},
             {"value": fmt(st["current_avg"]), "sort": st["current_avg"]},
@@ -344,10 +443,9 @@ def make_placement_table(students, table_id="placementTable"):
             {"value": " / ".join(st["flags"])},
         ]
         search = st["student_id"] + " " + st["name"] + " " + st["kana"] + " " + st["school"]
-        cells = "".join(make_td(cell) for cell in base + placement_cells(st))
+        cells = "".join(make_td(cell) for cell in base_left + report_card_cells(st) + base_rest + placement_cells(st))
         rows.append(f'<tr data-grade="{esc(st["grade"])}" data-campus="{esc(st["campus"])}" data-search="{esc(search)}">{cells}</tr>')
     return f'<div class="table-wrap"><table id="{esc(table_id)}" class="placement-table sortable"><thead><tr>{header}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
-
 def distribution(records):
     bands = [(80, "80点以上"), (60, "60-79点"), (40, "40-59点"), (0, "39点以下")]
     groups = defaultdict(lambda: defaultdict(int))
@@ -369,7 +467,8 @@ def main():
     all_records = read_test_records(wb)
     current_records = [r for r in all_records if r["year"] == TARGET_YEAR and r["month"] == TARGET_MONTH and r["test"] == TARGET_TEST]
     hokushin = read_hokushin(wb)
-    students = build_students(all_records, roster, hokushin)
+    report_cards = read_report_cards(wb)
+    students = build_students(all_records, roster, hokushin, report_cards)
     concern = [s for s in students if s["flags"]]
     subject_stats = group_stats(current_records, ["grade", "campus", "subject"])
     class_stats = group_stats(current_records, ["grade", "campus", "subject", "klass"])
@@ -400,12 +499,12 @@ def main():
 header {{ position:sticky; top:0; z-index:40; background:var(--panel); border-bottom:1px solid var(--line); padding:14px 18px 10px; }}
 h1 {{ margin:0; font-size:20px; letter-spacing:0; }} .meta {{ color:var(--muted); margin-top:3px; }} main {{ max-width:1600px; margin:0 auto; padding:16px 18px 44px; }} .top-controls {{ position:sticky; top:var(--header-height); z-index:35; background:var(--bg); padding:8px 0 0; }}
 .metrics {{ display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:10px; margin-bottom:12px; }} .metric {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }} .metric span,.metric em {{ display:block; color:var(--muted); font-style:normal; }} .metric strong {{ display:block; font-size:24px; margin:1px 0; }}
-.filters {{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px; }} label {{ display:grid; gap:3px; color:var(--muted); }} select,input {{ height:32px; border:1px solid var(--line); border-radius:6px; padding:0 8px; background:#fff; }} input {{ min-width:260px; }} .class-change {{ min-width:64px; height:28px; padding:0 5px; }}
+.filters {{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:8px; }} .subject-buttons {{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:12px; }} .subject-toggle {{ border:1px solid var(--line); background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; }} .subject-toggle.active {{ background:var(--blue); border-color:var(--blue); color:#fff; font-weight:700; }} .subject-hidden {{ display:none; }} label {{ display:grid; gap:3px; color:var(--muted); }} select,input {{ height:32px; border:1px solid var(--line); border-radius:6px; padding:0 8px; background:#fff; }} input {{ min-width:260px; }} .class-change {{ min-width:64px; height:28px; padding:0 5px; }}
 .tabs {{ display:flex; gap:6px; border-bottom:1px solid var(--line); margin-top:12px; }} .tab {{ border:1px solid var(--line); border-bottom:0; background:#e9eef5; padding:8px 12px; border-radius:6px 6px 0 0; cursor:pointer; }} .tab.active {{ background:var(--panel); font-weight:700; }}
 .panel {{ display:none; background:var(--panel); border:1px solid var(--line); border-top:0; padding:12px; overflow:visible; width:100%; min-width:0; }} .panel.active {{ display:block; }} .table-wrap {{ display:block; max-width:100%; overflow-x:auto; overflow-y:hidden; background:#fff; position:relative; }} .panel-toolbar {{ position:sticky; top:var(--panel-toolbar-top); z-index:30; background:var(--panel); border-bottom:1px solid var(--line); padding:0 0 8px; margin:0 0 10px; }} h2 {{ font-size:16px; margin:0 0 8px; }} .note {{ color:var(--muted); margin:0 0 10px; }}
 table {{ border-collapse:separate; border-spacing:0; width:max-content; min-width:1200px; }} th,td {{ border-right:1px solid #e3e8ef; border-bottom:1px solid #e3e8ef; padding:6px 7px; white-space:nowrap; text-align:left; }} th {{ position:sticky; top:0; z-index:20; background:var(--head); font-weight:700; color:#2d3748; }} td:nth-child(n+7) {{ text-align:right; }} tbody tr:hover {{ background:#f8fbff; }}
 .placement-table th:nth-child(-n+4),.placement-table td:nth-child(-n+4) {{ position:sticky; z-index:24; background-clip:padding-box; }} .placement-table th:nth-child(1),.placement-table td:nth-child(1) {{ left:0; min-width:52px; width:52px; }} .placement-table th:nth-child(2),.placement-table td:nth-child(2) {{ left:52px; min-width:48px; width:48px; }} .placement-table th:nth-child(3),.placement-table td:nth-child(3) {{ left:100px; min-width:86px; width:86px; }} .placement-table th:nth-child(4),.placement-table td:nth-child(4) {{ left:186px; min-width:142px; width:142px; }} .placement-table td:nth-child(-n+4) {{ background:#fff; }} .placement-table tbody tr:hover td:nth-child(-n+4) {{ background:#f8fbff; }} .placement-table th:nth-child(-n+4) {{ background:var(--head); z-index:30; }} .placement-table th:nth-child(4),.placement-table td:nth-child(4) {{ box-shadow:8px 0 10px -10px rgba(23,32,51,.45); }}
-.bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }} th.sortable-head {{ cursor:pointer; user-select:none; }} th.sortable-head::after {{ content:" ⇅"; color:var(--muted); font-weight:400; }} th.sort-asc::after {{ content:" ↑"; color:var(--blue); }} th.sort-desc::after {{ content:" ↓"; color:var(--blue); }} .class-counts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:10px 0 12px; }} .count-card {{ border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fbfcfe; }} .count-card h3 {{ margin:0 0 6px; font-size:13px; }} .chips {{ display:flex; flex-wrap:wrap; gap:5px; }} .chip {{ border:1px solid var(--line); border-radius:999px; padding:2px 7px; background:#fff; }} .changed {{ background:#fff7ed; }}
+.report-cell {{ min-width:230px; }} .report-label {{ font-weight:700; margin-right:4px; }} .student-note {{ width:180px; min-height:30px; resize:vertical; border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-family:inherit; }} .bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }} th.sortable-head {{ cursor:pointer; user-select:none; }} th.sortable-head::after {{ content:" ⇅"; color:var(--muted); font-weight:400; }} th.sort-asc::after {{ content:" ↑"; color:var(--blue); }} th.sort-desc::after {{ content:" ↓"; color:var(--blue); }} .class-counts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:10px 0 12px; }} .count-card {{ border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fbfcfe; }} .count-card h3 {{ margin:0 0 6px; font-size:13px; }} .chips {{ display:flex; flex-wrap:wrap; gap:5px; }} .chip {{ border:1px solid var(--line); border-radius:999px; padding:2px 7px; background:#fff; }} .changed {{ background:#fff7ed; }}
 @media print {{ header,.filters,.tabs {{ display:none; }} main {{ padding:0; }} .panel {{ display:block; border:0; }} .panel:not(.active) {{ display:none; }} th {{ position:static; }} }}
 @media (max-width:760px) {{ header {{ position:static; }} .top-controls,.panel-toolbar {{ position:static; }} .panel,.table-wrap {{ width:100%; min-width:0; }} main {{ padding:12px; }} .metrics {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }} input,select {{ width:100%; }} label {{ flex:1 1 140px; }} th {{ top:0; }} }}
 </style>
@@ -415,7 +514,7 @@ table {{ border-collapse:separate; border-spacing:0; width:max-content; min-widt
 <main>
 <div class="metrics">{metrics_html}</div>
 <div class="top-controls">
-<section class="filters"><label>学年<select id="gradeFilter"><option value="">全て</option></select></label><label>校舎<select id="campusFilter"><option value="">全て</option></select></label><label>検索<input id="searchFilter" type="search" placeholder="氏名・ふりがな・学籍番号・学校"></label></section>
+<section class="filters"><label>学年<select id="gradeFilter"><option value="">全て</option></select></label><label>校舎<select id="campusFilter"><option value="">全て</option></select></label><label>検索<input id="searchFilter" type="search" placeholder="氏名・ふりがな・学籍番号・学校"></label></section><div class="subject-buttons" aria-label="科目表示"><span>科目</span><button type="button" class="subject-toggle active" data-subject="国語">国語</button><button type="button" class="subject-toggle active" data-subject="数学">数学</button><button type="button" class="subject-toggle active" data-subject="英語">英語</button><button type="button" id="reportToggle" class="subject-toggle active">通知表</button></div>
 <div class="tabs"><button class="tab active" data-panel="placement">クラス替え資料</button><button class="tab" data-panel="concern">要確認</button><button class="tab" data-panel="subject">科目別</button><button class="tab" data-panel="class">現クラス別</button><button class="tab" data-panel="dist">分布</button></div>
 </div>
 <section id="placement" class="panel active"><div class="panel-toolbar"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。人数は学年・校舎別に集計され、変更すると即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p></div><div id="classCounts" class="class-counts"></div>{placement_html}</section>
@@ -432,6 +531,28 @@ const campusFilter = document.getElementById('campusFilter');
 const searchFilter = document.getElementById('searchFilter');
 const classCounts = document.getElementById('classCounts');
 const classOrder = ['', 'Ｓ', 'Ａ', 'Ｂ', 'Ｃ', 'X', '個', '非受講'];
+const subjectButtons = [...document.querySelectorAll('.subject-toggle[data-subject]')];
+const reportToggle = document.getElementById('reportToggle');
+function selectedSubjects() {{
+  return subjectButtons.filter(button => button.classList.contains('active')).map(button => button.dataset.subject);
+}}
+function applyColumnVisibility() {{
+  const selected = new Set(selectedSubjects());
+  document.querySelectorAll('[data-subject-cell]').forEach(cell => {{
+    cell.classList.toggle('subject-hidden', !selected.has(cell.dataset.subjectCell));
+  }});
+  const showReports = !reportToggle || reportToggle.classList.contains('active');
+  document.querySelectorAll('.report-cell').forEach(cell => cell.classList.toggle('subject-hidden', !showReports));
+}}
+subjectButtons.forEach(button => button.addEventListener('click', () => {{
+  button.classList.toggle('active');
+  if (!selectedSubjects().length) button.classList.add('active');
+  applyFilters();
+}}));
+if (reportToggle) reportToggle.addEventListener('click', () => {{
+  reportToggle.classList.toggle('active');
+  applyFilters();
+}});
 function updateStickyOffsets() {{
   const header = document.querySelector('header');
   const topControls = document.querySelector('.top-controls');
@@ -466,12 +587,15 @@ function visiblePlacementRows() {{
 }}
 function updateClassCounts() {{
   if (!classCounts) return;
+  const subjects = selectedSubjects();
+  const selected = new Set(subjects);
   const counts = {{}};
   visiblePlacementRows().forEach(row => {{
     const grade = row.dataset.grade || '学年未設定';
     const campus = row.dataset.campus || '校舎未設定';
     row.querySelectorAll('.class-change').forEach(select => {{
       const subject = select.dataset.subject;
+      if (!selected.has(subject)) return;
       const value = select.value || '未定';
       counts[grade] ??= {{}};
       counts[grade][campus] ??= {{}};
@@ -483,7 +607,7 @@ function updateClassCounts() {{
   const grades = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ja', {{ numeric: true }}));
   classCounts.innerHTML = grades.flatMap(grade => {{
     const campuses = Object.keys(counts[grade]).sort((a, b) => a.localeCompare(b, 'ja', {{ numeric: true }}));
-    return campuses.flatMap(campus => ['国語','数学','英語'].map(subject => {{
+    return campuses.flatMap(campus => subjects.map(subject => {{
       const subjectCounts = counts[grade]?.[campus]?.[subject] || {{}};
       const chips = [...new Set([...classOrder.map(x => x || '未定'), ...Object.keys(subjectCounts)])]
         .filter(k => subjectCounts[k])
@@ -502,6 +626,7 @@ function applyFilters() {{
     const ok = (!g || row.dataset.grade === g) && (!c || row.dataset.campus === c) && (!q || row.dataset.search.includes(q));
     row.classList.toggle('hidden-row', !ok);
   }});
+  applyColumnVisibility();
   updateClassCounts();
 }}
 function cellSortValue(cell) {{
