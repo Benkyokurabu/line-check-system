@@ -68,6 +68,10 @@ Supabaseにテーブルを作成する手順です。
 - `src/lib/supabase.ts`: Supabase server client の初期化
 - `supabase/schema.sql`: SupabaseのDBテーブル定義
 
+## Operations Docs
+
+- [student_roster 運用メモ](docs/student-roster-operations.md): 生徒名簿テーブルの作られ方、クラス一覧Excelの列対応、取り込み方法、LINE紐づけでの扱い。
+
 ## Notification Routing Design
 
 先生ログインを前提にせず、LINE本文と直近の会話履歴から「どの先生が見るべき可能性があるか」をAIで広めに判定し、Teamsなどへ通知する設計です。
