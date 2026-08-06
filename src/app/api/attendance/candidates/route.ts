@@ -62,6 +62,19 @@ function normalizeName(value: string | null | undefined) {
 function uniqueFilled(values: Array<string | null | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
+function todayJstDateString() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function startOfTodayJstIso() {
+  const today = todayJstDateString();
+  return new Date(`${today}T00:00:00+09:00`).toISOString();
+}
 
 function addSuggestion(
   suggestions: Map<string, StudentSuggestion>,
@@ -169,15 +182,21 @@ function buildSenderProfile(input: {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status") ?? "pending";
+  const includePastPending = url.searchParams.get("include_past") === "1";
+  const today = todayJstDateString();
+  const todayStart = startOfTodayJstIso();
   const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? "5") || 5, 1), 14);
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const supabase = createSupabaseAdminClient();
   const candidateSelect = "*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(text,received_at,display_name,line_user_id)";
-  const openCandidateQuery = supabase
+  let openCandidateQuery = supabase
     .from("attendance_candidates")
     .select(candidateSelect)
     .in("status", ["pending", "notion_failed"])
     .order("created_at", { ascending: false });
+  if (!includePastPending) {
+    openCandidateQuery = openCandidateQuery.or(`event_date.gte.${today},and(event_date.is.null,created_at.gte.${todayStart})`);
+  }
   const doneCandidateQuery = supabase
     .from("attendance_candidates")
     .select(candidateSelect)

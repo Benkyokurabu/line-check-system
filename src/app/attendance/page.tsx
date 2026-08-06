@@ -177,6 +177,7 @@ export default function AttendancePage() {
   const [replyTemplates, setReplyTemplates] = useState(defaultReplyTemplates);
   const [confirmedBy, setConfirmedBy] = useState("");
   const [historyDays, setHistoryDays] = useState<HistoryDays>("none");
+  const [includePastPending, setIncludePastPending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
@@ -187,13 +188,14 @@ export default function AttendancePage() {
     document.title = pageTitle;
   }, []);
   const load = useCallback(async () => {
-    const query = historyDays === "none" ? "status=pending" : `status=review&days=${historyDays}`;
-    const response = await fetch(`/api/attendance/candidates?${query}`);
+    const params = new URLSearchParams(historyDays === "none" ? { status: "pending" } : { status: "review", days: String(historyDays) });
+    if (historyDays === "none" && includePastPending) params.set("include_past", "1");
+    const response = await fetch(`/api/attendance/candidates?${params.toString()}`);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     setCandidates(body.candidates ?? []);
     setVisibleCandidateCount(20);
-  }, [historyDays]);
+  }, [historyDays, includePastPending]);
   useEffect(() => {
     async function initialize() {
       try {
@@ -241,6 +243,7 @@ export default function AttendancePage() {
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={busy} onClick={analyze}>{busy ? "確認中" : "新しくLINEを確認"}</button>
+      <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去pendingを非表示" : "過去pendingも表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(event.target.value === "none" ? "none" : Number(event.target.value) as HistoryDays)}><option value="none">しない</option><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
@@ -251,7 +254,7 @@ export default function AttendancePage() {
     </div>
     {manualEventsOpen && <ManualEventsPanel students={students} confirmedBy={confirmedBy} refreshKey={manualRefreshKey} onChanged={() => setManualRefreshKey((value) => value + 1)} />}
     <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
-      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{historyDays === "none" ? "未確認の連絡候補はありません。" : "未確認・対応済みの連絡候補はありません。"}</section>}
+      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{historyDays === "none" ? includePastPending ? "未確認の連絡候補はありません。" : "今日以降の未確認候補はありません。過去分は「過去pendingも表示」で確認できます。" : "未確認・対応済みの連絡候補はありません。"}</section>}
       {candidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
       {visibleCandidateCount < candidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{candidates.length - visibleCandidateCount}件）</button>}
     </div>
