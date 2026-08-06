@@ -59,6 +59,8 @@ line_history_import_report*.csv
 line_student_link_candidates*.csv
 *クラス一覧表*.xlsx
 *スケジュール*.xlsm
+*指導簿*.xlsm
+analysis_outputs/
 
 # vercel
 .vercel
