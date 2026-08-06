@@ -593,7 +593,9 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const initialStudentNumber = candidate.student_number ?? (candidate.student_selection_required ? "" : candidate.student_suggestions?.[0]?.student_number ?? "");
   const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
+  const [studentQuery, setStudentQuery] = useState("");
   const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus, initialStudentNumber));
+  const [itemStudentQueries, setItemStudentQueries] = useState<Record<string, string>>({});
   const registered = candidate.status === "confirmed";
   const itemStatuses = candidate.attendance_candidate_items ?? [];
   const confirmedItems = itemStatuses.filter((item) => item.status === "confirmed").length;
@@ -712,6 +714,11 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
   function removeItem(clientId: string) {
     setItems((current) => current.length <= 1 ? current : current.filter((item) => item.client_id !== clientId));
+    setItemStudentQueries((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
   }
 
   function selectTemplate(index: number) {
@@ -848,12 +855,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     </div>
 
     {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 6, padding: 10, marginBottom: 12, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</div>}
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(160px,220px) minmax(0,1fr) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
-      <label style={fieldStyle}>名前<select style={inputStyle} value={studentNumber} onChange={(event) => selectStudent(event.target.value)}><option value="">要選択</option>{studentOptions.map((student) => {
-        const suggestion = suggestions.find((item) => item.student_number === student.student_number);
-        const suffix = suggestion ? ` / ${suggestion.reason}` : "";
-        return <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}{suffix}</option>;
-      })}</select></label>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,280px) minmax(0,1fr) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
+      <StudentPicker label="名前" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={registered} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
       {!registered && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
@@ -870,7 +873,16 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         const lessonGroups = lessonsByTime(filteredLessons);
         return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
           <div style={{ display: "grid", gridTemplateColumns: "minmax(190px,1.2fr) 110px 120px 130px minmax(220px,1fr) 42px", gap: 8, alignItems: "end" }}>
-            <label style={fieldStyle}>名前<select style={inputStyle} value={item.student_number} disabled={registered} onChange={(event) => updateItem(item.client_id, { student_number: event.target.value, lesson_id: "" })}><option value="">要選択</option>{studentOptions.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}</option>)}</select></label>
+            <StudentPicker
+              label="名前"
+              students={studentOptions}
+              value={item.student_number}
+              query={itemStudentQueries[item.client_id] ?? ""}
+              onQueryChange={(value) => setItemStudentQueries((current) => ({ ...current, [item.client_id]: value }))}
+              onChange={(value) => updateItem(item.client_id, { student_number: value, lesson_id: "" })}
+              candidates={suggestions}
+              disabled={registered}
+            />
             <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
             <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={registered} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
