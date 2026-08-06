@@ -174,7 +174,10 @@ function buildSenderProfile(input: {
   const lineAliases = lineUserId ? input.aliases.filter((alias) => alias.line_user_id === lineUserId) : [];
   return {
     display_name: input.lineMessage?.display_name ?? null,
-    alias_names: uniqueFilled(lineAliases.map((alias) => alias.alias_name)),
+    alias_names: uniqueFilled([
+      ...lineAliases.map((alias) => alias.alias_name),
+      ...input.accounts.map((account) => account.alias_name),
+    ]),
     account_names: uniqueFilled(input.accounts.flatMap((account) => [account.alias_name, account.friend_display_name])),
   };
 }
