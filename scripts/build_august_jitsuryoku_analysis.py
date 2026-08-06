@@ -270,6 +270,17 @@ def render_table(rows, columns):
     return f"<table><thead><tr>{thead}</tr></thead><tbody>{''.join(body)}</tbody></table>"
 
 
+def class_select(student, subject):
+    current = student["subjects"].get(subject, {}).get("class") or ""
+    options = ["", "Ｓ", "Ａ", "Ｂ", "Ｃ", "X", "個"]
+    option_html = []
+    for option in options:
+        selected = " selected" if option == current else ""
+        label = option or "未定"
+        option_html.append(f'<option value="{esc(option)}"{selected}>{esc(label)}</option>')
+    return f'<select class="class-change" data-subject="{esc(subject)}" data-current="{esc(current)}">{"".join(option_html)}</select>'
+
+
 def placement_cells(student):
     cells = []
     for subject in ["国語", "数学", "英語"]:
@@ -277,24 +288,65 @@ def placement_cells(student):
         recent = s.get("recent", [])
         r1 = recent[0] if len(recent) > 0 else {}
         r2 = recent[1] if len(recent) > 1 else {}
-        cells.extend([fmt(s.get("class")), fmt(s.get("current")), fmt(s.get("current_dev")), fmt(r1.get("score")), fmt(r2.get("score")), fmt(s.get("hokushin_dev"))])
+        cells.extend(
+            [
+                {"value": fmt(s.get("class"))},
+                {"value": class_select(student, subject), "html": True},
+                {"value": fmt(s.get("current")), "sort": s.get("current")},
+                {"value": fmt(s.get("current_dev")), "sort": s.get("current_dev")},
+                {"value": fmt(r1.get("score")), "sort": r1.get("score")},
+                {"value": fmt(r2.get("score")), "sort": r2.get("score")},
+                {"value": fmt(s.get("hokushin_dev")), "sort": s.get("hokushin_dev")},
+            ]
+        )
     hs = student.get("hokushin") or {}
-    return cells + [fmt(hs.get("test")), fmt(hs.get("three_score")), fmt(hs.get("three_dev")), fmt(hs.get("five_score")), fmt(hs.get("five_dev"))]
+    cells.extend(
+        [
+            {"value": fmt(hs.get("test"))},
+            {"value": fmt(hs.get("three_score")), "sort": hs.get("three_score")},
+            {"value": fmt(hs.get("three_dev")), "sort": hs.get("three_dev")},
+            {"value": fmt(hs.get("five_score")), "sort": hs.get("five_score")},
+            {"value": fmt(hs.get("five_dev")), "sort": hs.get("five_dev")},
+        ]
+    )
+    return cells
 
 
-def make_placement_table(students):
+def make_td(cell):
+    if isinstance(cell, dict):
+        sort = cell.get("sort")
+        sort_attr = "" if sort in (None, "") else f' data-sort="{esc(sort)}"'
+        value = cell.get("value", "")
+        if cell.get("html"):
+            return f"<td{sort_attr}>{value}</td>"
+        return f"<td{sort_attr}>{esc(value)}</td>"
+    return f"<td>{esc(cell)}</td>"
+
+
+def make_placement_table(students, table_id="placementTable"):
     fixed = ["学年", "校舎", "学籍番号", "氏名", "学校", "担任", "現平均", "判定用", "注意"]
     subject_cols = []
     for subject in ["国語", "数学", "英語"]:
-        subject_cols += [f"{subject}現クラス", f"{subject}今回", f"{subject}今回偏", f"{subject}直近1", f"{subject}直近2", f"{subject}北辰偏"]
+        subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}今回", f"{subject}今回偏", f"{subject}直近1", f"{subject}直近2", f"{subject}北辰偏"]
     tail = ["北辰回", "北辰3科", "北辰3科偏", "北辰5科", "北辰5科偏"]
     header = "".join(f"<th>{esc(x)}</th>" for x in fixed + subject_cols + tail)
     rows = []
     for st in students:
-        base = [st["grade"], st["campus"], st["student_id"], st["name"], st["school"], st["teacher"], fmt(st["current_avg"]), fmt(st["suggestion_score"]), " / ".join(st["flags"])]
-        rows.append("<tr data-grade=\"{}\" data-campus=\"{}\" data-search=\"{}\">{}</tr>".format(esc(st["grade"]), esc(st["campus"]), esc((st["student_id"] + " " + st["name"] + " " + st["kana"] + " " + st["school"])), "".join(f"<td>{esc(x)}</td>" for x in base + placement_cells(st))))
-    return f"<table id=\"placementTable\"><thead><tr>{header}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
-
+        base = [
+            {"value": st["grade"]},
+            {"value": st["campus"]},
+            {"value": st["student_id"]},
+            {"value": st["name"]},
+            {"value": st["school"]},
+            {"value": st["teacher"]},
+            {"value": fmt(st["current_avg"]), "sort": st["current_avg"]},
+            {"value": fmt(st["suggestion_score"]), "sort": st["suggestion_score"]},
+            {"value": " / ".join(st["flags"])},
+        ]
+        search = st["student_id"] + " " + st["name"] + " " + st["kana"] + " " + st["school"]
+        cells = "".join(make_td(cell) for cell in base + placement_cells(st))
+        rows.append(f'<tr data-grade="{esc(st["grade"])}" data-campus="{esc(st["campus"])}" data-search="{esc(search)}">{cells}</tr>')
+    return f'<table id="{esc(table_id)}" class="placement-table sortable"><thead><tr>{header}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
 
 def distribution(records):
     bands = [(80, "80点以上"), (60, "60-79点"), (40, "40-59点"), (0, "39点以下")]
@@ -329,7 +381,7 @@ def main():
     placement_html = make_placement_table(students)
     subject_html = render_table(subject_stats, [("grade", "学年"), ("campus", "校舎"), ("subject", "科目"), ("n", "人数"), ("avg", "平均"), ("median", "中央値"), ("stdev", "標準偏差"), ("max", "最高"), ("min", "最低"), ("under40", "40未満"), ("over80", "80以上")])
     class_html = render_table(class_stats, [("grade", "学年"), ("campus", "校舎"), ("subject", "科目"), ("klass", "現クラス"), ("n", "人数"), ("avg", "平均"), ("median", "中央値"), ("stdev", "標準偏差"), ("max", "最高"), ("min", "最低"), ("under40", "40未満"), ("over80", "80以上")])
-    concern_html = make_placement_table(concern)
+    concern_html = make_placement_table(concern, "concernPlacementTable")
     dist_rows = []
     for r in dist:
         total = r["total"] or 1
@@ -348,12 +400,12 @@ def main():
 header {{ position:sticky; top:0; z-index:20; background:var(--panel); border-bottom:1px solid var(--line); padding:14px 18px 10px; }}
 h1 {{ margin:0; font-size:20px; letter-spacing:0; }} .meta {{ color:var(--muted); margin-top:3px; }} main {{ max-width:1600px; margin:0 auto; padding:16px 18px 44px; }}
 .metrics {{ display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:10px; margin-bottom:12px; }} .metric {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }} .metric span,.metric em {{ display:block; color:var(--muted); font-style:normal; }} .metric strong {{ display:block; font-size:24px; margin:1px 0; }}
-.filters {{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px; }} label {{ display:grid; gap:3px; color:var(--muted); }} select,input {{ height:32px; border:1px solid var(--line); border-radius:6px; padding:0 8px; background:#fff; }} input {{ min-width:260px; }}
+.filters {{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px; }} label {{ display:grid; gap:3px; color:var(--muted); }} select,input {{ height:32px; border:1px solid var(--line); border-radius:6px; padding:0 8px; background:#fff; }} input {{ min-width:260px; }} .class-change {{ min-width:64px; height:28px; padding:0 5px; }}
 .tabs {{ display:flex; gap:6px; border-bottom:1px solid var(--line); margin-top:12px; }} .tab {{ border:1px solid var(--line); border-bottom:0; background:#e9eef5; padding:8px 12px; border-radius:6px 6px 0 0; cursor:pointer; }} .tab.active {{ background:var(--panel); font-weight:700; }}
 .panel {{ display:none; background:var(--panel); border:1px solid var(--line); border-top:0; padding:12px; overflow:auto; }} .panel.active {{ display:block; }} h2 {{ font-size:16px; margin:0 0 8px; }} .note {{ color:var(--muted); margin:0 0 10px; }}
 table {{ border-collapse:separate; border-spacing:0; width:100%; min-width:1200px; }} th,td {{ border-right:1px solid #e3e8ef; border-bottom:1px solid #e3e8ef; padding:6px 7px; white-space:nowrap; text-align:left; }} th {{ position:sticky; top:76px; z-index:5; background:var(--head); font-weight:700; color:#2d3748; }} td:nth-child(n+7) {{ text-align:right; }} tbody tr:hover {{ background:#f8fbff; }}
 #placementTable th:nth-child(-n+4),#placementTable td:nth-child(-n+4) {{ position:sticky; background:inherit; z-index:4; }} #placementTable th:nth-child(1),#placementTable td:nth-child(1) {{ left:0; }} #placementTable th:nth-child(2),#placementTable td:nth-child(2) {{ left:48px; }} #placementTable th:nth-child(3),#placementTable td:nth-child(3) {{ left:94px; }} #placementTable th:nth-child(4),#placementTable td:nth-child(4) {{ left:176px; }} #placementTable th:nth-child(-n+4) {{ background:var(--head); z-index:8; }}
-.bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }}
+.bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }} th.sortable-head {{ cursor:pointer; user-select:none; }} th.sortable-head::after {{ content:" ⇅"; color:var(--muted); font-weight:400; }} th.sort-asc::after {{ content:" ↑"; color:var(--blue); }} th.sort-desc::after {{ content:" ↓"; color:var(--blue); }} .class-counts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:10px 0 12px; }} .count-card {{ border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fbfcfe; }} .count-card h3 {{ margin:0 0 6px; font-size:13px; }} .chips {{ display:flex; flex-wrap:wrap; gap:5px; }} .chip {{ border:1px solid var(--line); border-radius:999px; padding:2px 7px; background:#fff; }} .changed {{ background:#fff7ed; }}
 @media print {{ header,.filters,.tabs {{ display:none; }} main {{ padding:0; }} .panel {{ display:block; border:0; }} .panel:not(.active) {{ display:none; }} th {{ position:static; }} }}
 @media (max-width:760px) {{ header {{ position:static; }} main {{ padding:12px; }} .metrics {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }} input,select {{ width:100%; }} label {{ flex:1 1 140px; }} th {{ top:0; }} }}
 </style>
@@ -364,7 +416,7 @@ table {{ border-collapse:separate; border-spacing:0; width:100%; min-width:1200p
 <div class="metrics">{metrics_html}</div>
 <section class="filters"><label>学年<select id="gradeFilter"><option value="">全て</option></select></label><label>校舎<select id="campusFilter"><option value="">全て</option></select></label><label>検索<input id="searchFilter" type="search" placeholder="氏名・ふりがな・学籍番号・学校"></label></section>
 <div class="tabs"><button class="tab active" data-panel="placement">クラス替え資料</button><button class="tab" data-panel="concern">要確認</button><button class="tab" data-panel="subject">科目別</button><button class="tab" data-panel="class">現クラス別</button><button class="tab" data-panel="dist">分布</button></div>
-<section id="placement" class="panel active"><h2>クラス替え資料</h2><p class="note">判定用は今回平均を基準に、北辰3科偏差値がある場合だけ加味した参考値です。実際のクラス判断は科目別の今回点・直近2回・北辰偏差値・学校/担任情報を合わせて確認してください。</p>{placement_html}</section>
+<section id="placement" class="panel active"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。変更すると下の人数が即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p><div id="classCounts" class="class-counts"></div>{placement_html}</section>
 <section id="concern" class="panel"><h2>要確認</h2><p class="note">平均50未満、40点未満科目、または80点以上科目がある生徒を抽出しています。</p>{concern_html}</section>
 <section id="subject" class="panel"><h2>学年・校舎・科目別</h2>{subject_html}</section>
 <section id="class" class="panel"><h2>現クラス別</h2>{class_html}</section>
@@ -376,11 +428,93 @@ const data = JSON.parse(document.getElementById('payload').textContent);
 const gradeFilter = document.getElementById('gradeFilter');
 const campusFilter = document.getElementById('campusFilter');
 const searchFilter = document.getElementById('searchFilter');
-function addOptions(select, values) {{ [...new Set(values.filter(Boolean))].sort().forEach(v => {{ const o=document.createElement('option'); o.value=v; o.textContent=v; select.appendChild(o); }}); }}
-addOptions(gradeFilter, data.students.map(s => s.grade)); addOptions(campusFilter, data.students.map(s => s.campus));
-document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => {{ document.querySelectorAll('.tab').forEach(x => x.classList.remove('active')); document.querySelectorAll('.panel').forEach(x => x.classList.remove('active')); button.classList.add('active'); document.getElementById(button.dataset.panel).classList.add('active'); applyFilters(); }}));
-function applyFilters() {{ const g=gradeFilter.value; const c=campusFilter.value; const q=searchFilter.value.trim(); document.querySelectorAll('tbody tr[data-grade]').forEach(row => {{ const ok=(!g || row.dataset.grade===g) && (!c || row.dataset.campus===c) && (!q || row.dataset.search.includes(q)); row.classList.toggle('hidden-row', !ok); }}); }}
-[gradeFilter,campusFilter,searchFilter].forEach(x => x.addEventListener('input', applyFilters)); applyFilters();
+const classCounts = document.getElementById('classCounts');
+const classOrder = ['', 'Ｓ', 'Ａ', 'Ｂ', 'Ｃ', 'X', '個'];
+function addOptions(select, values) {{
+  [...new Set(values.filter(Boolean))].sort().forEach(v => {{
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    select.appendChild(o);
+  }});
+}}
+addOptions(gradeFilter, data.students.map(s => s.grade));
+addOptions(campusFilter, data.students.map(s => s.campus));
+document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => {{
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+  button.classList.add('active');
+  document.getElementById(button.dataset.panel).classList.add('active');
+  applyFilters();
+}}));
+function visiblePlacementRows() {{
+  return [...document.querySelectorAll('#placementTable tbody tr')].filter(row => !row.classList.contains('hidden-row'));
+}}
+function updateClassCounts() {{
+  if (!classCounts) return;
+  const counts = {{}};
+  visiblePlacementRows().forEach(row => {{
+    row.querySelectorAll('.class-change').forEach(select => {{
+      const subject = select.dataset.subject;
+      const value = select.value || '未定';
+      counts[subject] ??= {{}};
+      counts[subject][value] = (counts[subject][value] || 0) + 1;
+      select.closest('td').classList.toggle('changed', select.value !== select.dataset.current);
+    }});
+  }});
+  classCounts.innerHTML = ['国語','数学','英語'].map(subject => {{
+    const subjectCounts = counts[subject] || {{}};
+    const chips = [...new Set([...classOrder.map(x => x || '未定'), ...Object.keys(subjectCounts)])]
+      .filter(k => subjectCounts[k])
+      .map(k => `<span class="chip">${{k}}: ${{subjectCounts[k]}}</span>`)
+      .join('');
+    return `<section class="count-card"><h3>${{subject}} 変更案人数</h3><div class="chips">${{chips || '<span class="chip">対象なし</span>'}}</div></section>`;
+  }}).join('');
+}}
+function applyFilters() {{
+  const g = gradeFilter.value;
+  const c = campusFilter.value;
+  const q = searchFilter.value.trim();
+  document.querySelectorAll('tbody tr[data-grade]').forEach(row => {{
+    const ok = (!g || row.dataset.grade === g) && (!c || row.dataset.campus === c) && (!q || row.dataset.search.includes(q));
+    row.classList.toggle('hidden-row', !ok);
+  }});
+  updateClassCounts();
+}}
+function cellSortValue(cell) {{
+  const explicit = cell.dataset.sort;
+  if (explicit !== undefined && explicit !== '') return explicit;
+  const select = cell.querySelector('select');
+  return select ? select.value : cell.textContent.trim();
+}}
+function compareValues(a, b) {{
+  const av = cellSortValue(a);
+  const bv = cellSortValue(b);
+  const an = Number(String(av).replace(/,/g, ''));
+  const bn = Number(String(bv).replace(/,/g, ''));
+  if (!Number.isNaN(an) && !Number.isNaN(bn) && String(av).trim() !== '' && String(bv).trim() !== '') return an - bn;
+  return String(av).localeCompare(String(bv), 'ja', {{ numeric: true }});
+}}
+function makeSortable(table) {{
+  const headers = [...table.querySelectorAll('thead th')];
+  headers.forEach((th, index) => {{
+    th.classList.add('sortable-head');
+    th.addEventListener('click', () => {{
+      const direction = th.classList.contains('sort-asc') ? -1 : 1;
+      headers.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+      th.classList.add(direction === 1 ? 'sort-asc' : 'sort-desc');
+      const tbody = table.querySelector('tbody');
+      const rows = [...tbody.querySelectorAll('tr')];
+      rows.sort((ra, rb) => compareValues(ra.children[index], rb.children[index]) * direction);
+      rows.forEach(row => tbody.appendChild(row));
+      applyFilters();
+    }});
+  }});
+}}
+document.querySelectorAll('table').forEach(makeSortable);
+document.querySelectorAll('.class-change').forEach(select => select.addEventListener('change', updateClassCounts));
+[gradeFilter, campusFilter, searchFilter].forEach(x => x.addEventListener('input', applyFilters));
+applyFilters();
 </script>
 </body>
 </html>'''
@@ -392,3 +526,6 @@ function applyFilters() {{ const g=gradeFilter.value; const c=campusFilter.value
 
 if __name__ == "__main__":
     main()
+
+
+
