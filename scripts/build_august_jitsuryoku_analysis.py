@@ -416,7 +416,7 @@ table {{ border-collapse:separate; border-spacing:0; width:100%; min-width:1200p
 <div class="metrics">{metrics_html}</div>
 <section class="filters"><label>学年<select id="gradeFilter"><option value="">全て</option></select></label><label>校舎<select id="campusFilter"><option value="">全て</option></select></label><label>検索<input id="searchFilter" type="search" placeholder="氏名・ふりがな・学籍番号・学校"></label></section>
 <div class="tabs"><button class="tab active" data-panel="placement">クラス替え資料</button><button class="tab" data-panel="concern">要確認</button><button class="tab" data-panel="subject">科目別</button><button class="tab" data-panel="class">現クラス別</button><button class="tab" data-panel="dist">分布</button></div>
-<section id="placement" class="panel active"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。変更すると下の人数が即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p><div id="classCounts" class="class-counts"></div>{placement_html}</section>
+<section id="placement" class="panel active"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。人数は校舎別に集計され、変更すると即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p><div id="classCounts" class="class-counts"></div>{placement_html}</section>
 <section id="concern" class="panel"><h2>要確認</h2><p class="note">平均50未満、40点未満科目、または80点以上科目がある生徒を抽出しています。</p>{concern_html}</section>
 <section id="subject" class="panel"><h2>学年・校舎・科目別</h2>{subject_html}</section>
 <section id="class" class="panel"><h2>現クラス別</h2>{class_html}</section>
@@ -454,22 +454,25 @@ function updateClassCounts() {{
   if (!classCounts) return;
   const counts = {{}};
   visiblePlacementRows().forEach(row => {{
+    const campus = row.dataset.campus || '校舎未設定';
     row.querySelectorAll('.class-change').forEach(select => {{
       const subject = select.dataset.subject;
       const value = select.value || '未定';
-      counts[subject] ??= {{}};
-      counts[subject][value] = (counts[subject][value] || 0) + 1;
+      counts[campus] ??= {{}};
+      counts[campus][subject] ??= {{}};
+      counts[campus][subject][value] = (counts[campus][subject][value] || 0) + 1;
       select.closest('td').classList.toggle('changed', select.value !== select.dataset.current);
     }});
   }});
-  classCounts.innerHTML = ['国語','数学','英語'].map(subject => {{
-    const subjectCounts = counts[subject] || {{}};
+  const campuses = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ja', {{ numeric: true }}));
+  classCounts.innerHTML = campuses.flatMap(campus => ['国語','数学','英語'].map(subject => {{
+    const subjectCounts = counts[campus]?.[subject] || {{}};
     const chips = [...new Set([...classOrder.map(x => x || '未定'), ...Object.keys(subjectCounts)])]
       .filter(k => subjectCounts[k])
       .map(k => `<span class="chip">${{k}}: ${{subjectCounts[k]}}</span>`)
       .join('');
-    return `<section class="count-card"><h3>${{subject}} 変更案人数</h3><div class="chips">${{chips || '<span class="chip">対象なし</span>'}}</div></section>`;
-  }}).join('');
+    return `<section class="count-card"><h3>${{campus}} ${{subject}} 変更案人数</h3><div class="chips">${{chips || '<span class="chip">対象なし</span>'}}</div></section>`;
+  }})).join('') || '<section class="count-card"><h3>変更案人数</h3><div class="chips"><span class="chip">対象なし</span></div></section>';
 }}
 function applyFilters() {{
   const g = gradeFilter.value;
@@ -526,6 +529,8 @@ applyFilters();
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
