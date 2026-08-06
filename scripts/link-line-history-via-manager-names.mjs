@@ -234,6 +234,19 @@ function scoreAliasToStudent(aliasName, studentName) {
     reasons.push("alias_contains_student_name");
   }
 
+  const surname = student.slice(0, 2);
+  const givenName = student.slice(2);
+  if (
+    !alias.includes(student) &&
+    surname.length >= 2 &&
+    givenName.length >= 2 &&
+    alias.includes(surname) &&
+    alias.includes(givenName)
+  ) {
+    score += 150;
+    reasons.push("alias_contains_surname_and_given_name");
+  }
+
   const parts = studentName
     .normalize("NFKC")
     .split(/[ \t\r\n\u3000]+/)

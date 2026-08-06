@@ -15,6 +15,7 @@ type RosterRow = {
 type LineMessageRow = {
   line_user_id: string | null;
   display_name: string | null;
+  text: string | null;
   received_at: string | null;
 };
 
@@ -114,18 +115,24 @@ function buildStudentSuggestions(input: {
   ]
     .map(normalizeName)
     .filter(Boolean);
+  const messageText = normalizeName(input.lineMessage?.text);
 
   for (const student of input.roster) {
     const normalizedStudent = normalizeName(student.student_name);
     if (!normalizedStudent) continue;
+    const surname = normalizedStudent.slice(0, 2);
+    const givenName = normalizedStudent.slice(2);
+    if (messageText.includes(normalizedStudent)) {
+      addSuggestion(suggestions, rosterByNumber, student.student_number, 91, "本文に生徒名");
+    } else if (surname && givenName && messageText.includes(surname) && messageText.includes(givenName)) {
+      addSuggestion(suggestions, rosterByNumber, student.student_number, 86, "本文に姓名の一部");
+    }
     for (const text of searchTexts) {
       if (text === normalizedStudent) {
         addSuggestion(suggestions, rosterByNumber, student.student_number, 90, "名前一致");
       } else if (text.includes(normalizedStudent)) {
         addSuggestion(suggestions, rosterByNumber, student.student_number, 84, "送信者名に生徒名");
       } else {
-        const surname = normalizedStudent.slice(0, 2);
-        const givenName = normalizedStudent.slice(2);
         if (surname && givenName && text.includes(surname) && text.includes(givenName)) {
           addSuggestion(suggestions, rosterByNumber, student.student_number, 78, "送信者名に姓名の一部");
         }
