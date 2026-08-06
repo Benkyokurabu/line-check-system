@@ -47,6 +47,19 @@ type ManualEvent = {
 };
 type HistoryDays = "none" | 3 | 5 | 7 | 14;
 type AnalysisStatus = { queued: number; processing: number; failed: number; last_checked_at: string | null };
+type LineLinkSuggestion = Student & { score: number; reason: string; proposed_alias_name: string };
+type LineLinkCandidate = {
+  line_user_id: string;
+  line_user_id_short: string;
+  display_name: string | null;
+  latest_received_at: string | null;
+  candidate_count: number;
+  suggested_names: string[];
+  latest_text: string | null;
+  suggestions: LineLinkSuggestion[];
+  default_student_number: string;
+  default_relation: string;
+};
 
 const pageTitle = "遅刻・欠席確認";
 
@@ -187,6 +200,9 @@ export default function AttendancePage() {
   const [manualEventsOpen, setManualEventsOpen] = useState(false);
   const [manualRefreshKey, setManualRefreshKey] = useState(0);
   const [visibleCandidateCount, setVisibleCandidateCount] = useState(20);
+  const [linkReviewOpen, setLinkReviewOpen] = useState(false);
+  const [linkCandidates, setLinkCandidates] = useState<LineLinkCandidate[]>([]);
+  const [linkCandidatesLoading, setLinkCandidatesLoading] = useState(false);
   useEffect(() => {
     document.title = pageTitle;
   }, []);
@@ -260,6 +276,25 @@ export default function AttendancePage() {
     finally { setBusy(false); }
   }
 
+  const loadLineLinkCandidates = useCallback(async () => {
+    setLinkCandidatesLoading(true);
+    try {
+      const response = await fetch("/api/attendance/line-link-candidates");
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "LINE紐づけ候補を取得できませんでした");
+      setLinkCandidates(body.candidates ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLinkCandidatesLoading(false);
+    }
+  }, []);
+
+  async function toggleLineLinkReview() {
+    const nextOpen = !linkReviewOpen;
+    setLinkReviewOpen(nextOpen);
+    if (nextOpen) await loadLineLinkCandidates();
+  }
   return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Attendance review</p>
     <h1>遅刻・欠席連絡の確認</h1>
@@ -269,11 +304,13 @@ export default function AttendancePage() {
       <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
       <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "直近LINEを今すぐ解析"}</button>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去pendingを非表示" : "過去pendingも表示"}</button>
+      <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE紐づけ候補を閉じる" : "LINE紐づけ候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(event.target.value === "none" ? "none" : Number(event.target.value) as HistoryDays)}><option value="none">しない</option><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {analysisStatus && <p style={{ flexBasis: "100%", margin: 0, color: "#555" }}>未解析 {analysisStatus.queued}件 / 解析中 {analysisStatus.processing}件 / 失敗 {analysisStatus.failed}件 / 最終確認 {formatTime(analysisStatus.last_checked_at)}</p>}
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
+    {linkReviewOpen && <LineLinkReviewPanel candidates={linkCandidates} students={students} loading={linkCandidatesLoading} onReload={loadLineLinkCandidates} onChanged={async () => { await Promise.all([loadLineLinkCandidates(), load()]); }} setMessage={setMessage} />}
     {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
     <div style={{ marginTop: 16 }}>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualEventsOpen((value) => !value)}>{manualEventsOpen ? "手入力済み連絡を閉じる" : "本日以降の手入力済み連絡を表示"}</button>
@@ -342,6 +379,116 @@ function StudentPicker({ label, students, value, onChange, query, onQueryChange,
       {options.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}{candidateNumbers.has(student.student_number) ? " / 候補" : ""}</option>)}
     </select>
   </div></label>;
+}
+function relationLabel(value: string) {
+  if (value === "student") return "本人";
+  if (value === "mother") return "母";
+  if (value === "father") return "父";
+  return "保護者";
+}
+
+function aliasForStudent(student: Student | LineLinkSuggestion | null, relation: string) {
+  if (!student) return "";
+  const base = `${student.campus?.includes("南") ? "南" : "本"}　${student.student_name.normalize("NFKC").replace(/[\s　]/g, "")}`;
+  if (relation === "student") return base;
+  if (relation === "mother") return `${base}　母`;
+  if (relation === "father") return `${base}　父`;
+  return `${base}　保護者`;
+}
+
+function LineLinkReviewPanel({ candidates, students, loading, onReload, onChanged, setMessage }: {
+  candidates: LineLinkCandidate[];
+  students: Student[];
+  loading: boolean;
+  onReload: () => Promise<void>;
+  onChanged: () => Promise<void>;
+  setMessage: (value: string) => void;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, { student_number: string; relation: string; query: string }>>({});
+  const [savingLineUserId, setSavingLineUserId] = useState<string | null>(null);
+
+  function draftFor(candidate: LineLinkCandidate) {
+    return drafts[candidate.line_user_id] ?? {
+      student_number: candidate.default_student_number,
+      relation: candidate.default_relation || "mother",
+      query: candidate.suggestions[0]?.student_name ?? candidate.suggested_names[0] ?? candidate.display_name ?? "",
+    };
+  }
+
+  function updateDraft(lineUserId: string, patch: Partial<{ student_number: string; relation: string; query: string }>) {
+    setDrafts((current) => {
+      const currentDraft = current[lineUserId] ?? { student_number: "", relation: "mother", query: "" };
+      return { ...current, [lineUserId]: { ...currentDraft, ...patch } };
+    });
+  }
+
+  async function confirmLink(candidate: LineLinkCandidate) {
+    const draft = draftFor(candidate);
+    const student = students.find((item) => item.student_number === draft.student_number) ?? null;
+    if (!student) { setMessage("生徒を選択してください。"); return; }
+    const aliasName = aliasForStudent(student, draft.relation);
+    if (!window.confirm(`${candidate.display_name ?? "表示名なし"} を ${aliasName} として登録します。よろしいですか？`)) return;
+    setSavingLineUserId(candidate.line_user_id);
+    try {
+      const response = await fetch(`/api/students/${encodeURIComponent(student.student_number)}/link`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          line_user_id: candidate.line_user_id,
+          relation: draft.relation,
+          alias_name: aliasName,
+          friend_display_name: candidate.display_name,
+          is_primary: false,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "LINE紐づけに失敗しました");
+      setMessage(`${aliasName} として登録しました。`);
+      await onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingLineUserId(null);
+    }
+  }
+
+  return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <strong>管理名未表示LINEの紐づけ候補</strong>
+      <button type="button" style={ghostButtonStyle} disabled={loading} onClick={() => void onReload()}>{loading ? "更新中..." : "候補を更新"}</button>
+    </div>
+    {candidates.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>管理名未表示のpendingアカウントはありません。</div> : <div style={{ display: "grid", gap: 10 }}>
+      {candidates.map((candidate) => {
+        const draft = draftFor(candidate);
+        const selectedStudent = students.find((student) => student.student_number === draft.student_number) ?? null;
+        const selectedSuggestion = candidate.suggestions.find((student) => student.student_number === draft.student_number) ?? null;
+        const aliasName = aliasForStudent(selectedStudent ?? selectedSuggestion, draft.relation);
+        const suggestionStudents = candidate.suggestions.map((suggestion) => ({
+          student_number: suggestion.student_number,
+          student_name: suggestion.student_name,
+          grade: suggestion.grade,
+          campus: suggestion.campus,
+          homeroom_teacher: suggestion.homeroom_teacher,
+        }));
+        return <div key={candidate.line_user_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, display: "grid", gap: 10, background: "white" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "grid", gap: 4 }}>
+              <strong>{candidate.display_name ?? "表示名なし"} <span style={{ color: "#777", fontSize: 12 }}>ID末尾 {candidate.line_user_id_short}</span></strong>
+              <span style={{ color: "#666", fontSize: 12 }}>pending {candidate.candidate_count}件 / 最終受信 {formatReceivedAt(candidate.latest_received_at)} / AI候補 {candidate.suggested_names.join(" / ") || "なし"}</span>
+            </div>
+          </div>
+          <div style={{ padding: 10, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{candidate.latest_text ?? "（本文なし）"}</div>
+          {candidate.suggestions.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{candidate.suggestions.map((suggestion) => <button key={suggestion.student_number} type="button" style={draft.student_number === suggestion.student_number ? buttonStyle : ghostButtonStyle} onClick={() => updateDraft(candidate.line_user_id, { student_number: suggestion.student_number, query: suggestion.student_name })}>{suggestion.grade} {suggestion.student_name} / {suggestion.reason}</button>)}</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, alignItems: "end" }}>
+            <StudentPicker label="確定する生徒" students={students} value={draft.student_number} query={draft.query} onQueryChange={(query) => updateDraft(candidate.line_user_id, { query })} onChange={(student_number) => updateDraft(candidate.line_user_id, { student_number })} candidates={suggestionStudents} />
+            <label style={fieldStyle}>関係<select style={inputStyle} value={draft.relation} onChange={(event) => updateDraft(candidate.line_user_id, { relation: event.target.value })}><option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option></select></label>
+            <label style={fieldStyle}>登録名<div style={readonlyStyle}>{aliasName || "生徒未選択"}</div></label>
+            <button type="button" style={buttonStyle} disabled={savingLineUserId === candidate.line_user_id || !draft.student_number} onClick={() => void confirmLink(candidate)}>{savingLineUserId === candidate.line_user_id ? "登録中..." : `${relationLabel(draft.relation)}として確定`}</button>
+          </div>
+        </div>;
+      })}
+    </div>}
+  </section>;
 }
 function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student[]; confirmedBy: string; onSaved: () => Promise<void> }) {
   const [contactMethod, setContactMethod] = useState("phone");
@@ -951,3 +1098,4 @@ function ReplyHistory({ replies }: { replies: ReplyMessage[] }) {
     </div>)}
   </div>;
 }
+
