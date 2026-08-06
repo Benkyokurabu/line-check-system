@@ -327,7 +327,7 @@ def make_placement_table(students, table_id="placementTable"):
     fixed = ["学年", "校舎", "学籍番号", "氏名", "学校", "担任", "現平均", "判定用", "注意"]
     subject_cols = []
     for subject in ["国語", "数学", "英語"]:
-        subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}今回", f"{subject}今回偏", f"{subject}直近1", f"{subject}直近2", f"{subject}北辰偏"]
+        subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}今回", f"{subject}今回偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}北辰偏"]
     tail = ["北辰回", "北辰3科", "北辰3科偏", "北辰5科", "北辰5科偏"]
     header = "".join(f"<th>{esc(x)}</th>" for x in fixed + subject_cols + tail)
     rows = []
@@ -529,6 +529,7 @@ applyFilters();
 
 if __name__ == "__main__":
     main()
+
 
 
 
