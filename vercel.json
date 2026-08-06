@@ -11,10 +11,6 @@
     {
       "path": "/api/cron/notion-roster-sync",
       "schedule": "0 19 * * *"
-    },
-    {
-      "path": "/api/cron/attendance-extract?limit=10",
-      "schedule": "* * * * *"
     }
   ]
 }
