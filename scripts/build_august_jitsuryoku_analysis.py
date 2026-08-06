@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import html
 import json
-import math
 import statistics
 from collections import defaultdict
 from datetime import datetime
@@ -10,11 +9,14 @@ from pathlib import Path
 
 import openpyxl
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "●指導簿(2026年度) .xlsm"
 OUTPUT_DIR = ROOT / "analysis_outputs"
 OUTPUT = OUTPUT_DIR / "2026_08_jitsuryoku_analysis.html"
+TARGET_YEAR = 2026
+TARGET_MONTH = 8
+TARGET_TEST = "前期実力テスト"
+SUBJECTS = ["国語", "数学", "英語", "理科", "社会"]
 
 
 def to_float(value):
@@ -26,17 +28,32 @@ def to_float(value):
         return None
 
 
+def fmt(value):
+    if value in (None, ""):
+        return "-"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, float):
+        return f"{value:.1f}"
+    return str(value)
+
+
 def date_parts(value):
     if hasattr(value, "year"):
         return value.year, value.month
     if value:
-        text = str(value)
         try:
-            parsed = datetime.fromisoformat(text[:10])
+            parsed = datetime.fromisoformat(str(value)[:10])
             return parsed.year, parsed.month
         except ValueError:
             return None, None
     return None, None
+
+
+def date_label(value):
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m")
+    return str(value)[:7] if value else ""
 
 
 def mean(values):
@@ -54,54 +71,100 @@ def stdev(values):
     return round(statistics.pstdev(nums), 1) if len(nums) >= 2 else None
 
 
-def pct(value):
-    if value is None:
-        return "-"
-    return f"{value:.1f}"
+def esc(value):
+    return html.escape(str(value), quote=True)
 
 
-def score_band(score):
-    if score is None:
-        return "未入力"
-    if score >= 80:
-        return "80点以上"
-    if score >= 60:
-        return "60-79点"
-    if score >= 40:
-        return "40-59点"
-    return "39点以下"
+def read_sheet_rows(wb, sheet_name, header_row, data_start):
+    ws = wb[sheet_name]
+    headers = [str(v) if v is not None else "" for v in next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=True))]
+    for row in ws.iter_rows(min_row=data_start, values_only=True):
+        yield dict(zip(headers, row))
 
 
-def read_records():
-    wb = openpyxl.load_workbook(SOURCE, read_only=True, data_only=True, keep_vba=True)
-    ws = wb["DB_塾内テスト"]
-    headers = [str(v) if v is not None else "" for v in next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
-    records = []
-    for row in ws.iter_rows(min_row=4, values_only=True):
-        item = dict(zip(headers, row))
-        year, month = date_parts(item.get("実施年月"))
-        if year != 2026 or month != 8 or item.get("テスト名") != "前期実力テスト":
+def read_roster(wb):
+    roster = {}
+    for row in read_sheet_rows(wb, "入力_クラス一覧", 1, 2):
+        sid = str(row.get("学籍番号") or "")
+        if not sid:
             continue
-        score = to_float(item.get("点数"))
+        roster[sid] = {
+            "student_id": sid,
+            "grade": str(row.get("学年") or ""),
+            "campus": str(row.get("所属") or ""),
+            "name": str(row.get("本人氏名") or ""),
+            "kana": str(row.get("ふりがな") or ""),
+            "gender": str(row.get("性別") or ""),
+            "school": str(row.get("学校") or ""),
+            "teacher": str(row.get("担任") or ""),
+            "classes": {subject: str(row.get(subject) or "") for subject in SUBJECTS},
+            "notes": str(row.get("メモ") or ""),
+        }
+    return roster
+
+
+def read_test_records(wb):
+    records = []
+    for row in read_sheet_rows(wb, "DB_塾内テスト", 3, 4):
+        score = to_float(row.get("点数"))
         if score is None:
+            continue
+        year, month = date_parts(row.get("実施年月"))
+        if not year:
             continue
         records.append(
             {
-                "student_id": str(item.get("学籍番号") or ""),
-                "name": str(item.get("氏名") or ""),
-                "campus": str(item.get("校舎") or ""),
-                "grade": str(item.get("学年") or ""),
-                "subject": str(item.get("科目") or ""),
-                "klass": str(item.get("クラス") or ""),
-                "lesson": str(item.get("授業名") or ""),
+                "student_id": str(row.get("学籍番号") or ""),
+                "name": str(row.get("氏名") or ""),
+                "test": str(row.get("テスト名") or ""),
+                "date": date_label(row.get("実施年月")),
+                "year": year,
+                "month": month,
+                "campus": str(row.get("校舎") or ""),
+                "grade": str(row.get("学年") or ""),
+                "subject": str(row.get("科目") or ""),
+                "klass": str(row.get("クラス") or ""),
+                "lesson": str(row.get("授業名") or ""),
                 "score": score,
-                "avg": to_float(item.get("平均点")),
-                "deviation": to_float(item.get("塾内偏差値")),
-                "rank": to_float(item.get("順位")),
-                "count": to_float(item.get("人数")),
+                "deviation": to_float(row.get("塾内偏差値")),
+                "rank": to_float(row.get("順位")),
+                "count": to_float(row.get("人数")),
             }
         )
     return records
+
+
+def read_hokushin(wb):
+    rows_by_student = defaultdict(list)
+    for row in read_sheet_rows(wb, "DB_外部模試", 4, 5):
+        sid = str(row.get("学籍番号") or "")
+        test = str(row.get("テスト名") or "")
+        if not sid or "北辰" not in test:
+            continue
+        y, m = date_parts(row.get("実施日"))
+        record = {
+            "student_id": sid,
+            "name": str(row.get("氏名") or ""),
+            "test": test,
+            "date": date_label(row.get("実施日")),
+            "year": y or 0,
+            "month": m or 0,
+            "three_score": to_float(row.get("三科点")),
+            "three_dev": to_float(row.get("三科偏差")),
+            "five_score": to_float(row.get("五科点")),
+            "five_dev": to_float(row.get("五科偏差")),
+            "subjects": {},
+        }
+        for subject in SUBJECTS:
+            record["subjects"][subject] = {
+                "score": to_float(row.get(f"{subject}点")),
+                "dev": to_float(row.get(f"{subject}偏差")),
+            }
+        rows_by_student[sid].append(record)
+    latest = {}
+    for sid, items in rows_by_student.items():
+        latest[sid] = sorted(items, key=lambda r: (r["year"], r["month"], r["test"]), reverse=True)[0]
+    return latest
 
 
 def group_stats(records, keys):
@@ -111,387 +174,220 @@ def group_stats(records, keys):
     rows = []
     for key, items in groups.items():
         scores = [r["score"] for r in items]
-        rows.append(
-            {
-                **{keys[i]: key[i] for i in range(len(keys))},
-                "n": len(items),
-                "avg": mean(scores),
-                "median": median(scores),
-                "stdev": stdev(scores),
-                "max": max(scores),
-                "min": min(scores),
-                "under40": sum(1 for s in scores if s < 40),
-                "over80": sum(1 for s in scores if s >= 80),
-            }
-        )
+        rows.append({**{keys[i]: key[i] for i in range(len(keys))}, "n": len(items), "avg": mean(scores), "median": median(scores), "stdev": stdev(scores), "max": max(scores), "min": min(scores), "under40": sum(1 for s in scores if s < 40), "over80": sum(1 for s in scores if s >= 80)})
     return sorted(rows, key=lambda r: tuple(str(r[k]) for k in keys))
 
 
-def build_student_rows(records):
-    grouped = defaultdict(list)
-    for record in records:
-        grouped[(record["student_id"], record["name"], record["grade"], record["campus"])].append(record)
-
-    rows = []
-    for (student_id, name, grade, campus), items in grouped.items():
-        by_subject = {r["subject"]: r["score"] for r in items}
-        scores = list(by_subject.values())
-        if not scores:
+def find_recent_tests(records):
+    target_order = (TARGET_YEAR, TARGET_MONTH)
+    by_grade_subject = defaultdict(dict)
+    for r in records:
+        if (r["year"], r["month"]) >= target_order or r["test"] == TARGET_TEST:
             continue
-        weak_subject = min(by_subject.items(), key=lambda x: x[1])
-        strong_subject = max(by_subject.items(), key=lambda x: x[1])
-        rows.append(
-            {
-                "student_id": student_id,
-                "name": name,
-                "grade": grade,
-                "campus": campus,
-                "subjects": by_subject,
-                "total": round(sum(scores), 1),
-                "avg": round(sum(scores) / len(scores), 1),
-                "weak_subject": weak_subject[0],
-                "weak_score": weak_subject[1],
-                "strong_subject": strong_subject[0],
-                "strong_score": strong_subject[1],
-                "tested": len(scores),
+        key = (r["grade"], r["subject"])
+        by_grade_subject[key][(r["year"], r["month"], r["test"], r["date"])] = True
+    result = {}
+    for key, tests in by_grade_subject.items():
+        result[key] = sorted(tests.keys(), reverse=True)[:2]
+    return result
+
+
+def build_students(records, roster, hokushin):
+    current = [r for r in records if r["year"] == TARGET_YEAR and r["month"] == TARGET_MONTH and r["test"] == TARGET_TEST]
+    recent_defs = find_recent_tests(records)
+    by_student = defaultdict(list)
+    past_lookup = defaultdict(dict)
+    for r in records:
+        sid = r["student_id"]
+        if r in current:
+            by_student[sid].append(r)
+        test_key = (r["year"], r["month"], r["test"], r["date"])
+        past_lookup[(sid, r["grade"], r["subject"])][test_key] = r
+
+    students = []
+    for sid, items in by_student.items():
+        base = roster.get(sid, {})
+        name = base.get("name") or items[0]["name"]
+        grade = base.get("grade") or items[0]["grade"]
+        campus = base.get("campus") or ("本" if items[0]["campus"] == "本校" else "南" if items[0]["campus"] == "南教室" else items[0]["campus"])
+        current_by_subject = {r["subject"]: r for r in items}
+        current_scores = [r["score"] for r in current_by_subject.values()]
+        row = {
+            "student_id": sid,
+            "name": name,
+            "kana": base.get("kana", ""),
+            "grade": grade,
+            "campus": campus,
+            "school": base.get("school", ""),
+            "teacher": base.get("teacher", ""),
+            "gender": base.get("gender", ""),
+            "current_classes": base.get("classes", {}),
+            "subjects": {},
+            "current_total": round(sum(current_scores), 1),
+            "current_avg": round(sum(current_scores) / len(current_scores), 1),
+            "tested": len(current_scores),
+            "hokushin": hokushin.get(sid),
+            "flags": [],
+            "suggestion_score": 0,
+        }
+        for subject in SUBJECTS:
+            current_record = current_by_subject.get(subject)
+            subject_recent = []
+            for test_key in recent_defs.get((grade, subject), []):
+                past = past_lookup.get((sid, grade, subject), {}).get(test_key)
+                subject_recent.append({"label": f"{test_key[3]} {test_key[2]}", "score": past["score"] if past else None, "dev": past["deviation"] if past else None})
+            hs = hokushin.get(sid, {}).get("subjects", {}).get(subject, {}) if hokushin.get(sid) else {}
+            row["subjects"][subject] = {
+                "class": base.get("classes", {}).get(subject, ""),
+                "current": current_record["score"] if current_record else None,
+                "current_dev": current_record["deviation"] if current_record else None,
+                "current_rank": current_record["rank"] if current_record else None,
+                "recent": subject_recent,
+                "hokushin_score": hs.get("score"),
+                "hokushin_dev": hs.get("dev"),
             }
-        )
-    return rows
-
-
-def distribution(records):
-    groups = defaultdict(lambda: defaultdict(int))
-    for record in records:
-        groups[(record["grade"], record["campus"], record["subject"])][score_band(record["score"])] += 1
-    rows = []
-    for key, bands in groups.items():
-        total = sum(bands.values())
-        rows.append(
-            {
-                "grade": key[0],
-                "campus": key[1],
-                "subject": key[2],
-                "total": total,
-                "bands": {band: bands.get(band, 0) for band in ["80点以上", "60-79点", "40-59点", "39点以下"]},
-            }
-        )
-    return sorted(rows, key=lambda r: (r["grade"], r["campus"], r["subject"]))
-
-
-def esc(value):
-    return html.escape(str(value), quote=True)
+        low_subjects = [s for s, v in row["subjects"].items() if v["current"] is not None and v["current"] < 40]
+        high_subjects = [s for s, v in row["subjects"].items() if v["current"] is not None and v["current"] >= 80]
+        if row["current_avg"] < 50:
+            row["flags"].append("平均50未満")
+        if low_subjects:
+            row["flags"].append("40未満: " + "/".join(low_subjects))
+        if high_subjects:
+            row["flags"].append("80以上: " + "/".join(high_subjects))
+        if row["hokushin"] and row["hokushin"].get("three_dev") is not None:
+            row["suggestion_score"] = round(row["current_avg"] * 0.65 + row["hokushin"]["three_dev"] * 1.2, 1)
+        else:
+            row["suggestion_score"] = row["current_avg"]
+        students.append(row)
+    return sorted(students, key=lambda r: (r["grade"], r["campus"], -r["suggestion_score"], r["kana"], r["name"]))
 
 
 def render_table(rows, columns):
-    head = "".join(f"<th>{esc(label)}</th>" for _, label in columns)
+    thead = "".join(f"<th>{esc(label)}</th>" for _, label in columns)
     body = []
     for row in rows:
-        cells = []
-        for key, _ in columns:
-            value = row.get(key, "")
-            if isinstance(value, float):
-                value = pct(value)
-            cells.append(f"<td>{esc(value)}</td>")
-        body.append("<tr>" + "".join(cells) + "</tr>")
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+        body.append("<tr>" + "".join(f"<td>{esc(fmt(row.get(key, '')))}</td>" for key, _ in columns) + "</tr>")
+    return f"<table><thead><tr>{thead}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+
+
+def placement_cells(student):
+    cells = []
+    for subject in ["国語", "数学", "英語"]:
+        s = student["subjects"].get(subject, {})
+        recent = s.get("recent", [])
+        r1 = recent[0] if len(recent) > 0 else {}
+        r2 = recent[1] if len(recent) > 1 else {}
+        cells.extend([fmt(s.get("class")), fmt(s.get("current")), fmt(s.get("current_dev")), fmt(r1.get("score")), fmt(r2.get("score")), fmt(s.get("hokushin_dev"))])
+    hs = student.get("hokushin") or {}
+    return cells + [fmt(hs.get("test")), fmt(hs.get("three_score")), fmt(hs.get("three_dev")), fmt(hs.get("five_score")), fmt(hs.get("five_dev"))]
+
+
+def make_placement_table(students):
+    fixed = ["学年", "校舎", "学籍番号", "氏名", "学校", "担任", "現平均", "判定用", "注意"]
+    subject_cols = []
+    for subject in ["国語", "数学", "英語"]:
+        subject_cols += [f"{subject}現クラス", f"{subject}今回", f"{subject}今回偏", f"{subject}直近1", f"{subject}直近2", f"{subject}北辰偏"]
+    tail = ["北辰回", "北辰3科", "北辰3科偏", "北辰5科", "北辰5科偏"]
+    header = "".join(f"<th>{esc(x)}</th>" for x in fixed + subject_cols + tail)
+    rows = []
+    for st in students:
+        base = [st["grade"], st["campus"], st["student_id"], st["name"], st["school"], st["teacher"], fmt(st["current_avg"]), fmt(st["suggestion_score"]), " / ".join(st["flags"])]
+        rows.append("<tr data-grade=\"{}\" data-campus=\"{}\" data-search=\"{}\">{}</tr>".format(esc(st["grade"]), esc(st["campus"]), esc((st["student_id"] + " " + st["name"] + " " + st["kana"] + " " + st["school"])), "".join(f"<td>{esc(x)}</td>" for x in base + placement_cells(st))))
+    return f"<table id=\"placementTable\"><thead><tr>{header}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+
+
+def distribution(records):
+    bands = [(80, "80点以上"), (60, "60-79点"), (40, "40-59点"), (0, "39点以下")]
+    groups = defaultdict(lambda: defaultdict(int))
+    for r in records:
+        for floor, label in bands:
+            if r["score"] >= floor:
+                groups[(r["grade"], r["campus"], r["subject"])][label] += 1
+                break
+    rows = []
+    for key, counts in groups.items():
+        total = sum(counts.values())
+        rows.append({"grade": key[0], "campus": key[1], "subject": key[2], "total": total, **{label: counts.get(label, 0) for _, label in bands}})
+    return sorted(rows, key=lambda r: (r["grade"], r["campus"], r["subject"]))
 
 
 def main():
-    records = read_records()
-    student_rows = build_student_rows(records)
-    grade_stats = group_stats(records, ["grade"])
-    campus_grade_subject = group_stats(records, ["grade", "campus", "subject"])
-    class_stats = group_stats(records, ["grade", "campus", "subject", "klass"])
-    dist_rows = distribution(records)
+    wb = openpyxl.load_workbook(SOURCE, read_only=True, data_only=True, keep_vba=True)
+    roster = read_roster(wb)
+    all_records = read_test_records(wb)
+    current_records = [r for r in all_records if r["year"] == TARGET_YEAR and r["month"] == TARGET_MONTH and r["test"] == TARGET_TEST]
+    hokushin = read_hokushin(wb)
+    students = build_students(all_records, roster, hokushin)
+    concern = [s for s in students if s["flags"]]
+    subject_stats = group_stats(current_records, ["grade", "campus", "subject"])
+    class_stats = group_stats(current_records, ["grade", "campus", "subject", "klass"])
+    dist = distribution(current_records)
 
-    subjects = sorted({r["subject"] for r in records})
-    student_rank = sorted(student_rows, key=lambda r: (-r["avg"], r["grade"], r["campus"], r["name"]))
-    concern = sorted(
-        [r for r in student_rows if r["weak_score"] < 40 or r["avg"] < 50],
-        key=lambda r: (r["avg"], r["weak_score"], r["grade"], r["campus"], r["name"]),
-    )
+    payload = {"students": students, "subjectStats": subject_stats, "classStats": class_stats, "distribution": dist}
+    metrics = [("延べ件数", len(current_records), "今回テスト"), ("受験者", len(students), "1科目以上"), ("全体平均", fmt(mean([r["score"] for r in current_records])), "全学年"), ("北辰あり", sum(1 for s in students if s.get("hokushin")), "最新回を表示"), ("要確認", len(concern), "平均50未満等")]
+    metrics_html = "".join(f"<section class=\"metric\"><span>{esc(a)}</span><strong>{esc(b)}</strong><em>{esc(c)}</em></section>" for a, b, c in metrics)
+    placement_html = make_placement_table(students)
+    subject_html = render_table(subject_stats, [("grade", "学年"), ("campus", "校舎"), ("subject", "科目"), ("n", "人数"), ("avg", "平均"), ("median", "中央値"), ("stdev", "標準偏差"), ("max", "最高"), ("min", "最低"), ("under40", "40未満"), ("over80", "80以上")])
+    class_html = render_table(class_stats, [("grade", "学年"), ("campus", "校舎"), ("subject", "科目"), ("klass", "現クラス"), ("n", "人数"), ("avg", "平均"), ("median", "中央値"), ("stdev", "標準偏差"), ("max", "最高"), ("min", "最低"), ("under40", "40未満"), ("over80", "80以上")])
+    concern_html = make_placement_table(concern)
+    dist_rows = []
+    for r in dist:
+        total = r["total"] or 1
+        bar = "".join(f"<i class=\"b{i}\" style=\"width:{r[label] / total * 100:.2f}%\"></i>" for i, label in enumerate(["80点以上", "60-79点", "40-59点", "39点以下"], 1))
+        dist_rows.append(f"<tr><td>{esc(r['grade'])}</td><td>{esc(r['campus'])}</td><td>{esc(r['subject'])}</td><td>{r['total']}</td><td><div class=\"bar\">{bar}</div></td><td>{r['80点以上']}</td><td>{r['60-79点']}</td><td>{r['40-59点']}</td><td>{r['39点以下']}</td></tr>")
 
-    payload = {
-        "records": records,
-        "students": student_rows,
-        "gradeStats": grade_stats,
-        "campusGradeSubject": campus_grade_subject,
-        "classStats": class_stats,
-        "distribution": dist_rows,
-        "subjects": subjects,
-    }
-
-    cards = [
-        ("受験データ", f"{len(records):,}", "科目別の延べ件数"),
-        ("生徒数", f"{len(student_rows):,}", "1科目以上の受験者"),
-        ("全体平均", pct(mean([r["score"] for r in records])), "全学年・全科目"),
-        ("40点未満", f"{sum(1 for r in records if r['score'] < 40):,}", "延べ件数"),
-    ]
-
-    top_html = render_table(
-        student_rank[:40],
-        [
-            ("grade", "学年"),
-            ("campus", "校舎"),
-            ("student_id", "学籍番号"),
-            ("name", "氏名"),
-            ("avg", "平均"),
-            ("total", "合計"),
-            ("tested", "科目数"),
-            ("strong_subject", "最高科目"),
-            ("strong_score", "最高点"),
-            ("weak_subject", "最低科目"),
-            ("weak_score", "最低点"),
-        ],
-    )
-    concern_html = render_table(
-        concern,
-        [
-            ("grade", "学年"),
-            ("campus", "校舎"),
-            ("student_id", "学籍番号"),
-            ("name", "氏名"),
-            ("avg", "平均"),
-            ("weak_subject", "要確認科目"),
-            ("weak_score", "点数"),
-            ("tested", "科目数"),
-        ],
-    )
-    class_html = render_table(
-        class_stats,
-        [
-            ("grade", "学年"),
-            ("campus", "校舎"),
-            ("subject", "科目"),
-            ("klass", "クラス"),
-            ("n", "人数"),
-            ("avg", "平均"),
-            ("median", "中央値"),
-            ("stdev", "標準偏差"),
-            ("max", "最高"),
-            ("min", "最低"),
-            ("under40", "40未満"),
-            ("over80", "80以上"),
-        ],
-    )
-    subject_html = render_table(
-        campus_grade_subject,
-        [
-            ("grade", "学年"),
-            ("campus", "校舎"),
-            ("subject", "科目"),
-            ("n", "人数"),
-            ("avg", "平均"),
-            ("median", "中央値"),
-            ("stdev", "標準偏差"),
-            ("max", "最高"),
-            ("min", "最低"),
-            ("under40", "40未満"),
-            ("over80", "80以上"),
-        ],
-    )
-
-    dist_html = []
-    for row in dist_rows:
-        total = row["total"] or 1
-        bars = "".join(
-            f'<span class="seg seg{i}" style="width:{row["bands"][band] / total * 100:.2f}%" title="{esc(band)} {row["bands"][band]}"></span>'
-            for i, band in enumerate(["80点以上", "60-79点", "40-59点", "39点以下"], start=1)
-        )
-        dist_html.append(
-            f"<tr><td>{esc(row['grade'])}</td><td>{esc(row['campus'])}</td><td>{esc(row['subject'])}</td>"
-            f"<td>{row['total']}</td><td><div class=\"bar\">{bars}</div></td>"
-            f"<td>{row['bands']['80点以上']}</td><td>{row['bands']['60-79点']}</td>"
-            f"<td>{row['bands']['40-59点']}</td><td>{row['bands']['39点以下']}</td></tr>"
-        )
-
-    cards_html = "".join(
-        f"<section class=\"metric\"><div>{esc(label)}</div><strong>{esc(value)}</strong><span>{esc(note)}</span></section>"
-        for label, value, note in cards
-    )
-
-    html_text = f"""<!doctype html>
+    html_text = f'''<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>2026年8月 前期実力テスト分析</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --ink: #1f2937;
-      --muted: #6b7280;
-      --line: #d7dde7;
-      --bg: #f7f8fb;
-      --panel: #ffffff;
-      --blue: #2563eb;
-      --green: #138a57;
-      --yellow: #c08403;
-      --red: #cf3a3a;
-      --navy: #23324a;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif;
-      color: var(--ink);
-      background: var(--bg);
-      font-size: 14px;
-      line-height: 1.5;
-    }}
-    header {{
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
-      padding: 18px 24px 14px;
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }}
-    h1 {{ margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0; }}
-    header p {{ margin: 4px 0 0; color: var(--muted); }}
-    main {{ padding: 20px 24px 48px; max-width: 1440px; margin: 0 auto; }}
-    .metrics {{ display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }}
-    .metric {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }}
-    .metric div {{ color: var(--muted); font-size: 12px; }}
-    .metric strong {{ display: block; font-size: 26px; margin: 2px 0; }}
-    .metric span {{ color: var(--muted); font-size: 12px; }}
-    .filters {{ display: flex; flex-wrap: wrap; gap: 10px; align-items: end; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 18px; }}
-    label {{ display: grid; gap: 4px; color: var(--muted); font-size: 12px; }}
-    select, input {{ min-width: 150px; height: 34px; border: 1px solid var(--line); border-radius: 6px; padding: 0 9px; background: #fff; color: var(--ink); }}
-    input {{ min-width: 220px; }}
-    .tabs {{ display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin: 18px 0 12px; }}
-    .tab {{ border: 1px solid var(--line); border-bottom: 0; background: #eef2f7; padding: 8px 12px; border-radius: 6px 6px 0 0; cursor: pointer; color: var(--navy); }}
-    .tab.active {{ background: var(--panel); font-weight: 700; }}
-    .panel {{ display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow: auto; }}
-    .panel.active {{ display: block; }}
-    h2 {{ margin: 0 0 10px; font-size: 16px; }}
-    table {{ border-collapse: collapse; width: 100%; min-width: 900px; }}
-    th, td {{ border-bottom: 1px solid #e6eaf0; padding: 7px 8px; text-align: left; white-space: nowrap; }}
-    th {{ position: sticky; top: 92px; background: #f0f4f8; z-index: 2; font-size: 12px; color: #344054; }}
-    tbody tr:hover {{ background: #f8fbff; }}
-    td:nth-child(n+5) {{ text-align: right; }}
-    .bar {{ display: flex; height: 18px; width: 260px; border-radius: 4px; overflow: hidden; background: #e5e7eb; }}
-    .seg1 {{ background: var(--green); }}
-    .seg2 {{ background: var(--blue); }}
-    .seg3 {{ background: var(--yellow); }}
-    .seg4 {{ background: var(--red); }}
-    .legend {{ display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); margin-bottom: 10px; }}
-    .legend i {{ display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }}
-    .note {{ color: var(--muted); margin: 0 0 10px; }}
-    @media (max-width: 760px) {{
-      header {{ position: static; padding: 14px 16px; }}
-      main {{ padding: 14px 16px 32px; }}
-      .metrics {{ grid-template-columns: repeat(2, minmax(120px, 1fr)); }}
-      select, input {{ width: 100%; min-width: 0; }}
-      label {{ flex: 1 1 160px; }}
-      th {{ top: 0; }}
-    }}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2026年8月 前期実力テスト クラス替え資料</title>
+<style>
+:root {{ --ink:#172033; --muted:#637083; --line:#d7dce5; --bg:#f5f7fa; --panel:#fff; --head:#eef3f8; --blue:#2f6fdf; --green:#138a57; --yellow:#bc7a00; --red:#c43d3d; }}
+* {{ box-sizing:border-box; }} body {{ margin:0; font-family:"Yu Gothic","Meiryo",system-ui,sans-serif; color:var(--ink); background:var(--bg); font-size:13px; }}
+header {{ position:sticky; top:0; z-index:20; background:var(--panel); border-bottom:1px solid var(--line); padding:14px 18px 10px; }}
+h1 {{ margin:0; font-size:20px; letter-spacing:0; }} .meta {{ color:var(--muted); margin-top:3px; }} main {{ max-width:1600px; margin:0 auto; padding:16px 18px 44px; }}
+.metrics {{ display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:10px; margin-bottom:12px; }} .metric {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }} .metric span,.metric em {{ display:block; color:var(--muted); font-style:normal; }} .metric strong {{ display:block; font-size:24px; margin:1px 0; }}
+.filters {{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px; }} label {{ display:grid; gap:3px; color:var(--muted); }} select,input {{ height:32px; border:1px solid var(--line); border-radius:6px; padding:0 8px; background:#fff; }} input {{ min-width:260px; }}
+.tabs {{ display:flex; gap:6px; border-bottom:1px solid var(--line); margin-top:12px; }} .tab {{ border:1px solid var(--line); border-bottom:0; background:#e9eef5; padding:8px 12px; border-radius:6px 6px 0 0; cursor:pointer; }} .tab.active {{ background:var(--panel); font-weight:700; }}
+.panel {{ display:none; background:var(--panel); border:1px solid var(--line); border-top:0; padding:12px; overflow:auto; }} .panel.active {{ display:block; }} h2 {{ font-size:16px; margin:0 0 8px; }} .note {{ color:var(--muted); margin:0 0 10px; }}
+table {{ border-collapse:separate; border-spacing:0; width:100%; min-width:1200px; }} th,td {{ border-right:1px solid #e3e8ef; border-bottom:1px solid #e3e8ef; padding:6px 7px; white-space:nowrap; text-align:left; }} th {{ position:sticky; top:76px; z-index:5; background:var(--head); font-weight:700; color:#2d3748; }} td:nth-child(n+7) {{ text-align:right; }} tbody tr:hover {{ background:#f8fbff; }}
+#placementTable th:nth-child(-n+4),#placementTable td:nth-child(-n+4) {{ position:sticky; background:inherit; z-index:4; }} #placementTable th:nth-child(1),#placementTable td:nth-child(1) {{ left:0; }} #placementTable th:nth-child(2),#placementTable td:nth-child(2) {{ left:48px; }} #placementTable th:nth-child(3),#placementTable td:nth-child(3) {{ left:94px; }} #placementTable th:nth-child(4),#placementTable td:nth-child(4) {{ left:176px; }} #placementTable th:nth-child(-n+4) {{ background:var(--head); z-index:8; }}
+.bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }}
+@media print {{ header,.filters,.tabs {{ display:none; }} main {{ padding:0; }} .panel {{ display:block; border:0; }} .panel:not(.active) {{ display:none; }} th {{ position:static; }} }}
+@media (max-width:760px) {{ header {{ position:static; }} main {{ padding:12px; }} .metrics {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }} input,select {{ width:100%; }} label {{ flex:1 1 140px; }} th {{ top:0; }} }}
+</style>
 </head>
 <body>
-  <header>
-    <h1>2026年8月 前期実力テスト分析</h1>
-    <p>参照元: {esc(SOURCE.name)} / 作成: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-  </header>
-  <main>
-    <div class="metrics">{cards_html}</div>
-    <section class="filters">
-      <label>学年<select id="gradeFilter"><option value="">全て</option></select></label>
-      <label>校舎<select id="campusFilter"><option value="">全て</option></select></label>
-      <label>科目<select id="subjectFilter"><option value="">全て</option></select></label>
-      <label>氏名・学籍番号<input id="searchFilter" type="search" placeholder="検索"></label>
-    </section>
-
-    <div class="tabs">
-      <button class="tab active" data-panel="summary">全体</button>
-      <button class="tab" data-panel="subject">科目別</button>
-      <button class="tab" data-panel="class">クラス別</button>
-      <button class="tab" data-panel="students">個人一覧</button>
-      <button class="tab" data-panel="concern">要確認</button>
-      <button class="tab" data-panel="dist">分布</button>
-    </div>
-
-    <section id="summary" class="panel active">
-      <h2>学年別サマリー</h2>
-      {render_table(grade_stats, [("grade", "学年"), ("n", "延べ件数"), ("avg", "平均"), ("median", "中央値"), ("stdev", "標準偏差"), ("max", "最高"), ("min", "最低"), ("under40", "40未満"), ("over80", "80以上")])}
-    </section>
-    <section id="subject" class="panel">
-      <h2>学年・校舎・科目別</h2>
-      {subject_html}
-    </section>
-    <section id="class" class="panel">
-      <h2>クラス別</h2>
-      {class_html}
-    </section>
-    <section id="students" class="panel">
-      <h2>個人一覧 上位40名</h2>
-      <p class="note">平均点順。詳細な全件検索は下のデータからブラウザ内で絞り込めます。</p>
-      <div id="studentTable">{top_html}</div>
-    </section>
-    <section id="concern" class="panel">
-      <h2>要確認リスト</h2>
-      <p class="note">平均50点未満、または1科目でも40点未満の生徒です。</p>
-      <div id="concernTable">{concern_html}</div>
-    </section>
-    <section id="dist" class="panel">
-      <h2>点数分布</h2>
-      <div class="legend">
-        <span><i class="seg1"></i>80点以上</span><span><i class="seg2"></i>60-79点</span><span><i class="seg3"></i>40-59点</span><span><i class="seg4"></i>39点以下</span>
-      </div>
-      <table><thead><tr><th>学年</th><th>校舎</th><th>科目</th><th>人数</th><th>分布</th><th>80以上</th><th>60-79</th><th>40-59</th><th>39以下</th></tr></thead><tbody>{''.join(dist_html)}</tbody></table>
-    </section>
-  </main>
-  <script id="payload" type="application/json">{json.dumps(payload, ensure_ascii=False)}</script>
-  <script>
-    const data = JSON.parse(document.getElementById('payload').textContent);
-    const filters = {{
-      grade: document.getElementById('gradeFilter'),
-      campus: document.getElementById('campusFilter'),
-      subject: document.getElementById('subjectFilter'),
-      search: document.getElementById('searchFilter')
-    }};
-    function fill(select, values) {{
-      [...new Set(values.filter(Boolean))].sort().forEach(v => {{
-        const opt = document.createElement('option');
-        opt.value = v; opt.textContent = v; select.appendChild(opt);
-      }});
-    }}
-    fill(filters.grade, data.records.map(r => r.grade));
-    fill(filters.campus, data.records.map(r => r.campus));
-    fill(filters.subject, data.records.map(r => r.subject));
-    document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => {{
-      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(btn.dataset.panel).classList.add('active');
-    }}));
-    function table(rows) {{
-      const cols = ['grade','campus','student_id','name','avg','total','tested','strong_subject','strong_score','weak_subject','weak_score'];
-      const labels = ['学年','校舎','学籍番号','氏名','平均','合計','科目数','最高科目','最高点','最低科目','最低点'];
-      return '<table><thead><tr>' + labels.map(x => `<th>${{x}}</th>`).join('') + '</tr></thead><tbody>' +
-        rows.map(r => '<tr>' + cols.map(c => `<td>${{r[c] ?? ''}}</td>`).join('') + '</tr>').join('') + '</tbody></table>';
-    }}
-    function applyFilters() {{
-      const q = filters.search.value.trim();
-      let rows = data.students.filter(r =>
-        (!filters.grade.value || r.grade === filters.grade.value) &&
-        (!filters.campus.value || r.campus === filters.campus.value) &&
-        (!q || r.name.includes(q) || r.student_id.includes(q)) &&
-        (!filters.subject.value || Object.prototype.hasOwnProperty.call(r.subjects, filters.subject.value))
-      ).sort((a,b) => b.avg - a.avg);
-      document.getElementById('studentTable').innerHTML = table(rows);
-      const concern = rows.filter(r => r.weak_score < 40 || r.avg < 50).sort((a,b) => a.avg - b.avg);
-      document.getElementById('concernTable').innerHTML = table(concern);
-    }}
-    Object.values(filters).forEach(el => el.addEventListener('input', applyFilters));
-  </script>
+<header><h1>2026年8月 前期実力テスト クラス替え資料</h1><div class="meta">参照元: {esc(SOURCE.name)} / 作成: {datetime.now().strftime('%Y-%m-%d %H:%M')} / 直近2回は今回より前の同学年・同科目から自動取得</div></header>
+<main>
+<div class="metrics">{metrics_html}</div>
+<section class="filters"><label>学年<select id="gradeFilter"><option value="">全て</option></select></label><label>校舎<select id="campusFilter"><option value="">全て</option></select></label><label>検索<input id="searchFilter" type="search" placeholder="氏名・ふりがな・学籍番号・学校"></label></section>
+<div class="tabs"><button class="tab active" data-panel="placement">クラス替え資料</button><button class="tab" data-panel="concern">要確認</button><button class="tab" data-panel="subject">科目別</button><button class="tab" data-panel="class">現クラス別</button><button class="tab" data-panel="dist">分布</button></div>
+<section id="placement" class="panel active"><h2>クラス替え資料</h2><p class="note">判定用は今回平均を基準に、北辰3科偏差値がある場合だけ加味した参考値です。実際のクラス判断は科目別の今回点・直近2回・北辰偏差値・学校/担任情報を合わせて確認してください。</p>{placement_html}</section>
+<section id="concern" class="panel"><h2>要確認</h2><p class="note">平均50未満、40点未満科目、または80点以上科目がある生徒を抽出しています。</p>{concern_html}</section>
+<section id="subject" class="panel"><h2>学年・校舎・科目別</h2>{subject_html}</section>
+<section id="class" class="panel"><h2>現クラス別</h2>{class_html}</section>
+<section id="dist" class="panel"><h2>点数分布</h2><table><thead><tr><th>学年</th><th>校舎</th><th>科目</th><th>人数</th><th>分布</th><th>80以上</th><th>60-79</th><th>40-59</th><th>39以下</th></tr></thead><tbody>{''.join(dist_rows)}</tbody></table></section>
+</main>
+<script id="payload" type="application/json">{json.dumps(payload, ensure_ascii=False)}</script>
+<script>
+const data = JSON.parse(document.getElementById('payload').textContent);
+const gradeFilter = document.getElementById('gradeFilter');
+const campusFilter = document.getElementById('campusFilter');
+const searchFilter = document.getElementById('searchFilter');
+function addOptions(select, values) {{ [...new Set(values.filter(Boolean))].sort().forEach(v => {{ const o=document.createElement('option'); o.value=v; o.textContent=v; select.appendChild(o); }}); }}
+addOptions(gradeFilter, data.students.map(s => s.grade)); addOptions(campusFilter, data.students.map(s => s.campus));
+document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => {{ document.querySelectorAll('.tab').forEach(x => x.classList.remove('active')); document.querySelectorAll('.panel').forEach(x => x.classList.remove('active')); button.classList.add('active'); document.getElementById(button.dataset.panel).classList.add('active'); applyFilters(); }}));
+function applyFilters() {{ const g=gradeFilter.value; const c=campusFilter.value; const q=searchFilter.value.trim(); document.querySelectorAll('tbody tr[data-grade]').forEach(row => {{ const ok=(!g || row.dataset.grade===g) && (!c || row.dataset.campus===c) && (!q || row.dataset.search.includes(q)); row.classList.toggle('hidden-row', !ok); }}); }}
+[gradeFilter,campusFilter,searchFilter].forEach(x => x.addEventListener('input', applyFilters)); applyFilters();
+</script>
 </body>
-</html>
-"""
+</html>'''
     OUTPUT_DIR.mkdir(exist_ok=True)
     OUTPUT.write_text(html_text, encoding="utf-8")
     print(OUTPUT)
-    print(f"records={len(records)} students={len(student_rows)} concerns={len(concern)}")
+    print(f"records={len(current_records)} students={len(students)} hokushin={sum(1 for s in students if s.get('hokushin'))} concerns={len(concern)}")
 
 
 if __name__ == "__main__":
