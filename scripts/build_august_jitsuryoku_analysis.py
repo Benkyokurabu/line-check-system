@@ -165,7 +165,11 @@ def read_hokushin(wb):
         rows_by_student[sid].append(record)
     latest = {}
     for sid, items in rows_by_student.items():
-        latest[sid] = sorted(items, key=lambda r: (r["year"], r["month"], r["test"]), reverse=True)[0]
+        latest_item = sorted(items, key=lambda r: (r["year"], r["month"], r["test"]), reverse=True)[0]
+        grade3_items = [r for r in items if "中３" in r["test"] or "中3" in r["test"]]
+        latest_item["grade3_three_dev_avg"] = mean([r.get("three_dev") for r in grade3_items])
+        latest_item["grade3_five_dev_avg"] = mean([r.get("five_dev") for r in grade3_items])
+        latest[sid] = latest_item
     return latest
 
 
@@ -304,12 +308,17 @@ def build_students(records, roster, hokushin, report_cards):
             row["flags"].append("40未満: " + "/".join(low_subjects))
         if high_subjects:
             row["flags"].append("80以上: " + "/".join(high_subjects))
-        if row["hokushin"] and row["hokushin"].get("three_dev") is not None:
-            row["suggestion_score"] = round(row["current_avg"] * 0.65 + row["hokushin"]["three_dev"] * 1.2, 1)
-        else:
-            row["suggestion_score"] = row["current_avg"]
+        current_three = [row["subjects"].get(subject, {}).get("current") for subject in PLACEMENT_SUBJECTS]
+        recent_three = []
+        for subject in PLACEMENT_SUBJECTS:
+            subject_data = row["subjects"].get(subject, {})
+            recent_three.append(subject_data.get("current"))
+            recent_three.extend(item.get("score") for item in subject_data.get("recent", []))
+        row["current_three_total"] = round(sum(v for v in current_three if v is not None), 1) if any(v is not None for v in current_three) else None
+        row["recent_three_total"] = round(sum(v for v in recent_three if v is not None), 1) if any(v is not None for v in recent_three) else None
+        row["suggestion_score"] = row["current_three_total"] or 0
         students.append(row)
-    return sorted(students, key=lambda r: (r["grade"], r["campus"], -r["suggestion_score"], r["kana"], r["name"]))
+    return sorted(students, key=lambda r: (r["grade"], r["campus"], -(r.get("current_three_total") or 0), r["kana"], r["name"]))
 
 
 def render_table(rows, columns):
@@ -379,9 +388,7 @@ def placement_cells(student):
         [
             {"value": fmt(hs.get("test"))},
             {"value": fmt(hs.get("three_score")), "sort": hs.get("three_score")},
-            {"value": fmt(hs.get("three_dev")), "sort": hs.get("three_dev")},
             {"value": fmt(hs.get("five_score")), "sort": hs.get("five_score")},
-            {"value": fmt(hs.get("five_dev")), "sort": hs.get("five_dev")},
             {"value": '<textarea class="student-note" placeholder="メモ"></textarea>', "html": True, "class": "memo-cell"},
         ]
     )
@@ -419,11 +426,11 @@ def make_th(label, subject=None, class_name=None):
 def make_placement_table(students, table_id="placementTable"):
     left = ["学年", "校舎", "学籍番号", "氏名"]
     report_cols = ["通知表1", "通知表2", "通知表3"]
-    fixed = ["学校", "担任", "現平均", "判定用", "注意"]
+    fixed = ["学校", "担任", "今回3科合計", "直近込み3回合計", "北辰3科偏差値(直近)", "中3北辰3科平均", "北辰5科偏差値(直近)", "中3北辰5科平均", "注意"]
     subject_cols = []
     for subject in PLACEMENT_SUBJECTS:
         subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}実力テスト", f"{subject}実力偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}3回合計", f"{subject}北辰偏"]
-    tail = ["北辰回", "北辰3科", "北辰3科偏", "北辰5科", "北辰5科偏", "自由入力"]
+    tail = ["北辰回", "北辰3科", "北辰5科", "自由入力"]
     header = "".join(make_th(x) for x in left) + "".join(make_th(x, class_name="report-cell") for x in report_cols) + "".join(make_th(x) for x in fixed)
     header += "".join(make_th(label, subject) for subject in PLACEMENT_SUBJECTS for label in [f"{subject}現クラス", f"{subject}変更案", f"{subject}実力テスト", f"{subject}実力偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}3回合計", f"{subject}北辰偏"])
     header += "".join(make_th(x) for x in tail)
@@ -435,11 +442,16 @@ def make_placement_table(students, table_id="placementTable"):
             {"value": st["student_id"]},
             {"value": st["name"]},
         ]
+        hs = st.get("hokushin") or {}
         base_rest = [
             {"value": st["school"]},
             {"value": st["teacher"]},
-            {"value": fmt(st["current_avg"]), "sort": st["current_avg"]},
-            {"value": fmt(st["suggestion_score"]), "sort": st["suggestion_score"]},
+            {"value": fmt(st.get("current_three_total")), "sort": st.get("current_three_total")},
+            {"value": fmt(st.get("recent_three_total")), "sort": st.get("recent_three_total")},
+            {"value": fmt(hs.get("three_dev")), "sort": hs.get("three_dev")},
+            {"value": fmt(hs.get("grade3_three_dev_avg")), "sort": hs.get("grade3_three_dev_avg")},
+            {"value": fmt(hs.get("five_dev")), "sort": hs.get("five_dev")},
+            {"value": fmt(hs.get("grade3_five_dev_avg")), "sort": hs.get("grade3_five_dev_avg")},
             {"value": " / ".join(st["flags"])},
         ]
         search = st["student_id"] + " " + st["name"] + " " + st["kana"] + " " + st["school"]
