@@ -249,9 +249,9 @@ export default function AttendancePage() {
   }
 
   async function analyze() {
-    setBusy(true); setMessage("未解析LINEを解析しています...");
+    setBusy(true); setMessage("直近10分の未解析LINEを解析しています...");
     try {
-      const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
+      const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10, lookback_minutes: 10 }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
       setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、失敗${body.failed}件です。`);
@@ -267,7 +267,7 @@ export default function AttendancePage() {
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
-      <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "未解析を今すぐ解析"}</button>
+      <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "直近LINEを今すぐ解析"}</button>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去pendingを非表示" : "過去pendingも表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(event.target.value === "none" ? "none" : Number(event.target.value) as HistoryDays)}><option value="none">しない</option><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>

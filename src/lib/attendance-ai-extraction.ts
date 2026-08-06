@@ -148,10 +148,14 @@ function parseAttendanceLimit(value: unknown) {
   return Math.min(Math.max(Number.isFinite(numericValue) ? numericValue : 10, 1), 30);
 }
 
-export async function processPendingAttendanceMessages(input: { limit?: unknown } = {}) {
+export async function processPendingAttendanceMessages(input: { limit?: unknown; lookbackMinutes?: unknown } = {}) {
   const limit = parseAttendanceLimit(input.limit);
+  const rawLookbackMinutes = Number(input.lookbackMinutes);
+  const lookbackMinutes = Number.isFinite(rawLookbackMinutes) && rawLookbackMinutes > 0
+    ? Math.min(Math.max(rawLookbackMinutes, 1), ATTENDANCE_LOOKBACK_HOURS * 60)
+    : ATTENDANCE_LOOKBACK_HOURS * 60;
   const supabase = createSupabaseAdminClient();
-  const since = new Date(Date.now() - ATTENDANCE_LOOKBACK_HOURS * 3600000).toISOString();
+  const since = new Date(Date.now() - lookbackMinutes * 60000).toISOString();
   const [{ data: messages, error: messagesError }, { data: roster, error: rosterError }] = await Promise.all([
     supabase.rpc("claim_unreviewed_attendance_line_messages", { p_limit: limit, p_since: since }),
     supabase.from("student_roster").select("student_number,student_name,grade,campus"),
