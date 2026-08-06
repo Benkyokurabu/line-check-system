@@ -35,6 +35,8 @@ type AiAttendance = {
   items?: AiAttendanceItem[];
 };
 
+const ATTENDANCE_AI_CONCURRENCY = 3;
+
 async function extractWithAi(input: { text: string; receivedAt: string; displayName: string | null }) {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error("GROQ_API_KEY is not configured");
@@ -69,6 +71,79 @@ async function extractWithAi(input: { text: string; receivedAt: string; displayN
   return JSON.parse(content) as AiAttendance;
 }
 
+type AttendanceLineMessage = {
+  id: string;
+  text?: string | null;
+  received_at?: string | null;
+  created_at?: string | null;
+  display_name?: string | null;
+};
+
+type RosterRow = {
+  student_number: string | null;
+  student_name: string | null;
+  grade: string | null;
+  campus: string | null;
+};
+
+async function processAttendanceMessage(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  message: AttendanceLineMessage;
+  roster: RosterRow[];
+}) {
+  const { supabase, message, roster } = input;
+  try {
+    const ai = await extractWithAi({
+      text: String(message.text ?? ""),
+      receivedAt: String(message.received_at ?? message.created_at),
+      displayName: typeof message.display_name === "string" ? message.display_name : null,
+    });
+    if (!ai.is_attendance) {
+      await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "ignored" });
+      return "ignored" as const;
+    }
+    const items = normalizeAttendanceItems(ai);
+    const firstItem = items[0];
+    const student = ai.student_name
+      ? roster.find((row) => normalizeAttendanceText(String(row.student_name)) === normalizeAttendanceText(ai.student_name!))
+      : null;
+    const confidence = Math.max(0, Math.min(1, Number(ai.confidence) || 0));
+    const { data: candidate, error: insertError } = await supabase.from("attendance_candidates").insert({
+      source_message_id: message.id,
+      student_number: student?.student_number ?? null,
+      suggested_student_name: ai.student_name ?? null,
+      event_type: firstItem?.event_type ?? attendanceEventType(ai.event_type),
+      event_date: firstItem?.event_date ?? null,
+      suggested_subject: firstItem?.suggested_subject ?? ai.subject ?? null,
+      suggested_class_name: firstItem?.suggested_class_name ?? ai.class_name ?? null,
+      ai_summary: firstItem?.ai_summary ?? ai.summary ?? null,
+      ai_confidence: confidence,
+      ai_reason: ai.reason ?? null,
+      raw_ai_result: ai,
+    }).select("id").single();
+    if (insertError) throw insertError;
+    if (items.length > 0) {
+      const { error: itemError } = await supabase.from("attendance_candidate_items").insert(items.map((item) => ({
+        candidate_id: candidate.id,
+        event_type: item.event_type,
+        event_date: item.event_date,
+        suggested_subject: item.suggested_subject,
+        suggested_class_name: item.suggested_class_name,
+        ai_summary: item.ai_summary,
+      })));
+      if (itemError) throw itemError;
+    }
+    await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "candidate" });
+    return "candidate" as const;
+  } catch (cause) {
+    await supabase.from("attendance_message_reviews").upsert({
+      message_id: message.id,
+      result: "failed",
+      error_message: cause instanceof Error ? cause.message.slice(0, 500) : String(cause).slice(0, 500),
+    });
+    return "failed" as const;
+  }
+}
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const limit = Math.min(Math.max(Number(body.limit) || 10, 1), 30);
@@ -80,62 +155,21 @@ export async function POST(request: Request) {
   ]);
   if (messagesError) return NextResponse.json({ error: messagesError.message }, { status: 500 });
   if (rosterError) return NextResponse.json({ error: rosterError.message }, { status: 500 });
-  const targets = messages ?? [];
+  const targets = (messages ?? []) as AttendanceLineMessage[];
   let candidates = 0;
   let ignored = 0;
   let failed = 0;
-  for (const message of targets) {
-    try {
-      const ai = await extractWithAi({
-        text: String(message.text ?? ""),
-        receivedAt: String(message.received_at ?? message.created_at),
-        displayName: typeof message.display_name === "string" ? message.display_name : null,
-      });
-      if (!ai.is_attendance) {
-        await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "ignored" });
-        ignored += 1;
-        continue;
-      }
-      const items = normalizeAttendanceItems(ai);
-      const firstItem = items[0];
-      const student = ai.student_name
-        ? (roster ?? []).find((row) => normalizeAttendanceText(String(row.student_name)) === normalizeAttendanceText(ai.student_name!))
-        : null;
-      const confidence = Math.max(0, Math.min(1, Number(ai.confidence) || 0));
-      const { data: candidate, error: insertError } = await supabase.from("attendance_candidates").insert({
-        source_message_id: message.id,
-        student_number: student?.student_number ?? null,
-        suggested_student_name: ai.student_name ?? null,
-        event_type: firstItem?.event_type ?? attendanceEventType(ai.event_type),
-        event_date: firstItem?.event_date ?? null,
-        suggested_subject: firstItem?.suggested_subject ?? ai.subject ?? null,
-        suggested_class_name: firstItem?.suggested_class_name ?? ai.class_name ?? null,
-        ai_summary: firstItem?.ai_summary ?? ai.summary ?? null,
-        ai_confidence: confidence,
-        ai_reason: ai.reason ?? null,
-        raw_ai_result: ai,
-      }).select("id").single();
-      if (insertError) throw insertError;
-      if (items.length > 0) {
-        const { error: itemError } = await supabase.from("attendance_candidate_items").insert(items.map((item) => ({
-          candidate_id: candidate.id,
-          event_type: item.event_type,
-          event_date: item.event_date,
-          suggested_subject: item.suggested_subject,
-          suggested_class_name: item.suggested_class_name,
-          ai_summary: item.ai_summary,
-        })));
-        if (itemError) throw itemError;
-      }
-      await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "candidate" });
-      candidates += 1;
-    } catch (cause) {
-      await supabase.from("attendance_message_reviews").upsert({
-        message_id: message.id,
-        result: "failed",
-        error_message: cause instanceof Error ? cause.message.slice(0, 500) : String(cause).slice(0, 500),
-      });
-      failed += 1;
+  for (let index = 0; index < targets.length; index += ATTENDANCE_AI_CONCURRENCY) {
+    const batch = targets.slice(index, index + ATTENDANCE_AI_CONCURRENCY);
+    const results = await Promise.all(batch.map((message) => processAttendanceMessage({
+      supabase,
+      message,
+      roster: roster ?? [],
+    })));
+    for (const result of results) {
+      if (result === "candidate") candidates += 1;
+      if (result === "ignored") ignored += 1;
+      if (result === "failed") failed += 1;
     }
   }
   return NextResponse.json({ ok: true, processed: targets.length, candidates, ignored, failed });

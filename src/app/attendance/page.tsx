@@ -396,7 +396,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
       <label style={fieldStyle}>種別<select style={inputStyle} value={eventType} onChange={(event) => setEventType(event.target.value)}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <label style={fieldStyle}>校舎<select style={inputStyle} value={effectiveCampus} onChange={(event) => { setCampus(event.target.value); setLessonId(""); }}><option value="">校舎すべて</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
       <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(reason) ? reason : ""} onChange={(event) => { if (event.target.value) setReason(event.target.value); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} /></div></label>
-      <label style={fieldStyle}>到着予定時刻<input style={inputStyle} value={arrivalExpectedTime} disabled={eventType !== "late"} onChange={(event) => setArrivalExpectedTime(event.target.value)} placeholder="例: 19:10" /></label>
+      
     </div>
     <div style={{ display: "grid", gap: 6 }}>
       <span style={{ fontWeight: 700 }}>授業</span>
@@ -405,10 +405,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: lesson.id === lessonId ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === lessonId ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
       </div>)}
     </div>
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
-      <label style={fieldStyle}>教室向けメモ<input style={inputStyle} value={noteForClassroom} onChange={(event) => setNoteForClassroom(event.target.value)} placeholder="教室PCに出してよい補足だけ" /></label>
-      <label style={fieldStyle}>内部メモ<textarea style={{ ...inputStyle, minHeight: 72, resize: "vertical" }} value={noteInternal} onChange={(event) => setNoteInternal(event.target.value)} placeholder="教室PCには表示しないメモ" /></label>
-    </div>
+    
     {message && <p style={{ color: message.includes("保存しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{message}</p>}
     <div><button type="button" style={buttonStyle} disabled={saving} onClick={saveManualEvent}>{saving ? "保存中..." : "確定データとして保存"}</button></div>
   </section>;
@@ -565,7 +562,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
             <label style={fieldStyle}>種別<select style={inputStyle} value={draft.event_type} onChange={(e) => setDraft((d) => ({ ...d, event_type: e.target.value }))}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label style={fieldStyle}>校舎<select style={inputStyle} value={effectiveCampus} onChange={(e) => setDraft((d) => ({ ...d, campus: e.target.value, lesson_id: "" }))}><option value="">校舎すべて</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
             <label style={fieldStyle}>理由<input style={inputStyle} value={draft.reason} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} /></label>
-            <label style={fieldStyle}>到着予定時刻<input style={inputStyle} value={draft.arrival_expected_time} disabled={draft.event_type !== "late"} onChange={(e) => setDraft((d) => ({ ...d, arrival_expected_time: e.target.value }))} /></label>
+            
           </div>
           <div style={{ display: "grid", gap: 6 }}>
             <span style={{ fontWeight: 700 }}>授業</span>
@@ -574,10 +571,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: lesson.id === draft.lesson_id ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === draft.lesson_id ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
             </div>)}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
-            <label style={fieldStyle}>教室向けメモ<input style={inputStyle} value={draft.note_for_classroom} onChange={(e) => setDraft((d) => ({ ...d, note_for_classroom: e.target.value }))} /></label>
-            <label style={fieldStyle}>内部メモ<textarea style={{ ...inputStyle, minHeight: 72, resize: "vertical" }} value={draft.note_internal} onChange={(e) => setDraft((d) => ({ ...d, note_internal: e.target.value }))} /></label>
-          </div>
+          
           <div style={{ display: "flex", gap: 8 }}><button type="button" style={buttonStyle} onClick={() => void saveEdit()}>保存してNotion反映</button><button type="button" style={ghostButtonStyle} onClick={() => setEditingId(null)}>閉じる</button></div>
         </div>}
       </div>)}
@@ -892,11 +886,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
             <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={registered} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={registered} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
             <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={registered || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "160px minmax(0,1fr)", gap: 8 }}>
-            <label style={fieldStyle}>到着予定時刻<input style={inputStyle} value={item.arrival_expected_time} disabled={registered || item.event_type !== "late"} onChange={(event) => updateItem(item.client_id, { arrival_expected_time: event.target.value })} placeholder="例: 19:10" /></label>
-            <label style={fieldStyle}>教室向けメモ<input style={inputStyle} value={item.note_for_classroom} disabled={registered} onChange={(event) => updateItem(item.client_id, { note_for_classroom: event.target.value })} placeholder="教室PCに出してよい補足だけ" /></label>
-          </div>
-          <label style={fieldStyle}>内部メモ<textarea style={{ ...inputStyle, minHeight: 72, resize: "vertical" }} value={item.note_internal} disabled={registered} onChange={(event) => updateItem(item.client_id, { note_internal: event.target.value })} placeholder="教室PCには表示しないメモ" /></label>
+          
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {currentLesson?.label ?? "授業未選択"}</div>
           <div style={{ display: "grid", gap: 6 }}>
             {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
