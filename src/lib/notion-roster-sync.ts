@@ -294,6 +294,20 @@ function targetRosterRow(excel: ExcelStudentRow | undefined) {
     updated_at: new Date().toISOString(),
   };
 }
+function targetRosterRowFromNotion(notion: SyncStudent | undefined) {
+  if (!notion) return null;
+  return {
+    student_number: notion.student_number,
+    grade: notion.grade || "未設定",
+    student_name: notion.student_name,
+    homeroom_teacher: notion.homeroom_teacher || "未設定",
+    campus: notion.campus || null,
+    school_name: notion.school_name || null,
+    gender: notion.gender || null,
+    source_file: "Notion生徒情報DB",
+    updated_at: new Date().toISOString(),
+  } satisfies ExcelStudentRow;
+}
 
 async function readAppRows(supabase: SupabaseClient, threshold = currentStudentNumberThreshold()) {
   const [studentsResult, enrollmentsResult] = await Promise.all([
@@ -396,13 +410,13 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
       candidates.push({
         student_number: studentNumber,
         kind: notion ? "notion_only" : "app_only",
-        severity: "review",
-        selected_by_default: false,
-        can_apply: false,
+        severity: notion ? "apply" : "review",
+        selected_by_default: Boolean(notion && !appRow),
+        can_apply: Boolean(notion),
         notion: notion ?? null,
         excel: null,
         app: summarizeRow(appRow ?? null, classLabels(appClassRows)),
-        changes: [notion ? "Notionにはありますが、クラス一覧Excelにありません" : "アプリ側にはありますが、Notion/Excelにありません"],
+        changes: [notion ? "Notionにはありますが、クラス一覧Excelにありません。Notion情報でアプリ側名簿へ登録できます" : "アプリ側にはありますが、Notion/Excelにありません"],
       });
       continue;
     }
@@ -567,6 +581,8 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   const selected = [...new Set(studentNumbers.map(normalizeStudentNumber).filter((studentNumber) => studentNumber && isTargetStudentNumber(studentNumber, threshold)))];
   if (selected.length === 0) throw new Error(`反映対象の生徒が選択されていません。対象は学籍番号 ${threshold} より大きい生徒です`);
 
+  const notionResult = await fetchNotionStudents(threshold);
+  const notionByNumber = new Map(notionResult.students.map((row) => [row.student_number, row]));
   const files = listRosterExcelFiles(root);
   const excel = files.length > 0 ? readRosterExcelRowsForSync(files, root, threshold) : importedRosterFromAppRows(await readAppRows(supabase, threshold));
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
@@ -574,23 +590,28 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   const enrollmentsByNumber = mapByStudent(excel.enrollments as ExcelEnrollmentRow[]);
 
   const rosterRows = selected
-    .map((studentNumber) => targetRosterRow(excelByNumber.get(studentNumber)))
+    .map((studentNumber) => targetRosterRow(excelByNumber.get(studentNumber)) ?? targetRosterRowFromNotion(notionByNumber.get(studentNumber)))
     .filter((row): row is ExcelStudentRow => Boolean(row));
-  if (rosterRows.length === 0) throw new Error("選択した生徒はクラス一覧Excelに見つかりませんでした");
+  if (rosterRows.length === 0) throw new Error("選択した生徒はクラス一覧Excel/Notion生徒情報に見つかりませんでした");
 
   const { error: rosterError } = await supabase
     .from("student_roster")
     .upsert(rosterRows, { onConflict: "student_number" });
   if (rosterError) throw new Error(rosterError.message);
 
-  const selectedWithRoster = rosterRows.map((row) => row.student_number);
-  const deleteResult = await supabase
-    .from("student_class_enrollments")
-    .delete()
-    .in("student_number", selectedWithRoster);
-  if (deleteResult?.error) throw new Error(deleteResult.error.message);
+  const selectedWithExcelRoster = rosterRows
+    .map((row) => row.student_number)
+    .filter((studentNumber) => excelByNumber.has(studentNumber));
 
-  const enrollmentRows = selectedWithRoster.flatMap((studentNumber) => enrollmentsByNumber.get(studentNumber) ?? []);
+  if (selectedWithExcelRoster.length > 0) {
+    const deleteResult = await supabase
+      .from("student_class_enrollments")
+      .delete()
+      .in("student_number", selectedWithExcelRoster);
+    if (deleteResult?.error) throw new Error(deleteResult.error.message);
+  }
+
+  const enrollmentRows = selectedWithExcelRoster.flatMap((studentNumber) => enrollmentsByNumber.get(studentNumber) ?? []);
   if (enrollmentRows.length > 0) {
     const { error: enrollmentError } = await supabase
       .from("student_class_enrollments")
