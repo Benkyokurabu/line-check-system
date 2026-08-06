@@ -18,7 +18,7 @@ TARGET_MONTH = 8
 TARGET_TEST = "前期実力テスト"
 SUBJECTS = ["国語", "数学", "英語", "理科", "社会"]
 PLACEMENT_SUBJECTS = ["国語", "数学", "英語"]
-REPORT_SUBJECTS = ["国語", "社会", "数学", "理科", "英語", "５科", "９科"]
+REPORT_SUBJECTS = ["国語", "社会", "数学", "理科", "音楽", "美術", "体育", "技家", "英語", "５科", "９科"]
 
 
 def to_float(value):
@@ -336,7 +336,7 @@ def report_summary_html(card):
     if not values:
         return f'<span class="report-label">{esc(card.get("label", ""))}</span> -'
     parts = []
-    short = {"国語": "国", "社会": "社", "数学": "数", "理科": "理", "英語": "英", "５科": "5科", "９科": "9科"}
+    short = {"国語": "国", "社会": "社", "数学": "数", "理科": "理", "音楽": "音", "美術": "美", "体育": "体", "技家": "技", "英語": "英", "５科": "5科", "９科": "9科"}
     for subject in REPORT_SUBJECTS:
         value = values.get(subject)
         subject_attr = f' data-subject-cell="{esc(subject)}"' if subject in PLACEMENT_SUBJECTS else ""
