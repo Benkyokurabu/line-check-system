@@ -380,13 +380,6 @@ function StudentPicker({ label, students, value, onChange, query, onQueryChange,
     </select>
   </div></label>;
 }
-function relationLabel(value: string) {
-  if (value === "student") return "本人";
-  if (value === "mother") return "母";
-  if (value === "father") return "父";
-  return "保護者";
-}
-
 function aliasForStudent(student: Student | LineLinkSuggestion | null, relation: string) {
   if (!student) return "";
   const base = `${student.campus?.includes("南") ? "南" : "本"}　${student.student_name.normalize("NFKC").replace(/[\s　]/g, "")}`;
@@ -404,46 +397,71 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
   onChanged: () => Promise<void>;
   setMessage: (value: string) => void;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, { student_number: string; relation: string; query: string }>>({});
+  type LinkDraft = { student_number: string; relation: string; query: string; display_name: string; extra_student_numbers: string[]; extra_query: string };
+  const [drafts, setDrafts] = useState<Record<string, LinkDraft>>({});
   const [savingLineUserId, setSavingLineUserId] = useState<string | null>(null);
 
-  function draftFor(candidate: LineLinkCandidate) {
+  function draftFor(candidate: LineLinkCandidate): LinkDraft {
     return drafts[candidate.line_user_id] ?? {
       student_number: candidate.default_student_number,
       relation: candidate.default_relation || "mother",
       query: candidate.suggestions[0]?.student_name ?? candidate.suggested_names[0] ?? candidate.display_name ?? "",
+      display_name: candidate.display_name ?? "",
+      extra_student_numbers: [],
+      extra_query: "",
     };
   }
 
-  function updateDraft(lineUserId: string, patch: Partial<{ student_number: string; relation: string; query: string }>) {
+  function updateDraft(lineUserId: string, patch: Partial<LinkDraft>) {
     setDrafts((current) => {
-      const currentDraft = current[lineUserId] ?? { student_number: "", relation: "mother", query: "" };
+      const currentDraft = current[lineUserId] ?? { student_number: "", relation: "mother", query: "", display_name: "", extra_student_numbers: [], extra_query: "" };
       return { ...current, [lineUserId]: { ...currentDraft, ...patch } };
     });
   }
 
+  function selectedStudents(draft: LinkDraft) {
+    const numbers = [draft.student_number, ...draft.extra_student_numbers].filter(Boolean);
+    return [...new Set(numbers)].map((studentNumber) => students.find((student) => student.student_number === studentNumber)).filter((student): student is Student => Boolean(student));
+  }
+
+  function addSibling(candidate: LineLinkCandidate, studentNumber: string) {
+    if (!studentNumber) return;
+    const draft = draftFor(candidate);
+    if (studentNumber === draft.student_number || draft.extra_student_numbers.includes(studentNumber)) return;
+    updateDraft(candidate.line_user_id, { extra_student_numbers: [...draft.extra_student_numbers, studentNumber], extra_query: "" });
+  }
+
+  function removeSibling(candidate: LineLinkCandidate, studentNumber: string) {
+    const draft = draftFor(candidate);
+    updateDraft(candidate.line_user_id, { extra_student_numbers: draft.extra_student_numbers.filter((value) => value !== studentNumber) });
+  }
+
   async function confirmLink(candidate: LineLinkCandidate) {
     const draft = draftFor(candidate);
-    const student = students.find((item) => item.student_number === draft.student_number) ?? null;
-    if (!student) { setMessage("生徒を選択してください。"); return; }
-    const aliasName = aliasForStudent(student, draft.relation);
-    if (!window.confirm(`${candidate.display_name ?? "表示名なし"} を ${aliasName} として登録します。よろしいですか？`)) return;
+    const targets = selectedStudents(draft);
+    if (targets.length === 0) { setMessage("生徒を選択してください。"); return; }
+    const displayName = draft.display_name.trim();
+    const aliasNames = targets.map((student) => aliasForStudent(student, draft.relation));
+    if (!window.confirm(`${displayName || "表示名なし"} を ${aliasNames.join(" / ")} として登録します。よろしいですか？`)) return;
     setSavingLineUserId(candidate.line_user_id);
     try {
-      const response = await fetch(`/api/students/${encodeURIComponent(student.student_number)}/link`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          line_user_id: candidate.line_user_id,
-          relation: draft.relation,
-          alias_name: aliasName,
-          friend_display_name: candidate.display_name,
-          is_primary: false,
-        }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "LINE紐づけに失敗しました");
-      setMessage(`${aliasName} として登録しました。`);
+      for (const student of targets) {
+        const aliasName = aliasForStudent(student, draft.relation);
+        const response = await fetch(`/api/students/${encodeURIComponent(student.student_number)}/link`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            line_user_id: candidate.line_user_id,
+            relation: draft.relation,
+            alias_name: aliasName,
+            friend_display_name: displayName || null,
+            is_primary: false,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error ?? "LINE紐づけに失敗しました");
+      }
+      setMessage(`${aliasNames.join(" / ")} として登録しました。`);
       await onChanged();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -460,9 +478,7 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
     {candidates.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>管理名未表示のpendingアカウントはありません。</div> : <div style={{ display: "grid", gap: 10 }}>
       {candidates.map((candidate) => {
         const draft = draftFor(candidate);
-        const selectedStudent = students.find((student) => student.student_number === draft.student_number) ?? null;
-        const selectedSuggestion = candidate.suggestions.find((student) => student.student_number === draft.student_number) ?? null;
-        const aliasName = aliasForStudent(selectedStudent ?? selectedSuggestion, draft.relation);
+        const aliasNames = selectedStudents(draft).map((student) => aliasForStudent(student, draft.relation));
         const suggestionStudents = candidate.suggestions.map((suggestion) => ({
           student_number: suggestion.student_number,
           student_name: suggestion.student_name,
@@ -470,20 +486,34 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
           campus: suggestion.campus,
           homeroom_teacher: suggestion.homeroom_teacher,
         }));
+        const siblingCandidates = students.filter((student) => student.student_number !== draft.student_number && !draft.extra_student_numbers.includes(student.student_number));
+        const extraStudents = draft.extra_student_numbers.map((studentNumber) => students.find((student) => student.student_number === studentNumber)).filter((student): student is Student => Boolean(student));
         return <div key={candidate.line_user_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, display: "grid", gap: 10, background: "white" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <strong>{candidate.display_name ?? "表示名なし"} <span style={{ color: "#777", fontSize: 12 }}>ID末尾 {candidate.line_user_id_short}</span></strong>
-              <span style={{ color: "#666", fontSize: 12 }}>pending {candidate.candidate_count}件 / 最終受信 {formatReceivedAt(candidate.latest_received_at)} / AI候補 {candidate.suggested_names.join(" / ") || "なし"}</span>
-            </div>
+          <div style={{ display: "grid", gap: 4 }}>
+            <strong>相手のLINE表示名: {candidate.display_name ?? "表示名なし"} <span style={{ color: "#777", fontSize: 12 }}>ID末尾 {candidate.line_user_id_short}</span></strong>
+            <span style={{ color: "#666", fontSize: 12 }}>判断材料: pending {candidate.candidate_count}件 / 最終受信 {formatReceivedAt(candidate.latest_received_at)} / AI候補 {candidate.suggested_names.join(" / ") || "なし"}</span>
           </div>
           <div style={{ padding: 10, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{candidate.latest_text ?? "（本文なし）"}</div>
-          {candidate.suggestions.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{candidate.suggestions.map((suggestion) => <button key={suggestion.student_number} type="button" style={draft.student_number === suggestion.student_number ? buttonStyle : ghostButtonStyle} onClick={() => updateDraft(candidate.line_user_id, { student_number: suggestion.student_number, query: suggestion.student_name })}>{suggestion.grade} {suggestion.student_name} / {suggestion.reason}</button>)}</div>}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, alignItems: "end" }}>
-            <StudentPicker label="確定する生徒" students={students} value={draft.student_number} query={draft.query} onQueryChange={(query) => updateDraft(candidate.line_user_id, { query })} onChange={(student_number) => updateDraft(candidate.line_user_id, { student_number })} candidates={suggestionStudents} />
-            <label style={fieldStyle}>関係<select style={inputStyle} value={draft.relation} onChange={(event) => updateDraft(candidate.line_user_id, { relation: event.target.value })}><option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option></select></label>
-            <label style={fieldStyle}>登録名<div style={readonlyStyle}>{aliasName || "生徒未選択"}</div></label>
-            <button type="button" style={buttonStyle} disabled={savingLineUserId === candidate.line_user_id || !draft.student_number} onClick={() => void confirmLink(candidate)}>{savingLineUserId === candidate.line_user_id ? "登録中..." : `${relationLabel(draft.relation)}として確定`}</button>
+          {candidate.suggestions.length > 0 && <div style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>生徒候補</span>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{candidate.suggestions.map((suggestion) => <button key={suggestion.student_number} type="button" style={draft.student_number === suggestion.student_number ? buttonStyle : ghostButtonStyle} onClick={() => updateDraft(candidate.line_user_id, { student_number: suggestion.student_number, query: suggestion.student_name })}>{suggestion.grade} {suggestion.student_name} / {suggestion.reason}</button>)}</div>
+          </div>}
+          <div style={{ display: "grid", gap: 8, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+            <strong>確定する内容</strong>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, alignItems: "end" }}>
+              <label style={fieldStyle}>1. 相手がLINEに表示している名前<input style={inputStyle} value={draft.display_name} onChange={(event) => updateDraft(candidate.line_user_id, { display_name: event.target.value })} placeholder="例: Shiho" /></label>
+              <StudentPicker label="2. 紐づけたい生徒" students={students} value={draft.student_number} query={draft.query} onQueryChange={(query) => updateDraft(candidate.line_user_id, { query })} onChange={(student_number) => updateDraft(candidate.line_user_id, { student_number })} candidates={suggestionStudents} />
+              <label style={fieldStyle}>関係<select style={inputStyle} value={draft.relation} onChange={(event) => updateDraft(candidate.line_user_id, { relation: event.target.value })}><option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option></select></label>
+              <label style={fieldStyle}>3. この名前で登録<div style={{ ...readonlyStyle, fontWeight: 700 }}>{aliasNames.join(" / ") || "生徒未選択"}</div></label>
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>兄弟も同じ保護者として登録する場合</span>
+              {extraStudents.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{extraStudents.map((student) => <button key={student.student_number} type="button" style={secondaryButtonStyle} onClick={() => removeSibling(candidate, student.student_number)}>{student.grade} {student.student_name} を外す</button>)}</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,1fr) auto", gap: 10, alignItems: "end" }}>
+                <StudentPicker label="追加する兄弟" students={students} value="" query={draft.extra_query} onQueryChange={(query) => updateDraft(candidate.line_user_id, { extra_query: query })} onChange={(studentNumber) => addSibling(candidate, studentNumber)} candidates={siblingCandidates} />
+                <button type="button" style={buttonStyle} disabled={savingLineUserId === candidate.line_user_id || selectedStudents(draft).length === 0} onClick={() => void confirmLink(candidate)}>{savingLineUserId === candidate.line_user_id ? "登録中..." : `選択した${selectedStudents(draft).length}名に確定`}</button>
+              </div>
+            </div>
           </div>
         </div>;
       })}
