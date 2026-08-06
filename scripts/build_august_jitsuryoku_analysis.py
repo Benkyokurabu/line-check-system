@@ -394,7 +394,7 @@ def placement_cells(student):
             {"value": fmt(hs.get("test"))},
             {"value": fmt(hs.get("three_score")), "sort": hs.get("three_score")},
             {"value": fmt(hs.get("five_score")), "sort": hs.get("five_score")},
-            {"value": '<textarea class="student-note" placeholder="メモ"></textarea>', "html": True, "class": "memo-cell"},
+            {"value": '<textarea class="student-note" data-student-note=""></textarea>', "html": True, "class": "memo-cell"},
         ]
     )
     return cells
@@ -461,7 +461,7 @@ def make_placement_table(students, table_id="placementTable"):
         ]
         search = st["student_id"] + " " + st["name"] + " " + st["kana"] + " " + st["school"]
         cells = "".join(make_td(cell) for cell in base_left + report_card_cells(st) + base_rest + placement_cells(st))
-        rows.append(f'<tr data-grade="{esc(st["grade"])}" data-campus="{esc(st["campus"])}" data-search="{esc(search)}">{cells}</tr>')
+        rows.append(f'<tr data-student-id="{esc(st["student_id"])}" data-grade="{esc(st["grade"])}" data-campus="{esc(st["campus"])}" data-search="{esc(search)}">{cells}</tr>')
     return f'<div class="table-wrap"><table id="{esc(table_id)}" class="placement-table sortable"><thead><tr>{header}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
 def distribution(records):
     bands = [(80, "80点以上"), (60, "60-79点"), (40, "40-59点"), (0, "39点以下")]
@@ -521,7 +521,7 @@ h1 {{ margin:0; font-size:20px; letter-spacing:0; }} .meta {{ color:var(--muted)
 .panel {{ display:none; background:var(--panel); border:1px solid var(--line); border-top:0; padding:12px; overflow:visible; width:100%; min-width:0; }} .panel.active {{ display:block; }} .table-wrap {{ display:block; max-width:100%; max-height:calc(100vh - var(--table-head-top) - 18px); overflow:auto; background:#fff; position:relative; }} .panel-toolbar {{ position:sticky; top:var(--panel-toolbar-top); z-index:30; background:var(--panel); border-bottom:1px solid var(--line); padding:0 0 8px; margin:0 0 10px; }} h2 {{ font-size:16px; margin:0 0 8px; }} .note {{ color:var(--muted); margin:0 0 10px; }}
 table {{ border-collapse:separate; border-spacing:0; width:max-content; min-width:1200px; }} th,td {{ border-right:1px solid #e3e8ef; border-bottom:1px solid #e3e8ef; padding:6px 7px; white-space:nowrap; text-align:left; }} th {{ position:sticky; top:0; z-index:20; background:var(--head); font-weight:700; color:#2d3748; }} td:nth-child(n+7) {{ text-align:right; }} tbody tr:hover {{ background:#f8fbff; }}
 .placement-table th:nth-child(-n+4),.placement-table td:nth-child(-n+4) {{ position:sticky; z-index:24; background-clip:padding-box; }} .placement-table th:nth-child(1),.placement-table td:nth-child(1) {{ left:0; min-width:52px; width:52px; }} .placement-table th:nth-child(2),.placement-table td:nth-child(2) {{ left:52px; min-width:48px; width:48px; }} .placement-table th:nth-child(3),.placement-table td:nth-child(3) {{ left:100px; min-width:86px; width:86px; }} .placement-table th:nth-child(4),.placement-table td:nth-child(4) {{ left:186px; min-width:142px; width:142px; }} .placement-table td:nth-child(-n+4) {{ background:#fff; }} .placement-table tbody tr:hover td:nth-child(-n+4) {{ background:#f8fbff; }} .placement-table th:nth-child(-n+4) {{ background:var(--head); z-index:30; }} .placement-table th:nth-child(4),.placement-table td:nth-child(4) {{ box-shadow:8px 0 10px -10px rgba(23,32,51,.45); }}
-.report-cell {{ min-width:230px; }} .report-label {{ font-weight:700; margin-right:4px; }} .student-note {{ width:180px; min-height:30px; resize:vertical; border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-family:inherit; }} .bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }} th.sortable-head {{ cursor:pointer; user-select:none; }} th.sortable-head::after {{ content:" ⇅"; color:var(--muted); font-weight:400; }} th.sort-asc::after {{ content:" ↑"; color:var(--blue); }} th.sort-desc::after {{ content:" ↓"; color:var(--blue); }} .class-counts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:10px 0 12px; }} .count-card {{ border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fbfcfe; }} .count-card h3 {{ margin:0 0 6px; font-size:13px; }} .chips {{ display:flex; flex-wrap:wrap; gap:5px; }} .chip {{ border:1px solid var(--line); border-radius:999px; padding:2px 7px; background:#fff; }} .changed {{ background:#fff7ed; }}
+.report-cell {{ min-width:230px; }} .report-label {{ font-weight:700; margin-right:4px; }} .save-toolbar {{ display:flex; align-items:center; gap:8px; margin:0 0 10px; }} .save-button {{ border:1px solid var(--blue); background:var(--blue); color:#fff; border-radius:6px; padding:7px 12px; cursor:pointer; }} .save-status {{ color:var(--muted); }} .student-note {{ width:180px; min-height:30px; resize:vertical; border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-family:inherit; }} .bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }} th.sortable-head {{ cursor:pointer; user-select:none; }} th.sortable-head::after {{ content:" ⇅"; color:var(--muted); font-weight:400; }} th.sort-asc::after {{ content:" ↑"; color:var(--blue); }} th.sort-desc::after {{ content:" ↓"; color:var(--blue); }} .class-counts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:10px 0 12px; }} .count-card {{ border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fbfcfe; }} .count-card h3 {{ margin:0 0 6px; font-size:13px; }} .chips {{ display:flex; flex-wrap:wrap; gap:5px; }} .chip {{ border:1px solid var(--line); border-radius:999px; padding:2px 7px; background:#fff; }} .changed {{ background:#fff7ed; }}
 @media print {{ header,.filters,.tabs {{ display:none; }} main {{ padding:0; }} .panel {{ display:block; border:0; }} .panel:not(.active) {{ display:none; }} th {{ position:static; }} }}
 @media (max-width:760px) {{ header {{ position:static; }} .top-controls,.panel-toolbar {{ position:static; }} .panel,.table-wrap {{ width:100%; min-width:0; }} main {{ padding:12px; }} .metrics {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }} input,select {{ width:100%; }} label {{ flex:1 1 140px; }} th {{ top:0; }} }}
 </style>
@@ -534,7 +534,7 @@ table {{ border-collapse:separate; border-spacing:0; width:max-content; min-widt
 <div class="notice">※正しい受講のメンバーはベンケイも確認すること。</div><section class="filters"><label>学年<select id="gradeFilter"><option value="">全て</option></select></label><label>校舎<select id="campusFilter"><option value="">全て</option></select></label><label>検索<input id="searchFilter" type="search" placeholder="氏名・ふりがな・学籍番号・学校"></label></section><div class="subject-buttons" aria-label="科目表示"><span>科目</span><button type="button" class="subject-toggle active" data-subject="国語">国語</button><button type="button" class="subject-toggle active" data-subject="数学">数学</button><button type="button" class="subject-toggle active" data-subject="英語">英語</button><button type="button" id="reportToggle" class="subject-toggle active">通知表</button></div>
 <div class="tabs"><button class="tab active" data-panel="placement">クラス替え資料</button><button class="tab" data-panel="concern">要確認</button><button class="tab" data-panel="subject">科目別</button><button class="tab" data-panel="class">現クラス別</button><button class="tab" data-panel="dist">分布</button></div>
 </div>
-<section id="placement" class="panel active"><div class="panel-toolbar"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。人数は学年・校舎別に集計され、変更すると即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p></div><div id="classCounts" class="class-counts"></div>{placement_html}</section>
+<section id="placement" class="panel active"><div class="panel-toolbar"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。人数は学年・校舎別に集計され、変更すると即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p><div class="save-toolbar"><button type="button" id="saveSharedState" class="save-button">共有ファイルに保存</button><span id="saveStatus" class="save-status">保存サーバー起動後に使用できます</span></div></div><div id="classCounts" class="class-counts"></div>{placement_html}</section>
 <section id="concern" class="panel"><div class="panel-toolbar"><h2>要確認</h2><p class="note">平均50未満、40点未満科目、または80点以上科目がある生徒を抽出しています。</p></div>{concern_html}</section>
 <section id="subject" class="panel"><div class="panel-toolbar"><h2>学年・校舎・科目別</h2></div>{subject_html}</section>
 <section id="class" class="panel"><div class="panel-toolbar"><h2>現クラス別</h2></div>{class_html}</section>
@@ -635,6 +635,72 @@ function updateClassCounts() {{
   }}).join('') || '<section class="count-card"><h3>変更案人数</h3><div class="chips"><span class="chip">対象なし</span></div></section>';
   updateStickyOffsets();
 }}
+const saveButton = document.getElementById('saveSharedState');
+const saveStatus = document.getElementById('saveStatus');
+let sharedState = {{notes: {{}}, classes: {{}}}};
+let sharedStateReady = false;
+const serverStorage = location.protocol === 'http:' || location.protocol === 'https:';
+function stateClassKey(studentId, subject) {{ return `${{studentId}}::${{subject}}`; }}
+function applySharedState() {{
+  document.querySelectorAll('tr[data-student-id]').forEach(row => {{
+    const studentId = row.dataset.studentId;
+    const note = row.querySelector('[data-student-note]');
+    if (note) note.value = sharedState.notes?.[studentId] || '';
+    row.querySelectorAll('.class-change').forEach(select => {{
+      const saved = sharedState.classes?.[stateClassKey(studentId, select.dataset.subject)];
+      if (saved !== undefined) select.value = saved;
+    }});
+  }});
+  updateClassCounts();
+}}
+function collectSharedState() {{
+  const notes = {{}};
+  const classes = {{}};
+  document.querySelectorAll('tr[data-student-id]').forEach(row => {{
+    const studentId = row.dataset.studentId;
+    const note = row.querySelector('[data-student-note]');
+    if (note?.value) notes[studentId] = note.value;
+    row.querySelectorAll('.class-change').forEach(select => {{
+      classes[stateClassKey(studentId, select.dataset.subject)] = select.value;
+    }});
+  }});
+  return {{notes, classes}};
+}}
+async function loadSharedState() {{
+  try {{
+    if (serverStorage) {{
+      const response = await fetch('/api/state', {{cache:'no-store'}});
+      if (!response.ok) throw new Error('state load failed');
+      sharedState = await response.json();
+    }} else {{
+      sharedState = JSON.parse(localStorage.getItem('august-jitsuryoku-state') || '{{"notes":{{}},"classes":{{}}}}');
+    }}
+    sharedStateReady = true;
+    applySharedState();
+    if (saveStatus) saveStatus.textContent = serverStorage ? '共有ファイルを読み込みました' : 'このPCのブラウザに保存します';
+  }} catch (error) {{
+    if (saveStatus) saveStatus.textContent = '保存データを読み込めません';
+  }}
+}}
+async function saveSharedState() {{
+  if (!sharedStateReady) return;
+  sharedState = collectSharedState();
+  try {{
+    if (serverStorage) {{
+      const response = await fetch('/api/state', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(sharedState)}});
+      if (!response.ok) throw new Error('state save failed');
+    }} else {{
+      localStorage.setItem('august-jitsuryoku-state', JSON.stringify(sharedState));
+    }}
+    if (saveStatus) saveStatus.textContent = `保存しました ${{new Date().toLocaleTimeString('ja-JP')}}`;
+  }} catch (error) {{
+    if (saveStatus) saveStatus.textContent = '保存できませんでした。サーバーを確認してください';
+  }}
+}}
+if (saveButton) saveButton.addEventListener('click', saveSharedState);
+document.addEventListener('input', event => {{
+  if (event.target.matches('[data-student-note]') && saveStatus) saveStatus.textContent = '未保存の変更があります';
+}});
 function applyFilters() {{
   const g = gradeFilter.value;
   const c = campusFilter.value;
@@ -682,6 +748,7 @@ document.querySelectorAll('.class-change').forEach(select => select.addEventList
 window.addEventListener('resize', () => {{ updateStickyOffsets(); applyFilters(); }});
 updateStickyOffsets();
 applyFilters();
+loadSharedState();
 </script>
 </body>
 </html>'''
