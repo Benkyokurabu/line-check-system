@@ -315,11 +315,60 @@ async function selectExistingLinks(supabase) {
   if (error) throw error;
   return data ?? [];
 }
+async function selectLineMessageProfiles(supabase) {
+  const latestByUserId = new Map();
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("line_messages")
+      .select("line_user_id,display_name,received_at")
+      .eq("direction", "inbound")
+      .not("display_name", "is", null)
+      .order("received_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+
+    for (const row of data ?? []) {
+      const lineUserId = row.line_user_id;
+      const displayName = row.display_name;
+      if (!lineUserId || !displayName || latestByUserId.has(lineUserId)) continue;
+      latestByUserId.set(lineUserId, {
+        line_user_id: lineUserId,
+        stored_display_name: displayName,
+        profile_display_name: displayName,
+        source: "line_messages",
+      });
+    }
+
+    if (!data || data.length < pageSize) break;
+  }
+
+  return [...latestByUserId.values()];
+}
+
+function mergeProfiles(profileRows) {
+  const byUserId = new Map();
+  for (const profile of profileRows) {
+    const lineUserId = profile.line_user_id;
+    const displayName = profile.profile_display_name || profile.stored_display_name;
+    if (!lineUserId || !displayName || byUserId.has(lineUserId)) continue;
+    byUserId.set(lineUserId, {
+      ...profile,
+      profile_display_name: displayName,
+      stored_display_name: profile.stored_display_name || displayName,
+    });
+  }
+  return [...byUserId.values()];
+}
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const chats = readCsv(args.chats).filter((row) => row.friend_display_name && row.alias_name);
-  const profiles = readCsv(args.profiles).filter((row) => row.line_user_id);
+  const supabase = createSupabase();
+  const csvProfiles = readCsv(args.profiles).filter((row) => row.line_user_id);
+  const lineMessageProfiles = await selectLineMessageProfiles(supabase);
+  const profiles = mergeProfiles([...lineMessageProfiles, ...csvProfiles]);
   const roster = readRoster(process.cwd());
   const chatsByFriendName = indexByNormalized(chats, "friend_display_name");
 
@@ -368,7 +417,6 @@ async function main() {
     });
   }
 
-  const supabase = createSupabase();
   const existingLinks = await selectExistingLinks(supabase);
   const existingByStudent = new Map(existingLinks.map((link) => [link.student_number, link.line_user_id]));
   const accountsToApply = [];
