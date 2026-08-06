@@ -327,7 +327,7 @@ def make_placement_table(students, table_id="placementTable"):
     fixed = ["学年", "校舎", "学籍番号", "氏名", "学校", "担任", "現平均", "判定用", "注意"]
     subject_cols = []
     for subject in ["国語", "数学", "英語"]:
-        subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}今回", f"{subject}今回偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}北辰偏"]
+        subject_cols += [f"{subject}現クラス", f"{subject}変更案", f"{subject}実力テスト", f"{subject}実力偏", f"{subject}単元テスト②", f"{subject}単元テスト①", f"{subject}北辰偏"]
     tail = ["北辰回", "北辰3科", "北辰3科偏", "北辰5科", "北辰5科偏"]
     header = "".join(f"<th>{esc(x)}</th>" for x in fixed + subject_cols + tail)
     rows = []
@@ -395,32 +395,34 @@ def main():
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>2026年8月 前期実力テスト クラス替え資料</title>
 <style>
-:root {{ --ink:#172033; --muted:#637083; --line:#d7dce5; --bg:#f5f7fa; --panel:#fff; --head:#eef3f8; --blue:#2f6fdf; --green:#138a57; --yellow:#bc7a00; --red:#c43d3d; }}
+:root {{ --ink:#172033; --muted:#637083; --line:#d7dce5; --bg:#f5f7fa; --panel:#fff; --head:#eef3f8; --blue:#2f6fdf; --green:#138a57; --yellow:#bc7a00; --red:#c43d3d; --header-height:58px; --top-controls-height:170px; --panel-toolbar-height:90px; --panel-toolbar-top:calc(var(--header-height) + var(--top-controls-height)); --table-head-top:calc(var(--header-height) + var(--top-controls-height) + var(--panel-toolbar-height)); }}
 * {{ box-sizing:border-box; }} body {{ margin:0; font-family:"Yu Gothic","Meiryo",system-ui,sans-serif; color:var(--ink); background:var(--bg); font-size:13px; }}
-header {{ position:sticky; top:0; z-index:20; background:var(--panel); border-bottom:1px solid var(--line); padding:14px 18px 10px; }}
-h1 {{ margin:0; font-size:20px; letter-spacing:0; }} .meta {{ color:var(--muted); margin-top:3px; }} main {{ max-width:1600px; margin:0 auto; padding:16px 18px 44px; }}
+header {{ position:sticky; top:0; z-index:40; background:var(--panel); border-bottom:1px solid var(--line); padding:14px 18px 10px; }}
+h1 {{ margin:0; font-size:20px; letter-spacing:0; }} .meta {{ color:var(--muted); margin-top:3px; }} main {{ max-width:1600px; margin:0 auto; padding:16px 18px 44px; }} .top-controls {{ position:sticky; top:var(--header-height); z-index:35; background:var(--bg); padding-bottom:1px; }}
 .metrics {{ display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:10px; margin-bottom:12px; }} .metric {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }} .metric span,.metric em {{ display:block; color:var(--muted); font-style:normal; }} .metric strong {{ display:block; font-size:24px; margin:1px 0; }}
 .filters {{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px; }} label {{ display:grid; gap:3px; color:var(--muted); }} select,input {{ height:32px; border:1px solid var(--line); border-radius:6px; padding:0 8px; background:#fff; }} input {{ min-width:260px; }} .class-change {{ min-width:64px; height:28px; padding:0 5px; }}
 .tabs {{ display:flex; gap:6px; border-bottom:1px solid var(--line); margin-top:12px; }} .tab {{ border:1px solid var(--line); border-bottom:0; background:#e9eef5; padding:8px 12px; border-radius:6px 6px 0 0; cursor:pointer; }} .tab.active {{ background:var(--panel); font-weight:700; }}
-.panel {{ display:none; background:var(--panel); border:1px solid var(--line); border-top:0; padding:12px; overflow:auto; }} .panel.active {{ display:block; }} h2 {{ font-size:16px; margin:0 0 8px; }} .note {{ color:var(--muted); margin:0 0 10px; }}
-table {{ border-collapse:separate; border-spacing:0; width:100%; min-width:1200px; }} th,td {{ border-right:1px solid #e3e8ef; border-bottom:1px solid #e3e8ef; padding:6px 7px; white-space:nowrap; text-align:left; }} th {{ position:sticky; top:76px; z-index:5; background:var(--head); font-weight:700; color:#2d3748; }} td:nth-child(n+7) {{ text-align:right; }} tbody tr:hover {{ background:#f8fbff; }}
+.panel {{ display:none; background:var(--panel); border:1px solid var(--line); border-top:0; padding:12px; overflow:auto; }} .panel.active {{ display:block; }} .panel-toolbar {{ position:sticky; top:var(--panel-toolbar-top); z-index:30; background:var(--panel); border-bottom:1px solid var(--line); padding:0 0 10px; margin:0 0 10px; }} h2 {{ font-size:16px; margin:0 0 8px; }} .note {{ color:var(--muted); margin:0 0 10px; }}
+table {{ border-collapse:separate; border-spacing:0; width:100%; min-width:1200px; }} th,td {{ border-right:1px solid #e3e8ef; border-bottom:1px solid #e3e8ef; padding:6px 7px; white-space:nowrap; text-align:left; }} th {{ position:sticky; top:var(--table-head-top); z-index:5; background:var(--head); font-weight:700; color:#2d3748; }} td:nth-child(n+7) {{ text-align:right; }} tbody tr:hover {{ background:#f8fbff; }}
 .placement-table th:nth-child(-n+4),.placement-table td:nth-child(-n+4) {{ position:sticky; z-index:4; }} .placement-table th:nth-child(1),.placement-table td:nth-child(1) {{ left:0; min-width:52px; width:52px; }} .placement-table th:nth-child(2),.placement-table td:nth-child(2) {{ left:52px; min-width:48px; width:48px; }} .placement-table th:nth-child(3),.placement-table td:nth-child(3) {{ left:100px; min-width:86px; width:86px; }} .placement-table th:nth-child(4),.placement-table td:nth-child(4) {{ left:186px; min-width:142px; width:142px; }} .placement-table td:nth-child(-n+4) {{ background:#fff; }} .placement-table tbody tr:hover td:nth-child(-n+4) {{ background:#f8fbff; }} .placement-table th:nth-child(-n+4) {{ background:var(--head); z-index:8; }}
 .bar {{ display:flex; width:260px; height:18px; border-radius:4px; overflow:hidden; background:#e5e7eb; }} .b1 {{ background:var(--green); }} .b2 {{ background:var(--blue); }} .b3 {{ background:var(--yellow); }} .b4 {{ background:var(--red); }} .hidden-row {{ display:none; }} th.sortable-head {{ cursor:pointer; user-select:none; }} th.sortable-head::after {{ content:" ⇅"; color:var(--muted); font-weight:400; }} th.sort-asc::after {{ content:" ↑"; color:var(--blue); }} th.sort-desc::after {{ content:" ↓"; color:var(--blue); }} .class-counts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:10px 0 12px; }} .count-card {{ border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fbfcfe; }} .count-card h3 {{ margin:0 0 6px; font-size:13px; }} .chips {{ display:flex; flex-wrap:wrap; gap:5px; }} .chip {{ border:1px solid var(--line); border-radius:999px; padding:2px 7px; background:#fff; }} .changed {{ background:#fff7ed; }}
 @media print {{ header,.filters,.tabs {{ display:none; }} main {{ padding:0; }} .panel {{ display:block; border:0; }} .panel:not(.active) {{ display:none; }} th {{ position:static; }} }}
-@media (max-width:760px) {{ header {{ position:static; }} main {{ padding:12px; }} .metrics {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }} input,select {{ width:100%; }} label {{ flex:1 1 140px; }} th {{ top:0; }} }}
+@media (max-width:760px) {{ header {{ position:static; }} .top-controls,.panel-toolbar {{ position:static; }} main {{ padding:12px; }} .metrics {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }} input,select {{ width:100%; }} label {{ flex:1 1 140px; }} th {{ top:0; }} }}
 </style>
 </head>
 <body>
 <header><h1>2026年8月 前期実力テスト クラス替え資料</h1><div class="meta">参照元: {esc(SOURCE.name)} / 作成: {datetime.now().strftime('%Y-%m-%d %H:%M')} / 直近2回は今回より前の同学年・同科目から自動取得</div></header>
 <main>
+<div class="top-controls">
 <div class="metrics">{metrics_html}</div>
 <section class="filters"><label>学年<select id="gradeFilter"><option value="">全て</option></select></label><label>校舎<select id="campusFilter"><option value="">全て</option></select></label><label>検索<input id="searchFilter" type="search" placeholder="氏名・ふりがな・学籍番号・学校"></label></section>
 <div class="tabs"><button class="tab active" data-panel="placement">クラス替え資料</button><button class="tab" data-panel="concern">要確認</button><button class="tab" data-panel="subject">科目別</button><button class="tab" data-panel="class">現クラス別</button><button class="tab" data-panel="dist">分布</button></div>
-<section id="placement" class="panel active"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。人数は校舎別に集計され、変更すると即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p><div id="classCounts" class="class-counts"></div>{placement_html}</section>
-<section id="concern" class="panel"><h2>要確認</h2><p class="note">平均50未満、40点未満科目、または80点以上科目がある生徒を抽出しています。</p>{concern_html}</section>
-<section id="subject" class="panel"><h2>学年・校舎・科目別</h2>{subject_html}</section>
-<section id="class" class="panel"><h2>現クラス別</h2>{class_html}</section>
-<section id="dist" class="panel"><h2>点数分布</h2><table><thead><tr><th>学年</th><th>校舎</th><th>科目</th><th>人数</th><th>分布</th><th>80以上</th><th>60-79</th><th>40-59</th><th>39以下</th></tr></thead><tbody>{''.join(dist_rows)}</tbody></table></section>
+</div>
+<section id="placement" class="panel active"><div class="panel-toolbar"><h2>クラス替え資料</h2><p class="note">変更案はこの画面上だけの作業用です。人数は校舎別に集計され、変更すると即時更新されます。列見出しをクリックすると各テスト・偏差値でソートできます。</p><div id="classCounts" class="class-counts"></div></div>{placement_html}</section>
+<section id="concern" class="panel"><div class="panel-toolbar"><h2>要確認</h2><p class="note">平均50未満、40点未満科目、または80点以上科目がある生徒を抽出しています。</p></div>{concern_html}</section>
+<section id="subject" class="panel"><div class="panel-toolbar"><h2>学年・校舎・科目別</h2></div>{subject_html}</section>
+<section id="class" class="panel"><div class="panel-toolbar"><h2>現クラス別</h2></div>{class_html}</section>
+<section id="dist" class="panel"><div class="panel-toolbar"><h2>点数分布</h2></div><table><thead><tr><th>学年</th><th>校舎</th><th>科目</th><th>人数</th><th>分布</th><th>80以上</th><th>60-79</th><th>40-59</th><th>39以下</th></tr></thead><tbody>{''.join(dist_rows)}</tbody></table></section>
 </main>
 <script id="payload" type="application/json">{json.dumps(payload, ensure_ascii=False)}</script>
 <script>
@@ -430,6 +432,17 @@ const campusFilter = document.getElementById('campusFilter');
 const searchFilter = document.getElementById('searchFilter');
 const classCounts = document.getElementById('classCounts');
 const classOrder = ['', 'Ｓ', 'Ａ', 'Ｂ', 'Ｃ', 'X', '個', '非受講'];
+function updateStickyOffsets() {{
+  const header = document.querySelector('header');
+  const topControls = document.querySelector('.top-controls');
+  const activeToolbar = document.querySelector('.panel.active .panel-toolbar');
+  const headerHeight = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+  const topControlsHeight = topControls ? Math.ceil(topControls.getBoundingClientRect().height) : 0;
+  const toolbarHeight = activeToolbar ? Math.ceil(activeToolbar.getBoundingClientRect().height) : 0;
+  document.documentElement.style.setProperty('--header-height', `${{headerHeight}}px`);
+  document.documentElement.style.setProperty('--top-controls-height', `${{topControlsHeight}}px`);
+  document.documentElement.style.setProperty('--panel-toolbar-height', `${{toolbarHeight}}px`);
+}}
 function addOptions(select, values) {{
   [...new Set(values.filter(Boolean))].sort().forEach(v => {{
     const o = document.createElement('option');
@@ -445,6 +458,7 @@ document.querySelectorAll('.tab').forEach(button => button.addEventListener('cli
   document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
   button.classList.add('active');
   document.getElementById(button.dataset.panel).classList.add('active');
+  updateStickyOffsets();
   applyFilters();
 }}));
 function visiblePlacementRows() {{
@@ -473,6 +487,7 @@ function updateClassCounts() {{
       .join('');
     return `<section class="count-card"><h3>${{campus}} ${{subject}} 変更案人数</h3><div class="chips">${{chips || '<span class="chip">対象なし</span>'}}</div></section>`;
   }})).join('') || '<section class="count-card"><h3>変更案人数</h3><div class="chips"><span class="chip">対象なし</span></div></section>';
+  updateStickyOffsets();
 }}
 function applyFilters() {{
   const g = gradeFilter.value;
@@ -516,7 +531,9 @@ function makeSortable(table) {{
 }}
 document.querySelectorAll('table').forEach(makeSortable);
 document.querySelectorAll('.class-change').forEach(select => select.addEventListener('change', updateClassCounts));
-[gradeFilter, campusFilter, searchFilter].forEach(x => x.addEventListener('input', applyFilters));
+[gradeFilter, campusFilter, searchFilter].forEach(x => x.addEventListener('input', () => {{ updateStickyOffsets(); applyFilters(); }}));
+window.addEventListener('resize', () => {{ updateStickyOffsets(); applyFilters(); }});
+updateStickyOffsets();
 applyFilters();
 </script>
 </body>
@@ -529,12 +546,4 @@ applyFilters();
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
 
