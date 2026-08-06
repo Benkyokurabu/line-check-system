@@ -39,7 +39,7 @@ try {
             Send-Text $context 200 'application/json; charset=utf-8' '{"notes":{},"classes":{}}'
           }
         } elseif ($context.Request.HttpMethod -eq 'POST') {
-          $reader = [System.IO.StreamReader]::new($context.Request.InputStream, $context.Request.ContentEncoding)
+          $reader = [System.IO.StreamReader]::new($context.Request.InputStream, [System.Text.Encoding]::UTF8)
           $body = $reader.ReadToEnd()
           $reader.Close()
           $parsed = $body | ConvertFrom-Json
