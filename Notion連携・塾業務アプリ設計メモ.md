@@ -206,3 +206,100 @@ AIが書き込む時:
 - AI信頼度が高い
 
 それ以外は確認必須。
+
+## Notion生徒情報DB 参照メモ（2026-08-06更新）
+
+### 参照先
+
+- 生徒情報DB / data source ID: `19ef0120-80a7-80b7-9f23-000b21e0a53b`
+- APIで使うNotionバージョン: `2025-09-03`
+- トークンは `.env.local` の `NOTION_TOKEN` を使う。チャットには貼らない。
+- 同期コマンド: `npm run sync:notion-students`
+- 本番cron API: `/api/cron/notion-roster-sync`
+
+### 生徒同期で読む主なプロパティ
+
+- `学籍番号` / `生徒番号` / `番号`: アプリ側の `student_number` 候補。通常は `学籍番号` を使う。
+- `生徒氏名` / `生徒名` / `名前` / `氏名`: アプリ側の `student_name` 候補。通常は `生徒氏名` を使う。
+- `状態`: 現在の在籍状態。既存の通常同期は `在塾` のみ対象。
+- `学年`: `grade`。
+- `所属`: `campus`。例: `本校`, `南教室`, `両方`。
+- `担任`: `homeroom_teacher`。
+- `中学校` / `小学校`: `school_name`。
+- `性別`: `gender`。
+
+### 現在の通常同期ルール
+
+- `状態 = 在塾` の生徒だけを `student_roster` に同期する。
+- 学籍番号は毎年の閾値で絞る。2026年8月時点では `2019000` より大きい番号が対象。
+- 同期先はSupabaseの `student_roster`。
+- `student_line_accounts` やLINE紐づけ情報はNotion同期では変更しない。
+
+### 注意: 見学中・仮学籍番号の生徒
+
+梅田瑛太の確認結果（2026-08-06）:
+
+- Notionには存在する。
+- `生徒氏名`: `梅田　瑛太`
+- `状態`: `見学中`
+- `学年`: `中1`
+- `所属`: `本校`
+- `学籍番号`: `2020000`
+- 本番DB `student_roster` には未登録だった。
+
+理由:
+
+- 通常同期は `状態 = 在塾` のみなので、`見学中` は同期されない。
+- `2020000` は見学中・問い合わせ中で使われる仮番号の可能性が高く、複数人で重複する。
+- 仮番号をそのまま `student_roster.student_number` に入れると別人同士が衝突するため、本名簿には自動投入しない方がよい。
+
+### 今後の実装方針
+
+LINE紐づけ候補UIでは、通常の `student_roster` だけでなくNotionの `見学中` も検索候補として出せるようにする。
+
+ただし、見学中・仮学籍番号の場合は通常名簿へそのまま入れない。確定時に次のどちらかで扱う。
+
+- 正式な学籍番号がある場合: その番号で `student_roster` に登録してLINEを紐づける。
+- `2020000` など仮番号しかない場合: NotionページID由来の一意な内部番号を作って一時登録し、正式番号が決まった後に置き換える。
+
+推奨の内部番号形式:
+
+```text
+notion:<Notion page id without hyphen>
+```
+
+例:
+
+```text
+notion:3a4f012080a780b3bd80c51ba96ef780
+```
+
+この形式を使う場合、後で正式学籍番号へ移すために、移行時は以下を同時に更新する。
+
+- `student_roster.student_number`
+- `student_line_accounts.student_number`
+- 必要なら `student_line_links.student_number`
+- 出欠候補・出欠イベントでその内部番号を参照している行
+
+### 調査用スクリプト
+
+Notion上にあるかだけ確認する場合:
+
+```bash
+node scripts/find-notion-student-by-name.mjs 梅田瑛太
+```
+
+本番DBに同期済みか確認する場合:
+
+```bash
+node scripts/find-production-student-by-name.mjs 梅田瑛太
+```
+
+出力時は電話番号などの不要な個人情報は出さず、氏名・状態・学籍番号・学年・所属に限定する。
+
+### 2026-08-06 実装済み
+
+- `npm run sync:notion-students` は `在塾` と `見学中` を同期対象にした。
+- `見学中` で `学籍番号 = 2020000` など仮番号の場合、`student_number` は `notion:<Notion page id without hyphen>` に変換する。
+- 梅田瑛太は `notion:3a4f012080a780b3bd80c51ba96ef780` として `student_roster` に同期済み。
+- これにより、出欠画面のLINE紐づけ候補UIの生徒選択欄にも表示される。

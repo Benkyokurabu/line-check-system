@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 
 const DEFAULT_STUDENT_DATA_SOURCE_ID = "19ef0120-80a7-80b7-9f23-000b21e0a53b";
 const NOTION_VERSION = process.env.NOTION_VERSION ?? "2025-09-03";
+const SYNC_STUDENT_STATUSES = ["在塾", "見学中"];
+const PLACEHOLDER_STUDENT_NUMBERS = new Set(["2020000"]);
 
 loadEnv();
 
@@ -44,8 +46,16 @@ function currentStudentNumberThreshold(date = new Date()) {
 }
 
 function isTargetStudentNumber(value, threshold = currentStudentNumberThreshold()) {
+  if (value.startsWith("notion:")) return true;
   const number = Number(normalizeStudentNumber(value));
   return Number.isFinite(number) && number > threshold;
+}
+
+function notionStudentNumber(pageId, rawStudentNumber, status) {
+  if (status !== "在塾" && (!rawStudentNumber || PLACEHOLDER_STUDENT_NUMBERS.has(rawStudentNumber))) {
+    return `notion:${pageId.replace(/-/g, "")}`;
+  }
+  return rawStudentNumber;
 }
 
 function textFromProperty(property) {
@@ -100,14 +110,16 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
       method: "POST",
       body: JSON.stringify({
         page_size: 100,
-        filter: { property: "状態", select: { equals: "在塾" } },
+        filter: { or: SYNC_STUDENT_STATUSES.map((status) => ({ property: "状態", select: { equals: status } })) },
         ...(cursor ? { start_cursor: cursor } : {}),
       }),
     });
 
     for (const page of body.results ?? []) {
       const properties = page.properties ?? {};
-      const studentNumber = normalizeStudentNumber(firstProperty(properties, ["学籍番号", "生徒番号", "番号"]));
+      const rawStudentNumber = normalizeStudentNumber(firstProperty(properties, ["学籍番号", "生徒番号", "番号"]));
+      const status = firstProperty(properties, ["状態"]);
+      const studentNumber = notionStudentNumber(page.id, rawStudentNumber, status);
       const studentName = firstProperty(properties, ["生徒氏名", "名前", "氏名"]);
       if (!studentNumber || !studentName) {
         skipped += 1;
@@ -185,4 +197,5 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
+
 

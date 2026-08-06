@@ -179,6 +179,8 @@ export type RosterSyncPreview = {
 };
 
 const DEFAULT_STUDENT_DATA_SOURCE_ID = "19ef0120-80a7-80b7-9f23-000b21e0a53b";
+const SYNC_STUDENT_STATUSES = ["在塾", "見学中"] as const;
+const PLACEHOLDER_STUDENT_NUMBERS = new Set(["2020000"]);
 
 function notionStudentDataSourceId() {
   return process.env.NOTION_STUDENT_DATA_SOURCE_ID?.trim() || DEFAULT_STUDENT_DATA_SOURCE_ID;
@@ -213,11 +215,18 @@ function currentStudentNumberThreshold(date = new Date()) {
 }
 
 function isTargetStudentNumber(value: string, threshold = currentStudentNumberThreshold()) {
+  if (value.startsWith("notion:")) return true;
   const number = Number(normalizeStudentNumber(value));
   return Number.isFinite(number) && number > threshold;
 }
 function normalizeStudentNumber(value: string) {
   return value.normalize("NFKC").replace(/[^\d]/g, "");
+}
+function notionStudentNumber(pageId: string, rawStudentNumber: string, status: string) {
+  if (status !== "在塾" && (!rawStudentNumber || PLACEHOLDER_STUDENT_NUMBERS.has(rawStudentNumber))) {
+    return `notion:${pageId.replace(/-/g, "")}`;
+  }
+  return rawStudentNumber;
 }
 
 
@@ -248,8 +257,10 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
       body: JSON.stringify({
         page_size: 100,
         filter: {
-          property: "状態",
-          select: { equals: "在塾" },
+          or: SYNC_STUDENT_STATUSES.map((status) => ({
+            property: "状態",
+            select: { equals: status },
+          })),
         },
         ...(cursor ? { start_cursor: cursor } : {}),
       }),
@@ -257,7 +268,9 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
 
     for (const page of body.results ?? []) {
       const properties = page.properties ?? {};
-      const studentNumber = normalizeStudentNumber(firstProperty(properties, ["学籍番号", "生徒番号", "番号"]));
+      const rawStudentNumber = normalizeStudentNumber(firstProperty(properties, ["学籍番号", "生徒番号", "番号"]));
+      const status = firstProperty(properties, ["状態"]);
+      const studentNumber = notionStudentNumber(page.id, rawStudentNumber, status);
       const studentName = firstProperty(properties, ["生徒氏名", "名前", "氏名"]);
       if (!studentNumber || !studentName) {
         skipped += 1;
@@ -627,3 +640,6 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
     skipped: selected.length - rosterRows.length,
   };
 }
+
+
+
