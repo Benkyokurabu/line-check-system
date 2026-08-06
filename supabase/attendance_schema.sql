@@ -272,3 +272,103 @@ begin
       for each row execute function public.set_updated_at();
   end if;
 end $$;
+-- Attendance AI analysis queue/status support.
+create or replace function public.attendance_text_may_need_analysis(p_text text)
+returns boolean
+language sql
+immutable
+as $$
+  select coalesce(p_text, '') ~ '(欠席|遅刻|早退|休み|お休み|休ませ|振替|振り替え|オンライン|自習室|体調|発熱|腹|頭痛|遅れ|遅刻します|行けません|行けない|休塾)'
+$$;
+do $$
+begin
+  alter table public.attendance_message_reviews
+    drop constraint if exists attendance_message_reviews_result_check;
+  alter table public.attendance_message_reviews
+    add constraint attendance_message_reviews_result_check
+    check (result in ('processing', 'candidate', 'ignored', 'failed'));
+end $$;
+
+create or replace function public.claim_unreviewed_attendance_line_messages(
+  p_limit integer default 10,
+  p_since timestamptz default now() - interval '45 days'
+)
+returns table (
+  id uuid,
+  text text,
+  display_name text,
+  received_at timestamptz,
+  created_at timestamptz
+)
+language sql
+volatile
+security definer
+set search_path = public
+as $$
+  with target_messages as (
+    select
+      messages.id,
+      messages.text,
+      messages.display_name,
+      messages.received_at,
+      messages.created_at
+    from public.line_messages as messages
+    left join public.attendance_message_reviews as reviews
+      on reviews.message_id = messages.id
+    where messages.direction = 'inbound'
+      and messages.message_type = 'text'
+      and messages.received_at >= p_since
+      and public.attendance_text_may_need_analysis(messages.text)
+      and (
+        reviews.message_id is null
+        or reviews.result = 'failed'
+        or (reviews.result = 'processing' and reviews.processed_at < now() - interval '10 minutes')
+      )
+    order by messages.received_at desc nulls last, messages.created_at desc
+    limit least(greatest(p_limit, 1), 30)
+  ), claimed as (
+    insert into public.attendance_message_reviews (message_id, result, error_message, processed_at)
+    select target_messages.id, 'processing', null, now()
+    from target_messages
+    on conflict (message_id) do update
+      set result = 'processing', error_message = null, processed_at = now()
+      where public.attendance_message_reviews.result = 'failed'
+        or (public.attendance_message_reviews.result = 'processing' and public.attendance_message_reviews.processed_at < now() - interval '10 minutes')
+    returning message_id
+  )
+  select
+    target_messages.id,
+    target_messages.text,
+    target_messages.display_name,
+    target_messages.received_at,
+    target_messages.created_at
+  from target_messages
+  join claimed on claimed.message_id = target_messages.id
+  order by target_messages.received_at desc nulls last, target_messages.created_at desc
+$$;
+
+create or replace function public.attendance_analysis_status(
+  p_since timestamptz default now() - interval '45 days'
+)
+returns table (
+  queued bigint,
+  processing bigint,
+  failed bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    count(*) filter (where reviews.message_id is null) as queued,
+    count(*) filter (where reviews.result = 'processing') as processing,
+    count(*) filter (where reviews.result = 'failed') as failed
+  from public.line_messages as messages
+  left join public.attendance_message_reviews as reviews
+    on reviews.message_id = messages.id
+  where messages.direction = 'inbound'
+    and messages.message_type = 'text'
+    and messages.received_at >= p_since
+    and public.attendance_text_may_need_analysis(messages.text)
+$$;

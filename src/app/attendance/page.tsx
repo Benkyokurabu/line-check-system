@@ -46,6 +46,7 @@ type ManualEvent = {
   lessons: Lesson | null;
 };
 type HistoryDays = "none" | 3 | 5 | 7 | 14;
+type AnalysisStatus = { queued: number; processing: number; failed: number; last_checked_at: string | null };
 
 const pageTitle = "遅刻・欠席確認";
 
@@ -179,6 +180,8 @@ export default function AttendancePage() {
   const [historyDays, setHistoryDays] = useState<HistoryDays>("none");
   const [includePastPending, setIncludePastPending] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const [message, setMessage] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualEventsOpen, setManualEventsOpen] = useState(false);
@@ -196,11 +199,23 @@ export default function AttendancePage() {
     setCandidates(body.candidates ?? []);
     setVisibleCandidateCount(20);
   }, [historyDays, includePastPending]);
+  const loadStatus = useCallback(async () => {
+    const response = await fetch("/api/attendance/status");
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error ?? "解析状態を取得できませんでした");
+    setAnalysisStatus({
+      queued: Number(body.queued ?? 0),
+      processing: Number(body.processing ?? 0),
+      failed: Number(body.failed ?? 0),
+      last_checked_at: body.last_checked_at ?? null,
+    });
+  }, []);
   useEffect(() => {
     async function initialize() {
       try {
-        const [, studentBody, templateBody] = await Promise.all([
+        const [, , studentBody, templateBody] = await Promise.all([
           load(),
+          loadStatus(),
           fetch("/api/attendance/students").then((res) => res.json()),
           fetch("/api/attendance/reply-templates").then((res) => res.json()),
         ]);
@@ -211,7 +226,7 @@ export default function AttendancePage() {
       }
     }
     void initialize();
-  }, [load]);
+  }, [load, loadStatus]);
 
   async function updateReplyTemplates(nextTemplates: string[]) {
     const response = await fetch("/api/attendance/reply-templates", {
@@ -224,14 +239,23 @@ export default function AttendancePage() {
     setReplyTemplates(body.templates ?? nextTemplates);
   }
 
+  async function refreshLatest() {
+    setStatusBusy(true); setMessage("最新状態を確認しています...");
+    try {
+      await Promise.all([load(), loadStatus()]);
+      setMessage("最新状態に更新しました。");
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setStatusBusy(false); }
+  }
+
   async function analyze() {
-    setBusy(true); setMessage("確認中...");
+    setBusy(true); setMessage("未解析LINEを解析しています...");
     try {
       const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
       setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、失敗${body.failed}件です。`);
-      await load();
+      await Promise.all([load(), loadStatus()]);
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
@@ -242,10 +266,12 @@ export default function AttendancePage() {
     <p>LINEの確認作業に近い流れで、返信文案とNotion登録内容を確認できます。</p>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
-      <button style={buttonStyle} disabled={busy} onClick={analyze}>{busy ? "確認中" : "新しくLINEを確認"}</button>
+      <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
+      <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "未解析を今すぐ解析"}</button>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去pendingを非表示" : "過去pendingも表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(event.target.value === "none" ? "none" : Number(event.target.value) as HistoryDays)}><option value="none">しない</option><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
+      {analysisStatus && <p style={{ flexBasis: "100%", margin: 0, color: "#555" }}>未解析 {analysisStatus.queued}件 / 解析中 {analysisStatus.processing}件 / 失敗 {analysisStatus.failed}件 / 最終確認 {formatTime(analysisStatus.last_checked_at)}</p>}
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
@@ -259,6 +285,11 @@ export default function AttendancePage() {
       {visibleCandidateCount < candidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{candidates.length - visibleCandidateCount}件）</button>}
     </div>
   </main>;
+}
+
+function formatTime(value: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
 }
 
 function todayJst() {
