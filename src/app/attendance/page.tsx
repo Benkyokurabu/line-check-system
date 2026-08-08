@@ -2,7 +2,7 @@
 
 // Notion registration settings are supplied by the Vercel production environment.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean };
@@ -395,7 +395,7 @@ function orderedStudentOptions(students: Student[], selectedNumber: string, quer
   return ordered.slice(0, query.trim() ? 80 : 160);
 }
 
-function StudentPicker({ label, students, value, onChange, query, onQueryChange, candidates = [], disabled = false }: {
+function StudentPicker({ label, students, value, onChange, query, onQueryChange, candidates = [], disabled = false, changeLabel = "変更" }: {
   label: string;
   students: Student[];
   value: string;
@@ -404,16 +404,104 @@ function StudentPicker({ label, students, value, onChange, query, onQueryChange,
   onQueryChange: (value: string) => void;
   candidates?: Student[];
   disabled?: boolean;
+  changeLabel?: string;
 }) {
+  const inputId = useId();
+  const listboxId = `${inputId}-listbox`;
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const candidateNumbers = new Set(candidates.map((student) => student.student_number));
   const options = orderedStudentOptions(students, value, query, candidates);
-  return <label style={fieldStyle}>{label}<div style={{ display: "grid", gap: 6 }}>
-    <input style={inputStyle} value={query} disabled={disabled} onChange={(event) => onQueryChange(event.target.value)} placeholder="名前・学年・校舎で検索" />
-    <select style={inputStyle} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-      <option value="">要選択</option>
-      {options.map((student) => <option key={student.student_number} value={student.student_number}>{student.grade} {student.student_name}{candidateNumbers.has(student.student_number) ? " / 候補" : ""}</option>)}
-    </select>
-  </div></label>;
+  const candidateOptions = options.filter((student) => candidateNumbers.has(student.student_number));
+  const otherOptions = options.filter((student) => !candidateNumbers.has(student.student_number));
+  const visibleOptions = [...candidateOptions, ...otherOptions];
+  const selectedStudent = students.find((student) => student.student_number === value) ?? null;
+
+  function selectStudent(student: Student) {
+    onChange(student.student_number);
+    onQueryChange(student.student_name);
+    setOpen(false);
+    setActiveIndex(0);
+  }
+
+  function beginSearch() {
+    if (disabled) return;
+    onQueryChange("");
+    setActiveIndex(0);
+    setOpen(true);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((index) => Math.min(index + 1, Math.max(visibleOptions.length - 1, 0)));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === "Enter" && open && visibleOptions[activeIndex]) {
+      event.preventDefault();
+      selectStudent(visibleOptions[activeIndex]);
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  function resultButton(student: Student, index: number, isCandidate: boolean) {
+    const meta = [student.grade, student.campus, student.homeroom_teacher ? `担任 ${student.homeroom_teacher}` : null].filter(Boolean).join("・");
+    return <button
+      key={student.student_number}
+      type="button"
+      role="option"
+      aria-selected={student.student_number === value}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => selectStudent(student)}
+      onMouseEnter={() => setActiveIndex(index)}
+      style={{ width: "100%", border: 0, borderTop: "1px solid #eceeea", padding: "10px 12px", background: index === activeIndex ? "#eef7f1" : "white", color: "#222", cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}
+    >
+      <span style={{ display: "grid", gap: 3, minWidth: 0 }}>
+        <strong style={{ fontSize: 15 }}>{student.student_name}</strong>
+        <span style={{ color: "#626b66", fontSize: 12 }}>{meta || `生徒番号 ${student.student_number}`}</span>
+      </span>
+      {isCandidate && <span style={{ flex: "0 0 auto", border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 999, padding: "3px 7px", fontSize: 11, fontWeight: 800 }}>AI候補</span>}
+    </button>;
+  }
+
+  const selectedMeta = selectedStudent ? [selectedStudent.grade, selectedStudent.campus, selectedStudent.homeroom_teacher ? `担任 ${selectedStudent.homeroom_teacher}` : null].filter(Boolean).join("・") : "";
+  return <div style={{ ...fieldStyle, position: "relative", minWidth: 0 }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }}>
+    <label htmlFor={inputId} style={{ fontWeight: 700 }}>{label}</label>
+    {selectedStudent && !open ? <button type="button" disabled={disabled} onClick={beginSearch} style={{ width: "100%", minHeight: 48, boxSizing: "border-box", border: "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: disabled ? "#f7f7f4" : "white", color: "#222", cursor: disabled ? "default" : "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, textAlign: "left" }}>
+      <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
+        <strong>{selectedStudent.student_name}</strong>
+        <span style={{ color: "#626b66", fontSize: 12 }}>{selectedMeta}</span>
+      </span>
+      {!disabled && <span style={{ flex: "0 0 auto", color: "var(--accent)", fontSize: 13, fontWeight: 800 }}>{changeLabel}</span>}
+    </button> : <div style={{ position: "relative" }}>
+      <input
+        id={inputId}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        style={{ ...inputStyle, paddingRight: query ? 68 : 9 }}
+        value={query}
+        disabled={disabled}
+        autoComplete="off"
+        onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
+        onChange={(event) => { onQueryChange(event.target.value); setActiveIndex(0); setOpen(true); }}
+        placeholder="名前・学年・校舎・担任で検索"
+      />
+      {query && !disabled && <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onQueryChange(""); setActiveIndex(0); setOpen(true); }} style={{ position: "absolute", top: 5, right: 5, height: 30, border: 0, borderRadius: 5, padding: "0 9px", background: "#eef0ed", color: "#555", cursor: "pointer", fontWeight: 700 }}>消去</button>}
+    </div>}
+    {open && !disabled && <div id={listboxId} role="listbox" style={{ position: "absolute", zIndex: 50, top: "calc(100% + 4px)", left: 0, right: 0, maxHeight: 330, overflowY: "auto", border: "1px solid #aeb8b2", borderRadius: 8, background: "white", boxShadow: "0 10px 28px rgba(0,0,0,0.16)" }}>
+      {candidateOptions.length > 0 && <div style={{ padding: "8px 12px 6px", background: "#fff7ed", color: "#9a3412", fontSize: 12, fontWeight: 800 }}>AIが推定した候補</div>}
+      {candidateOptions.map((student, index) => resultButton(student, index, true))}
+      {otherOptions.length > 0 && <div style={{ padding: "8px 12px 6px", background: "#f7f7f4", color: "#59635e", fontSize: 12, fontWeight: 800 }}>{candidateOptions.length > 0 ? "その他の生徒" : "生徒候補"}</div>}
+      {otherOptions.map((student, index) => resultButton(student, candidateOptions.length + index, false))}
+      {visibleOptions.length === 0 && <div style={{ padding: 16, color: "#666", textAlign: "center" }}>該当する生徒が見つかりません。</div>}
+    </div>}
+  </div>;
 }
 function aliasForStudent(student: Student | LineLinkSuggestion | null, relation: string) {
   if (!student) return "";
@@ -1110,7 +1198,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
     {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 6, padding: 10, marginBottom: 12, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</div>}
     <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,280px) minmax(0,1fr) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
-      <StudentPicker label="名前" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed} />
+      <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
       {!closed && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
@@ -1128,7 +1216,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
           <div style={{ display: "grid", gridTemplateColumns: "minmax(190px,1.2fr) 110px 120px 130px minmax(220px,1fr) 42px", gap: 8, alignItems: "end" }}>
             <StudentPicker
-              label="名前"
+              label="登録する生徒"
               students={studentOptions}
               value={item.student_number}
               query={itemStudentQueries[item.client_id] ?? ""}
@@ -1136,6 +1224,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
               onChange={(value) => updateItem(item.client_id, { student_number: value, lesson_id: "" })}
               candidates={suggestions}
               disabled={closed}
+              changeLabel="別の生徒に変更"
             />
             <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={closed} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
             <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={closed} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
