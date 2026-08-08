@@ -158,17 +158,32 @@ function notionText(property: unknown) {
     type?: string;
     title?: { plain_text?: string }[];
     rich_text?: { plain_text?: string }[];
+    number?: number | null;
     select?: { name?: string } | null;
     status?: { name?: string } | null;
-    formula?: { type?: string; string?: string | null };
+    formula?: { type?: string; string?: string | null; number?: number | null };
   } | null;
   if (!value) return null;
   if (value.type === "title") return value.title?.map((part) => part.plain_text ?? "").join("").trim() || null;
   if (value.type === "rich_text") return value.rich_text?.map((part) => part.plain_text ?? "").join("").trim() || null;
+  if (value.type === "number") return value.number == null ? null : String(value.number);
   if (value.type === "select") return value.select?.name?.trim() || null;
   if (value.type === "status") return value.status?.name?.trim() || null;
   if (value.type === "formula" && value.formula?.type === "string") return value.formula.string?.trim() || null;
+  if (value.type === "formula" && value.formula?.type === "number") return value.formula.number == null ? null : String(value.formula.number);
   return null;
+}
+
+function firstNotionText(properties: Record<string, unknown> | undefined, names: string[]) {
+  for (const name of names) {
+    const value = notionText(properties?.[name]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function notionOnlyStudentNumber(pageId: string) {
+  return `notion:${pageId.replace(/-/g, "")}`;
 }
 
 function notionRelationIds(property: unknown) {
@@ -267,10 +282,25 @@ async function fetchNotionClassroomEvents(input: {
     const roster = firstRoster(profile.student_roster as EventRow["student_roster"]);
     return [profile.notion_page_id as string, {
       student_number: profile.student_number as string,
-      student_name: roster?.student_name ?? "名前未取得",
+      student_name: roster?.student_name ?? null,
       grade: roster?.grade ?? null,
     }];
   }));
+  const missingStudentPageIds = studentPageIds.filter((pageId) => !profileByPageId.get(pageId)?.student_name);
+  const notionStudentPages = await Promise.all(missingStudentPageIds.map(async (pageId) => {
+    const page = await notionRequest(`/pages/${pageId}`).catch(() => null) as NotionPage | null;
+    return [pageId, page] as const;
+  }));
+  for (const [pageId, page] of notionStudentPages) {
+    const current = profileByPageId.get(pageId);
+    const properties = page?.properties;
+    const studentNumber = firstNotionText(properties, ["学籍番号", "生徒番号", "番号"]);
+    profileByPageId.set(pageId, {
+      student_number: current?.student_number ?? studentNumber ?? notionOnlyStudentNumber(pageId),
+      student_name: current?.student_name ?? firstNotionText(properties, ["生徒氏名", "名前", "氏名"]) ?? "名前未取得",
+      grade: current?.grade ?? firstNotionText(properties, ["学年"]),
+    });
+  }
   const existingKeys = new Set<string>();
   const events: ClassroomEvent[] = [];
   for (const page of pages) {
@@ -284,7 +314,7 @@ async function fetchNotionClassroomEvents(input: {
       id: `notion:${page.id}`,
       lesson_id: input.selectedLesson.id,
       student_number: profile.student_number,
-      student_name: profile.student_name,
+      student_name: profile.student_name ?? "名前未取得",
       grade: profile.grade,
       event_type: notionEventType(typeProperty ? notionText(page.properties?.[typeProperty.name]) : null),
       reason: reasonProperty ? notionText(page.properties?.[reasonProperty.name]) : "欠席連絡",
