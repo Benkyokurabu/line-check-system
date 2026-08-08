@@ -45,7 +45,8 @@ type ManualEvent = {
   student_roster: { student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null } | null;
   lessons: Lesson | null;
 };
-type HistoryDays = "none" | 3 | 5 | 7 | 14;
+type HistoryDays = 3 | 5 | 7 | 14;
+type ReviewTab = "action" | "done" | "all";
 type AnalysisStatus = { queued: number; processing: number; failed: number; last_checked_at: string | null };
 type LineLinkSuggestion = Student & { score: number; reason: string; proposed_alias_name: string };
 type LineLinkCandidate = {
@@ -86,6 +87,22 @@ const inputStyle = { width: "100%", height: 40, boxSizing: "border-box", padding
 const readonlyStyle = { ...inputStyle, minHeight: 40, background: "#f7f7f4", display: "flex", alignItems: "center" } as const;
 const fieldStyle = { display: "grid", gap: 6, alignContent: "start" } as const;
 const tagStyle = { display: "inline-flex", alignItems: "center", border: "1px solid #b7d7c2", background: "#f2fbf5", borderRadius: 6, padding: "3px 7px", color: "#087a3d", fontSize: 12, fontWeight: 700 } as const;
+
+function candidateIsDone(candidate: Candidate) {
+  return candidate.status === "confirmed" || candidate.status === "dismissed";
+}
+
+function candidateHasError(candidate: Candidate) {
+  return candidate.status === "notion_failed" || Boolean(candidate.notion_error) ||
+    (candidate.attendance_candidate_items ?? []).some((item) => item.status === "notion_failed" || Boolean(item.notion_error));
+}
+
+function candidateActionPriority(candidate: Candidate) {
+  if (candidateHasError(candidate)) return 0;
+  if (candidate.student_selection_required) return 1;
+  if (!candidate.reply_status?.sent) return 2;
+  return 3;
+}
 
 function campusFromLineManagedName(value: string | null | undefined) {
   const normalized = (value ?? "").normalize("NFKC");
@@ -190,7 +207,8 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [replyTemplates, setReplyTemplates] = useState(defaultReplyTemplates);
   const [confirmedBy, setConfirmedBy] = useState("");
-  const [historyDays, setHistoryDays] = useState<HistoryDays>("none");
+  const [historyDays, setHistoryDays] = useState<HistoryDays>(7);
+  const [reviewTab, setReviewTab] = useState<ReviewTab>("action");
   const [includePastPending, setIncludePastPending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
@@ -207,8 +225,8 @@ export default function AttendancePage() {
     document.title = pageTitle;
   }, []);
   const load = useCallback(async () => {
-    const params = new URLSearchParams(historyDays === "none" ? { status: "pending" } : { status: "review", days: String(historyDays) });
-    if (historyDays === "none" && includePastPending) params.set("include_past", "1");
+    const params = new URLSearchParams({ status: "review", days: String(historyDays) });
+    if (includePastPending) params.set("include_past", "1");
     const response = await fetch(`/api/attendance/candidates?${params.toString()}`);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
@@ -295,6 +313,15 @@ export default function AttendancePage() {
     setLinkReviewOpen(nextOpen);
     if (nextOpen) await loadLineLinkCandidates();
   }
+  const actionCandidates = useMemo(() => candidates
+    .filter((candidate) => !candidateIsDone(candidate))
+    .sort((a, b) => candidateActionPriority(a) - candidateActionPriority(b)), [candidates]);
+  const doneCandidates = useMemo(() => candidates.filter(candidateIsDone), [candidates]);
+  const visibleCandidates = reviewTab === "action" ? actionCandidates : reviewTab === "done" ? doneCandidates : [
+    ...actionCandidates,
+    ...doneCandidates,
+  ];
+  const errorCount = actionCandidates.filter(candidateHasError).length;
   return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Attendance review</p>
     <h1>遅刻・欠席連絡の確認</h1>
@@ -303,10 +330,10 @@ export default function AttendancePage() {
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
       <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "直近LINEを今すぐ解析"}</button>
-      <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去pendingを非表示" : "過去pendingも表示"}</button>
+      <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去の要対応を非表示" : "過去の要対応も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE紐づけ候補を閉じる" : "LINE紐づけ候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
-      <label style={{ display: "grid", gap: 6, minWidth: 150 }}><span>対応済み表示</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(event.target.value === "none" ? "none" : Number(event.target.value) as HistoryDays)}><option value="none">しない</option><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
+      <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>対応済みの表示期間</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value) as HistoryDays)}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {analysisStatus && <p style={{ flexBasis: "100%", margin: 0, color: "#555" }}>未解析 {analysisStatus.queued}件 / 解析中 {analysisStatus.processing}件 / 失敗 {analysisStatus.failed}件 / 最終確認 {formatTime(analysisStatus.last_checked_at)}</p>}
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
@@ -316,10 +343,18 @@ export default function AttendancePage() {
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualEventsOpen((value) => !value)}>{manualEventsOpen ? "手入力済み連絡を閉じる" : "本日以降の手入力済み連絡を表示"}</button>
     </div>
     {manualEventsOpen && <ManualEventsPanel students={students} confirmedBy={confirmedBy} refreshKey={manualRefreshKey} onChanged={() => setManualRefreshKey((value) => value + 1)} />}
-    <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
-      {candidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{historyDays === "none" ? includePastPending ? "未確認の連絡候補はありません。" : "今日以降の未確認候補はありません。過去分は「過去pendingも表示」で確認できます。" : "未確認・対応済みの連絡候補はありません。"}</section>}
-      {candidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
-      {visibleCandidateCount < candidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{candidates.length - visibleCandidateCount}件）</button>}
+    <nav aria-label="連絡候補の表示切り替え" style={{ display: "flex", gap: 8, marginTop: 20, padding: 5, border: "1px solid var(--line)", borderRadius: 9, background: "#f7f7f4", width: "fit-content", maxWidth: "100%", flexWrap: "wrap" }}>
+      {([
+        { value: "action", label: `要対応 ${actionCandidates.length}件` },
+        { value: "done", label: `対応済み ${doneCandidates.length}件` },
+        { value: "all", label: `すべて ${candidates.length}件` },
+      ] as Array<{ value: ReviewTab; label: string }>).map((tab) => <button key={tab.value} type="button" aria-pressed={reviewTab === tab.value} onClick={() => { setReviewTab(tab.value); setVisibleCandidateCount(20); }} style={{ ...ghostButtonStyle, border: reviewTab === tab.value ? "1px solid var(--accent)" : "1px solid transparent", background: reviewTab === tab.value ? "white" : "transparent", color: reviewTab === tab.value ? "var(--accent)" : "#555", boxShadow: reviewTab === tab.value ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{tab.label}</button>)}
+    </nav>
+    {reviewTab === "action" && errorCount > 0 && <div role="alert" style={{ marginTop: 12, border: "1px solid #fecaca", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: "10px 12px", fontWeight: 800 }}>登録エラーが{errorCount}件あります。先頭に表示しています。</div>}
+    <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+      {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "要対応の連絡はありません。" : "今日以降の要対応連絡はありません。過去分は「過去pendingも表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の対応済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
+      {visibleCandidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
+      {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
   </main>;
 }
@@ -787,6 +822,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
   </section>;
 }
 function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
   const lineManagedNames = useMemo(() => (candidate.sender_profile?.alias_names ?? [])
     .filter((value, index, values) => values.indexOf(value) === index), [candidate.sender_profile?.alias_names]);
   const lineManagedName = lineManagedNames.length > 0 ? lineManagedNames.join(" / ") : "未登録";
@@ -802,11 +838,13 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus, initialStudentNumber));
   const [itemStudentQueries, setItemStudentQueries] = useState<Record<string, string>>({});
   const registered = candidate.status === "confirmed";
+  const dismissed = candidate.status === "dismissed";
+  const closed = registered || dismissed;
   const itemStatuses = candidate.attendance_candidate_items ?? [];
   const confirmedItems = itemStatuses.filter((item) => item.status === "confirmed").length;
   const failedItems = itemStatuses.filter((item) => item.status === "notion_failed").length;
-  const notionKind = candidate.notion_error || failedItems > 0 ? "failed" : registered ? "done" : confirmedItems > 0 ? "partial" : "pending";
-  const notionDetail = notionKind === "failed" ? "エラー" : registered ? "登録済み" : confirmedItems > 0 ? `${confirmedItems}/${Math.max(itemStatuses.length, items.length)}行` : "未登録";
+  const notionKind = candidate.notion_error || failedItems > 0 ? "failed" : closed ? "done" : confirmedItems > 0 ? "partial" : "pending";
+  const notionDetail = notionKind === "failed" ? "エラー" : dismissed ? "対応不要" : registered ? "登録済み" : confirmedItems > 0 ? `${confirmedItems}/${Math.max(itemStatuses.length, items.length)}行` : "未登録";
   const replyStatus = candidate.reply_status;
   const replyKind = replyStatus?.sent ? "done" : "pending";
   const replyDetail = replyStatus?.sent ? ["送信済み", replyStatus.last_sent_by, formatStatusTime(replyStatus.last_sent_at)].filter(Boolean).join(" / ") : "未送信";
@@ -834,8 +872,11 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     } : null
   );
   const datesKey = useMemo(() => [...new Set(items.map((item) => item.event_date).filter(Boolean))].sort().join("|"), [items]);
+  const eventSummary = items.slice(0, 2).map((item) => [item.event_date || "日付未定", eventTypeLabel(item.event_type), item.ai_summary || fallbackReason(item.event_type)].join(" / ")).join("　｜　");
+  const hasError = candidateHasError(candidate);
 
   useEffect(() => {
+    if (!expanded) return;
     const dates = datesKey ? datesKey.split("|") : [];
     for (const date of dates) {
       fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
@@ -856,7 +897,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
           }));
         });
     }
-  }, [datesKey, studentNumber, selectedStudent?.campus]);
+  }, [datesKey, expanded, studentNumber, selectedStudent?.campus]);
 
   function updateItem(clientId: string, patch: Partial<EditableItem>) {
     setItems((current) => current.map((item) => item.client_id === clientId ? { ...item, ...patch } : item));
@@ -1029,20 +1070,28 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     setCardMessage("返信文案をコピーしました。");
   }
 
-  return <section className="panel" style={{ padding: 20 }}>
+  return <section className="panel" style={{ padding: 14, borderColor: hasError ? "#fca5a5" : undefined, background: hasError ? "#fffafa" : undefined }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
       <div style={{ display: "grid", gap: 6 }}>
-        <strong style={{ fontSize: 18 }}>{titleName}</strong>
+        <strong style={{ fontSize: 17 }}>{titleName}</strong>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <StatusBadge label="LINE返信" detail={replyDetail} kind={replyKind} />
           <StatusBadge label="Notion" detail={notionDetail} kind={notionKind} />
+          {candidate.student_selection_required && <StatusBadge label="生徒確認" detail="要選択" kind="partial" />}
         </div>
       </div>
-      <span style={{ color: registered ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+        <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
+      </div>
     </div>
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 24, marginTop: 8 }}>
-      {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
-    </div>
+    <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</div>
+    {!expanded && <div style={{ marginTop: 6, color: "#555", fontSize: 14, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>}
+
+    {expanded && <>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 24, marginTop: 10 }}>
+        {lineTagNames.length > 0 ? lineTagNames.map((tag) => <span key={tag} style={tagStyle}>{tag}</span>) : <span style={{ color: "#777", fontSize: 13 }}>LINEタグ未登録</span>}
+      </div>
 
     <div style={{ color: "#666", fontSize: 13, fontWeight: 700, marginTop: 12 }}>受信日時: {receivedAtText}</div>
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
@@ -1061,15 +1110,15 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
     {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 6, padding: 10, marginBottom: 12, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</div>}
     <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,280px) minmax(0,1fr) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
-      <StudentPicker label="名前" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={registered} />
+      <StudentPicker label="名前" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
-      {!registered && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
+      {!closed && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
 
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <strong>Notion登録行</strong>
-        {!registered && <button type="button" style={ghostButtonStyle} onClick={addItem}>行を追加</button>}
+        {!closed && <button type="button" style={ghostButtonStyle} onClick={addItem}>行を追加</button>}
       </div>
       {items.map((item, index) => {
         const lessons = item.event_date ? lessonLists[item.event_date] ?? [] : [];
@@ -1086,13 +1135,13 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
               onQueryChange={(value) => setItemStudentQueries((current) => ({ ...current, [item.client_id]: value }))}
               onChange={(value) => updateItem(item.client_id, { student_number: value, lesson_id: "" })}
               candidates={suggestions}
-              disabled={registered}
+              disabled={closed}
             />
-            <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
-            <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={registered} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={registered} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
-            <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={registered} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={registered} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
-            <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={registered || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
+            <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={closed} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
+            <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={closed} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={closed} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+            <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={closed} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={closed} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
+            <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={closed || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
           </div>
           
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {currentLesson?.label ?? "授業未選択"}</div>
@@ -1103,7 +1152,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
                 {group.lessons.map((lesson) => {
                   const selected = lesson.id === item.lesson_id;
                   const enrolled = Boolean(lesson.enrolled);
-                  return <button key={lesson.id} type="button" disabled={registered} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: registered ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                  return <button key={lesson.id} type="button" disabled={closed} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: closed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
                     <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
                   </button>;
                 })}
@@ -1115,7 +1164,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     </div>
 
     {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
-    <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>
+    {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>}
+    </>}
   </section>;
 }
 function ReplyHistory({ replies }: { replies: ReplyMessage[] }) {
