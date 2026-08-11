@@ -32,11 +32,15 @@ function compact(value) {
 function relationFor(textValue, studentName) {
   const text = compact(textValue);
   const name = compact(studentName);
-  if (!name || !text.includes(name)) return null;
-  if (text.includes(`${name}の母です`) || text.includes(`${name}母です`)) return "mother";
-  if (text.includes(`${name}の父です`) || text.includes(`${name}父です`)) return "father";
-  if (text.includes(`${name}の保護者です`) || text.includes(`${name}保護者です`)) return "guardian";
-  if (text.includes(`${name}本人です`) || text.includes(`生徒の${name}です`) || text === `${name}です`) return "student";
+  const nameParts = String(studentName ?? "").normalize("NFKC").trim().split(/[\s　]+/).filter(Boolean);
+  const surname = compact(nameParts[0]);
+  const givenName = compact(nameParts.slice(1).join(""));
+  const hasSeparatedSiblingName = surname && givenName && text.includes(surname) && text.includes(givenName);
+  if (!name || (!text.includes(name) && !hasSeparatedSiblingName)) return null;
+  if (text.includes(`${name}の母です`) || text.includes(`${name}母です`) || (hasSeparatedSiblingName && text.includes("母です"))) return "mother";
+  if (text.includes(`${name}の父です`) || text.includes(`${name}父です`) || (hasSeparatedSiblingName && text.includes("父です"))) return "father";
+  if (text.includes(`${name}の保護者です`) || text.includes(`${name}保護者です`) || (hasSeparatedSiblingName && text.includes("保護者です"))) return "guardian";
+  if (text.includes(`${name}本人です`) || text.includes(`生徒の${name}です`) || (text.includes(`${name}です`) && !text.includes(`${name}ですか`))) return "student";
   return null;
 }
 
