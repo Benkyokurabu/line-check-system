@@ -131,7 +131,8 @@ async function waitForDevtools(port, timeoutMs = 30000) {
 
 async function findPageTarget(port) {
   const targets = await httpJson(`http://127.0.0.1:${port}/json/list`);
-  const page = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
+  const pages = targets.filter((target) => target.type === "page" && target.webSocketDebuggerUrl);
+  const page = pages.find((target) => String(target.url).includes("chat.line.biz")) ?? pages[0];
   if (!page) throw new Error("No Chrome page target found.");
   return page;
 }
@@ -362,6 +363,9 @@ async function main() {
   await cdp.send("Network.enable");
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
+  if (String(target.url).includes("chat.line.biz")) {
+    await cdp.send("Page.reload", { ignoreCache: true });
+  }
 
   const interval = setInterval(async () => {
     try {
