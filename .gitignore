@@ -60,6 +60,7 @@ line_history_roster_match_by_name*.csv
 line_profiles_export*.csv
 line_history_import_report*.csv
 line_student_link_candidates*.csv
+line_student_link_candidates*.json
 unlinked_line_user_analysis*.csv
 *クラス一覧表*.xlsx
 *スケジュール*.xlsm
