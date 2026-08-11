@@ -40,19 +40,8 @@ function normalizeStudentNumber(value) {
 }
 
 
-function currentStudentNumberThreshold(date = new Date()) {
-  const month = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", month: "numeric" }).format(date));
-  return month >= 3 ? 2019000 : 2018000;
-}
-
-function isTargetStudentNumber(value, threshold = currentStudentNumberThreshold()) {
-  if (value.startsWith("notion:")) return true;
-  const number = Number(normalizeStudentNumber(value));
-  return Number.isFinite(number) && number > threshold;
-}
-
-function notionStudentNumber(pageId, rawStudentNumber, status) {
-  if (status !== "在塾" && (!rawStudentNumber || PLACEHOLDER_STUDENT_NUMBERS.has(rawStudentNumber))) {
+function notionStudentNumber(pageId, rawStudentNumber, status, isDuplicate) {
+  if (status !== "在塾" || !rawStudentNumber || PLACEHOLDER_STUDENT_NUMBERS.has(rawStudentNumber) || isDuplicate) {
     return `notion:${pageId.replace(/-/g, "")}`;
   }
   return rawStudentNumber;
@@ -99,9 +88,9 @@ async function notionRequest(path, init = {}) {
   return body;
 }
 
-async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) {
+async function fetchNotionStudents() {
   const dataSourceId = process.env.NOTION_STUDENT_DATA_SOURCE_ID?.trim() || DEFAULT_STUDENT_DATA_SOURCE_ID;
-  const students = [];
+  const candidates = [];
   let skipped = 0;
   let cursor;
 
@@ -119,15 +108,14 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
       const properties = page.properties ?? {};
       const rawStudentNumber = normalizeStudentNumber(firstProperty(properties, ["学籍番号", "生徒番号", "番号"]));
       const status = firstProperty(properties, ["状態"]);
-      const studentNumber = notionStudentNumber(page.id, rawStudentNumber, status);
       const studentName = firstProperty(properties, ["生徒氏名", "名前", "氏名"]);
-      if (!studentNumber || !studentName) {
+      if (!studentName) {
         skipped += 1;
         continue;
       }
-      if (!isTargetStudentNumber(studentNumber, threshold)) continue;
-      students.push({
-        student_number: studentNumber,
+      candidates.push({
+        raw_student_number: rawStudentNumber,
+        status,
         student_name: studentName,
         notion_page_id: page.id,
         grade: firstProperty(properties, ["学年"]) || null,
@@ -141,6 +129,26 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
     cursor = body.has_more && body.next_cursor ? body.next_cursor : undefined;
   } while (cursor);
 
+  const numberCounts = candidates.reduce((counts, student) => {
+    if (student.raw_student_number) counts.set(student.raw_student_number, (counts.get(student.raw_student_number) ?? 0) + 1);
+    return counts;
+  }, new Map());
+  const students = candidates.map((student) => ({
+    student_number: notionStudentNumber(
+      student.notion_page_id,
+      student.raw_student_number,
+      student.status,
+      (numberCounts.get(student.raw_student_number) ?? 0) > 1,
+    ),
+    student_name: student.student_name,
+    notion_page_id: student.notion_page_id,
+    grade: student.grade,
+    campus: student.campus,
+    homeroom_teacher: student.homeroom_teacher,
+    school_name: student.school_name,
+    gender: student.gender,
+  }));
+
   return {
     students: [...new Map(students.map((student) => [student.student_number, student])).values()],
     skipped,
@@ -148,8 +156,7 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
 }
 
 async function main() {
-  const threshold = currentStudentNumberThreshold();
-  const notionResult = await fetchNotionStudents(threshold);
+  const notionResult = await fetchNotionStudents();
   const studentNumbers = notionResult.students.map((student) => student.student_number);
   if (studentNumbers.length === 0) {
     console.log(JSON.stringify({ ok: true, active_students: 0, synced_students: 0, skipped: notionResult.skipped }, null, 2));
