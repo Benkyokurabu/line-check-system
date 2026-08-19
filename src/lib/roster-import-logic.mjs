@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import * as XLSX from "xlsx";
+import * as XLSXNamespace from "xlsx";
+
+const XLSX = "default" in XLSXNamespace ? XLSXNamespace.default : XLSXNamespace;
 
 export const ROSTER_MANIFEST_KEY = "roster_excel_import_manifest";
 
