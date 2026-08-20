@@ -79,7 +79,7 @@ async function upsertVaultSecret(client, name, value, description) {
 
 const workerCommand = `
   select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'attendance_app_url') || '/api/cron/attendance-extract?limit=3',
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'attendance_app_url') || '/api/cron/attendance-extract?limit=1',
     headers := jsonb_build_object(
       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'attendance_internal_token'),
       'Content-Type', 'application/json'
