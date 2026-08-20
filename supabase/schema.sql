@@ -117,6 +117,25 @@ create table if not exists public.line_user_aliases (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.line_link_evidence (
+  line_user_id text primary key,
+  manager_line_user_id text,
+  display_name text,
+  manager_alias_name text,
+  evidence_text text not null,
+  evidence_at timestamptz,
+  parsed_student_name text,
+  relation text not null default 'unknown',
+  source text not null default 'line_manager_first_self_introduction',
+  verified_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint line_link_evidence_relation_check
+    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown'))
+);
+
+create index if not exists line_link_evidence_display_name_idx
+  on public.line_link_evidence (display_name);
+
 create table if not exists public.line_tasks (
   id uuid primary key default gen_random_uuid(),
   message_id uuid not null references public.line_messages (id),

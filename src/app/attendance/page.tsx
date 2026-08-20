@@ -57,6 +57,15 @@ type LineLinkCandidate = {
   candidate_count: number;
   suggested_names: string[];
   latest_text: string | null;
+  identity_evidence: {
+    manager_alias_name: string | null;
+    evidence_text: string;
+    evidence_at: string | null;
+    parsed_student_name: string | null;
+    relation: string;
+    source: string;
+    verified_at: string;
+  } | null;
   suggestions: LineLinkSuggestion[];
   default_student_number: string;
   default_relation: string;
@@ -617,6 +626,16 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
             <span style={{ color: "#666", fontSize: 12 }}>判断材料: pending {candidate.candidate_count}件 / 最終受信 {formatReceivedAt(candidate.latest_received_at)} / AI候補 {candidate.suggested_names.join(" / ") || "なし"}</span>
           </div>
           <div style={{ padding: 10, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{candidate.latest_text ?? "（本文なし）"}</div>
+          {candidate.identity_evidence && <div style={{ padding: 10, background: "#fff8df", border: "1px solid #d8b64c", borderRadius: 6, display: "grid", gap: 5 }}>
+            <strong style={{ color: "#6f5400" }}>紐づけ候補の根拠：初回の本人確認メッセージ</strong>
+            <span style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>「{candidate.identity_evidence.evidence_text}」</span>
+            <span style={{ color: "#695f42", fontSize: 12 }}>
+              {[candidate.identity_evidence.evidence_at ? formatReceivedAt(candidate.identity_evidence.evidence_at) : null,
+                candidate.identity_evidence.parsed_student_name ? `名乗り: ${candidate.identity_evidence.parsed_student_name}` : null,
+                candidate.identity_evidence.manager_alias_name ? `LINE管理名: ${candidate.identity_evidence.manager_alias_name}` : null]
+                .filter(Boolean).join(" / ")}
+            </span>
+          </div>}
           {candidate.suggestions.length > 0 && <div style={{ display: "grid", gap: 6 }}>
             <span style={{ fontSize: 13, fontWeight: 700 }}>生徒候補</span>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{candidate.suggestions.map((suggestion) => <button key={suggestion.student_number} type="button" style={draft.student_number === suggestion.student_number ? buttonStyle : ghostButtonStyle} onClick={() => updateDraft(candidate.line_user_id, { student_number: suggestion.student_number, query: suggestion.student_name })}>{suggestion.grade} {suggestion.student_name} / {suggestion.reason}</button>)}</div>

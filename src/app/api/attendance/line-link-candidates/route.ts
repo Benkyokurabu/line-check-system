@@ -36,6 +36,19 @@ type LineMessageRelation = {
   received_at: string | null;
 };
 
+type LineLinkEvidenceRow = {
+  line_user_id: string;
+  manager_line_user_id: string | null;
+  display_name: string | null;
+  manager_alias_name: string | null;
+  evidence_text: string;
+  evidence_at: string | null;
+  parsed_student_name: string | null;
+  relation: string;
+  source: string;
+  verified_at: string;
+};
+
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
@@ -67,6 +80,7 @@ function scoreStudent(input: {
   suggestedNames: string[];
   linkedStudentNumbers: Set<string>;
   sameDisplayAccounts: LineAccountRow[];
+  identityEvidence: LineLinkEvidenceRow | null;
 }) {
   const student = normalizeName(input.student.student_name);
   if (!student) return null;
@@ -75,8 +89,25 @@ function scoreStudent(input: {
   const text = normalizeName(input.text);
   const displayName = normalizeName(input.displayName);
   const suggested = input.suggestedNames.map(normalizeName).filter(Boolean);
+  const evidenceText = normalizeName(input.identityEvidence?.evidence_text);
+  const evidenceStudentName = normalizeName(input.identityEvidence?.parsed_student_name);
+  const evidenceManagerAlias = normalizeName(input.identityEvidence?.manager_alias_name);
   let score = 0;
   const reasons: string[] = [];
+
+  if (evidenceStudentName && evidenceStudentName === student) {
+    score += 180;
+    reasons.push("初回自己申告に生徒名");
+  } else if (evidenceText && evidenceText.includes(student)) {
+    score += 170;
+    reasons.push("初回自己申告に生徒名");
+  } else if (evidenceManagerAlias && (
+    evidenceManagerAlias.includes(student) ||
+    (surname && givenName && evidenceManagerAlias.includes(surname) && evidenceManagerAlias.includes(givenName))
+  )) {
+    score += 140;
+    reasons.push("初回自己申告とLINE管理名");
+  }
 
   if (input.linkedStudentNumbers.has(input.student.student_number)) {
     score += 100;
@@ -125,7 +156,7 @@ function scoreStudent(input: {
 
 export async function GET() {
   const supabase = createSupabaseAdminClient();
-  const [{ data: candidates, error }, { data: roster, error: rosterError }, accountsResult, { data: aliases, error: aliasesError }] = await Promise.all([
+  const [{ data: candidates, error }, { data: roster, error: rosterError }, accountsResult, { data: aliases, error: aliasesError }, evidenceResult] = await Promise.all([
     supabase
       .from("attendance_candidates")
       .select("id,student_number,suggested_student_name,status,created_at,line_messages(line_user_id,display_name,text,received_at)")
@@ -141,6 +172,9 @@ export async function GET() {
     supabase
       .from("line_user_aliases")
       .select("line_user_id,alias_name"),
+    supabase
+      .from("line_link_evidence")
+      .select("line_user_id,manager_line_user_id,display_name,manager_alias_name,evidence_text,evidence_at,parsed_student_name,relation,source,verified_at"),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (rosterError) return NextResponse.json({ error: rosterError.message }, { status: 500 });
@@ -148,10 +182,16 @@ export async function GET() {
     return NextResponse.json({ error: accountsResult.error.message }, { status: 500 });
   }
   if (aliasesError) return NextResponse.json({ error: aliasesError.message }, { status: 500 });
+  if (evidenceResult.error && !["42P01", "PGRST205"].includes(evidenceResult.error.code ?? "")) {
+    return NextResponse.json({ error: evidenceResult.error.message }, { status: 500 });
+  }
 
   const accountRows = (accountsResult.data ?? []) as LineAccountRow[];
   const aliasUserIds = new Set((aliases ?? []).filter((row) => row.alias_name?.trim()).map((row) => row.line_user_id as string));
   const accountAliasUserIds = new Set(accountRows.filter((row) => row.alias_name?.trim()).map((row) => row.line_user_id));
+  const evidenceByLineUserId = new Map(
+    ((evidenceResult.data ?? []) as LineLinkEvidenceRow[]).map((row) => [row.line_user_id, row]),
+  );
   const rowsByLineUserId = new Map<string, PendingCandidateRow[]>();
   for (const row of (candidates ?? []) as PendingCandidateRow[]) {
     const lineMessage = firstRelation(row.line_messages);
@@ -179,8 +219,9 @@ export async function GET() {
       ? accountRows.filter((row) => row.friend_display_name?.trim() === displayName && row.alias_name?.trim())
       : [];
     const text = sorted.map((row) => firstRelation(row.line_messages)?.text ?? "").join("\n");
+    const identityEvidence = evidenceByLineUserId.get(lineUserId) ?? null;
     const suggestions = rosterRows
-      .map((student) => scoreStudent({ student, text, displayName, suggestedNames, linkedStudentNumbers, sameDisplayAccounts }))
+      .map((student) => scoreStudent({ student, text, displayName, suggestedNames, linkedStudentNumbers, sameDisplayAccounts, identityEvidence }))
       .filter((value): value is NonNullable<typeof value> => Boolean(value))
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
@@ -193,9 +234,12 @@ export async function GET() {
       candidate_count: sorted.length,
       suggested_names: suggestedNames,
       latest_text: latestLineMessage?.text ?? null,
+      identity_evidence: identityEvidence,
       suggestions,
       default_student_number: top?.student_number ?? "",
-      default_relation: top && normalizeName(displayName) === normalizeName(top.student_name).slice(2) ? "student" : "mother",
+      default_relation: identityEvidence?.relation && identityEvidence.relation !== "unknown"
+        ? identityEvidence.relation
+        : top && normalizeName(displayName) === normalizeName(top.student_name).slice(2) ? "student" : "mother",
     };
   }).sort((a, b) => {
     const aTime = Date.parse(a.latest_received_at ?? "");
