@@ -33,13 +33,17 @@ function dateAge(value: string | null, now: number) {
 
 async function postTeamsAlert(text: string) {
   const url = process.env.TEAMS_WEBHOOK_URL;
-  if (!url) throw new Error("TEAMS_WEBHOOK_URL is not configured");
+  if (!url) {
+    console.error("Attendance analysis alert was not sent: TEAMS_WEBHOOK_URL is not configured");
+    return false;
+  }
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
   if (!response.ok) throw new Error(`Teams webhook failed: ${response.status}`);
+  return true;
 }
 
 export async function monitorAttendanceAnalysis() {
@@ -88,7 +92,7 @@ export async function monitorAttendanceAnalysis() {
   const shouldRepeat = lastAlertAge === null || lastAlertAge > ALERT_REPEAT_MS;
 
   if (reasons.length > 0 && (!status.alert_active || shouldRepeat)) {
-    await postTeamsAlert([
+    const notificationSent = await postTeamsAlert([
       "【勉たん】LINE出欠解析に滞留または停止を検知しました",
       "",
       ...reasons.map((reason) => `・${reason.text}`),
@@ -102,11 +106,11 @@ export async function monitorAttendanceAnalysis() {
       updated_at: new Date(now).toISOString(),
     }).eq("singleton", true);
     if (updateError) throw updateError;
-    return { ok: true, alerted: true, recovered: false, status };
+    return { ok: true, alerted: true, recovered: false, notification_sent: notificationSent, status };
   }
 
   if (reasons.length === 0 && status.alert_active) {
-    await postTeamsAlert([
+    const notificationSent = await postTeamsAlert([
       "【勉たん】LINE出欠解析は正常状態に復旧しました",
       "",
       `直近1時間の処理: ${status.processed_last_hour}件`,
@@ -117,8 +121,8 @@ export async function monitorAttendanceAnalysis() {
       updated_at: new Date(now).toISOString(),
     }).eq("singleton", true);
     if (updateError) throw updateError;
-    return { ok: true, alerted: false, recovered: true, status };
+    return { ok: true, alerted: false, recovered: true, notification_sent: notificationSent, status };
   }
 
-  return { ok: true, alerted: false, recovered: false, status };
+  return { ok: true, alerted: false, recovered: false, notification_sent: false, status };
 }

@@ -47,7 +47,7 @@ type RosterRow = {
   campus: string | null;
 };
 
-const ATTENDANCE_AI_CONCURRENCY = 3;
+const ATTENDANCE_AI_CONCURRENCY = 1;
 const ATTENDANCE_MAX_ATTEMPTS = 5;
 const ATTENDANCE_RETRY_DELAYS_MINUTES = [1, 5, 15, 60] as const;
 

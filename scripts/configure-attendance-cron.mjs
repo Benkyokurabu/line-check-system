@@ -79,7 +79,7 @@ async function upsertVaultSecret(client, name, value, description) {
 
 const workerCommand = `
   select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'attendance_app_url') || '/api/cron/attendance-extract?limit=10',
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'attendance_app_url') || '/api/cron/attendance-extract?limit=3',
     headers := jsonb_build_object(
       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'attendance_internal_token'),
       'Content-Type', 'application/json'
@@ -146,7 +146,7 @@ try {
 
   for (const jobName of ["attendance-analysis-worker", "attendance-analysis-monitor"]) {
     const jobs = await client.query("select jobid from cron.job where jobname = $1", [jobName]);
-    for (const job of jobs.rows) await client.query("select cron.unschedule($1)", [job.jobid]);
+    for (const job of jobs.rows) await client.query("select cron.unschedule($1::bigint)", [job.jobid]);
   }
   await client.query("select cron.schedule($1, $2, $3)", ["attendance-analysis-worker", "* * * * *", workerCommand]);
   await client.query("select cron.schedule($1, $2, $3)", ["attendance-analysis-monitor", "*/5 * * * *", monitorCommand]);

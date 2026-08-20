@@ -22,8 +22,9 @@ const appUrl = argument("--app-url", "https://line-check-system.vercel.app").rep
 const token = process.env.SUPABASE_SECRET_KEY
   ? crypto.createHmac("sha256", process.env.SUPABASE_SECRET_KEY).update("attendance-analysis-cron-v1").digest("hex")
   : null;
-const limit = Math.min(Math.max(Number(argument("--limit", "10")), 1), 30);
+const limit = Math.min(Math.max(Number(argument("--limit", "3")), 1), 30);
 const maxRuns = Math.max(Number(argument("--max-runs", "100")), 1);
+const delayMs = Math.max(Number(argument("--delay-ms", "60000")), 0);
 if (!token) throw new Error("SUPABASE_SECRET_KEY is required");
 
 const totals = { processed: 0, candidates: 0, ignored: 0, retrying: 0, dead: 0 };
@@ -38,5 +39,6 @@ for (let run = 1; run <= maxRuns; run += 1) {
   for (const key of Object.keys(totals)) totals[key] += Number(result[key] ?? 0);
   console.log(JSON.stringify({ run, ...result, totals }));
   if (Number(result.processed ?? 0) === 0) break;
+  if (run < maxRuns && delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 console.log(JSON.stringify({ ok: true, totals }, null, 2));
