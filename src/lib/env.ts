@@ -1,5 +1,7 @@
 import "server-only";
 
+import crypto from "node:crypto";
+
 const requiredServerEnv = {
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
@@ -38,4 +40,25 @@ export function requireInternalToken(request: Request) {
   return expectedTokens.some(
     (expected) => headerToken === expected || bearerToken === expected,
   );
+}
+
+function attendanceCronToken() {
+  const secret = process.env.SUPABASE_SECRET_KEY;
+  if (!secret) return null;
+  return crypto
+    .createHmac("sha256", secret)
+    .update("attendance-analysis-cron-v1")
+    .digest("hex");
+}
+
+export function requireAttendanceCronToken(request: Request) {
+  const derivedToken = attendanceCronToken();
+  if (derivedToken) {
+    const headerToken = request.headers.get("x-internal-token");
+    const bearerToken = request.headers
+      .get("authorization")
+      ?.replace(/^Bearer\s+/i, "");
+    if (headerToken === derivedToken || bearerToken === derivedToken) return true;
+  }
+  return requireInternalToken(request);
 }

@@ -1,14 +1,14 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { requireInternalToken } from "@/lib/env";
+import { requireAttendanceCronToken } from "@/lib/env";
 import { processPendingAttendanceMessages } from "@/lib/attendance-ai-extraction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function handleAttendanceExtraction(request: Request) {
-  if (!requireInternalToken(request)) {
+  if (!requireAttendanceCronToken(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {

@@ -3,13 +3,13 @@ import "server-only";
 import { NextResponse } from "next/server";
 
 import { monitorAttendanceAnalysis } from "@/lib/attendance-analysis-monitor";
-import { requireInternalToken } from "@/lib/env";
+import { requireAttendanceCronToken } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function handleAttendanceMonitor(request: Request) {
-  if (!requireInternalToken(request)) {
+  if (!requireAttendanceCronToken(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {

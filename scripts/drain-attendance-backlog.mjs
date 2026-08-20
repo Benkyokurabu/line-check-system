@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -15,12 +16,15 @@ function loadEnv(filePath) {
   }
 }
 
+loadEnv(path.resolve(".env.local"));
 loadEnv(path.resolve(argument("--env-file", ".env.attendance-production.local")));
 const appUrl = argument("--app-url", "https://line-check-system.vercel.app").replace(/\/$/, "");
-const token = process.env.INTERNAL_API_TOKEN || process.env.CRON_SECRET;
+const token = process.env.SUPABASE_SECRET_KEY
+  ? crypto.createHmac("sha256", process.env.SUPABASE_SECRET_KEY).update("attendance-analysis-cron-v1").digest("hex")
+  : null;
 const limit = Math.min(Math.max(Number(argument("--limit", "10")), 1), 30);
 const maxRuns = Math.max(Number(argument("--max-runs", "100")), 1);
-if (!token) throw new Error("INTERNAL_API_TOKEN or CRON_SECRET is required");
+if (!token) throw new Error("SUPABASE_SECRET_KEY is required");
 
 const totals = { processed: 0, candidates: 0, ignored: 0, retrying: 0, dead: 0 };
 for (let run = 1; run <= maxRuns; run += 1) {
