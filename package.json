@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:apply-student-line-accounts": "node scripts/apply-student-line-accounts-schema.mjs",
+    "db:configure-attendance-cron": "node scripts/configure-attendance-cron.mjs",
+    "attendance:drain-backlog": "node scripts/drain-attendance-backlog.mjs",
     "import:roster": "node scripts/import-roster-from-excel.mjs",
     "import:line-history": "node scripts/import-line-history.mjs",
     "capture:line-manager": "node scripts/capture-line-manager-data.mjs",

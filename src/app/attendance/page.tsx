@@ -47,7 +47,19 @@ type ManualEvent = {
 };
 type HistoryDays = 3 | 5 | 7 | 14;
 type ReviewTab = "action" | "done" | "all";
-type AnalysisStatus = { queued: number; processing: number; failed: number; last_checked_at: string | null };
+type AnalysisStatus = {
+  queued: number;
+  ready: number;
+  processing: number;
+  retry_wait: number;
+  dead: number;
+  oldest_queued_at: string | null;
+  processed_last_hour: number;
+  last_worker_succeeded_at: string | null;
+  last_worker_error: string | null;
+  alert_active: boolean;
+  last_checked_at: string | null;
+};
 type LineLinkSuggestion = Student & { score: number; reason: string; proposed_alias_name: string };
 type LineLinkCandidate = {
   line_user_id: string;
@@ -248,8 +260,15 @@ export default function AttendancePage() {
     if (!response.ok) throw new Error(body.error ?? "解析状態を取得できませんでした");
     setAnalysisStatus({
       queued: Number(body.queued ?? 0),
+      ready: Number(body.ready ?? 0),
       processing: Number(body.processing ?? 0),
-      failed: Number(body.failed ?? 0),
+      retry_wait: Number(body.retry_wait ?? 0),
+      dead: Number(body.dead ?? body.failed ?? 0),
+      oldest_queued_at: body.oldest_queued_at ?? null,
+      processed_last_hour: Number(body.processed_last_hour ?? 0),
+      last_worker_succeeded_at: body.last_worker_succeeded_at ?? null,
+      last_worker_error: body.last_worker_error ?? null,
+      alert_active: Boolean(body.alert_active),
       last_checked_at: body.last_checked_at ?? null,
     });
   }, []);
@@ -292,12 +311,12 @@ export default function AttendancePage() {
   }
 
   async function analyze() {
-    setBusy(true); setMessage("直近10分の未解析LINEを解析しています...");
+    setBusy(true); setMessage("待機中のLINE解析ジョブを処理しています...");
     try {
-      const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10, lookback_minutes: 10 }) });
+      const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
-      setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、失敗${body.failed}件です。`);
+      setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、再試行${body.retrying ?? 0}件、要確認${body.dead ?? 0}件です。`);
       await Promise.all([load(), loadStatus()]);
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -338,12 +357,12 @@ export default function AttendancePage() {
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
-      <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "直近LINEを今すぐ解析"}</button>
+      <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "待機中LINEを今すぐ解析"}</button>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去の要対応を非表示" : "過去の要対応も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE紐づけ候補を閉じる" : "LINE紐づけ候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>対応済みの表示期間</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value) as HistoryDays)}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
-      {analysisStatus && <p style={{ flexBasis: "100%", margin: 0, color: "#555" }}>未解析 {analysisStatus.queued}件 / 解析中 {analysisStatus.processing}件 / 失敗 {analysisStatus.failed}件 / 最終確認 {formatTime(analysisStatus.last_checked_at)}</p>}
+      {analysisStatus && <p role={analysisStatus.alert_active || analysisStatus.dead > 0 ? "alert" : undefined} style={{ flexBasis: "100%", margin: 0, color: analysisStatus.alert_active || analysisStatus.dead > 0 ? "#b42318" : "#555", fontWeight: analysisStatus.alert_active || analysisStatus.dead > 0 ? 800 : 400 }}>待機 {analysisStatus.queued}件（実行可能 {analysisStatus.ready}件・再試行待ち {analysisStatus.retry_wait}件） / 解析中 {analysisStatus.processing}件 / 要確認 {analysisStatus.dead}件 / 直近1時間 {analysisStatus.processed_last_hour}件 / 最終正常実行 {formatTime(analysisStatus.last_worker_succeeded_at)} / 最終確認 {formatTime(analysisStatus.last_checked_at)}{analysisStatus.oldest_queued_at ? ` / 最古 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? ` / エラー: ${analysisStatus.last_worker_error}` : ""}</p>}
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     {linkReviewOpen && <LineLinkReviewPanel candidates={linkCandidates} students={students} loading={linkCandidatesLoading} onReload={loadLineLinkCandidates} onChanged={async () => { await Promise.all([loadLineLinkCandidates(), load()]); }} setMessage={setMessage} />}
@@ -376,6 +395,17 @@ function formatTime(value: string | null) {
 function todayJst() {
   const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" });
   return formatter.format(new Date());
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function normalizeSearchText(value: string | null | undefined) {

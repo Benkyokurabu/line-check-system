@@ -372,3 +372,212 @@ as $$
     and messages.received_at >= p_since
     and public.attendance_text_may_need_analysis(messages.text)
 $$;
+
+-- Durable attendance-analysis queue. New inbound text is always queued, while the
+-- initial migration only backfills messages that the legacy keyword filter marked
+-- as potentially relevant. This keeps historical API usage bounded without
+-- allowing future messages to fall out of a lookback window.
+create table if not exists public.attendance_analysis_jobs (
+  message_id uuid primary key references public.line_messages (id) on delete cascade,
+  status text not null default 'pending',
+  priority smallint not null default 100,
+  attempt_count integer not null default 0,
+  next_attempt_at timestamptz not null default now(),
+  locked_at timestamptz,
+  last_attempt_at timestamptz,
+  completed_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint attendance_analysis_jobs_status_check
+    check (status in ('pending', 'processing', 'retry_wait', 'succeeded', 'ignored', 'dead')),
+  constraint attendance_analysis_jobs_attempt_count_check
+    check (attempt_count >= 0)
+);
+
+create index if not exists attendance_analysis_jobs_ready_idx
+  on public.attendance_analysis_jobs (priority desc, next_attempt_at, created_at)
+  where status in ('pending', 'retry_wait', 'processing');
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger where tgname = 'set_attendance_analysis_jobs_updated_at'
+      and tgrelid = 'public.attendance_analysis_jobs'::regclass
+  ) then
+    create trigger set_attendance_analysis_jobs_updated_at
+      before update on public.attendance_analysis_jobs
+      for each row execute function public.set_updated_at();
+  end if;
+end $$;
+
+create or replace function public.enqueue_attendance_analysis_job()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.direction = 'inbound' and new.message_type = 'text' then
+    insert into public.attendance_analysis_jobs (message_id, status, priority, next_attempt_at)
+    values (new.id, 'pending', 100, now())
+    on conflict (message_id) do nothing;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enqueue_attendance_analysis_job_on_line_message on public.line_messages;
+create trigger enqueue_attendance_analysis_job_on_line_message
+  after insert or update of direction, message_type, text on public.line_messages
+  for each row execute function public.enqueue_attendance_analysis_job();
+
+-- Preserve completed legacy reviews and queue only the bounded historical backlog.
+insert into public.attendance_analysis_jobs (
+  message_id,
+  status,
+  priority,
+  attempt_count,
+  next_attempt_at,
+  completed_at,
+  last_error
+)
+select
+  messages.id,
+  case reviews.result
+    when 'candidate' then 'succeeded'
+    when 'ignored' then 'ignored'
+    else 'pending'
+  end,
+  0,
+  0,
+  now(),
+  case when reviews.result in ('candidate', 'ignored') then reviews.processed_at else null end,
+  case when reviews.result = 'failed' then reviews.error_message else null end
+from public.line_messages as messages
+left join public.attendance_message_reviews as reviews
+  on reviews.message_id = messages.id
+where messages.direction = 'inbound'
+  and messages.message_type = 'text'
+  and messages.received_at >= now() - interval '45 days'
+  and public.attendance_text_may_need_analysis(messages.text)
+on conflict (message_id) do nothing;
+
+create table if not exists public.attendance_analysis_runtime (
+  singleton boolean primary key default true check (singleton),
+  last_worker_started_at timestamptz,
+  last_worker_succeeded_at timestamptz,
+  last_worker_error text,
+  last_alert_at timestamptz,
+  last_alert_key text,
+  alert_active boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+
+insert into public.attendance_analysis_runtime (singleton)
+values (true)
+on conflict (singleton) do nothing;
+
+create or replace function public.claim_pending_attendance_jobs(p_limit integer default 10)
+returns table (
+  id uuid,
+  text text,
+  display_name text,
+  received_at timestamptz,
+  created_at timestamptz,
+  attempt_count integer
+)
+language sql
+volatile
+security definer
+set search_path = public
+as $$
+  with targets as materialized (
+    select jobs.message_id
+    from public.attendance_analysis_jobs as jobs
+    join public.line_messages as messages on messages.id = jobs.message_id
+    where
+      jobs.status = 'pending'
+      or (jobs.status = 'retry_wait' and jobs.next_attempt_at <= now())
+      or (jobs.status = 'processing' and jobs.locked_at < now() - interval '10 minutes')
+    order by jobs.priority desc,
+      messages.received_at asc nulls last,
+      messages.created_at asc
+    for update of jobs skip locked
+    limit least(greatest(p_limit, 1), 30)
+  ), claimed as (
+    update public.attendance_analysis_jobs as jobs
+    set
+      status = 'processing',
+      attempt_count = jobs.attempt_count + 1,
+      locked_at = now(),
+      last_attempt_at = now(),
+      last_error = null
+    from targets
+    where jobs.message_id = targets.message_id
+    returning jobs.message_id, jobs.attempt_count
+  )
+  select
+    messages.id,
+    messages.text,
+    messages.display_name,
+    messages.received_at,
+    messages.created_at,
+    claimed.attempt_count
+  from claimed
+  join public.line_messages as messages on messages.id = claimed.message_id
+  order by messages.received_at asc nulls last, messages.created_at asc
+$$;
+
+create or replace function public.attendance_analysis_queue_status()
+returns table (
+  queued bigint,
+  ready bigint,
+  processing bigint,
+  retry_wait bigint,
+  dead bigint,
+  oldest_queued_at timestamptz,
+  processed_last_hour bigint,
+  last_worker_started_at timestamptz,
+  last_worker_succeeded_at timestamptz,
+  last_worker_error text,
+  last_alert_at timestamptz,
+  alert_active boolean
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    count(*) filter (where jobs.status in ('pending', 'retry_wait')) as queued,
+    count(*) filter (
+      where jobs.status = 'pending'
+        or (jobs.status = 'retry_wait' and jobs.next_attempt_at <= now())
+    ) as ready,
+    count(*) filter (where jobs.status = 'processing') as processing,
+    count(*) filter (where jobs.status = 'retry_wait') as retry_wait,
+    count(*) filter (where jobs.status = 'dead') as dead,
+    min(coalesce(messages.received_at, messages.created_at)) filter (
+      where jobs.status in ('pending', 'retry_wait')
+    ) as oldest_queued_at,
+    count(*) filter (
+      where jobs.status in ('succeeded', 'ignored')
+        and jobs.completed_at >= now() - interval '1 hour'
+    ) as processed_last_hour,
+    runtime.last_worker_started_at,
+    runtime.last_worker_succeeded_at,
+    runtime.last_worker_error,
+    runtime.last_alert_at,
+    runtime.alert_active
+  from public.attendance_analysis_jobs as jobs
+  join public.line_messages as messages on messages.id = jobs.message_id
+  cross join public.attendance_analysis_runtime as runtime
+  where runtime.singleton = true
+  group by
+    runtime.last_worker_started_at,
+    runtime.last_worker_succeeded_at,
+    runtime.last_worker_error,
+    runtime.last_alert_at,
+    runtime.alert_active
+$$;

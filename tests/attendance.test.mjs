@@ -100,3 +100,31 @@ test("attendance schema contains the child table required for multi-row registra
   assert.match(sql, /status text not null default 'pending'/);
   assert.match(sql, /attendance_candidate_items_status_check/);
 });
+
+test("attendance analysis uses a durable queue without a rolling lookback", async () => {
+  const [sql, worker] = await Promise.all([
+    readFile(new URL("../supabase/attendance_schema.sql", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/attendance-ai-extraction.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(sql, /create table if not exists public\.attendance_analysis_jobs/);
+  assert.match(sql, /create trigger enqueue_attendance_analysis_job_on_line_message/);
+  assert.match(sql, /for update of jobs skip locked/);
+  assert.match(sql, /jobs\.priority desc/);
+  assert.match(worker, /claim_pending_attendance_jobs/);
+  assert.doesNotMatch(worker, /ATTENDANCE_LOOKBACK_HOURS|p_since: since/);
+});
+
+test("attendance analysis retries transient failures and dead-letters exhausted jobs", async () => {
+  const worker = await readFile(new URL("../src/lib/attendance-ai-extraction.ts", import.meta.url), "utf8");
+  assert.match(worker, /ATTENDANCE_MAX_ATTEMPTS = 5/);
+  assert.match(worker, /ATTENDANCE_RETRY_DELAYS_MINUTES = \[1, 5, 15, 60\]/);
+  assert.match(worker, /isDead \? "dead" : "retry_wait"/);
+});
+
+test("attendance scheduler reads its bearer token from Supabase Vault", async () => {
+  const scheduler = await readFile(new URL("../scripts/configure-attendance-cron.mjs", import.meta.url), "utf8");
+  assert.match(scheduler, /vault\.decrypted_secrets/);
+  assert.match(scheduler, /attendance-analysis-worker/);
+  assert.match(scheduler, /attendance-analysis-monitor/);
+  assert.doesNotMatch(scheduler, /Authorization', 'Bearer [A-Za-z0-9_-]{20}/);
+});

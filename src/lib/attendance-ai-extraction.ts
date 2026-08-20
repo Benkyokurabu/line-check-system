@@ -37,6 +37,7 @@ type AttendanceLineMessage = {
   received_at?: string | null;
   created_at?: string | null;
   display_name?: string | null;
+  attempt_count: number;
 };
 
 type RosterRow = {
@@ -47,7 +48,81 @@ type RosterRow = {
 };
 
 const ATTENDANCE_AI_CONCURRENCY = 3;
-const ATTENDANCE_LOOKBACK_HOURS = 24;
+const ATTENDANCE_MAX_ATTEMPTS = 5;
+const ATTENDANCE_RETRY_DELAYS_MINUTES = [1, 5, 15, 60] as const;
+
+function errorMessage(cause: unknown) {
+  return (cause instanceof Error ? cause.message : String(cause)).slice(0, 500);
+}
+
+async function recordWorkerState(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  values: Record<string, unknown>,
+) {
+  const { error } = await supabase
+    .from("attendance_analysis_runtime")
+    .update({ ...values, updated_at: new Date().toISOString() })
+    .eq("singleton", true);
+  if (error) throw error;
+}
+
+async function updateReview(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  messageId: string,
+  result: "candidate" | "ignored" | "failed",
+  error: string | null,
+) {
+  const { error: reviewError } = await supabase.from("attendance_message_reviews").upsert({
+    message_id: messageId,
+    result,
+    error_message: error,
+    processed_at: new Date().toISOString(),
+  });
+  if (reviewError) throw reviewError;
+}
+
+async function completeJob(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  messageId: string,
+  status: "succeeded" | "ignored",
+) {
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("attendance_analysis_jobs").update({
+    status,
+    completed_at: now,
+    locked_at: null,
+    last_error: null,
+  }).eq("message_id", messageId);
+  if (error) throw error;
+}
+
+async function failJob(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  message: AttendanceLineMessage,
+  cause: unknown,
+) {
+  const failure = errorMessage(cause);
+  const isDead = message.attempt_count >= ATTENDANCE_MAX_ATTEMPTS;
+  const retryDelay = ATTENDANCE_RETRY_DELAYS_MINUTES[
+    Math.min(Math.max(message.attempt_count - 1, 0), ATTENDANCE_RETRY_DELAYS_MINUTES.length - 1)
+  ];
+  const nextAttemptAt = new Date(Date.now() + retryDelay * 60_000).toISOString();
+  const { error: jobError } = await supabase.from("attendance_analysis_jobs").update({
+    status: isDead ? "dead" : "retry_wait",
+    next_attempt_at: nextAttemptAt,
+    locked_at: null,
+    completed_at: isDead ? new Date().toISOString() : null,
+    last_error: failure,
+  }).eq("message_id", message.id);
+  if (jobError) console.error("Failed to update attendance analysis job", message.id, jobError);
+
+  try {
+    await updateReview(supabase, message.id, "failed", failure);
+  } catch (reviewError) {
+    console.error("Failed to record attendance analysis review failure", message.id, reviewError);
+  }
+  return isDead ? "dead" as const : "retrying" as const;
+}
 
 async function extractWithAi(input: { text: string; receivedAt: string; displayName: string | null }) {
   const key = process.env.GROQ_API_KEY;
@@ -96,7 +171,8 @@ async function processAttendanceMessage(input: {
       displayName: typeof message.display_name === "string" ? message.display_name : null,
     });
     if (!ai.is_attendance) {
-      await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "ignored", error_message: null, processed_at: new Date().toISOString() });
+      await updateReview(supabase, message.id, "ignored", null);
+      await completeJob(supabase, message.id, "ignored");
       return "ignored" as const;
     }
     const items = normalizeAttendanceItems(ai);
@@ -105,7 +181,7 @@ async function processAttendanceMessage(input: {
       ? roster.find((row) => normalizeAttendanceText(String(row.student_name)) === normalizeAttendanceText(ai.student_name!))
       : null;
     const confidence = Math.max(0, Math.min(1, Number(ai.confidence) || 0));
-    const { data: candidate, error: insertError } = await supabase.from("attendance_candidates").insert({
+    const candidateValues = {
       source_message_id: message.id,
       student_number: student?.student_number ?? null,
       suggested_student_name: ai.student_name ?? null,
@@ -117,11 +193,44 @@ async function processAttendanceMessage(input: {
       ai_confidence: confidence,
       ai_reason: ai.reason ?? null,
       raw_ai_result: ai,
-    }).select("id").single();
-    if (insertError) throw insertError;
+    };
+    const { data: existingCandidate, error: existingError } = await supabase
+      .from("attendance_candidates")
+      .select("id")
+      .eq("source_message_id", message.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (existingError) throw existingError;
+
+    let candidateId: string;
+    if (existingCandidate?.id) {
+      const { data: candidate, error: updateError } = await supabase
+        .from("attendance_candidates")
+        .update(candidateValues)
+        .eq("id", existingCandidate.id)
+        .select("id")
+        .single();
+      if (updateError) throw updateError;
+      candidateId = candidate.id;
+      const { error: deleteItemsError } = await supabase
+        .from("attendance_candidate_items")
+        .delete()
+        .eq("candidate_id", candidateId)
+        .eq("status", "pending");
+      if (deleteItemsError) throw deleteItemsError;
+    } else {
+      const { data: candidate, error: insertError } = await supabase
+        .from("attendance_candidates")
+        .insert(candidateValues)
+        .select("id")
+        .single();
+      if (insertError) throw insertError;
+      candidateId = candidate.id;
+    }
     if (items.length > 0) {
       const { error: itemError } = await supabase.from("attendance_candidate_items").insert(items.map((item) => ({
-        candidate_id: candidate.id,
+        candidate_id: candidateId,
         event_type: item.event_type,
         event_date: item.event_date,
         suggested_subject: item.suggested_subject,
@@ -130,16 +239,11 @@ async function processAttendanceMessage(input: {
       })));
       if (itemError) throw itemError;
     }
-    await supabase.from("attendance_message_reviews").upsert({ message_id: message.id, result: "candidate", error_message: null, processed_at: new Date().toISOString() });
+    await updateReview(supabase, message.id, "candidate", null);
+    await completeJob(supabase, message.id, "succeeded");
     return "candidate" as const;
   } catch (cause) {
-    await supabase.from("attendance_message_reviews").upsert({
-      message_id: message.id,
-      result: "failed",
-      error_message: cause instanceof Error ? cause.message.slice(0, 500) : String(cause).slice(0, 500),
-      processed_at: new Date().toISOString(),
-    });
-    return "failed" as const;
+    return failJob(supabase, message, cause);
   }
 }
 
@@ -150,35 +254,48 @@ function parseAttendanceLimit(value: unknown) {
 
 export async function processPendingAttendanceMessages(input: { limit?: unknown; lookbackMinutes?: unknown } = {}) {
   const limit = parseAttendanceLimit(input.limit);
-  const rawLookbackMinutes = Number(input.lookbackMinutes);
-  const lookbackMinutes = Number.isFinite(rawLookbackMinutes) && rawLookbackMinutes > 0
-    ? Math.min(Math.max(rawLookbackMinutes, 1), ATTENDANCE_LOOKBACK_HOURS * 60)
-    : ATTENDANCE_LOOKBACK_HOURS * 60;
   const supabase = createSupabaseAdminClient();
-  const since = new Date(Date.now() - lookbackMinutes * 60000).toISOString();
-  const [{ data: messages, error: messagesError }, { data: roster, error: rosterError }] = await Promise.all([
-    supabase.rpc("claim_unreviewed_attendance_line_messages", { p_limit: limit, p_since: since }),
-    supabase.from("student_roster").select("student_number,student_name,grade,campus"),
-  ]);
-  if (messagesError) throw messagesError;
-  if (rosterError) throw rosterError;
+  const startedAt = new Date().toISOString();
+  await recordWorkerState(supabase, {
+    last_worker_started_at: startedAt,
+    last_worker_error: null,
+  });
+  try {
+    const [{ data: messages, error: messagesError }, { data: roster, error: rosterError }] = await Promise.all([
+      supabase.rpc("claim_pending_attendance_jobs", { p_limit: limit }),
+      supabase.from("student_roster").select("student_number,student_name,grade,campus"),
+    ]);
+    if (messagesError) throw messagesError;
+    if (rosterError) throw rosterError;
 
-  const targets = (messages ?? []) as AttendanceLineMessage[];
-  let candidates = 0;
-  let ignored = 0;
-  let failed = 0;
-  for (let index = 0; index < targets.length; index += ATTENDANCE_AI_CONCURRENCY) {
-    const batch = targets.slice(index, index + ATTENDANCE_AI_CONCURRENCY);
-    const results = await Promise.all(batch.map((message) => processAttendanceMessage({
-      supabase,
-      message,
-      roster: (roster ?? []) as RosterRow[],
-    })));
-    for (const result of results) {
-      if (result === "candidate") candidates += 1;
-      if (result === "ignored") ignored += 1;
-      if (result === "failed") failed += 1;
+    const targets = (messages ?? []) as AttendanceLineMessage[];
+    let candidates = 0;
+    let ignored = 0;
+    let retrying = 0;
+    let dead = 0;
+    for (let index = 0; index < targets.length; index += ATTENDANCE_AI_CONCURRENCY) {
+      const batch = targets.slice(index, index + ATTENDANCE_AI_CONCURRENCY);
+      const results = await Promise.all(batch.map((message) => processAttendanceMessage({
+        supabase,
+        message,
+        roster: (roster ?? []) as RosterRow[],
+      })));
+      for (const result of results) {
+        if (result === "candidate") candidates += 1;
+        if (result === "ignored") ignored += 1;
+        if (result === "retrying") retrying += 1;
+        if (result === "dead") dead += 1;
+      }
     }
+    await recordWorkerState(supabase, {
+      last_worker_succeeded_at: new Date().toISOString(),
+      last_worker_error: null,
+    });
+    return { ok: true, processed: targets.length, candidates, ignored, retrying, dead, failed: retrying + dead };
+  } catch (cause) {
+    await recordWorkerState(supabase, { last_worker_error: errorMessage(cause) }).catch((runtimeError) => {
+      console.error("Failed to record attendance worker error", runtimeError);
+    });
+    throw cause;
   }
-  return { ok: true, processed: targets.length, candidates, ignored, failed };
 }
