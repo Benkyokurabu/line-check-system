@@ -48,8 +48,19 @@ type RosterRow = {
 };
 
 const ATTENDANCE_AI_CONCURRENCY = 1;
-const ATTENDANCE_MAX_ATTEMPTS = 5;
-const ATTENDANCE_RETRY_DELAYS_MINUTES = [1, 5, 15, 60] as const;
+const ATTENDANCE_MAX_ATTEMPTS = 8;
+const ATTENDANCE_RETRY_DELAYS_MINUTES = [5, 15, 60, 180, 360, 720, 1440] as const;
+const DEFAULT_RATE_LIMIT_SECONDS = 5 * 60;
+
+class AttendanceRateLimitError extends Error {
+  retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super("Groq request failed: 429");
+    this.name = "AttendanceRateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
 
 function errorMessage(cause: unknown) {
   return (cause instanceof Error ? cause.message : String(cause)).slice(0, 500);
@@ -103,9 +114,13 @@ async function failJob(
 ) {
   const failure = errorMessage(cause);
   const isDead = message.attempt_count >= ATTENDANCE_MAX_ATTEMPTS;
-  const retryDelay = ATTENDANCE_RETRY_DELAYS_MINUTES[
+  const configuredRetryDelay = ATTENDANCE_RETRY_DELAYS_MINUTES[
     Math.min(Math.max(message.attempt_count - 1, 0), ATTENDANCE_RETRY_DELAYS_MINUTES.length - 1)
   ];
+  const rateLimitDelay = cause instanceof AttendanceRateLimitError
+    ? Math.ceil(cause.retryAfterSeconds / 60)
+    : 0;
+  const retryDelay = Math.max(configuredRetryDelay, rateLimitDelay);
   const nextAttemptAt = new Date(Date.now() + retryDelay * 60_000).toISOString();
   const { error: jobError } = await supabase.from("attendance_analysis_jobs").update({
     status: isDead ? "dead" : "retry_wait",
@@ -115,6 +130,14 @@ async function failJob(
     last_error: failure,
   }).eq("message_id", message.id);
   if (jobError) console.error("Failed to update attendance analysis job", message.id, jobError);
+
+  if (cause instanceof AttendanceRateLimitError) {
+    const { error: runtimeError } = await supabase.from("attendance_analysis_runtime").update({
+      rate_limited_until: new Date(Date.now() + cause.retryAfterSeconds * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("singleton", true);
+    if (runtimeError) console.error("Failed to set attendance rate-limit circuit breaker", runtimeError);
+  }
 
   try {
     await updateReview(supabase, message.id, "failed", failure);
@@ -151,6 +174,12 @@ async function extractWithAi(input: { text: string; receivedAt: string; displayN
       ],
     }),
   });
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get("retry-after"));
+    throw new AttendanceRateLimitError(
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : DEFAULT_RATE_LIMIT_SECONDS,
+    );
+  }
   if (!response.ok) throw new Error(`Groq request failed: ${response.status}`);
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
@@ -290,6 +319,7 @@ export async function processPendingAttendanceMessages(input: { limit?: unknown;
     await recordWorkerState(supabase, {
       last_worker_succeeded_at: new Date().toISOString(),
       last_worker_error: null,
+      ...(targets.length > 0 && retrying === 0 ? { rate_limited_until: null } : {}),
     });
     return { ok: true, processed: targets.length, candidates, ignored, retrying, dead, failed: retrying + dead };
   } catch (cause) {

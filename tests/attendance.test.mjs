@@ -116,9 +116,11 @@ test("attendance analysis uses a durable queue without a rolling lookback", asyn
 
 test("attendance analysis retries transient failures and dead-letters exhausted jobs", async () => {
   const worker = await readFile(new URL("../src/lib/attendance-ai-extraction.ts", import.meta.url), "utf8");
-  assert.match(worker, /ATTENDANCE_MAX_ATTEMPTS = 5/);
-  assert.match(worker, /ATTENDANCE_RETRY_DELAYS_MINUTES = \[1, 5, 15, 60\]/);
+  assert.match(worker, /ATTENDANCE_MAX_ATTEMPTS = 8/);
+  assert.match(worker, /ATTENDANCE_RETRY_DELAYS_MINUTES = \[5, 15, 60, 180, 360, 720, 1440\]/);
   assert.match(worker, /isDead \? "dead" : "retry_wait"/);
+  assert.match(worker, /AttendanceRateLimitError/);
+  assert.match(worker, /rate_limited_until/);
 });
 
 test("attendance scheduler reads its bearer token from Supabase Vault", async () => {

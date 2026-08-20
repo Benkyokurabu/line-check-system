@@ -474,6 +474,9 @@ create table if not exists public.attendance_analysis_runtime (
   updated_at timestamptz not null default now()
 );
 
+alter table public.attendance_analysis_runtime
+  add column if not exists rate_limited_until timestamptz;
+
 insert into public.attendance_analysis_runtime (singleton)
 values (true)
 on conflict (singleton) do nothing;
@@ -496,10 +499,17 @@ as $$
     select jobs.message_id
     from public.attendance_analysis_jobs as jobs
     join public.line_messages as messages on messages.id = jobs.message_id
-    where
-      jobs.status = 'pending'
-      or (jobs.status = 'retry_wait' and jobs.next_attempt_at <= now())
-      or (jobs.status = 'processing' and jobs.locked_at < now() - interval '10 minutes')
+    where not exists (
+      select 1
+      from public.attendance_analysis_runtime as runtime
+      where runtime.singleton = true
+        and runtime.rate_limited_until > now()
+    )
+      and (
+        jobs.status = 'pending'
+        or (jobs.status = 'retry_wait' and jobs.next_attempt_at <= now())
+        or (jobs.status = 'processing' and jobs.locked_at < now() - interval '10 minutes')
+      )
     order by jobs.priority desc,
       messages.received_at asc nulls last,
       messages.created_at asc
