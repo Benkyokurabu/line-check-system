@@ -247,13 +247,19 @@ async function registerItem(input: {
   if (lessonNameProperty) pageProperties[lessonNameProperty.name] = lessonProperty(lessonNameProperty, lessonName);
   if (campusNameProperty) pageProperties[campusNameProperty.name] = campusProperty(campusNameProperty, campus);
   if (typeProperty) pageProperties[typeProperty.name] = textProperty(typeProperty, eventTypeLabel(input.item.event_type));
-  const notionPage = existing.results?.[0] ?? await notionRequest("/pages", {
-    method: "POST",
-    body: JSON.stringify({
-      parent: { type: "data_source_id", data_source_id: input.dataSourceId },
-      properties: pageProperties,
-    }),
-  });
+  const existingPageId = existing.results?.[0]?.id as string | undefined;
+  const notionPage = existingPageId
+    ? await notionRequest(`/pages/${existingPageId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ archived: false, properties: pageProperties }),
+      })
+    : await notionRequest("/pages", {
+        method: "POST",
+        body: JSON.stringify({
+          parent: { type: "data_source_id", data_source_id: input.dataSourceId },
+          properties: pageProperties,
+        }),
+      });
   return notionPage.id as string;
 }
 
