@@ -5,6 +5,7 @@ import { pickClassroomLessonByEndBoundary } from "@/lib/classroom-lesson-picker.
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
+  notionClassroomEventTypeLabel,
   normalizeClassroomEventType,
 } from "@/lib/classroom-attendance-display.mjs";
 
@@ -318,7 +319,7 @@ async function fetchNotionClassroomEvents(input: {
       student_name: profile.student_name ?? "名前未取得",
       grade: profile.grade,
       event_type: normalizeClassroomEventType(notionTypeLabel),
-      event_type_label: notionTypeLabel,
+      event_type_label: notionClassroomEventTypeLabel(notionTypeLabel),
       reason: reasonProperty ? notionText(page.properties?.[reasonProperty.name]) : null,
       arrival_expected_time: null,
       note_for_classroom: null,

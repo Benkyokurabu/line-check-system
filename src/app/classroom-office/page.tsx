@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { classroomEventTypeLabel } from "@/lib/classroom-attendance-display.mjs";
 
 type Lesson = {
   id: string;
@@ -14,6 +15,7 @@ type ClassroomEvent = {
   student_name: string;
   grade: string | null;
   event_type: string;
+  event_type_label: string | null;
   reason: string | null;
   arrival_expected_time: string | null;
   note_for_classroom: string | null;
@@ -140,12 +142,6 @@ function messageStatus(item: ClassroomMessage) {
   if (item.archived_at) return { label: "取り下げ済み", color: "#59635e", background: "#f7f7f4", border: "var(--line)" };
   if (isExpiredMessage(item)) return { label: "期限切れ", color: "#9a3412", background: "#fff7ed", border: "#fdba74" };
   return { label: "表示中", color: "#087a3d", background: "#f2fbf5", border: "#b7d7c2" };
-}
-
-function eventTypeLabel(value: string) {
-  if (value === "late") return "遅刻";
-  if (value === "early_leave") return "早退";
-  return "欠席";
 }
 
 function eventTypeStyle(value: string): React.CSSProperties {
@@ -331,7 +327,7 @@ export default function ClassroomOfficePage() {
             {events.map((event) => <article key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 8, background: "white", padding: 12, display: "grid", gap: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <strong style={{ fontSize: "1.08rem" }}>{event.student_name}</strong>
-                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "4px 9px", fontWeight: 900 }}>{eventTypeLabel(event.event_type)}</span>
+                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "4px 9px", fontWeight: 900 }}>{classroomEventTypeLabel(event.event_type, event.event_type_label)}</span>
               </div>
               <div style={{ color: "var(--foreground)", fontSize: "0.94rem", lineHeight: 1.65 }}>
                 {[event.reason, event.event_type === "late" && event.arrival_expected_time ? `${event.arrival_expected_time}頃到着予定` : null, event.note_for_classroom].filter(Boolean).join(" / ") || "詳細なし"}

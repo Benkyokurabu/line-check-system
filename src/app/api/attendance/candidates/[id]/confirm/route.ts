@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import {
+  attendanceReasonPropertyNames,
+  attendanceTypePropertyNames,
+} from "@/lib/classroom-attendance-display.mjs";
 
 export const runtime = "nodejs";
 
@@ -221,10 +225,10 @@ async function registerItem(input: {
   const campus = input.campus ?? lesson?.campus ?? input.studentCampus ?? null;
   const studentProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_STUDENT_PROPERTY", ["生徒情報DB", "名前"]), "生徒");
   const dateProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_DATE_PROPERTY", ["日付", "対象日"]), "日付");
-  const reasonProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["理由", "連絡名"]), "理由");
+  const reasonProperty = resolveProperty(input.properties, attendanceReasonPropertyNames(process.env.NOTION_ATTENDANCE_REASON_PROPERTY), "理由");
   const lessonNameProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
   const campusNameProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
-  const typeProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_TYPE_PROPERTY", ["種別", "区分"]));
+  const typeProperty = optionalProperty(input.properties, attendanceTypePropertyNames(process.env.NOTION_ATTENDANCE_TYPE_PROPERTY));
   const filters: unknown[] = [
     { property: studentProperty.name, relation: { contains: input.profilePageId } },
     dateFilter(dateProperty, input.item.event_date),

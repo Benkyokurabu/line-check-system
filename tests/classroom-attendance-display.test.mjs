@@ -4,6 +4,7 @@ import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
   classroomEventTypeLabel,
+  notionClassroomEventTypeLabel,
   normalizeClassroomEventType,
 } from "../src/lib/classroom-attendance-display.mjs";
 
@@ -16,6 +17,12 @@ test("Notion以外の既存データは従来の表示名を維持する", () =>
   assert.equal(classroomEventTypeLabel("late", null), "遅刻");
   assert.equal(classroomEventTypeLabel("early_leave", null), "早退");
   assert.equal(classroomEventTypeLabel("absence", null), "欠席");
+});
+
+test("Notionの選択が空欄なら欠席と決めつけず未選択と表示する", () => {
+  assert.equal(notionClassroomEventTypeLabel(null), "未選択");
+  assert.equal(notionClassroomEventTypeLabel("  "), "未選択");
+  assert.equal(notionClassroomEventTypeLabel(" オンライン参加 "), "オンライン参加");
 });
 
 test("選択文言から既存の並び順・色分け用種別を作る", () => {

@@ -11,6 +11,11 @@ export function classroomEventTypeLabel(eventType, sourceLabel) {
   return "欠席";
 }
 
+export function notionClassroomEventTypeLabel(sourceLabel) {
+  if (typeof sourceLabel === "string" && sourceLabel.trim()) return sourceLabel.trim();
+  return "未選択";
+}
+
 function uniquePropertyNames(names) {
   return [...new Set(names.map((name) => name?.trim()).filter(Boolean))];
 }
