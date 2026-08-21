@@ -10,3 +10,17 @@ export function classroomEventTypeLabel(eventType, sourceLabel) {
   if (eventType === "early_leave") return "早退";
   return "欠席";
 }
+
+function uniquePropertyNames(names) {
+  return [...new Set(names.map((name) => name?.trim()).filter(Boolean))];
+}
+
+export function attendanceReasonPropertyNames(configuredName) {
+  const legacyNames = new Set(["（旧）理由", "(旧)理由"]);
+  const configured = configuredName?.trim();
+  return uniquePropertyNames(["理由", "理由等", legacyNames.has(configured) ? null : configured, "連絡名"]);
+}
+
+export function attendanceTypePropertyNames(configuredName) {
+  return uniquePropertyNames(["選択", configuredName, "種別", "区分"]);
+}

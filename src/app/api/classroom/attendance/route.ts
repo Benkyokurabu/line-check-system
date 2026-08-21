@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { pickClassroomLessonByEndBoundary } from "@/lib/classroom-lesson-picker.mjs";
-import { normalizeClassroomEventType } from "@/lib/classroom-attendance-display.mjs";
+import {
+  attendanceReasonPropertyNames,
+  attendanceTypePropertyNames,
+  normalizeClassroomEventType,
+} from "@/lib/classroom-attendance-display.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -241,10 +245,10 @@ async function fetchNotionClassroomEvents(input: {
   const properties = await notionProperties(dataSourceId);
   const studentProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_STUDENT_PROPERTY", ["生徒情報DB", "名前"]));
   const dateProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_DATE_PROPERTY", ["日付", "対象日"]));
-  const reasonProperty = resolveProperty(properties, ["理由", "理由等", ...envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["連絡名"])]);
+  const reasonProperty = resolveProperty(properties, attendanceReasonPropertyNames(process.env.NOTION_ATTENDANCE_REASON_PROPERTY));
   const lessonProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
   const campusProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
-  const typeProperty = resolveProperty(properties, ["選択", ...envFirst("NOTION_ATTENDANCE_TYPE_PROPERTY", ["種別", "区分"])]);
+  const typeProperty = resolveProperty(properties, attendanceTypePropertyNames(process.env.NOTION_ATTENDANCE_TYPE_PROPERTY));
   const statusProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_STATUS_PROPERTY", ["状態", "ステータス"]));
   const sharedProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_SHARED_PROPERTY", ["スタッフ共有"]));
   if (!studentProperty || !dateProperty) return [];

@@ -1,4 +1,8 @@
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
+import {
+  attendanceReasonPropertyNames,
+  attendanceTypePropertyNames,
+} from "@/lib/classroom-attendance-display.mjs";
 
 type NotionProperty = { type?: string };
 type NotionDataSource = { properties?: Record<string, NotionProperty> };
@@ -120,10 +124,10 @@ function buildProperties(input: {
   if (!lessonName) throw new Error("授業を選択してください");
   const studentProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_STUDENT_PROPERTY", ["生徒情報DB", "名前"]), "生徒");
   const dateProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_DATE_PROPERTY", ["日付", "対象日"]), "日付");
-  const reasonProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["理由", "連絡名"]), "理由");
+  const reasonProperty = resolveProperty(input.properties, attendanceReasonPropertyNames(process.env.NOTION_ATTENDANCE_REASON_PROPERTY), "理由");
   const lessonNameProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
   const campusNameProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
-  const typeProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_TYPE_PROPERTY", ["種別", "区分"]));
+  const typeProperty = optionalProperty(input.properties, attendanceTypePropertyNames(process.env.NOTION_ATTENDANCE_TYPE_PROPERTY));
   const pageProperties: Record<string, unknown> = {
     [reasonProperty.name]: textProperty(reasonProperty, input.event.reason?.trim() || fallbackReason(input.event.event_type)),
     [studentProperty.name]: { relation: [{ id: input.profilePageId }] },
