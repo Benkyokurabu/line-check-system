@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { pickClassroomLessonByEndBoundary } from "@/lib/classroom-lesson-picker.mjs";
+import { normalizeClassroomEventType } from "@/lib/classroom-attendance-display.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,6 +65,7 @@ type ClassroomEvent = {
   student_name: string;
   grade: string | null;
   event_type: string;
+  event_type_label: string | null;
   reason: string | null;
   arrival_expected_time: string | null;
   note_for_classroom: string | null;
@@ -208,12 +210,6 @@ function notionLessonName(lesson: LessonRow) {
   return lesson.label.trim() || null;
 }
 
-function notionEventType(value: string | null) {
-  if (value === "遅刻") return "late";
-  if (value === "早退") return "early_leave";
-  return "absence";
-}
-
 function isSharedNotionPage(page: NotionPage, statusProperty: ResolvedProperty | null, sharedProperty: ResolvedProperty | null) {
   const status = statusProperty ? notionText(page.properties?.[statusProperty.name]) : null;
   const shared = sharedProperty ? notionCheckbox(page.properties?.[sharedProperty.name]) : null;
@@ -245,10 +241,10 @@ async function fetchNotionClassroomEvents(input: {
   const properties = await notionProperties(dataSourceId);
   const studentProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_STUDENT_PROPERTY", ["生徒情報DB", "名前"]));
   const dateProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_DATE_PROPERTY", ["日付", "対象日"]));
-  const reasonProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["理由", "連絡名"]));
+  const reasonProperty = resolveProperty(properties, ["理由", "理由等", ...envFirst("NOTION_ATTENDANCE_REASON_PROPERTY", ["連絡名"])]);
   const lessonProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
   const campusProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
-  const typeProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_TYPE_PROPERTY", ["種別", "区分"]));
+  const typeProperty = resolveProperty(properties, ["選択", ...envFirst("NOTION_ATTENDANCE_TYPE_PROPERTY", ["種別", "区分"])]);
   const statusProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_STATUS_PROPERTY", ["状態", "ステータス"]));
   const sharedProperty = resolveProperty(properties, envFirst("NOTION_ATTENDANCE_SHARED_PROPERTY", ["スタッフ共有"]));
   if (!studentProperty || !dateProperty) return [];
@@ -310,14 +306,16 @@ async function fetchNotionClassroomEvents(input: {
     const key = `${profile.student_number}:${input.selectedLesson.id}`;
     if (existingKeys.has(key)) continue;
     existingKeys.add(key);
+    const notionTypeLabel = typeProperty ? notionText(page.properties?.[typeProperty.name]) : null;
     events.push({
       id: `notion:${page.id}`,
       lesson_id: input.selectedLesson.id,
       student_number: profile.student_number,
       student_name: profile.student_name ?? "名前未取得",
       grade: profile.grade,
-      event_type: notionEventType(typeProperty ? notionText(page.properties?.[typeProperty.name]) : null),
-      reason: reasonProperty ? notionText(page.properties?.[reasonProperty.name]) : "欠席連絡",
+      event_type: normalizeClassroomEventType(notionTypeLabel),
+      event_type_label: notionTypeLabel,
+      reason: reasonProperty ? notionText(page.properties?.[reasonProperty.name]) : null,
       arrival_expected_time: null,
       note_for_classroom: null,
       confirmed_at: page.last_edited_time ?? page.created_time ?? null,
@@ -412,6 +410,7 @@ export async function GET(request: Request) {
         student_name: roster?.student_name ?? "名前未取得",
         grade: roster?.grade ?? null,
         event_type: event.event_type,
+        event_type_label: null,
         reason: event.reason,
         arrival_expected_time: event.arrival_expected_time,
         note_for_classroom: event.note_for_classroom,

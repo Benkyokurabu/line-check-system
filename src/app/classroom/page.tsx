@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { classroomEventTypeLabel } from "@/lib/classroom-attendance-display.mjs";
 
 type Lesson = {
   id: string;
@@ -17,6 +18,7 @@ type ClassroomEvent = {
   student_name: string;
   grade: string | null;
   event_type: string;
+  event_type_label: string | null;
   reason: string | null;
   arrival_expected_time: string | null;
   note_for_classroom: string | null;
@@ -135,12 +137,6 @@ function formatDateTime(value: string | null | undefined) {
     minute: "2-digit",
   }).format(date);
 }
-function eventTypeLabel(value: string) {
-  if (value === "late") return "遅刻";
-  if (value === "early_leave") return "早退";
-  return "欠席";
-}
-
 function eventTypeStyle(value: string): React.CSSProperties {
   if (value === "late") return { background: "#fff7ed", borderColor: "#fdba74", color: "#9a3412" };
   if (value === "early_leave") return { background: "#eff6ff", borderColor: "#93c5fd", color: "#1d4ed8" };
@@ -400,7 +396,7 @@ export default function ClassroomPage() {
             {events.map((event) => <article key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 8, background: "white", padding: 8, display: "grid", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 5, alignItems: "center", minWidth: 0 }}>
                 <strong style={{ fontSize: "0.92rem", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.student_name}</strong>
-                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "2px 6px", fontWeight: 900, flexShrink: 0 }}>{eventTypeLabel(event.event_type)}</span>
+                <span style={{ ...eventTypeStyle(event.event_type), border: "1px solid", borderRadius: 999, padding: "2px 6px", fontWeight: 900, flexShrink: 0 }}>{classroomEventTypeLabel(event.event_type, event.event_type_label)}</span>
               </div>
               <div style={{ color: "var(--foreground)", fontSize: "0.8rem", lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {[event.reason, event.event_type === "late" && event.arrival_expected_time ? `${event.arrival_expected_time}頃到着予定` : null, event.note_for_classroom].filter(Boolean).join(" / ") || "詳細なし"}
