@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { archiveAttendanceNotionPage, upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,12 +102,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }
   const supabase = createSupabaseAdminClient();
-  const [rosterResult, lessonResult] = await Promise.all([
+  const [rosterResult, lessonResult, enrollmentResult] = await Promise.all([
     supabase.from("student_roster").select("campus").eq("student_number", update.student_number).maybeSingle(),
-    supabase.from("lessons").select("lesson_date,campus").eq("id", update.lesson_id).maybeSingle(),
+    supabase.from("lessons").select("lesson_date,campus,grade,subject,class_name").eq("id", update.lesson_id).maybeSingle(),
+    supabase.from("student_class_enrollments").select("grade,subject,class_name,classroom").eq("student_number", update.student_number),
   ]);
   if (rosterResult.error) return NextResponse.json({ error: rosterResult.error.message }, { status: 500 });
   if (lessonResult.error) return NextResponse.json({ error: lessonResult.error.message }, { status: 500 });
+  if (enrollmentResult.error) return NextResponse.json({ error: enrollmentResult.error.message }, { status: 500 });
   if (!lessonResult.data) return NextResponse.json({ error: "選択した授業を確認できません" }, { status: 400 });
   if (lessonResult.data.lesson_date !== update.event_date) {
     return NextResponse.json({ error: `対象日（${update.event_date}）と選択した授業の日付（${lessonResult.data.lesson_date}）が一致しません` }, { status: 400 });
@@ -116,6 +118,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     studentCampus: rosterResult.data?.campus,
     lessonCampus: lessonResult.data.campus,
     requestedCampus: lessonResult.data.campus,
+    enrollmentCampus: enrollmentCampusForLesson(enrollmentResult.data, lessonResult.data),
     crossCampusOverride: update.cross_campus_override,
     crossCampusReason: update.cross_campus_reason,
   });

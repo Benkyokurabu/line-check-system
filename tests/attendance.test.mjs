@@ -112,6 +112,19 @@ test("all attendance write APIs enforce campus consistency", async () => {
   for (const route of routes) assert.match(route, /validateAttendanceCampusSelection/);
 });
 
+test("attendance campus checks use subject enrollment classroom", async () => {
+  const files = await Promise.all([
+    readFile(new URL("../src/app/api/attendance/lessons/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/candidates/[id]/confirm/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/events/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/events/[id]/route.ts", import.meta.url), "utf8"),
+  ]);
+  for (const file of files) {
+    assert.match(file, /student_class_enrollments/);
+    assert.match(file, /classroom/);
+  }
+});
+
 test("attendance analysis uses a durable queue without a rolling lookback", async () => {
   const [sql, worker] = await Promise.all([
     readFile(new URL("../supabase/attendance_schema.sql", import.meta.url), "utf8"),

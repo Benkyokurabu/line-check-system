@@ -6,41 +6,92 @@ export function normalizeCampus(value) {
   return String(value).trim() || null;
 }
 
+function isDualCampus(value) {
+  const normalized = String(value ?? "").normalize("NFKC").replace(/[\s　・･,，、／/]/g, "");
+  return normalized === "両方" || normalized.includes("両校舎") || (normalized.includes("本") && normalized.includes("南"));
+}
+
+export function campusFromEnrollmentClassroom(value) {
+  const normalized = String(value ?? "").normalize("NFKC").replace(/[\s　]/g, "");
+  if (normalized === "本" || normalized === "本校") return "本校";
+  if (normalized === "南" || normalized === "南教室") return "南教室";
+  return null;
+}
+
+export function studentCampusIncludesLesson(studentCampus, lessonCampus) {
+  const lesson = normalizeCampus(lessonCampus);
+  if (!lesson) return false;
+  if (isDualCampus(studentCampus)) return lesson === "本校" || lesson === "南教室";
+  return normalizeCampus(studentCampus) === lesson;
+}
+
 export function normalizeLessonIdentityText(value) {
   return String(value ?? "").normalize("NFKC").replace(/[\s　・･\-_／/]/g, "").toLowerCase();
 }
 
-export function enrollmentMatchesLesson(enrollment, lesson, studentCampus) {
+function subjectMatches(enrollment, lesson) {
+  const enrollmentSubject = normalizeLessonIdentityText(enrollment?.subject);
+  const lessonSubject = normalizeLessonIdentityText(lesson?.subject);
+  return Boolean(enrollmentSubject && lessonSubject) &&
+    (enrollmentSubject.includes(lessonSubject) || lessonSubject.includes(enrollmentSubject));
+}
+
+function enrollmentIdentityMatchesLesson(enrollment, lesson, requireClass) {
   const enrollmentGrade = normalizeLessonIdentityText(enrollment?.grade);
   const lessonGrade = normalizeLessonIdentityText(lesson?.grade);
   const enrollmentClass = normalizeLessonIdentityText(enrollment?.class_name);
   const lessonClass = normalizeLessonIdentityText(lesson?.class_name);
-  const enrollmentSubject = normalizeLessonIdentityText(enrollment?.subject);
-  const lessonSubject = normalizeLessonIdentityText(lesson?.subject);
-  const campusMatches = normalizeCampus(studentCampus) === normalizeCampus(lesson?.campus);
-  const subjectMatches = Boolean(enrollmentSubject && lessonSubject) &&
-    (enrollmentSubject.includes(lessonSubject) || lessonSubject.includes(enrollmentSubject));
-  return campusMatches && enrollmentGrade === lessonGrade && enrollmentClass === lessonClass && subjectMatches;
+  if (!enrollmentGrade || enrollmentGrade !== lessonGrade || !subjectMatches(enrollment, lesson)) return false;
+  return !requireClass || Boolean(enrollmentClass && lessonClass && enrollmentClass === lessonClass);
+}
+
+export function enrollmentCampusForLesson(enrollments, lesson) {
+  const subjectRows = (enrollments ?? []).filter((enrollment) => enrollmentIdentityMatchesLesson(enrollment, lesson, false));
+  const exactClassRows = subjectRows.filter((enrollment) => enrollmentIdentityMatchesLesson(enrollment, lesson, true));
+  const candidates = exactClassRows.length > 0 ? exactClassRows : subjectRows;
+  const campuses = [...new Set(candidates.map((enrollment) => campusFromEnrollmentClassroom(enrollment?.classroom)).filter(Boolean))];
+  return campuses.length === 1 ? campuses[0] : null;
+}
+
+export function enrollmentMatchesLesson(enrollment, lesson, studentCampus) {
+  if (!enrollmentIdentityMatchesLesson(enrollment, lesson, true)) return false;
+  const enrollmentCampus = campusFromEnrollmentClassroom(enrollment?.classroom);
+  const campusMatches = enrollmentCampus
+    ? enrollmentCampus === normalizeCampus(lesson?.campus)
+    : studentCampusIncludesLesson(studentCampus, lesson?.campus);
+  return campusMatches;
+}
+
+export function isAttendanceCrossCampus(input) {
+  const lessonCampus = normalizeCampus(input?.lessonCampus);
+  const enrollmentCampus = normalizeCampus(input?.enrollmentCampus);
+  if (!lessonCampus) return false;
+  if (enrollmentCampus === "本校" || enrollmentCampus === "南教室") return enrollmentCampus !== lessonCampus;
+  return !studentCampusIncludesLesson(input?.studentCampus, lessonCampus);
 }
 
 export function validateAttendanceCampusSelection(input) {
   const studentCampus = normalizeCampus(input?.studentCampus);
   const lessonCampus = normalizeCampus(input?.lessonCampus);
   const requestedCampus = normalizeCampus(input?.requestedCampus);
+  const enrollmentCampus = normalizeCampus(input?.enrollmentCampus);
   const override = input?.crossCampusOverride === true;
   const reason = String(input?.crossCampusReason ?? "").trim();
 
-  if (!studentCampus) return { ok: false, crossCampus: false, error: "生徒の所属校舎を確認できません" };
+  if (!studentCampus && !enrollmentCampus) return { ok: false, crossCampus: false, error: "生徒の所属校舎を確認できません" };
   if (!lessonCampus) return { ok: false, crossCampus: false, error: "選択した授業の校舎を確認できません" };
   if (requestedCampus && requestedCampus !== lessonCampus) {
-    return { ok: false, crossCampus: studentCampus !== lessonCampus, error: "指定校舎と選択した授業の校舎が一致しません" };
+    return { ok: false, crossCampus: isAttendanceCrossCampus(input), error: "指定校舎と選択した授業の校舎が一致しません" };
   }
-  const crossCampus = studentCampus !== lessonCampus;
+  const crossCampus = isAttendanceCrossCampus({ ...input, studentCampus, lessonCampus, enrollmentCampus });
   if (!crossCampus && override) {
     return { ok: false, crossCampus: false, error: "所属校舎と授業校舎が同じため、別校舎受講の指定は不要です" };
   }
   if (crossCampus && !override) {
-    return { ok: false, crossCampus: true, error: `所属校舎（${studentCampus}）と授業校舎（${lessonCampus}）が一致しません` };
+    const basis = enrollmentCampus === "本校" || enrollmentCampus === "南教室"
+      ? `科目別の通常校舎（${enrollmentCampus}）`
+      : `所属校舎（${studentCampus}）`;
+    return { ok: false, crossCampus: true, error: `${basis}と授業校舎（${lessonCampus}）が一致しません` };
   }
   if (crossCampus && !reason) {
     return { ok: false, crossCampus: true, error: "別校舎受講を登録する理由を入力してください" };
@@ -49,13 +100,9 @@ export function validateAttendanceCampusSelection(input) {
 }
 
 export function shouldDisplayAttendanceEvent(input) {
-  return validateAttendanceCampusSelection({
-    studentCampus: input?.studentCampus,
-    lessonCampus: input?.lessonCampus,
-    requestedCampus: input?.lessonCampus,
-    crossCampusOverride: input?.crossCampusOverride,
-    crossCampusReason: input?.crossCampusReason,
-  }).ok;
+  const crossCampus = isAttendanceCrossCampus(input);
+  if (!crossCampus) return Boolean(normalizeCampus(input?.lessonCampus));
+  return input?.crossCampusOverride === true && Boolean(String(input?.crossCampusReason ?? "").trim());
 }
 
 const gradeAliases = new Map([

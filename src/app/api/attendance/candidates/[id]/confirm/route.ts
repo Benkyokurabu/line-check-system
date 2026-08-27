@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 type NotionProperty = { type?: string };
 type NotionDataSource = { properties?: Record<string, NotionProperty> };
 type ResolvedProperty = { name: string; type: string };
-type LessonRow = { label?: string | null; lesson_date?: string | null; start_time?: string | null; campus?: string | null; source_payload?: Record<string, unknown> | null } | null;
+type LessonRow = { label?: string | null; lesson_date?: string | null; start_time?: string | null; campus?: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; source_payload?: Record<string, unknown> | null } | null;
 type CandidateItem = {
   id: string;
   student_number: string | null;
@@ -279,7 +279,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const supabase = createSupabaseAdminClient();
   const { data: candidate, error } = await supabase
     .from("attendance_candidates")
-    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus,source_payload),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(line_user_id,received_at)")
+    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus,grade,subject,class_name,source_payload),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,grade,subject,class_name,source_payload)),line_messages(line_user_id,received_at)")
     .eq("id", id)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -305,12 +305,20 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (missingProfile) {
     return NextResponse.json({ error: "Notion生徒情報DBと紐づいていない生徒がいます" }, { status: 400 });
   }
-  const { data: rosterRows, error: rosterError } = await supabase
-    .from("student_roster")
-    .select("student_number,campus")
-    .in("student_number", itemStudentNumbers);
+  const [rosterResult, enrollmentResult] = await Promise.all([
+    supabase.from("student_roster").select("student_number,campus").in("student_number", itemStudentNumbers),
+    supabase.from("student_class_enrollments").select("student_number,grade,subject,class_name,classroom").in("student_number", itemStudentNumbers),
+  ]);
+  const { data: rosterRows, error: rosterError } = rosterResult;
   if (rosterError) return NextResponse.json({ error: rosterError.message }, { status: 500 });
+  if (enrollmentResult.error) return NextResponse.json({ error: enrollmentResult.error.message }, { status: 500 });
   const campusByStudent = new Map((rosterRows ?? []).map((row) => [row.student_number as string, row.campus as string | null]));
+  const enrollmentsByStudent = new Map<string, typeof enrollmentResult.data>();
+  for (const enrollment of enrollmentResult.data ?? []) {
+    const current = enrollmentsByStudent.get(enrollment.student_number as string) ?? [];
+    current.push(enrollment);
+    enrollmentsByStudent.set(enrollment.student_number as string, current);
+  }
   for (const item of items) {
     const studentNumber = item.student_number ?? candidate.student_number as string;
     const lesson = firstRelation(item.lessons);
@@ -322,6 +330,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       studentCampus: campusByStudent.get(studentNumber),
       lessonCampus: lesson.campus,
       requestedCampus: lesson.campus,
+      enrollmentCampus: enrollmentCampusForLesson(enrollmentsByStudent.get(studentNumber), lesson),
       crossCampusOverride: item.cross_campus_override,
       crossCampusReason: item.cross_campus_reason,
     });

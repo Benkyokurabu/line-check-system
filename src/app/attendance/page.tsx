@@ -3,9 +3,10 @@
 // Notion registration settings are supplied by the Vercel production environment.
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
 
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
-type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean };
+type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean; enrollment_campus?: string | null };
 type StudentSuggestion = Student & { score: number; reason: string };
 type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[]; tag_names?: string[] };
 type ReplyMessage = { id: string; text: string | null; received_at: string | null; sent_by: string | null };
@@ -134,6 +135,24 @@ function campusFromLineManagedName(value: string | null | undefined) {
   if (prefix?.[1] === "本") return "本校";
   if (prefix?.[1] === "南") return "南教室";
   return "";
+}
+
+function selectableCampus(value: string | null | undefined) {
+  const campus = normalizeCampus(value);
+  return campus === "本校" || campus === "南教室" ? campus : "";
+}
+
+function studentMatchesCampus(student: Student, campus: string) {
+  return studentCampusIncludesLesson(student.campus, campus);
+}
+
+function lessonIsCrossCampus(student: Student | null | undefined, lesson: Lesson | null | undefined, fallbackCampus = "") {
+  if (!student) return false;
+  return isAttendanceCrossCampus({
+    studentCampus: student.campus,
+    lessonCampus: lesson?.campus ?? fallbackCampus,
+    enrollmentCampus: lesson?.enrollment_campus,
+  });
 }
 
 function uniqueByNumber(students: Student[]) {
@@ -727,16 +746,16 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
       .catch(() => setLessons([]));
   }, [eventDate, studentNumber]);
   const effectiveReceivedBy = receivedBy || confirmedBy;
-  const effectiveCampus = campus || selectedStudent?.campus || "";
-  const candidateStudents = effectiveCampus ? students.filter((student) => student.campus === effectiveCampus) : [];
+  const effectiveCampus = campus || selectableCampus(selectedStudent?.campus);
+  const candidateStudents = effectiveCampus ? students.filter((student) => studentMatchesCampus(student, effectiveCampus)) : [];
+  const selectedLesson = lessons.find((lesson) => lesson.id === lessonId) ?? null;
+  const isCrossCampus = lessonIsCrossCampus(selectedStudent, selectedLesson, effectiveCampus);
 
   async function saveManualEvent() {
     if (!effectiveReceivedBy.trim()) { setMessage("受付者名を入力してください。"); return; }
     if (!studentNumber) { setMessage("生徒を選択してください。"); return; }
     if (!eventDate) { setMessage("対象日を入力してください。"); return; }
     if (!lessonId) { setMessage("授業を選択してください。"); return; }
-    const selectedLesson = lessons.find((lesson) => lesson.id === lessonId);
-    const isCrossCampus = Boolean(selectedStudent?.campus && selectedLesson?.campus && selectedStudent.campus !== selectedLesson.campus);
     if (isCrossCampus && (!crossCampusOverride || !crossCampusReason.trim())) { setMessage("別校舎受講として登録するチェックと理由が必要です。"); return; }
     setSaving(true);
     setMessage("保存しています...");
@@ -799,7 +818,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: lesson.id === lessonId ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === lessonId ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
       </div>)}
     </div>
-    {selectedStudent?.campus && effectiveCampus && selectedStudent.campus !== effectiveCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
+    {isCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
       <label style={{ fontWeight: 800 }}><input type="checkbox" checked={crossCampusOverride} onChange={(event) => setCrossCampusOverride(event.target.checked)} /> 別校舎での振替・受講として登録する</label>
       <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={crossCampusReason} onChange={(event) => setCrossCampusReason(event.target.value)} placeholder="例：本日のみ南教室へ振替" /></label>
     </div>}
@@ -892,10 +911,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
 
   async function saveEdit() {
     if (!editingId) return;
-    const selectedLesson = lessons.find((lesson) => lesson.id === draft.lesson_id);
-    const selectedStudent = students.find((student) => student.student_number === draft.student_number);
-    const isCrossCampus = Boolean(selectedStudent?.campus && selectedLesson?.campus && selectedStudent.campus !== selectedLesson.campus);
-    if (isCrossCampus && (!draft.cross_campus_override || !draft.cross_campus_reason.trim())) {
+    if (isEditingCrossCampus && (!draft.cross_campus_override || !draft.cross_campus_reason.trim())) {
       setMessage("別校舎受講として登録するチェックと理由が必要です。");
       return;
     }
@@ -905,8 +921,8 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...draft,
-        cross_campus_override: isCrossCampus && draft.cross_campus_override,
-        cross_campus_reason: isCrossCampus ? draft.cross_campus_reason : null,
+        cross_campus_override: isEditingCrossCampus && draft.cross_campus_override,
+        cross_campus_reason: isEditingCrossCampus ? draft.cross_campus_reason : null,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -939,10 +955,12 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
   }
 
   const currentStudent = students.find((student) => student.student_number === draft.student_number) ?? null;
-  const effectiveCampus = draft.campus || currentStudent?.campus || "";
-  const candidateStudents = effectiveCampus ? students.filter((student) => student.campus === effectiveCampus) : [];
+  const effectiveCampus = draft.campus || selectableCampus(currentStudent?.campus);
+  const candidateStudents = effectiveCampus ? students.filter((student) => studentMatchesCampus(student, effectiveCampus)) : [];
   const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus) : lessons;
   const lessonGroups = lessonsByTime(filteredLessons);
+  const currentLesson = lessons.find((lesson) => lesson.id === draft.lesson_id) ?? null;
+  const isEditingCrossCampus = lessonIsCrossCampus(currentStudent, currentLesson, effectiveCampus);
 
   return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -983,7 +1001,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: lesson.id === draft.lesson_id ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === draft.lesson_id ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
             </div>)}
           </div>
-          {currentStudent?.campus && effectiveCampus && currentStudent.campus !== effectiveCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
+          {isEditingCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
             <label style={{ fontWeight: 800 }}><input type="checkbox" checked={draft.cross_campus_override} onChange={(event) => setDraft((value) => ({ ...value, cross_campus_override: event.target.checked }))} /> 別校舎での振替・受講として登録する</label>
             <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={draft.cross_campus_reason} onChange={(event) => setDraft((value) => ({ ...value, cross_campus_reason: event.target.value }))} placeholder="例：本日のみ南教室へ振替" /></label>
           </div>}
@@ -1004,7 +1022,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const senderLineUserId = candidate.line_messages?.line_user_id ?? null;
   const receivedAtText = formatReceivedAt(candidate.line_messages?.received_at);
   const initialStudentNumber = candidate.student_number ?? (candidate.student_selection_required ? "" : candidate.student_suggestions?.[0]?.student_number ?? "");
-  const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || candidate.student_roster?.campus || "";
+  const initialCampus = campusFromLineManagedName(lineManagedNames[0]) || candidate.lessons?.campus || selectableCampus(candidate.student_roster?.campus);
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber);
   const [studentQuery, setStudentQuery] = useState("");
   const [items, setItems] = useState<EditableItem[]>(() => initialItems(candidate, initialCampus, initialStudentNumber));
@@ -1061,7 +1079,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
           setItems((currentItems) => currentItems.map((item) => {
             if (item.event_date !== date || item.lesson_id) return item;
             const itemStudent = studentOptions.find((student) => student.student_number === item.student_number);
-            const targetCampus = itemStudent?.campus ?? selectedStudent?.campus ?? null;
+            const targetCampus = selectableCampus(itemStudent?.campus ?? selectedStudent?.campus);
             const eligibleLessons = targetCampus ? found.filter((lesson) => lesson.campus === targetCampus) : found;
             const subject = normalizeLessonText(item.suggested_subject);
             const className = normalizeLessonText(item.suggested_class_name);
@@ -1070,7 +1088,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
               return lesson.enrolled && ((subject && label.includes(subject)) || (className && label.includes(className)));
             }) ?? eligibleLessons.find((lesson) => lesson.enrolled) ?? null;
             if (!recommended) return item;
-            return { ...item, lesson_id: recommended.id, campus: recommended.campus || targetCampus || "", cross_campus_override: false, cross_campus_reason: "" };
+            return { ...item, lesson_id: recommended.id, campus: recommended.campus || targetCampus, cross_campus_override: false, cross_campus_reason: "" };
           }));
         });
     }
@@ -1082,7 +1100,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
   function selectStudent(value: string) {
     setStudentNumber(value);
-    setItems((current) => current.map((item) => ({ ...item, student_number: value, lesson_id: "", cross_campus_override: false, cross_campus_reason: "" })));
+    const student = studentOptions.find((option) => option.student_number === value);
+    setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" })));
   }
 
   async function linkSenderToSelectedStudent() {
@@ -1203,7 +1222,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     const invalidCampus = items.find((item) => {
       const student = studentOptions.find((entry) => entry.student_number === item.student_number);
       const lesson = (lessonLists[item.event_date] ?? []).find((entry) => entry.id === item.lesson_id) ?? candidateLesson(candidate, item);
-      const crossCampus = Boolean(student?.campus && lesson?.campus && student.campus !== lesson.campus);
+      const crossCampus = lessonIsCrossCampus(student, lesson, item.campus);
       return crossCampus && (!item.cross_campus_override || !item.cross_campus_reason.trim());
     });
     if (invalidCampus) { setCardMessage("別校舎の授業を選ぶ場合は、別校舎受講のチェックと理由が必要です。"); return; }
@@ -1335,7 +1354,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         const lessons = item.event_date ? lessonLists[item.event_date] ?? [] : [];
         const currentLesson = lessons.find((lesson) => lesson.id === item.lesson_id) ?? candidateLesson(candidate, item);
         const rowStudent = studentOptions.find((student) => student.student_number === item.student_number) ?? null;
-        const crossCampus = Boolean(rowStudent?.campus && item.campus && rowStudent.campus !== item.campus);
+        const crossCampus = lessonIsCrossCampus(rowStudent, currentLesson, item.campus);
         const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus) : lessons;
         const lessonGroups = lessonsByTime(filteredLessons);
         return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
@@ -1348,7 +1367,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
               onQueryChange={(value) => setItemStudentQueries((current) => ({ ...current, [item.client_id]: value }))}
               onChange={(value) => {
                 const student = studentOptions.find((entry) => entry.student_number === value);
-                updateItem(item.client_id, { student_number: value, campus: student?.campus ?? "", lesson_id: "", cross_campus_override: false, cross_campus_reason: "" });
+                updateItem(item.client_id, { student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" });
               }}
               candidates={suggestions}
               disabled={closed}

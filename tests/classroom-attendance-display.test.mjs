@@ -8,9 +8,12 @@ import {
   normalizeClassroomEventType,
 } from "../src/lib/classroom-attendance-display.mjs";
 import {
+  enrollmentCampusForLesson,
   enrollmentMatchesLesson,
+  isAttendanceCrossCampus,
   resolveNotionLesson,
   shouldDisplayAttendanceEvent,
+  studentCampusIncludesLesson,
   validateAttendanceCampusSelection,
 } from "../src/lib/attendance-campus-consistency.mjs";
 
@@ -55,10 +58,33 @@ test("同名クラスでも南教室生徒に本校の授業を推薦しない",
   assert.equal(enrollmentMatchesLesson(enrollment, { grade: "中2", class_name: "B", subject: "英語", campus: "本校" }, "南教室"), false);
 });
 
+test("両方所属は科目別の教室列から通常校舎を決める", () => {
+  const math = { grade: "中1", class_name: "Ｂ", subject: "数学", classroom: "本" };
+  const english = { grade: "中1", class_name: "Ａ", subject: "英語", classroom: "南" };
+  const mainMath = { grade: "中1", class_name: "B", subject: "数学", campus: "本校" };
+  const southMath = { grade: "中1", class_name: "B", subject: "数学", campus: "南教室" };
+  assert.equal(enrollmentCampusForLesson([math, english], mainMath), "本校");
+  assert.equal(enrollmentMatchesLesson(math, mainMath, "両方"), true);
+  assert.equal(enrollmentMatchesLesson(math, southMath, "両方"), false);
+});
+
+test("両方所属は両校舎を含むが、科目別通常校舎があればそちらを優先する", () => {
+  assert.equal(studentCampusIncludesLesson("両方", "本校"), true);
+  assert.equal(studentCampusIncludesLesson("両方", "南教室"), true);
+  assert.equal(isAttendanceCrossCampus({ studentCampus: "両方", lessonCampus: "本校", enrollmentCampus: "本" }), false);
+  assert.equal(isAttendanceCrossCampus({ studentCampus: "両方", lessonCampus: "南教室", enrollmentCampus: "本" }), true);
+});
+
 test("校舎不一致は拒否し、明示的な別校舎受講と理由がある場合だけ許可する", () => {
   assert.equal(validateAttendanceCampusSelection({ studentCampus: "本校", lessonCampus: "南教室" }).ok, false);
   assert.equal(validateAttendanceCampusSelection({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true }).ok, false);
   assert.equal(validateAttendanceCampusSelection({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true, crossCampusReason: "振替受講" }).ok, true);
+});
+
+test("両方所属でも科目別通常校舎と異なる授業だけ理由を要求する", () => {
+  assert.equal(validateAttendanceCampusSelection({ studentCampus: "両方", lessonCampus: "本校", enrollmentCampus: "本" }).ok, true);
+  assert.equal(validateAttendanceCampusSelection({ studentCampus: "両方", lessonCampus: "南教室", enrollmentCampus: "本" }).ok, false);
+  assert.equal(validateAttendanceCampusSelection({ studentCampus: "両方", lessonCampus: "南教室", enrollmentCampus: "本", crossCampusOverride: true, crossCampusReason: "振替受講" }).ok, true);
 });
 
 test("Notionの日付・授業校舎・授業名から授業を一意に解決する", () => {
@@ -74,4 +100,9 @@ test("Notionの日付・授業校舎・授業名から授業を一意に解決�
 test("教室表示は校舎不一致を隠し、明示的な別校舎受講は表示する", () => {
   assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "本校", lessonCampus: "南教室" }), false);
   assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true, crossCampusReason: "振替受講" }), true);
+});
+
+test("教室表示は両方所属の通常授業を表示する", () => {
+  assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "両方", lessonCampus: "本校" }), true);
+  assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "両方", lessonCampus: "南教室" }), true);
 });

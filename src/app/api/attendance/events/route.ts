@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,14 +77,22 @@ async function validateEventRows(
 ) {
   const studentNumbers = [...new Set(rows.map((row) => row.student_number))];
   const lessonIds = [...new Set(rows.map((row) => row.lesson_id))];
-  const [rosterResult, lessonResult] = await Promise.all([
+  const [rosterResult, lessonResult, enrollmentResult] = await Promise.all([
     supabase.from("student_roster").select("student_number,campus").in("student_number", studentNumbers),
-    supabase.from("lessons").select("id,lesson_date,campus").in("id", lessonIds),
+    supabase.from("lessons").select("id,lesson_date,campus,grade,subject,class_name").in("id", lessonIds),
+    supabase.from("student_class_enrollments").select("student_number,grade,subject,class_name,classroom").in("student_number", studentNumbers),
   ]);
   if (rosterResult.error) throw rosterResult.error;
   if (lessonResult.error) throw lessonResult.error;
+  if (enrollmentResult.error) throw enrollmentResult.error;
   const campusByStudent = new Map((rosterResult.data ?? []).map((row) => [row.student_number as string, row.campus as string | null]));
   const lessonById = new Map((lessonResult.data ?? []).map((lesson) => [lesson.id as string, lesson]));
+  const enrollmentsByStudent = new Map<string, typeof enrollmentResult.data>();
+  for (const enrollment of enrollmentResult.data ?? []) {
+    const current = enrollmentsByStudent.get(enrollment.student_number as string) ?? [];
+    current.push(enrollment);
+    enrollmentsByStudent.set(enrollment.student_number as string, current);
+  }
   for (const row of rows) {
     const lesson = lessonById.get(row.lesson_id);
     if (!lesson) return "選択した授業を確認できません";
@@ -93,6 +101,7 @@ async function validateEventRows(
       studentCampus: campusByStudent.get(row.student_number),
       lessonCampus: lesson.campus,
       requestedCampus: lesson.campus,
+      enrollmentCampus: enrollmentCampusForLesson(enrollmentsByStudent.get(row.student_number), lesson),
       crossCampusOverride: row.cross_campus_override,
       crossCampusReason: row.cross_campus_reason,
     });
