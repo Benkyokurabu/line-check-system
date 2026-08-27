@@ -127,14 +127,22 @@ create table if not exists public.line_link_evidence (
   parsed_student_name text,
   relation text not null default 'unknown',
   source text not null default 'line_manager_first_self_introduction',
-  verified_at timestamptz not null default now(),
+  review_status text not null default 'confirmed',
+  reviewed_at timestamptz,
+  detected_message_id uuid references public.line_messages (id) on delete set null,
+  verified_at timestamptz default now(),
   updated_at timestamptz not null default now(),
   constraint line_link_evidence_relation_check
-    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown'))
+    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown')),
+  constraint line_link_evidence_review_status_check
+    check (review_status in ('pending', 'confirmed', 'rejected'))
 );
 
 create index if not exists line_link_evidence_display_name_idx
   on public.line_link_evidence (display_name);
+
+create index if not exists line_link_evidence_review_status_idx
+  on public.line_link_evidence (review_status, evidence_at desc);
 
 create table if not exists public.line_tasks (
   id uuid primary key default gen_random_uuid(),

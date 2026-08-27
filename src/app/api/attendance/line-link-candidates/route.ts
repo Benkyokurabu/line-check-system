@@ -46,7 +46,10 @@ type LineLinkEvidenceRow = {
   parsed_student_name: string | null;
   relation: string;
   source: string;
-  verified_at: string;
+  review_status: "pending" | "confirmed" | "rejected";
+  reviewed_at: string | null;
+  detected_message_id: string | null;
+  verified_at: string | null;
 };
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -156,7 +159,7 @@ function scoreStudent(input: {
 
 export async function GET() {
   const supabase = createSupabaseAdminClient();
-  const [{ data: candidates, error }, { data: roster, error: rosterError }, accountsResult, { data: aliases, error: aliasesError }, evidenceResult] = await Promise.all([
+  const [{ data: candidates, error }, { data: roster, error: rosterError }, accountsResult, legacyLinksResult, { data: aliases, error: aliasesError }, evidenceResult] = await Promise.all([
     supabase
       .from("attendance_candidates")
       .select("id,student_number,suggested_student_name,status,created_at,line_messages(line_user_id,display_name,text,received_at)")
@@ -170,23 +173,31 @@ export async function GET() {
       .from("student_line_accounts")
       .select("line_user_id,student_number,relation,alias_name,friend_display_name"),
     supabase
+      .from("student_line_links")
+      .select("line_user_id"),
+    supabase
       .from("line_user_aliases")
       .select("line_user_id,alias_name"),
     supabase
       .from("line_link_evidence")
-      .select("line_user_id,manager_line_user_id,display_name,manager_alias_name,evidence_text,evidence_at,parsed_student_name,relation,source,verified_at"),
+      .select("line_user_id,manager_line_user_id,display_name,manager_alias_name,evidence_text,evidence_at,parsed_student_name,relation,source,review_status,reviewed_at,detected_message_id,verified_at"),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (rosterError) return NextResponse.json({ error: rosterError.message }, { status: 500 });
   if (accountsResult.error && !["42P01", "PGRST205"].includes(accountsResult.error.code ?? "")) {
     return NextResponse.json({ error: accountsResult.error.message }, { status: 500 });
   }
+  if (legacyLinksResult.error) return NextResponse.json({ error: legacyLinksResult.error.message }, { status: 500 });
   if (aliasesError) return NextResponse.json({ error: aliasesError.message }, { status: 500 });
   if (evidenceResult.error && !["42P01", "PGRST205"].includes(evidenceResult.error.code ?? "")) {
     return NextResponse.json({ error: evidenceResult.error.message }, { status: 500 });
   }
 
   const accountRows = (accountsResult.data ?? []) as LineAccountRow[];
+  const linkedLineUserIds = new Set([
+    ...accountRows.map((row) => row.line_user_id),
+    ...(legacyLinksResult.data ?? []).map((row) => row.line_user_id as string),
+  ]);
   const aliasUserIds = new Set((aliases ?? []).filter((row) => row.alias_name?.trim()).map((row) => row.line_user_id as string));
   const accountAliasUserIds = new Set(accountRows.filter((row) => row.alias_name?.trim()).map((row) => row.line_user_id));
   const evidenceByLineUserId = new Map(
@@ -196,9 +207,15 @@ export async function GET() {
   for (const row of (candidates ?? []) as PendingCandidateRow[]) {
     const lineMessage = firstRelation(row.line_messages);
     const lineUserId = lineMessage?.line_user_id;
-    if (!lineUserId || aliasUserIds.has(lineUserId) || accountAliasUserIds.has(lineUserId)) continue;
+    const pendingEvidence = lineUserId ? evidenceByLineUserId.get(lineUserId)?.review_status === "pending" : false;
+    if (!lineUserId || linkedLineUserIds.has(lineUserId)) continue;
+    if (!pendingEvidence && (aliasUserIds.has(lineUserId) || accountAliasUserIds.has(lineUserId))) continue;
     if (!rowsByLineUserId.has(lineUserId)) rowsByLineUserId.set(lineUserId, []);
     rowsByLineUserId.get(lineUserId)!.push(row);
+  }
+  for (const evidence of evidenceByLineUserId.values()) {
+    if (evidence.review_status !== "pending" || linkedLineUserIds.has(evidence.line_user_id)) continue;
+    if (!rowsByLineUserId.has(evidence.line_user_id)) rowsByLineUserId.set(evidence.line_user_id, []);
   }
 
   const rosterRows = (roster ?? []) as RosterRow[];
@@ -212,14 +229,16 @@ export async function GET() {
     });
     const latest = sorted[0];
     const latestLineMessage = firstRelation(latest?.line_messages);
-    const displayName = latestLineMessage?.display_name ?? "";
+    const identityEvidence = evidenceByLineUserId.get(lineUserId) ?? null;
+    const displayName = latestLineMessage?.display_name ?? identityEvidence?.display_name ?? "";
     const suggestedNames = [...new Set(sorted.map((row) => row.suggested_student_name).filter((value): value is string => Boolean(value?.trim())))];
     const linkedStudentNumbers = new Set(sorted.map((row) => row.student_number).filter((value): value is string => Boolean(value)));
     const sameDisplayAccounts = displayName
       ? accountRows.filter((row) => row.friend_display_name?.trim() === displayName && row.alias_name?.trim())
       : [];
-    const text = sorted.map((row) => firstRelation(row.line_messages)?.text ?? "").join("\n");
-    const identityEvidence = evidenceByLineUserId.get(lineUserId) ?? null;
+    const text = sorted.length > 0
+      ? sorted.map((row) => firstRelation(row.line_messages)?.text ?? "").join("\n")
+      : identityEvidence?.evidence_text ?? "";
     const suggestions = rosterRows
       .map((student) => scoreStudent({ student, text, displayName, suggestedNames, linkedStudentNumbers, sameDisplayAccounts, identityEvidence }))
       .filter((value): value is NonNullable<typeof value> => Boolean(value))
@@ -230,10 +249,10 @@ export async function GET() {
       line_user_id: lineUserId,
       line_user_id_short: shortLineId(lineUserId),
       display_name: displayName || null,
-      latest_received_at: latestLineMessage?.received_at ?? null,
+      latest_received_at: latestLineMessage?.received_at ?? identityEvidence?.evidence_at ?? null,
       candidate_count: sorted.length,
       suggested_names: suggestedNames,
-      latest_text: latestLineMessage?.text ?? null,
+      latest_text: latestLineMessage?.text ?? identityEvidence?.evidence_text ?? null,
       identity_evidence: identityEvidence,
       suggestions,
       default_student_number: top?.student_number ?? "",
@@ -248,5 +267,25 @@ export async function GET() {
   });
 
   return NextResponse.json({ candidates: items });
+}
+
+export async function PATCH(request: Request) {
+  const body = await request.json().catch(() => ({}));
+  const lineUserId = typeof body.line_user_id === "string" ? body.line_user_id.trim() : "";
+  if (!lineUserId) {
+    return NextResponse.json({ error: "line_user_id is required" }, { status: 400 });
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await createSupabaseAdminClient()
+    .from("line_link_evidence")
+    .update({ review_status: "rejected", reviewed_at: now, updated_at: now })
+    .eq("line_user_id", lineUserId)
+    .eq("review_status", "pending")
+    .select("line_user_id")
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "確認待ち候補が見つかりません" }, { status: 404 });
+  return NextResponse.json({ ok: true });
 }
 

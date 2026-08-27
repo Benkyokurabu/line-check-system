@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/notion-roster-sync",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/line-identity-candidates",
+      "schedule": "0 21 * * *"
     }
   ]
 }

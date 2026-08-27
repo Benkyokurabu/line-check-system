@@ -8,6 +8,34 @@ import {
   normalizeAttendanceItems,
   normalizeAttendanceText,
 } from "../src/lib/attendance-extract-logic.mjs";
+import { detectExplicitLineIdentities } from "../src/lib/line-identity-detection.mjs";
+
+const identityStudents = [
+  { student_number: "1001", student_name: "山田 太郎" },
+  { student_number: "1002", student_name: "髙橋 花子" },
+];
+
+test("explicit LINE identity statements detect the student and relationship", () => {
+  assert.deepEqual(detectExplicitLineIdentities("こんにちは。山田太郎の母です。", identityStudents), [{
+    student_number: "1001",
+    student_name: "山田 太郎",
+    relation: "mother",
+  }]);
+  assert.equal(detectExplicitLineIdentities("山田 太郎本人です！", identityStudents)[0]?.relation, "student");
+  assert.equal(detectExplicitLineIdentities("生徒の高橋花子です。", identityStudents)[0]?.relation, "student");
+  assert.equal(detectExplicitLineIdentities("山田太郎の父です、よろしくお願いします。", identityStudents)[0]?.relation, "father");
+});
+
+test("LINE identity detection rejects questions and non-explicit name mentions", () => {
+  assert.deepEqual(detectExplicitLineIdentities("山田太郎の母ですか？", identityStudents), []);
+  assert.deepEqual(detectExplicitLineIdentities("山田太郎は欠席します。", identityStudents), []);
+  assert.deepEqual(detectExplicitLineIdentities("山田太郎です。", identityStudents), []);
+});
+
+test("ambiguous LINE identity messages remain distinguishable for manual exclusion", () => {
+  const matches = detectExplicitLineIdentities("山田太郎の母です。高橋花子の母です。", identityStudents);
+  assert.equal(matches.length, 2);
+});
 
 test("date ranges are expanded into one registration row per day", () => {
   assert.deepEqual(expandAttendanceDates("2026-07-23", "2026-07-25"), [
@@ -165,4 +193,18 @@ test("attendance LINE replies are locked after sending unless additional-message
   assert.match(page, /allow_additional: hasSentReply && additionalMessageMode/);
   assert.match(replyRoute, /if \(existingReply && !allowAdditional\)/);
   assert.match(replyRoute, /LINE_ALREADY_SENT/);
+});
+
+test("LINE identity candidates run at 06:00 JST and require manual review", async () => {
+  const [vercelConfig, schema, candidateRoute, linkRoute] = await Promise.all([
+    readFile(new URL("../vercel.json", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/schema.sql", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/line-link-candidates/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/students/[studentNumber]/link/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(vercelConfig, /"path": "\/api\/cron\/line-identity-candidates"[\s\S]*?"schedule": "0 21 \* \* \*"/);
+  assert.match(schema, /review_status text not null default 'confirmed'/);
+  assert.match(schema, /check \(review_status in \('pending', 'confirmed', 'rejected'\)\)/);
+  assert.match(candidateRoute, /review_status: "rejected"/);
+  assert.match(linkRoute, /review_status: "confirmed"/);
 });

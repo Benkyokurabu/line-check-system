@@ -36,14 +36,49 @@ create table if not exists public.line_link_evidence (
   parsed_student_name text,
   relation text not null default 'unknown',
   source text not null default 'line_manager_first_self_introduction',
-  verified_at timestamptz not null default now(),
+  review_status text not null default 'confirmed',
+  reviewed_at timestamptz,
+  detected_message_id uuid references public.line_messages (id) on delete set null,
+  verified_at timestamptz default now(),
   updated_at timestamptz not null default now(),
   constraint line_link_evidence_relation_check
-    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown'))
+    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown')),
+  constraint line_link_evidence_review_status_check
+    check (review_status in ('pending', 'confirmed', 'rejected'))
 );
+
+alter table public.line_link_evidence
+  add column if not exists review_status text,
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists detected_message_id uuid references public.line_messages (id) on delete set null;
+
+update public.line_link_evidence
+set review_status = 'confirmed'
+where review_status is null;
+
+alter table public.line_link_evidence
+  alter column review_status set default 'confirmed',
+  alter column review_status set not null,
+  alter column verified_at drop not null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'line_link_evidence_review_status_check'
+      and conrelid = 'public.line_link_evidence'::regclass
+  ) then
+    alter table public.line_link_evidence
+      add constraint line_link_evidence_review_status_check
+      check (review_status in ('pending', 'confirmed', 'rejected'));
+  end if;
+end $$;
 
 create index if not exists line_link_evidence_display_name_idx
   on public.line_link_evidence (display_name);
+
+create index if not exists line_link_evidence_review_status_idx
+  on public.line_link_evidence (review_status, evidence_at desc);
 
 do $$
 begin

@@ -64,6 +64,19 @@ export async function PUT(
     return NextResponse.json({ error: accountError.message }, { status: 500 });
   }
 
+  const { error: evidenceError } = await supabase
+    .from("line_link_evidence")
+    .update({
+      review_status: "confirmed",
+      reviewed_at: now,
+      verified_at: now,
+      updated_at: now,
+    })
+    .eq("line_user_id", lineUserId);
+  if (evidenceError && !["42P01", "PGRST205"].includes(evidenceError.code ?? "")) {
+    return NextResponse.json({ error: evidenceError.message }, { status: 500 });
+  }
+
   return NextResponse.json({ ok: true });
 }
 

@@ -80,7 +80,10 @@ type LineLinkCandidate = {
     parsed_student_name: string | null;
     relation: string;
     source: string;
-    verified_at: string;
+    review_status: "pending" | "confirmed" | "rejected";
+    reviewed_at: string | null;
+    detected_message_id: string | null;
+    verified_at: string | null;
   } | null;
   suggestions: LineLinkSuggestion[];
   default_student_number: string;
@@ -351,7 +354,7 @@ export default function AttendancePage() {
     try {
       const response = await fetch("/api/attendance/line-link-candidates");
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "LINE紐づけ候補を取得できませんでした");
+      if (!response.ok) throw new Error(body.error ?? "LINE登録候補を取得できませんでした");
       setLinkCandidates(body.candidates ?? []);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -383,7 +386,7 @@ export default function AttendancePage() {
       <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
       <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "待機中LINEを今すぐ解析"}</button>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去の要対応を非表示" : "過去の要対応も表示"}</button>
-      <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE紐づけ候補を閉じる" : "LINE紐づけ候補を表示"}</button>
+      <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE登録候補を閉じる" : "LINE登録候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>対応済みの表示期間</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value) as HistoryDays)}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {analysisStatus && <p role={analysisStatus.alert_active || analysisStatus.dead > 0 ? "alert" : undefined} style={{ flexBasis: "100%", margin: 0, color: analysisStatus.alert_active || analysisStatus.dead > 0 ? "#b42318" : "#555", fontWeight: analysisStatus.alert_active || analysisStatus.dead > 0 ? 800 : 400 }}>待機 {analysisStatus.queued}件（実行可能 {analysisStatus.ready}件・再試行待ち {analysisStatus.retry_wait}件） / 解析中 {analysisStatus.processing}件 / 要確認 {analysisStatus.dead}件 / 直近1時間 {analysisStatus.processed_last_hour}件 / 最終正常実行 {formatTime(analysisStatus.last_worker_succeeded_at)} / 最終確認 {formatTime(analysisStatus.last_checked_at)}{analysisStatus.oldest_queued_at ? ` / 最古 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? ` / エラー: ${analysisStatus.last_worker_error}` : ""}</p>}
@@ -656,12 +659,35 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
     }
   }
 
+  async function rejectCandidate(candidate: LineLinkCandidate) {
+    if (!window.confirm("この名乗りをLINE登録候補から外します。よろしいですか？")) return;
+    setSavingLineUserId(candidate.line_user_id);
+    try {
+      const response = await fetch("/api/attendance/line-link-candidates", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ line_user_id: candidate.line_user_id }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "候補を外せませんでした");
+      setMessage("LINE登録候補から外しました。アカウントの登録は行っていません。");
+      await onReload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingLineUserId(null);
+    }
+  }
+
   return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-      <strong>管理名未表示LINEの紐づけ候補</strong>
+      <div style={{ display: "grid", gap: 4 }}>
+        <strong>LINE登録候補</strong>
+        <span style={{ color: "#666", fontSize: 12 }}>毎朝6時ごろ、本人・父・母・保護者と明示したメッセージを候補にします。ここで確定するまで自動登録されません。</span>
+      </div>
       <button type="button" style={ghostButtonStyle} disabled={loading} onClick={() => void onReload()}>{loading ? "更新中..." : "候補を更新"}</button>
     </div>
-    {candidates.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>管理名未表示のpendingアカウントはありません。</div> : <div style={{ display: "grid", gap: 10 }}>
+    {candidates.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>確認待ちのLINE登録候補はありません。</div> : <div style={{ display: "grid", gap: 10 }}>
       {candidates.map((candidate) => {
         const draft = draftFor(candidate);
         const aliasNames = selectedStudents(draft).map((student) => aliasForStudent(student, draft.relation));
@@ -677,11 +703,11 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
         return <div key={candidate.line_user_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, display: "grid", gap: 10, background: "white" }}>
           <div style={{ display: "grid", gap: 4 }}>
             <strong>相手のLINE表示名: {candidate.display_name ?? "表示名なし"} <span style={{ color: "#777", fontSize: 12 }}>ID末尾 {candidate.line_user_id_short}</span></strong>
-            <span style={{ color: "#666", fontSize: 12 }}>判断材料: pending {candidate.candidate_count}件 / 最終受信 {formatReceivedAt(candidate.latest_received_at)} / AI候補 {candidate.suggested_names.join(" / ") || "なし"}</span>
+            <span style={{ color: "#666", fontSize: 12 }}>判断材料: 出欠連絡候補 {candidate.candidate_count}件 / 最終受信 {formatReceivedAt(candidate.latest_received_at)} / AI候補 {candidate.suggested_names.join(" / ") || "なし"}</span>
           </div>
           <div style={{ padding: 10, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{candidate.latest_text ?? "（本文なし）"}</div>
           {candidate.identity_evidence && <div style={{ padding: 10, background: "#fff8df", border: "1px solid #d8b64c", borderRadius: 6, display: "grid", gap: 5 }}>
-            <strong style={{ color: "#6f5400" }}>紐づけ候補の根拠：初回の本人確認メッセージ</strong>
+            <strong style={{ color: "#6f5400" }}>{candidate.identity_evidence.source === "auto_explicit_identity_candidate" ? "朝6時に自動検出した名乗り" : "紐づけ候補の根拠：本人確認メッセージ"}</strong>
             <span style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>「{candidate.identity_evidence.evidence_text}」</span>
             <span style={{ color: "#695f42", fontSize: 12 }}>
               {[candidate.identity_evidence.evidence_at ? formatReceivedAt(candidate.identity_evidence.evidence_at) : null,
@@ -705,8 +731,9 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
             <div style={{ display: "grid", gap: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>兄弟も同じ保護者として登録する場合</span>
               {extraStudents.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{extraStudents.map((student) => <button key={student.student_number} type="button" style={secondaryButtonStyle} onClick={() => removeSibling(candidate, student.student_number)}>{student.grade} {student.student_name} を外す</button>)}</div>}
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,1fr) auto", gap: 10, alignItems: "end" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,1fr) auto auto", gap: 10, alignItems: "end" }}>
                 <StudentPicker label="追加する兄弟" students={students} value="" query={draft.extra_query} onQueryChange={(query) => updateDraft(candidate.line_user_id, { extra_query: query })} onChange={(studentNumber) => addSibling(candidate, studentNumber)} candidates={siblingCandidates} />
+                {candidate.identity_evidence?.review_status === "pending" && <button type="button" style={ghostButtonStyle} disabled={savingLineUserId === candidate.line_user_id} onClick={() => void rejectCandidate(candidate)}>候補から外す</button>}
                 <button type="button" style={buttonStyle} disabled={savingLineUserId === candidate.line_user_id || selectedStudents(draft).length === 0} onClick={() => void confirmLink(candidate)}>{savingLineUserId === candidate.line_user_id ? "登録中..." : `選択した${selectedStudents(draft).length}名に確定`}</button>
               </div>
             </div>
