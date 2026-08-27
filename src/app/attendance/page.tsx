@@ -1018,6 +1018,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const notionKind = candidate.notion_error || failedItems > 0 ? "failed" : closed ? "done" : confirmedItems > 0 ? "partial" : "pending";
   const notionDetail = notionKind === "failed" ? "エラー" : dismissed ? "対応不要" : registered ? "登録済み" : confirmedItems > 0 ? `${confirmedItems}/${Math.max(itemStatuses.length, items.length)}行` : "未登録";
   const replyStatus = candidate.reply_status;
+  const hasSentReply = Boolean(replyStatus?.sent);
   const replyKind = replyStatus?.sent ? "done" : "pending";
   const replyDetail = replyStatus?.sent ? ["送信済み", replyStatus.last_sent_by, formatStatusTime(replyStatus.last_sent_at)].filter(Boolean).join(" / ") : "未送信";
   const [lessonLists, setLessonLists] = useState<Record<string, Lesson[]>>({});
@@ -1027,6 +1028,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [cardMessage, setCardMessage] = useState("");
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
   const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
+  const [additionalMessageMode, setAdditionalMessageMode] = useState(false);
   const [linkingSender, setLinkingSender] = useState(false);
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
   const suggestionNumbers = useMemo(() => new Set(suggestions.map((student) => student.student_number)), [suggestions]);
@@ -1224,23 +1226,32 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   async function sendReply() {
+    if (hasSentReply && !additionalMessageMode) { setCardMessage("この欠席連絡にはLINEで送信済みです。"); return; }
     if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
     if (!replyText.trim()) { setCardMessage("返信文を入力してください。"); return; }
-    if (!window.confirm(`${titleName} にLINE返信を送信します。よろしいですか？`)) return;
+    const sendLabel = hasSentReply ? "別のメッセージ" : "LINE返信";
+    if (!window.confirm(`${titleName} に${sendLabel}を送信します。よろしいですか？`)) return;
     setSending(true);
     setCardMessage("LINEへ送信しています...");
     try {
       const response = await fetch(`/api/attendance/candidates/${candidate.id}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: replyText, sent_by: confirmedBy }),
+        body: JSON.stringify({ text: replyText, sent_by: confirmedBy, allow_additional: hasSentReply && additionalMessageMode }),
       });
       const body = await response.json();
       if (!response.ok) {
-        throw new Error(body.line_delivered ? "LINE送信済みですが履歴保存に失敗しました。再送しないでください。" : body.error ?? "LINE送信に失敗しました");
+        if (body.already_sent) {
+          setAdditionalMessageMode(false);
+          await onChanged();
+        }
+        throw new Error(body.line_delivered ? "LINE送信済みですが履歴保存に失敗しました。再送しないでください。" : body.message ?? body.error ?? "LINE送信に失敗しました");
       }
       setCardMessage("LINEへ送信しました。");
       setMessage("LINEへ送信しました。");
+      setAdditionalMessageMode(false);
+      setReplyText(replyTemplates[0] ?? defaultReplyTemplates[0]);
+      await onChanged();
     } catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
     finally { setSending(false); }
   }
@@ -1255,6 +1266,14 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     await navigator.clipboard.writeText(replyText);
     setCardMessage("返信文案をコピーしました。");
   }
+
+  function startAdditionalMessage() {
+    setAdditionalMessageMode(true);
+    setReplyText("");
+    setCardMessage("");
+  }
+
+  const replyLocked = hasSentReply && !additionalMessageMode;
 
   return <section className="panel" style={{ padding: 14, borderColor: hasError ? "#fca5a5" : undefined, background: hasError ? "#fffafa" : undefined }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -1284,13 +1303,19 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <ReplyHistory replies={candidate.reply_messages ?? []} />
 
     <div style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(180px,260px)", gap: 12, alignItems: "start", marginBottom: 16 }}>
-      <label style={{ display: "grid", gap: 6 }}><span>返信文</span><textarea style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6 }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
+      <label style={{ display: "grid", gap: 6 }}><span>{additionalMessageMode ? "別のメッセージ" : "返信文"}</span><textarea disabled={replyLocked} style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6, background: replyLocked ? "#f7f7f4" : "white" }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
       <div style={{ display: "grid", gap: 8 }}>
         <span style={{ fontSize: 13, color: "#555" }}>文案</span>
-        {replyTemplates.map((template, index) => <button key={`${index}:${template}`} type="button" style={selectedTemplateIndex === index ? buttonStyle : ghostButtonStyle} onClick={() => selectTemplate(index)}>文案{index + 1}</button>)}
-        <button type="button" style={ghostButtonStyle} disabled={savingTemplate} onClick={saveCurrentTemplate}>{savingTemplate ? "保存中..." : `文案${selectedTemplateIndex + 1}を更新`}</button>
-        <button type="button" style={secondaryButtonStyle} onClick={copyReply}>コピー</button>
-        <button type="button" style={dangerButtonStyle} disabled={sending} onClick={sendReply}>{sending ? "送信中..." : "LINEへ送信"}</button>
+        {replyTemplates.map((template, index) => <button key={`${index}:${template}`} type="button" disabled={replyLocked} style={selectedTemplateIndex === index ? buttonStyle : ghostButtonStyle} onClick={() => selectTemplate(index)}>文案{index + 1}</button>)}
+        <button type="button" style={ghostButtonStyle} disabled={savingTemplate || replyLocked} onClick={saveCurrentTemplate}>{savingTemplate ? "保存中..." : `文案${selectedTemplateIndex + 1}を更新`}</button>
+        <button type="button" style={secondaryButtonStyle} disabled={replyLocked} onClick={copyReply}>コピー</button>
+        {replyLocked ? <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+          <button type="button" style={{ ...buttonStyle, flex: 1, background: "#e8f5ec", borderColor: "#86c99a", color: "#087a3d", cursor: "default" }} disabled>LINEで送信済み</button>
+          <button type="button" style={{ ...ghostButtonStyle, flex: 1 }} onClick={startAdditionalMessage}>別のメッセージを送る</button>
+        </div> : <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+          <button type="button" style={{ ...dangerButtonStyle, flex: 1 }} disabled={sending} onClick={sendReply}>{sending ? "送信中..." : additionalMessageMode ? "別メッセージをLINEへ送信" : "LINEへ送信"}</button>
+          {additionalMessageMode && <button type="button" style={ghostButtonStyle} disabled={sending} onClick={() => { setAdditionalMessageMode(false); setReplyText(replyTemplates[0] ?? defaultReplyTemplates[0]); setCardMessage(""); }}>やめる</button>}
+        </div>}
       </div>
     </div>
 

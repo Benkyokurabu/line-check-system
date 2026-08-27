@@ -141,3 +141,15 @@ test("attendance scheduler reads its bearer token from Supabase Vault", async ()
   assert.match(scheduler, /attendance-analysis-monitor/);
   assert.doesNotMatch(scheduler, /Authorization', 'Bearer [A-Za-z0-9_-]{20}/);
 });
+
+test("attendance LINE replies are locked after sending unless additional-message mode is explicit", async () => {
+  const [page, replyRoute] = await Promise.all([
+    readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/candidates/[id]/reply/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /LINEで送信済み/);
+  assert.match(page, /別のメッセージを送る/);
+  assert.match(page, /allow_additional: hasSentReply && additionalMessageMode/);
+  assert.match(replyRoute, /if \(existingReply && !allowAdditional\)/);
+  assert.match(replyRoute, /LINE_ALREADY_SENT/);
+});

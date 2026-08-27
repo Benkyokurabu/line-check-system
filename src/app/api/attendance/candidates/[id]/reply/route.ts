@@ -10,6 +10,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const body = await request.json().catch(() => ({}));
   const text = typeof body.text === "string" ? body.text.trim() : "";
   const sentBy = typeof body.sent_by === "string" ? body.sent_by.trim() : "";
+  const allowAdditional = body.allow_additional === true;
   if (!text) return NextResponse.json({ error: "返信文を入力してください" }, { status: 400 });
   if (text.length > 5000) return NextResponse.json({ error: "返信文は5000文字以内で入力してください" }, { status: 400 });
   if (!sentBy) return NextResponse.json({ error: "画面上部の確認者名を入力してください" }, { status: 400 });
@@ -31,6 +32,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const lineMessage = Array.isArray(candidate.line_messages) ? candidate.line_messages[0] : candidate.line_messages;
   const lineUserId = lineMessage?.line_user_id;
   if (!lineUserId) return NextResponse.json({ error: "返信先のLINEユーザーIDが見つかりません" }, { status: 400 });
+
+  const { data: existingReply, error: existingReplyError } = await supabase
+    .from("line_messages")
+    .select("id")
+    .eq("direction", "outbound")
+    .eq("raw_event->>send_context", "attendance_candidate_reply")
+    .eq("raw_event->>attendance_candidate_id", id)
+    .limit(1)
+    .maybeSingle();
+  if (existingReplyError) return NextResponse.json({ error: existingReplyError.message }, { status: 500 });
+  if (existingReply && !allowAdditional) {
+    return NextResponse.json({
+      error: "LINE_ALREADY_SENT",
+      message: "この欠席連絡にはLINEで送信済みです。別のメッセージを送る場合は専用ボタンを使用してください。",
+      already_sent: true,
+    }, { status: 409 });
+  }
 
   const botInfo = await getLineBotInfo(accessToken);
   const lineRes = await fetch("https://api.line.me/v2/bot/message/push", {
@@ -65,6 +83,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       audit_version: 1,
       operation: "push",
       send_context: "attendance_candidate_reply",
+      reply_kind: existingReply ? "additional" : "initial",
       attendance_candidate_id: id,
       source_message_id: candidate.source_message_id,
       target_display_name: lineMessage?.display_name ?? null,
