@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { pickClassroomLessonByEndBoundary } from "@/lib/classroom-lesson-picker.mjs";
+import { shouldDisplayAttendanceEvent } from "@/lib/attendance-campus-consistency.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -34,8 +35,10 @@ type EventRow = {
   reason: string | null;
   arrival_expected_time: string | null;
   note_for_classroom: string | null;
+  cross_campus_override: boolean | null;
+  cross_campus_reason: string | null;
   confirmed_at: string | null;
-  student_roster?: { student_name: string | null; grade: string | null } | { student_name: string | null; grade: string | null }[] | null;
+  student_roster?: { student_name: string | null; grade: string | null; campus: string | null } | { student_name: string | null; grade: string | null; campus: string | null }[] | null;
 };
 
 type NotionProperty = { type?: string };
@@ -389,7 +392,7 @@ export async function GET(request: Request) {
 
   const eventRequest = supabase
     .from("attendance_events")
-    .select("id,lesson_id,student_number,event_type,reason,arrival_expected_time,note_for_classroom,confirmed_at,student_roster(student_name,grade)")
+    .select("id,lesson_id,student_number,event_type,reason,arrival_expected_time,note_for_classroom,cross_campus_override,cross_campus_reason,confirmed_at,student_roster(student_name,grade,campus)")
     .eq("lesson_id", selectedLesson.id)
     .eq("status", "confirmed");
 
@@ -405,7 +408,17 @@ export async function GET(request: Request) {
   const { data: eventData, error: eventError } = eventResult;
   if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
 
+  const unsafeDbEvents = ((eventData ?? []) as EventRow[]).filter((event) => {
+    const roster = firstRoster(event.student_roster);
+    return !shouldDisplayAttendanceEvent({
+      studentCampus: roster?.campus,
+      lessonCampus: selectedLesson.campus,
+      crossCampusOverride: event.cross_campus_override,
+      crossCampusReason: event.cross_campus_reason,
+    });
+  });
   const dbEvents = ((eventData ?? []) as EventRow[])
+    .filter((event) => !unsafeDbEvents.some((unsafeEvent) => unsafeEvent.id === event.id))
     .map((event) => {
       const roster = firstRoster(event.student_roster);
       return {
@@ -437,7 +450,10 @@ export async function GET(request: Request) {
     events,
     messages: classroomMessages,
     message: events.length === 0 ? "欠席・遅刻連絡はありません" : null,
-    notion_warning: notionResult.warning,
+    notion_warning: [
+      notionResult.warning,
+      unsafeDbEvents.length > 0 ? `校舎が一致しない欠席連絡${unsafeDbEvents.length}件を安全のため非表示にしました。事務画面で確認してください。` : null,
+    ].filter(Boolean).join(" ") || null,
     fetched_at: new Date().toISOString(),
   });
 }

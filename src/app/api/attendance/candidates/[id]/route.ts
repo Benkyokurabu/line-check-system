@@ -37,6 +37,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       arrival_expected_time: cleanText(item.arrival_expected_time),
       note_internal: cleanText(item.note_internal),
       note_for_classroom: cleanText(item.note_for_classroom),
+      cross_campus_override: item.cross_campus_override === true,
+      cross_campus_reason: cleanText(item.cross_campus_reason),
       status: "pending",
     }));
     const { error: deleteError } = await supabase

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { archiveAttendanceNotionPage, upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +49,8 @@ function parseUpdate(body: Record<string, unknown>) {
     arrival_expected_time: cleanText(body.arrival_expected_time),
     note_internal: cleanText(body.note_internal),
     note_for_classroom: cleanText(body.note_for_classroom),
+    cross_campus_override: body.cross_campus_override === true,
+    cross_campus_reason: cleanText(body.cross_campus_reason),
     status: "confirmed",
     cancelled_by: null,
     cancelled_at: null,
@@ -99,6 +102,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }
   const supabase = createSupabaseAdminClient();
+  const [rosterResult, lessonResult] = await Promise.all([
+    supabase.from("student_roster").select("campus").eq("student_number", update.student_number).maybeSingle(),
+    supabase.from("lessons").select("lesson_date,campus").eq("id", update.lesson_id).maybeSingle(),
+  ]);
+  if (rosterResult.error) return NextResponse.json({ error: rosterResult.error.message }, { status: 500 });
+  if (lessonResult.error) return NextResponse.json({ error: lessonResult.error.message }, { status: 500 });
+  if (!lessonResult.data) return NextResponse.json({ error: "選択した授業を確認できません" }, { status: 400 });
+  if (lessonResult.data.lesson_date !== update.event_date) {
+    return NextResponse.json({ error: `対象日（${update.event_date}）と選択した授業の日付（${lessonResult.data.lesson_date}）が一致しません` }, { status: 400 });
+  }
+  const campusValidation = validateAttendanceCampusSelection({
+    studentCampus: rosterResult.data?.campus,
+    lessonCampus: lessonResult.data.campus,
+    requestedCampus: lessonResult.data.campus,
+    crossCampusOverride: update.cross_campus_override,
+    crossCampusReason: update.cross_campus_reason,
+  });
+  if (!campusValidation.ok) return NextResponse.json({ error: campusValidation.error }, { status: 400 });
   const { data: before } = await supabase.from("attendance_events").select("*").eq("id", id).maybeSingle();
   const { data, error } = await supabase
     .from("attendance_events")

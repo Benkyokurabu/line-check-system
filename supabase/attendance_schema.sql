@@ -77,6 +77,8 @@ create table if not exists public.attendance_candidate_items (
   arrival_expected_time text,
   note_internal text,
   note_for_classroom text,
+  cross_campus_override boolean not null default false,
+  cross_campus_reason text,
   status text not null default 'pending',
   notion_page_id text,
   notion_error text,
@@ -85,14 +87,18 @@ create table if not exists public.attendance_candidate_items (
   constraint attendance_candidate_items_event_type_check
     check (event_type in ('absence', 'late', 'reschedule_request', 'other')),
   constraint attendance_candidate_items_status_check
-    check (status in ('pending', 'confirmed', 'notion_failed', 'dismissed'))
+    check (status in ('pending', 'confirmed', 'notion_failed', 'dismissed')),
+  constraint attendance_candidate_items_cross_campus_reason_check
+    check (not cross_campus_override or nullif(btrim(cross_campus_reason), '') is not null)
 );
 
 alter table public.attendance_candidate_items
   add column if not exists student_number text references public.student_roster (student_number) on delete set null,
   add column if not exists arrival_expected_time text,
   add column if not exists note_internal text,
-  add column if not exists note_for_classroom text;
+  add column if not exists note_for_classroom text,
+  add column if not exists cross_campus_override boolean not null default false,
+  add column if not exists cross_campus_reason text;
 
 do $$
 begin
@@ -107,6 +113,11 @@ begin
   alter table public.attendance_candidate_items
     add constraint attendance_candidate_items_event_type_check
     check (event_type in ('absence', 'late', 'early_leave', 'reschedule_request', 'other'));
+  alter table public.attendance_candidate_items
+    drop constraint if exists attendance_candidate_items_cross_campus_reason_check;
+  alter table public.attendance_candidate_items
+    add constraint attendance_candidate_items_cross_campus_reason_check
+    check (not cross_campus_override or nullif(btrim(cross_campus_reason), '') is not null);
 end $$;
 create index if not exists attendance_candidate_items_candidate_idx
   on public.attendance_candidate_items (candidate_id, event_date, created_at);
@@ -128,6 +139,8 @@ create table if not exists public.attendance_events (
   arrival_expected_time text,
   note_internal text,
   note_for_classroom text,
+  cross_campus_override boolean not null default false,
+  cross_campus_reason text,
   status text not null default 'confirmed',
   confirmed_by text,
   confirmed_at timestamptz not null default now(),
@@ -146,9 +159,24 @@ create table if not exists public.attendance_events (
     check (status in ('confirmed', 'cancelled')),
   constraint attendance_events_notion_status_check
     check (notion_status in ('not_requested', 'pending', 'success', 'failed')),
+  constraint attendance_events_cross_campus_reason_check
+    check (not cross_campus_override or nullif(btrim(cross_campus_reason), '') is not null),
   constraint attendance_events_student_lesson_unique
     unique (student_number, lesson_id)
 );
+
+alter table public.attendance_events
+  add column if not exists cross_campus_override boolean not null default false,
+  add column if not exists cross_campus_reason text;
+
+do $$
+begin
+  alter table public.attendance_events
+    drop constraint if exists attendance_events_cross_campus_reason_check;
+  alter table public.attendance_events
+    add constraint attendance_events_cross_campus_reason_check
+    check (not cross_campus_override or nullif(btrim(cross_campus_reason), '') is not null);
+end $$;
 
 create index if not exists attendance_events_lesson_status_idx
   on public.attendance_events (lesson_id, status, event_date);

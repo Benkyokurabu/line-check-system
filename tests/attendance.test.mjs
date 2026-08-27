@@ -99,6 +99,17 @@ test("attendance schema contains the child table required for multi-row registra
   assert.match(sql, /lesson_id uuid references public\.lessons/);
   assert.match(sql, /status text not null default 'pending'/);
   assert.match(sql, /attendance_candidate_items_status_check/);
+  assert.match(sql, /cross_campus_override boolean not null default false/);
+  assert.match(sql, /attendance_events_cross_campus_reason_check/);
+});
+
+test("all attendance write APIs enforce campus consistency", async () => {
+  const routes = await Promise.all([
+    readFile(new URL("../src/app/api/attendance/candidates/[id]/confirm/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/events/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/events/[id]/route.ts", import.meta.url), "utf8"),
+  ]);
+  for (const route of routes) assert.match(route, /validateAttendanceCampusSelection/);
 });
 
 test("attendance analysis uses a durable queue without a rolling lookback", async () => {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +59,8 @@ function parseEvent(input: ManualEventInput, common: Record<string, unknown>) {
     arrival_expected_time: cleanText(input.arrival_expected_time),
     note_internal: cleanText(input.note_internal),
     note_for_classroom: cleanText(input.note_for_classroom),
+    cross_campus_override: input.cross_campus_override === true,
+    cross_campus_reason: cleanText(input.cross_campus_reason),
     status: "confirmed",
     confirmed_by: receivedBy,
     confirmed_at: new Date().toISOString(),
@@ -66,6 +69,36 @@ function parseEvent(input: ManualEventInput, common: Record<string, unknown>) {
     notion_status: "pending",
     notion_error: null,
   };
+}
+
+async function validateEventRows(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  rows: Array<ReturnType<typeof parseEvent>>,
+) {
+  const studentNumbers = [...new Set(rows.map((row) => row.student_number))];
+  const lessonIds = [...new Set(rows.map((row) => row.lesson_id))];
+  const [rosterResult, lessonResult] = await Promise.all([
+    supabase.from("student_roster").select("student_number,campus").in("student_number", studentNumbers),
+    supabase.from("lessons").select("id,lesson_date,campus").in("id", lessonIds),
+  ]);
+  if (rosterResult.error) throw rosterResult.error;
+  if (lessonResult.error) throw lessonResult.error;
+  const campusByStudent = new Map((rosterResult.data ?? []).map((row) => [row.student_number as string, row.campus as string | null]));
+  const lessonById = new Map((lessonResult.data ?? []).map((lesson) => [lesson.id as string, lesson]));
+  for (const row of rows) {
+    const lesson = lessonById.get(row.lesson_id);
+    if (!lesson) return "選択した授業を確認できません";
+    if (lesson.lesson_date !== row.event_date) return `対象日（${row.event_date}）と選択した授業の日付（${lesson.lesson_date}）が一致しません`;
+    const validation = validateAttendanceCampusSelection({
+      studentCampus: campusByStudent.get(row.student_number),
+      lessonCampus: lesson.campus,
+      requestedCampus: lesson.campus,
+      crossCampusOverride: row.cross_campus_override,
+      crossCampusReason: row.cross_campus_reason,
+    });
+    if (!validation.ok) return validation.error;
+  }
+  return null;
 }
 
 async function attachNotionPages(input: {
@@ -160,6 +193,13 @@ export async function POST(request: Request) {
   }
 
   const supabase = createSupabaseAdminClient();
+  try {
+    const campusError = await validateEventRows(supabase, rows);
+    if (campusError) return NextResponse.json({ error: campusError }, { status: 400 });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
   const { data, error } = await supabase
     .from("attendance_events")
     .upsert(rows, { onConflict: "student_number,lesson_id" })

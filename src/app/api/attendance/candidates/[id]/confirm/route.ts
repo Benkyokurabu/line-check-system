@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
 type NotionProperty = { type?: string };
 type NotionDataSource = { properties?: Record<string, NotionProperty> };
 type ResolvedProperty = { name: string; type: string };
-type LessonRow = { label?: string | null; start_time?: string | null; campus?: string | null; source_payload?: Record<string, unknown> | null } | null;
+type LessonRow = { label?: string | null; lesson_date?: string | null; start_time?: string | null; campus?: string | null; source_payload?: Record<string, unknown> | null } | null;
 type CandidateItem = {
   id: string;
   student_number: string | null;
@@ -24,6 +25,8 @@ type CandidateItem = {
   arrival_expected_time: string | null;
   note_internal: string | null;
   note_for_classroom: string | null;
+  cross_campus_override: boolean | null;
+  cross_campus_reason: string | null;
   status: string | null;
   notion_page_id: string | null;
   lessons?: LessonRow | LessonRow[];
@@ -147,6 +150,8 @@ function fallbackItems(candidate: Record<string, unknown>): CandidateItem[] {
     arrival_expected_time: null,
     note_internal: null,
     note_for_classroom: null,
+    cross_campus_override: false,
+    cross_campus_reason: null,
     status: candidate.status as string | null,
     notion_page_id: candidate.notion_page_id as string | null,
     lessons: candidate.lessons as LessonRow | LessonRow[] | undefined,
@@ -187,6 +192,8 @@ async function upsertAttendanceEvent(input: {
     arrival_expected_time: input.item.arrival_expected_time?.trim() || null,
     note_internal: input.item.note_internal?.trim() || null,
     note_for_classroom: input.item.note_for_classroom?.trim() || null,
+    cross_campus_override: input.item.cross_campus_override === true,
+    cross_campus_reason: input.item.cross_campus_reason?.trim() || null,
     status: "confirmed",
     confirmed_by: input.confirmedBy,
     confirmed_at: input.confirmedAt,
@@ -222,7 +229,7 @@ async function registerItem(input: {
   const lesson = firstRelation(input.item.lessons);
   const lessonName = notionLessonName(lesson);
   if (!lessonName) throw new Error("授業を選択してください");
-  const campus = input.campus ?? lesson?.campus ?? input.studentCampus ?? null;
+  const campus = lesson?.campus ?? input.campus ?? input.studentCampus ?? null;
   const studentProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_STUDENT_PROPERTY", ["生徒情報DB", "名前"]), "生徒");
   const dateProperty = resolveProperty(input.properties, envFirst("NOTION_ATTENDANCE_DATE_PROPERTY", ["日付", "対象日"]), "日付");
   const reasonProperty = resolveProperty(input.properties, attendanceReasonPropertyNames(process.env.NOTION_ATTENDANCE_REASON_PROPERTY), "理由");
@@ -272,7 +279,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const supabase = createSupabaseAdminClient();
   const { data: candidate, error } = await supabase
     .from("attendance_candidates")
-    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,start_time,campus,source_payload),attendance_candidate_items(*,lessons(label,start_time,campus,source_payload)),line_messages(line_user_id,received_at)")
+    .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus,source_payload),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(line_user_id,received_at)")
     .eq("id", id)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -304,6 +311,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     .in("student_number", itemStudentNumbers);
   if (rosterError) return NextResponse.json({ error: rosterError.message }, { status: 500 });
   const campusByStudent = new Map((rosterRows ?? []).map((row) => [row.student_number as string, row.campus as string | null]));
+  for (const item of items) {
+    const studentNumber = item.student_number ?? candidate.student_number as string;
+    const lesson = firstRelation(item.lessons);
+    if (!lesson) return NextResponse.json({ error: "選択した授業を確認できません" }, { status: 400 });
+    if (lesson.lesson_date && item.event_date !== lesson.lesson_date) {
+      return NextResponse.json({ error: `対象日（${item.event_date ?? "未入力"}）と選択した授業の日付（${lesson.lesson_date}）が一致しません` }, { status: 400 });
+    }
+    const validation = validateAttendanceCampusSelection({
+      studentCampus: campusByStudent.get(studentNumber),
+      lessonCampus: lesson.campus,
+      requestedCampus: lesson.campus,
+      crossCampusOverride: item.cross_campus_override,
+      crossCampusReason: item.cross_campus_reason,
+    });
+    if (!validation.ok) return NextResponse.json({ error: validation.error }, { status: 400 });
+  }
   const claimedAt = new Date().toISOString();
   const { data: claimed } = await supabase
     .from("attendance_candidates")
@@ -345,7 +368,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           dataSourceId,
           item,
           profilePageId,
-          campus,
+          campus: firstRelation(item.lessons)?.campus ?? campus,
           studentCampus: campusByStudent.get(studentNumber) ?? null,
           properties,
         });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { enrollmentMatchesLesson } from "@/lib/attendance-campus-consistency.mjs";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -8,12 +9,16 @@ export async function GET(request: Request) {
   if (!date) return NextResponse.json({ lessons: [] });
   const supabase = createSupabaseAdminClient();
   let enrolledClasses: { grade: string; subject: string; class_name: string }[] = [];
+  let studentCampus: string | null = null;
   if (studentNumber) {
-    const { data } = await supabase
-      .from("student_class_enrollments")
-      .select("grade,subject,class_name")
-      .eq("student_number", studentNumber);
-    enrolledClasses = data ?? [];
+    const [enrollmentResult, rosterResult] = await Promise.all([
+      supabase.from("student_class_enrollments").select("grade,subject,class_name").eq("student_number", studentNumber),
+      supabase.from("student_roster").select("campus").eq("student_number", studentNumber).maybeSingle(),
+    ]);
+    if (enrollmentResult.error) return NextResponse.json({ error: enrollmentResult.error.message }, { status: 500 });
+    if (rosterResult.error) return NextResponse.json({ error: rosterResult.error.message }, { status: 500 });
+    enrolledClasses = enrollmentResult.data ?? [];
+    studentCampus = rosterResult.data?.campus ?? null;
   }
   const { data, error } = await supabase
     .from("lessons")
@@ -21,14 +26,9 @@ export async function GET(request: Request) {
     .eq("lesson_date", date)
     .order("start_time");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const normalized = (value: string | null | undefined) => (value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
   const lessons = (data ?? []).map((lesson) => {
-    const enrolled = enrolledClasses.some((entry) =>
-      normalized(entry.grade) === normalized(lesson.grade) &&
-      normalized(entry.class_name) === normalized(lesson.class_name) &&
-      (normalized(entry.subject).includes(normalized(lesson.subject)) || normalized(lesson.subject).includes(normalized(entry.subject)))
-    );
-    return { ...lesson, enrolled };
+    const enrolled = enrolledClasses.some((entry) => enrollmentMatchesLesson(entry, lesson, studentCampus));
+    return { ...lesson, enrolled, student_campus: studentCampus };
   });
   return NextResponse.json({ lessons });
 }
