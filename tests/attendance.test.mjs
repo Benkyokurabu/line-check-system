@@ -9,6 +9,10 @@ import {
   normalizeAttendanceText,
 } from "../src/lib/attendance-extract-logic.mjs";
 import { detectExplicitLineIdentities } from "../src/lib/line-identity-detection.mjs";
+import {
+  actionCandidatesForReview,
+  visibleCandidateCountAfterReload,
+} from "../src/lib/attendance-review-logic.mjs";
 
 const identityStudents = [
   { student_number: "1001", student_name: "山田 太郎" },
@@ -191,8 +195,75 @@ test("attendance LINE replies are locked after sending unless additional-message
   assert.match(page, /LINEで送信済み/);
   assert.match(page, /別のメッセージを送る/);
   assert.match(page, /allow_additional: hasSentReply && additionalMessageMode/);
+  assert.match(page, /onChanged=\{\(\) => load\(candidate\.id, reviewTab\)\}/);
+  assert.match(page, /scrollIntoView\(\{ block: "nearest" \}\)/);
   assert.match(replyRoute, /if \(existingReply && !allowAdditional\)/);
   assert.match(replyRoute, /LINE_ALREADY_SENT/);
+});
+
+function reviewCandidate(id, overrides = {}) {
+  return {
+    id,
+    status: "pending",
+    notion_error: null,
+    attendance_candidate_items: [],
+    student_selection_required: false,
+    reply_status: { sent: false },
+    ...overrides,
+  };
+}
+
+test("a LINE reply cannot push the operated candidate outside the rendered list", () => {
+  const beforeReply = Array.from({ length: 25 }, (_, index) => reviewCandidate(`candidate-${index}`));
+  beforeReply[0] = reviewCandidate("operated");
+  const candidates = beforeReply.map((candidate) => candidate.id === "operated"
+    ? { ...candidate, reply_status: { sent: true } }
+    : candidate);
+
+  assert.equal(actionCandidatesForReview(beforeReply).findIndex((candidate) => candidate.id === "operated"), 0);
+  assert.equal(actionCandidatesForReview(candidates).findIndex((candidate) => candidate.id === "operated"), 24);
+  assert.equal(visibleCandidateCountAfterReload({
+    candidates,
+    reviewTab: "action",
+    keepVisibleCandidateId: "operated",
+    currentCount: 20,
+  }), 25);
+});
+
+test("guardian linking cannot hide a candidate after student selection is resolved", () => {
+  const beforeLinking = Array.from({ length: 25 }, (_, index) => reviewCandidate(`candidate-${index}`));
+  beforeLinking[24] = reviewCandidate("linked-guardian", { student_selection_required: true });
+  const candidates = beforeLinking.map((candidate) => candidate.id === "linked-guardian"
+    ? { ...candidate, student_selection_required: false }
+    : candidate);
+
+  assert.equal(actionCandidatesForReview(beforeLinking).findIndex((candidate) => candidate.id === "linked-guardian"), 0);
+  assert.equal(actionCandidatesForReview(candidates).findIndex((candidate) => candidate.id === "linked-guardian"), 24);
+  assert.equal(visibleCandidateCountAfterReload({
+    candidates,
+    reviewTab: "action",
+    keepVisibleCandidateId: "linked-guardian",
+    currentCount: 20,
+  }), 25);
+});
+
+test("Notion completion intentionally moves a candidate out of the action tab", () => {
+  const candidates = [reviewCandidate("registered", { status: "confirmed" })];
+  assert.equal(visibleCandidateCountAfterReload({
+    candidates,
+    reviewTab: "action",
+    keepVisibleCandidateId: "registered",
+    currentCount: 20,
+  }), 20);
+});
+
+test("ordinary attendance refresh keeps the normal 20-card page size", () => {
+  const candidates = Array.from({ length: 25 }, (_, index) => reviewCandidate(`candidate-${index}`));
+  assert.equal(visibleCandidateCountAfterReload({
+    candidates,
+    reviewTab: "action",
+    currentCount: 25,
+  }), 20);
 });
 
 test("LINE identity candidates run at 06:00 JST and require manual review", async () => {

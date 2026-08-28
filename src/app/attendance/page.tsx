@@ -4,6 +4,13 @@
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
+import {
+  actionCandidatesForReview,
+  candidateHasError,
+  doneCandidatesForReview,
+  visibleCandidateCountAfterReload,
+  visibleCandidatesForReview,
+} from "@/lib/attendance-review-logic.mjs";
 
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean; enrollment_campus?: string | null };
@@ -115,22 +122,6 @@ const inputStyle = { width: "100%", height: 40, boxSizing: "border-box", padding
 const readonlyStyle = { ...inputStyle, minHeight: 40, background: "#f7f7f4", display: "flex", alignItems: "center" } as const;
 const fieldStyle = { display: "grid", gap: 6, alignContent: "start" } as const;
 const tagStyle = { display: "inline-flex", alignItems: "center", border: "1px solid #b7d7c2", background: "#f2fbf5", borderRadius: 6, padding: "3px 7px", color: "#087a3d", fontSize: 12, fontWeight: 700 } as const;
-
-function candidateIsDone(candidate: Candidate) {
-  return candidate.status === "confirmed" || candidate.status === "dismissed";
-}
-
-function candidateHasError(candidate: Candidate) {
-  return candidate.status === "notion_failed" || Boolean(candidate.notion_error) ||
-    (candidate.attendance_candidate_items ?? []).some((item) => item.status === "notion_failed" || Boolean(item.notion_error));
-}
-
-function candidateActionPriority(candidate: Candidate) {
-  if (candidateHasError(candidate)) return 0;
-  if (candidate.student_selection_required) return 1;
-  if (!candidate.reply_status?.sent) return 2;
-  return 3;
-}
 
 function campusFromLineManagedName(value: string | null | undefined) {
   const normalized = (value ?? "").normalize("NFKC");
@@ -272,14 +263,25 @@ export default function AttendancePage() {
   useEffect(() => {
     document.title = pageTitle;
   }, []);
-  const load = useCallback(async () => {
+  const load = useCallback(async (keepVisibleCandidateId?: string, keepVisibleTab: ReviewTab = "action") => {
     const params = new URLSearchParams({ status: "review", days: String(historyDays) });
     if (includePastPending) params.set("include_past", "1");
     const response = await fetch(`/api/attendance/candidates?${params.toString()}`);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
-    setCandidates(body.candidates ?? []);
-    setVisibleCandidateCount(20);
+    const nextCandidates = (body.candidates ?? []) as Candidate[];
+    setCandidates(nextCandidates);
+    setVisibleCandidateCount((currentCount) => visibleCandidateCountAfterReload({
+      candidates: nextCandidates,
+      reviewTab: keepVisibleTab,
+      keepVisibleCandidateId,
+      currentCount,
+    }));
+    if (keepVisibleCandidateId) {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        document.getElementById(`attendance-candidate-${keepVisibleCandidateId}`)?.scrollIntoView({ block: "nearest" });
+      }));
+    }
   }, [historyDays, includePastPending]);
   const loadStatus = useCallback(async () => {
     const response = await fetch("/api/attendance/status");
@@ -368,14 +370,9 @@ export default function AttendancePage() {
     setLinkReviewOpen(nextOpen);
     if (nextOpen) await loadLineLinkCandidates();
   }
-  const actionCandidates = useMemo(() => candidates
-    .filter((candidate) => !candidateIsDone(candidate))
-    .sort((a, b) => candidateActionPriority(a) - candidateActionPriority(b)), [candidates]);
-  const doneCandidates = useMemo(() => candidates.filter(candidateIsDone), [candidates]);
-  const visibleCandidates = reviewTab === "action" ? actionCandidates : reviewTab === "done" ? doneCandidates : [
-    ...actionCandidates,
-    ...doneCandidates,
-  ];
+  const actionCandidates = useMemo(() => actionCandidatesForReview(candidates) as Candidate[], [candidates]);
+  const doneCandidates = useMemo(() => doneCandidatesForReview(candidates) as Candidate[], [candidates]);
+  const visibleCandidates = useMemo(() => visibleCandidatesForReview(candidates, reviewTab) as Candidate[], [candidates, reviewTab]);
   const errorCount = actionCandidates.filter(candidateHasError).length;
   return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Attendance review</p>
@@ -408,7 +405,7 @@ export default function AttendancePage() {
     {reviewTab === "action" && errorCount > 0 && <div role="alert" style={{ marginTop: 12, border: "1px solid #fecaca", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: "10px 12px", fontWeight: 800 }}>登録エラーが{errorCount}件あります。先頭に表示しています。</div>}
     <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
       {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "要対応の連絡はありません。" : "今日以降の要対応連絡はありません。過去分は「過去pendingも表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の対応済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
-      {visibleCandidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={load} setMessage={setMessage} />)}
+      {visibleCandidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />)}
       {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
   </main>;
@@ -1321,7 +1318,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
   const replyLocked = hasSentReply && !additionalMessageMode;
 
-  return <section className="panel" style={{ padding: 14, borderColor: hasError ? "#fca5a5" : undefined, background: hasError ? "#fffafa" : undefined }}>
+  return <section id={`attendance-candidate-${candidate.id}`} className="panel" style={{ padding: 14, borderColor: hasError ? "#fca5a5" : undefined, background: hasError ? "#fffafa" : undefined }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
       <div style={{ display: "grid", gap: 6 }}>
         <strong style={{ fontSize: 17 }}>{titleName}</strong>
