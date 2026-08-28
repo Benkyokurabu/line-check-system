@@ -182,7 +182,7 @@ export async function GET(request: Request) {
     .from("attendance_events")
     .select("*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus,classroom,subject,class_name)")
     .in("contact_method", manualContactMethods)
-    .gte("event_date", todayInJapan)
+    .or(`event_date.gte.${todayInJapan},notion_status.eq.failed`)
     .order("event_date", { ascending: false })
     .order("confirmed_at", { ascending: false })
     .limit(200);

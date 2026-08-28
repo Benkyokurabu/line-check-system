@@ -351,6 +351,7 @@ test("manual edit and cancellation require an actor and cancellation is recorded
   assert.match(eventRoute, /if \(!cancelledBy\) return NextResponse\.json\(\{ error: "確認者名を入力してください"/);
   assert.ok(eventRoute.indexOf('status: "cancelled"') < eventRoute.indexOf("await archiveAttendanceNotionPage"));
   assert.match(eventRoute, /already_cancelled: true/);
+  assert.match(eventsRoute, /\.or\(`event_date\.gte\.\$\{todayInJapan\},notion_status\.eq\.failed`\)/);
 });
 
 test("partial sibling LINE linking remains reviewable until the last account succeeds", async () => {

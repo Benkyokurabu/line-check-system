@@ -395,7 +395,7 @@ export default function AttendancePage() {
     {linkReviewOpen && <LineLinkReviewPanel candidates={linkCandidates} students={students} loading={linkCandidatesLoading} onReload={loadLineLinkCandidates} onChanged={async () => { await Promise.all([loadLineLinkCandidates(), load()]); }} setMessage={setMessage} />}
     {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
     <div style={{ marginTop: 16 }}>
-      <button type="button" style={secondaryButtonStyle} onClick={() => setManualEventsOpen((value) => !value)}>{manualEventsOpen ? "手入力済み連絡を閉じる" : "本日以降の手入力済み連絡を表示"}</button>
+      <button type="button" style={secondaryButtonStyle} onClick={() => setManualEventsOpen((value) => !value)}>{manualEventsOpen ? "手入力済み連絡を閉じる" : "手入力済み・Notion未反映を表示"}</button>
     </div>
     {manualEventsOpen && <ManualEventsPanel students={students} confirmedBy={confirmedBy} refreshKey={manualRefreshKey} onChanged={() => setManualRefreshKey((value) => value + 1)} />}
     <nav aria-label="連絡候補の表示切り替え" style={{ display: "flex", gap: 8, marginTop: 20, padding: 5, border: "1px solid var(--line)", borderRadius: 9, background: "#f7f7f4", width: "fit-content", maxWidth: "100%", flexWrap: "wrap" }}>
@@ -1033,11 +1033,11 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
 
   return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-      <strong>手入力済み連絡</strong>
+      <strong>手入力済み連絡（本日以降＋Notion未反映）</strong>
       <button type="button" style={ghostButtonStyle} disabled={loading || Boolean(actionBusy)} onClick={() => void loadManualEvents()}>{loading ? "更新中..." : "更新"}</button>
     </div>
     {message && <p style={{ color: message.includes("失敗") ? "#b42318" : "#087a3d", fontWeight: 700 }}>{message}</p>}
-    {events.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>本日以降の手入力済み連絡はありません。</div> : <div style={{ display: "grid", gap: 8 }}>
+    {events.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>本日以降の手入力済み連絡とNotion未反映データはありません。</div> : <div style={{ display: "grid", gap: 8 }}>
       {events.map((event) => <div key={event.id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 8, background: event.status === "cancelled" ? "#f7f7f4" : "white" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "grid", gap: 4 }}>
