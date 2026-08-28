@@ -304,12 +304,15 @@ export default function AttendancePage() {
   useEffect(() => {
     async function initialize() {
       try {
-        const [, , studentBody, templateBody] = await Promise.all([
+        const [, , studentResponse, templateResponse] = await Promise.all([
           load(),
           loadStatus(),
-          fetch("/api/attendance/students").then((res) => res.json()),
-          fetch("/api/attendance/reply-templates").then((res) => res.json()),
+          fetch("/api/attendance/students"),
+          fetch("/api/attendance/reply-templates"),
         ]);
+        const [studentBody, templateBody] = await Promise.all([studentResponse.json(), templateResponse.json()]);
+        if (!studentResponse.ok) throw new Error(studentBody.error ?? "生徒一覧を取得できませんでした");
+        if (!templateResponse.ok) throw new Error(templateBody.error ?? "LINE返信文案を取得できませんでした");
         setStudents(studentBody.students ?? []);
         setReplyTemplates(templateBody.templates ?? defaultReplyTemplates);
       } catch (error) {
@@ -631,7 +634,7 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
     if (!window.confirm(`${displayName || "表示名なし"} を ${aliasNames.join(" / ")} として登録します。よろしいですか？`)) return;
     setSavingLineUserId(candidate.line_user_id);
     try {
-      for (const student of targets) {
+      for (const [index, student] of targets.entries()) {
         const aliasName = aliasForStudent(student, draft.relation);
         const response = await fetch(`/api/students/${encodeURIComponent(student.student_number)}/link`, {
           method: "PUT",
@@ -642,6 +645,7 @@ function LineLinkReviewPanel({ candidates, students, loading, onReload, onChange
             alias_name: aliasName,
             friend_display_name: displayName || null,
             is_primary: false,
+            confirm_evidence: index === targets.length - 1,
           }),
         });
         const body = await response.json().catch(() => ({}));
@@ -762,12 +766,22 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
 
   useEffect(() => {
     if (!eventDate) return;
+    const controller = new AbortController();
     const query = new URLSearchParams({ date: eventDate });
     if (studentNumber) query.set("student_number", studentNumber);
-    fetch(`/api/attendance/lessons?${query.toString()}`)
-      .then((response) => response.json())
+    fetch(`/api/attendance/lessons?${query.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "授業一覧を取得できませんでした");
+        return body;
+      })
       .then((body) => setLessons(body.lessons ?? []))
-      .catch(() => setLessons([]));
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setLessons([]);
+        setMessage(error instanceof Error ? error.message : String(error));
+      });
+    return () => controller.abort();
   }, [eventDate, studentNumber]);
   const effectiveReceivedBy = receivedBy || confirmedBy;
   const effectiveCampus = campus || selectableCampus(selectedStudent?.campus);
@@ -805,6 +819,11 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
+      if (body.notion_failed) {
+        const notionError = body.notion_results?.find((result: { notion_error?: string | null }) => result.notion_error)?.notion_error;
+        setMessage(`データは保存しましたが、Notion反映に失敗しました。再度保存すると再試行できます。${notionError ? ` ${notionError}` : ""}`);
+        return;
+      }
       setMessage("保存しました。");
       setLessonId("");
       setArrivalExpectedTime("");
@@ -846,7 +865,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
       <label style={{ fontWeight: 800 }}><input type="checkbox" checked={crossCampusOverride} onChange={(event) => setCrossCampusOverride(event.target.checked)} /> 別校舎での振替・受講として登録する</label>
       <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={crossCampusReason} onChange={(event) => setCrossCampusReason(event.target.value)} placeholder="例：本日のみ南教室へ振替" /></label>
     </div>}
-    {message && <p style={{ color: message.includes("保存しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{message}</p>}
+    {message && <p style={{ color: !message.includes("失敗") && message.includes("保存しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{message}</p>}
     <div><button type="button" style={buttonStyle} disabled={saving} onClick={saveManualEvent}>{saving ? "保存中..." : "確定データとして保存"}</button></div>
   </section>;
 }
@@ -863,6 +882,7 @@ function eventStudent(event: ManualEvent) {
 function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { students: Student[]; confirmedBy: string; refreshKey: number; onChanged: () => void }) {
   const [events, setEvents] = useState<ManualEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [studentQuery, setStudentQuery] = useState("");
@@ -904,12 +924,22 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
 
   useEffect(() => {
     if (!editingId || !draft.event_date) return;
+    const controller = new AbortController();
     const query = new URLSearchParams({ date: draft.event_date });
     if (draft.student_number) query.set("student_number", draft.student_number);
-    fetch(`/api/attendance/lessons?${query.toString()}`)
-      .then((response) => response.json())
+    fetch(`/api/attendance/lessons?${query.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "授業一覧を取得できませんでした");
+        return body;
+      })
       .then((body) => setLessons(body.lessons ?? []))
-      .catch(() => setLessons([]));
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setLessons([]);
+        setMessage(error instanceof Error ? error.message : String(error));
+      });
+    return () => controller.abort();
   }, [editingId, draft.event_date, draft.student_number]);
 
   function startEdit(event: ManualEvent) {
@@ -935,47 +965,62 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
 
   async function saveEdit() {
     if (!editingId) return;
+    if (!draft.received_by.trim()) { setMessage("受付者名を入力してください。"); return; }
+    if (!draft.student_number) { setMessage("生徒を選択してください。"); return; }
+    if (!draft.event_date) { setMessage("対象日を入力してください。"); return; }
+    if (!draft.lesson_id) { setMessage("授業を選択してください。"); return; }
     if (isEditingCrossCampus && (!draft.cross_campus_override || !draft.cross_campus_reason.trim())) {
       setMessage("別校舎受講として登録するチェックと理由が必要です。");
       return;
     }
+    const busyKey = `edit:${editingId}`;
+    setActionBusy(busyKey);
     setMessage("保存しています...");
-    const response = await fetch(`/api/attendance/events/${editingId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...draft,
-        cross_campus_override: isEditingCrossCampus && draft.cross_campus_override,
-        cross_campus_reason: isEditingCrossCampus ? draft.cross_campus_reason : null,
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setMessage(body.error ?? "修正に失敗しました");
-      return;
+    try {
+      const response = await fetch(`/api/attendance/events/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...draft,
+          cross_campus_override: isEditingCrossCampus && draft.cross_campus_override,
+          cross_campus_reason: isEditingCrossCampus ? draft.cross_campus_reason : null,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "修正に失敗しました");
+      setMessage(body.notion_failed ? `修正しました。Notion反映に失敗しました: ${body.notion_error}` : "修正してNotionへ反映しました。");
+      setEditingId(null);
+      await loadManualEvents();
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setActionBusy(null);
     }
-    setMessage(body.notion_failed ? `修正しました。Notion反映に失敗しました: ${body.notion_error}` : "修正してNotionへ反映しました。");
-    setEditingId(null);
-    await loadManualEvents();
-    onChanged();
   }
 
   async function cancelEvent(event: ManualEvent) {
+    if (!confirmedBy.trim()) { setMessage("画面上部の「確認者名」を入力してください。"); return; }
     if (!window.confirm(`${eventStudent(event)} / ${event.lessons?.label ?? "授業未取得"} を取り消しますか？`)) return;
+    const busyKey = `cancel:${event.id}`;
+    setActionBusy(busyKey);
     setMessage("取り消しています...");
-    const response = await fetch(`/api/attendance/events/${event.id}`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cancelled_by: confirmedBy }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setMessage(body.error ?? "取消しに失敗しました");
-      return;
+    try {
+      const response = await fetch(`/api/attendance/events/${event.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelled_by: confirmedBy }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "取消しに失敗しました");
+      setMessage(body.notion_failed ? `取り消しました。Notion反映に失敗しました: ${body.notion_error}` : "取り消してNotionへ反映しました。");
+      await loadManualEvents();
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setActionBusy(null);
     }
-    setMessage(body.notion_failed ? `取り消しました。Notion反映に失敗しました: ${body.notion_error}` : "取り消してNotionへ反映しました。");
-    await loadManualEvents();
-    onChanged();
   }
 
   const currentStudent = students.find((student) => student.student_number === draft.student_number) ?? null;
@@ -989,7 +1034,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
   return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
       <strong>手入力済み連絡</strong>
-      <button type="button" style={ghostButtonStyle} onClick={() => void loadManualEvents()}>{loading ? "更新中..." : "更新"}</button>
+      <button type="button" style={ghostButtonStyle} disabled={loading || Boolean(actionBusy)} onClick={() => void loadManualEvents()}>{loading ? "更新中..." : "更新"}</button>
     </div>
     {message && <p style={{ color: message.includes("失敗") ? "#b42318" : "#087a3d", fontWeight: 700 }}>{message}</p>}
     {events.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 12, color: "#777" }}>本日以降の手入力済み連絡はありません。</div> : <div style={{ display: "grid", gap: 8 }}>
@@ -1002,8 +1047,8 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "start" }}>
             {event.status === "cancelled" ? <span style={{ color: "#b42318", fontWeight: 800 }}>取消済み</span> : <>
-              <button type="button" style={ghostButtonStyle} onClick={() => startEdit(event)}>修正</button>
-              <button type="button" style={dangerButtonStyle} onClick={() => void cancelEvent(event)}>取消し</button>
+              <button type="button" style={ghostButtonStyle} disabled={Boolean(actionBusy)} onClick={() => startEdit(event)}>修正</button>
+              <button type="button" style={dangerButtonStyle} disabled={Boolean(actionBusy)} onClick={() => void cancelEvent(event)}>{actionBusy === `cancel:${event.id}` ? "取消中..." : "取消し"}</button>
             </>}
           </div>
         </div>
@@ -1029,7 +1074,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
             <label style={{ fontWeight: 800 }}><input type="checkbox" checked={draft.cross_campus_override} onChange={(event) => setDraft((value) => ({ ...value, cross_campus_override: event.target.checked }))} /> 別校舎での振替・受講として登録する</label>
             <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={draft.cross_campus_reason} onChange={(event) => setDraft((value) => ({ ...value, cross_campus_reason: event.target.value }))} placeholder="例：本日のみ南教室へ振替" /></label>
           </div>}
-          <div style={{ display: "flex", gap: 8 }}><button type="button" style={buttonStyle} onClick={() => void saveEdit()}>保存してNotion反映</button><button type="button" style={ghostButtonStyle} onClick={() => setEditingId(null)}>閉じる</button></div>
+          <div style={{ display: "flex", gap: 8 }}><button type="button" style={buttonStyle} disabled={Boolean(actionBusy)} onClick={() => void saveEdit()}>{actionBusy === `edit:${event.id}` ? "保存中..." : "保存してNotion反映"}</button><button type="button" style={ghostButtonStyle} disabled={Boolean(actionBusy)} onClick={() => setEditingId(null)}>閉じる</button></div>
         </div>}
       </div>)}
     </div>}
@@ -1053,18 +1098,20 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [itemStudentQueries, setItemStudentQueries] = useState<Record<string, string>>({});
   const registered = candidate.status === "confirmed";
   const dismissed = candidate.status === "dismissed";
+  const registering = candidate.status === "registering";
   const closed = registered || dismissed;
   const itemStatuses = candidate.attendance_candidate_items ?? [];
   const confirmedItems = itemStatuses.filter((item) => item.status === "confirmed").length;
   const failedItems = itemStatuses.filter((item) => item.status === "notion_failed").length;
-  const notionKind = candidate.notion_error || failedItems > 0 ? "failed" : closed ? "done" : confirmedItems > 0 ? "partial" : "pending";
-  const notionDetail = notionKind === "failed" ? "エラー" : dismissed ? "対応不要" : registered ? "登録済み" : confirmedItems > 0 ? `${confirmedItems}/${Math.max(itemStatuses.length, items.length)}行` : "未登録";
+  const notionKind = candidate.notion_error || failedItems > 0 ? "failed" : closed ? "done" : registering || confirmedItems > 0 ? "partial" : "pending";
+  const notionDetail = notionKind === "failed" ? "エラー" : dismissed ? "対応不要" : registered ? "登録済み" : registering ? "登録処理中（15分超で再試行可）" : confirmedItems > 0 ? `${confirmedItems}/${Math.max(itemStatuses.length, items.length)}行` : "未登録";
   const replyStatus = candidate.reply_status;
   const hasSentReply = Boolean(replyStatus?.sent);
   const replyKind = replyStatus?.sent ? "done" : "pending";
   const replyDetail = replyStatus?.sent ? ["送信済み", replyStatus.last_sent_by, formatStatusTime(replyStatus.last_sent_at)].filter(Boolean).join(" / ") : "未送信";
   const [lessonLists, setLessonLists] = useState<Record<string, Lesson[]>>({});
   const [busy, setBusy] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
   const [sending, setSending] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
@@ -1093,10 +1140,15 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
   useEffect(() => {
     if (!expanded) return;
+    const controller = new AbortController();
     const dates = datesKey ? datesKey.split("|") : [];
     for (const date of dates) {
-      fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`)
-        .then((res) => res.json())
+      fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`, { signal: controller.signal })
+        .then(async (response) => {
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.error ?? "授業一覧を取得できませんでした");
+          return body;
+        })
         .then((body) => {
           const found = (body.lessons ?? []) as Lesson[];
           setLessonLists((current) => ({ ...current, [date]: found }));
@@ -1114,8 +1166,14 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
             if (!recommended) return item;
             return { ...item, lesson_id: recommended.id, campus: recommended.campus || targetCampus, cross_campus_override: false, cross_campus_reason: "" };
           }));
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setLessonLists((current) => ({ ...current, [date]: [] }));
+          setCardMessage(error instanceof Error ? error.message : String(error));
         });
     }
+    return () => controller.abort();
   }, [datesKey, expanded, studentNumber, selectedStudent?.campus, studentOptions]);
 
   function updateItem(clientId: string, patch: Partial<EditableItem>) {
@@ -1161,6 +1219,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     }
   }
   function addItem() {
+    if (items.length >= 80) { setCardMessage("登録行は80件までです。"); return; }
     const previous = items[items.length - 1];
     setItems((current) => [...current, {
       client_id: makeClientId(),
@@ -1219,6 +1278,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         lesson_id: firstItem?.lesson_id || null,
         ai_summary: firstItem?.ai_summary?.trim() || fallbackReason(firstItem?.event_type || candidate.event_type),
         items: items.map((item) => ({
+          id: item.id ?? null,
           student_number: item.student_number,
           event_type: item.event_type,
           event_date: item.event_date || null,
@@ -1288,7 +1348,13 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
           setAdditionalMessageMode(false);
           await onChanged();
         }
-        throw new Error(body.line_delivered ? "LINE送信済みですが履歴保存に失敗しました。再送しないでください。" : body.message ?? body.error ?? "LINE送信に失敗しました");
+        throw new Error(
+          body.line_delivered
+            ? "LINE送信済みですが履歴保存に失敗しました。再送しないでください。"
+            : body.line_delivery_unknown
+              ? body.message ?? "LINEの送信結果を確認できません。再送せず、LINE管理画面で確認してください。"
+              : body.message ?? body.error ?? "LINE送信に失敗しました",
+        );
       }
       setCardMessage("LINEへ送信しました。");
       setMessage("LINEへ送信しました。");
@@ -1300,14 +1366,35 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   async function dismiss() {
+    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
     if (!window.confirm("この候補を対応不要にしますか？")) return;
-    await fetch(`/api/attendance/candidates/${candidate.id}`, { method: "DELETE" });
-    await onChanged();
+    setDismissing(true);
+    setCardMessage("対応不要として処理しています...");
+    try {
+      const response = await fetch(`/api/attendance/candidates/${candidate.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismissed_by: confirmedBy }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "対応不要の処理に失敗しました");
+      setCardMessage("対応不要として処理しました。");
+      setMessage("対応不要として処理しました。");
+      await onChanged();
+    } catch (error) {
+      setCardMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDismissing(false);
+    }
   }
 
   async function copyReply() {
-    await navigator.clipboard.writeText(replyText);
-    setCardMessage("返信文案をコピーしました。");
+    try {
+      await navigator.clipboard.writeText(replyText);
+      setCardMessage("返信文案をコピーしました。");
+    } catch {
+      setCardMessage("コピーできませんでした。返信文を選択してコピーしてください。");
+    }
   }
 
   function startAdditionalMessage() {
@@ -1372,7 +1459,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <strong>Notion登録行</strong>
-        {!closed && <button type="button" style={ghostButtonStyle} onClick={addItem}>行を追加</button>}
+        {!closed && <button type="button" style={ghostButtonStyle} disabled={items.length >= 80} onClick={addItem}>行を追加</button>}
       </div>
       {items.map((item, index) => {
         const lessons = item.event_date ? lessonLists[item.event_date] ?? [] : [];
@@ -1381,7 +1468,9 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         const crossCampus = lessonIsCrossCampus(rowStudent, currentLesson, item.campus);
         const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus) : lessons;
         const lessonGroups = lessonsByTime(filteredLessons);
+        const rowClosed = closed || item.status === "confirmed";
         return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
+          {item.status === "confirmed" && <div style={{ color: "#087a3d", fontWeight: 800 }}>この行はNotion登録済みです。未完了の行だけ再試行されます。</div>}
           <div style={{ display: "grid", gridTemplateColumns: "minmax(190px,1.2fr) 110px 120px 130px minmax(220px,1fr) 42px", gap: 8, alignItems: "end" }}>
             <StudentPicker
               label="登録する生徒"
@@ -1394,19 +1483,19 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
                 updateItem(item.client_id, { student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" });
               }}
               candidates={suggestions}
-              disabled={closed}
+              disabled={rowClosed}
               changeLabel="別の生徒に変更"
             />
-            <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={closed} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
-            <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={closed} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={closed} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "", cross_campus_override: false, cross_campus_reason: "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
-            <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={closed} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={closed} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
-            <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={closed || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
+            <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
+            <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "", cross_campus_override: false, cross_campus_reason: "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+            <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={rowClosed} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
+            <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={rowClosed || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
           </div>
           {crossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
             <div style={{ color: "#9a3412", fontWeight: 800 }}>所属校舎は{rowStudent?.campus}、選択中の授業は{item.campus}です。</div>
-            <label style={{ fontWeight: 800 }}><input type="checkbox" checked={item.cross_campus_override} disabled={closed} onChange={(event) => updateItem(item.client_id, { cross_campus_override: event.target.checked })} /> 別校舎での振替・受講として登録する</label>
-            <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={item.cross_campus_reason} disabled={closed} onChange={(event) => updateItem(item.client_id, { cross_campus_reason: event.target.value })} placeholder="例：本日のみ南教室へ振替" /></label>
+            <label style={{ fontWeight: 800 }}><input type="checkbox" checked={item.cross_campus_override} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { cross_campus_override: event.target.checked })} /> 別校舎での振替・受講として登録する</label>
+            <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={item.cross_campus_reason} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { cross_campus_reason: event.target.value })} placeholder="例：本日のみ南教室へ振替" /></label>
           </div>}
           
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {currentLesson?.label ?? "授業未選択"}</div>
@@ -1417,7 +1506,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
                 {group.lessons.map((lesson) => {
                   const selected = lesson.id === item.lesson_id;
                   const enrolled = Boolean(lesson.enrolled);
-                  return <button key={lesson.id} type="button" disabled={closed} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: closed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                  return <button key={lesson.id} type="button" disabled={rowClosed} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
                     <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
                   </button>;
                 })}
@@ -1428,8 +1517,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       })}
     </div>
 
-    {cardMessage && <p role="status" style={{ color: cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
-    {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : "確認してNotionへ登録"}</button>{!registered && <button style={secondaryButtonStyle} onClick={dismiss}>対応不要</button>}</div>}
+    {cardMessage && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
+    {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || dismissing || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : registering ? "登録状態を確認・再試行" : "確認してNotionへ登録"}</button>{!registered && !registering && <button style={secondaryButtonStyle} disabled={busy || dismissing} onClick={dismiss}>{dismissing ? "処理中..." : "対応不要"}</button>}</div>}
     </>}
   </section>;
 }

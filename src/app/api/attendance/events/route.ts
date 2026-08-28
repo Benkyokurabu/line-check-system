@@ -44,11 +44,14 @@ function parseEvent(input: ManualEventInput, common: Record<string, unknown>) {
   const lessonId = cleanText(input.lesson_id);
   const eventDate = cleanDate(input.event_date);
   const receivedBy = cleanText(input.received_by ?? common.received_by);
+  const contactMethod = cleanContactMethod(input.contact_method ?? common.contact_method);
   if (!studentNumber) throw new Error("生徒を選択してください");
   if (!lessonId) throw new Error("授業を選択してください");
   if (!eventDate) throw new Error("対象日を入力してください");
+  if (!receivedBy) throw new Error("受付者名を入力してください");
+  if (!manualContactMethods.includes(contactMethod)) throw new Error("手入力の連絡経路を選択してください");
   return {
-    contact_method: cleanContactMethod(input.contact_method ?? common.contact_method),
+    contact_method: contactMethod,
     contact_received_at: cleanReceivedAt(input.contact_received_at ?? common.contact_received_at),
     received_by: receivedBy,
     student_number: studentNumber,

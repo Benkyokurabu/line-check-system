@@ -23,6 +23,7 @@ export async function PUT(
   const friendDisplayName = typeof body.friend_display_name === "string" && body.friend_display_name.trim()
     ? body.friend_display_name.trim()
     : null;
+  const confirmEvidence = body.confirm_evidence !== false;
 
   if (!lineUserId) {
     return NextResponse.json({ error: "line_user_id is required" }, { status: 400 });
@@ -64,20 +65,22 @@ export async function PUT(
     return NextResponse.json({ error: accountError.message }, { status: 500 });
   }
 
-  const { error: evidenceError } = await supabase
-    .from("line_link_evidence")
-    .update({
-      review_status: "confirmed",
-      reviewed_at: now,
-      verified_at: now,
-      updated_at: now,
-    })
-    .eq("line_user_id", lineUserId);
-  if (evidenceError && !["42P01", "PGRST205"].includes(evidenceError.code ?? "")) {
-    return NextResponse.json({ error: evidenceError.message }, { status: 500 });
+  if (confirmEvidence) {
+    const { error: evidenceError } = await supabase
+      .from("line_link_evidence")
+      .update({
+        review_status: "confirmed",
+        reviewed_at: now,
+        verified_at: now,
+        updated_at: now,
+      })
+      .eq("line_user_id", lineUserId);
+    if (evidenceError && !["42P01", "PGRST205"].includes(evidenceError.code ?? "")) {
+      return NextResponse.json({ error: evidenceError.message }, { status: 500 });
+    }
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, evidence_confirmed: confirmEvidence });
 }
 
 export async function DELETE(

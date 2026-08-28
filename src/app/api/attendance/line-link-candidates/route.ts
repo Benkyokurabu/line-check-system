@@ -208,13 +208,14 @@ export async function GET() {
     const lineMessage = firstRelation(row.line_messages);
     const lineUserId = lineMessage?.line_user_id;
     const pendingEvidence = lineUserId ? evidenceByLineUserId.get(lineUserId)?.review_status === "pending" : false;
-    if (!lineUserId || linkedLineUserIds.has(lineUserId)) continue;
+    if (!lineUserId) continue;
+    if (linkedLineUserIds.has(lineUserId) && !pendingEvidence) continue;
     if (!pendingEvidence && (aliasUserIds.has(lineUserId) || accountAliasUserIds.has(lineUserId))) continue;
     if (!rowsByLineUserId.has(lineUserId)) rowsByLineUserId.set(lineUserId, []);
     rowsByLineUserId.get(lineUserId)!.push(row);
   }
   for (const evidence of evidenceByLineUserId.values()) {
-    if (evidence.review_status !== "pending" || linkedLineUserIds.has(evidence.line_user_id)) continue;
+    if (evidence.review_status !== "pending") continue;
     if (!rowsByLineUserId.has(evidence.line_user_id)) rowsByLineUserId.set(evidence.line_user_id, []);
   }
 

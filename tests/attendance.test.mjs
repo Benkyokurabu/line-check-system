@@ -279,6 +279,100 @@ test("ordinary attendance refresh keeps the normal 20-card page size", () => {
   }), 20);
 });
 
+test("candidate draft replacement and dismissal are atomic database operations", async () => {
+  const [schema, migration, candidateRoute] = await Promise.all([
+    readFile(new URL("../supabase/attendance_schema.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/attendance_operation_safety_20260828.sql", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/candidates/[id]/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(schema, /create or replace function public\.replace_attendance_candidate_draft/);
+  assert.match(schema, /create or replace function public\.dismiss_attendance_candidate/);
+  assert.match(schema, /delete from public\.attendance_candidate_items[\s\S]*insert into public\.attendance_candidate_items/);
+  assert.match(migration, /^begin;[\s\S]*commit;\s*$/);
+  assert.match(migration, /revoke all on function public\.replace_attendance_candidate_draft\(uuid, jsonb, jsonb\) from public, anon, authenticated/);
+  assert.match(migration, /grant execute on function public\.dismiss_attendance_candidate\(uuid, text\) to service_role/);
+  assert.match(migration, /from public\.attendance_events[\s\S]*status <> 'cancelled'[\s\S]*一部登録済みの候補は対応不要にできません/);
+  assert.match(migration, /status = 'confirmed'[\s\S]*continue;[\s\S]*editable_count := editable_count \+ 1/);
+  assert.match(candidateRoute, /id: cleanUuid\(item\.id\)/);
+  assert.match(candidateRoute, /rpc\("replace_attendance_candidate_draft"/);
+  assert.match(candidateRoute, /rpc\("dismiss_attendance_candidate"/);
+  assert.doesNotMatch(candidateRoute, /\.from\("attendance_candidate_items"\)\s*\.delete\(\)/);
+});
+
+test("stale candidate registration can recover without reopening a live concurrent operation", async () => {
+  const [confirmRoute, candidatesRoute, page] = await Promise.all([
+    readFile(new URL("../src/app/api/attendance/candidates/[id]/confirm/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/candidates/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(confirmRoute, /Date\.now\(\) - Date\.parse\(String\(candidate\.updated_at\)\) > 15 \* 60 \* 1000/);
+  assert.match(confirmRoute, /candidate\.status === "registering" && !staleRegistering[\s\S]*別の登録処理が進行中です/);
+  assert.match(confirmRoute, /allItems\.some\(\(item\) => item\.status === "confirmed"\)[\s\S]*allItems\.every\(\(item\) => item\.status === "confirmed" \|\| item\.status === "dismissed"\)/);
+  assert.match(confirmRoute, /recovered_stale_registration: true/);
+  assert.match(confirmRoute, /staleRegistering \? \["pending", "notion_failed", "registering"\]/);
+  assert.match(candidatesRoute, /\.in\("status", \["pending", "notion_failed", "registering"\]\)/);
+  assert.match(page, /登録処理中（15分超で再試行可）/);
+  assert.match(page, /registering \? "登録状態を確認・再試行"/);
+});
+
+test("initial LINE reply is claimed before the external send and duplicate claims are rejected", async () => {
+  const [schema, replyRoute] = await Promise.all([
+    readFile(new URL("../supabase/attendance_schema.sql", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/candidates/[id]/reply/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(schema, /line_messages_attendance_initial_reply_unique/);
+  assert.match(replyRoute, /attendance_reply_initial_\$\{id\}/);
+  assert.match(replyRoute, /replyKind === "initial" && claimResult\.error\.code === "23505"/);
+  assert.ok(replyRoute.indexOf("claimResult") < replyRoute.indexOf('fetch("https://api.line.me/v2/bot/message/push"'));
+  assert.match(replyRoute, /send_status: "sending"/);
+  assert.match(replyRoute, /send_status: "accepted"/);
+  assert.match(replyRoute, /send_status: "unknown"/);
+  assert.match(replyRoute, /line_delivery_unknown: true/);
+  assert.doesNotMatch(replyRoute, /catch \(cause\)[\s\S]{0,300}\.delete\(\)/);
+});
+
+test("all user-triggered attendance mutations surface failures and prevent repeat clicks", async () => {
+  const page = await readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /if \(body\.notion_failed\)[\s\S]*データは保存しましたが、Notion反映に失敗しました/);
+  assert.match(page, /const \[actionBusy, setActionBusy\]/);
+  assert.match(page, /disabled=\{Boolean\(actionBusy\)\}/);
+  assert.match(page, /body: JSON\.stringify\(\{ dismissed_by: confirmedBy \}\)/);
+  assert.match(page, /if \(!response\.ok\) throw new Error\(body\.error \?\? "対応不要の処理に失敗しました"\)/);
+  assert.match(page, /コピーできませんでした。返信文を選択してコピーしてください/);
+});
+
+test("manual edit and cancellation require an actor and cancellation is recorded before Notion archive", async () => {
+  const [eventsRoute, eventRoute] = await Promise.all([
+    readFile(new URL("../src/app/api/attendance/events/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/events/[id]/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(eventsRoute, /if \(!receivedBy\) throw new Error\("受付者名を入力してください"\)/);
+  assert.match(eventRoute, /if \(!receivedBy\) throw new Error\("受付者名を入力してください"\)/);
+  assert.match(eventRoute, /if \(!cancelledBy\) return NextResponse\.json\(\{ error: "確認者名を入力してください"/);
+  assert.ok(eventRoute.indexOf('status: "cancelled"') < eventRoute.indexOf("await archiveAttendanceNotionPage"));
+  assert.match(eventRoute, /already_cancelled: true/);
+});
+
+test("partial sibling LINE linking remains reviewable until the last account succeeds", async () => {
+  const [page, linkRoute, candidatesRoute] = await Promise.all([
+    readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/students/[studentNumber]/link/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/line-link-candidates/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /confirm_evidence: index === targets\.length - 1/);
+  assert.match(linkRoute, /const confirmEvidence = body\.confirm_evidence !== false/);
+  assert.match(candidatesRoute, /linkedLineUserIds\.has\(lineUserId\) && !pendingEvidence/);
+  assert.doesNotMatch(candidatesRoute, /evidence\.review_status !== "pending" \|\| linkedLineUserIds/);
+});
+
+test("lesson requests are cancelled when the selected date or student changes", async () => {
+  const page = await readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8");
+  const abortControllerCount = page.match(/const controller = new AbortController\(\)/g)?.length ?? 0;
+  const abortCleanupCount = page.match(/return \(\) => controller\.abort\(\)/g)?.length ?? 0;
+  assert.equal(abortControllerCount, 3);
+  assert.equal(abortCleanupCount, 3);
+});
+
 test("LINE identity candidates run at 06:00 JST and require manual review", async () => {
   const [vercelConfig, schema, candidateRoute, linkRoute] = await Promise.all([
     readFile(new URL("../vercel.json", import.meta.url), "utf8"),

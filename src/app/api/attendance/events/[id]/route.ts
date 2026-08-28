@@ -35,12 +35,14 @@ function parseUpdate(body: Record<string, unknown>) {
   const studentNumber = cleanText(body.student_number);
   const lessonId = cleanText(body.lesson_id);
   const eventDate = cleanDate(body.event_date);
+  const receivedBy = cleanText(body.received_by);
   if (!studentNumber) throw new Error("生徒を選択してください");
   if (!lessonId) throw new Error("授業を選択してください");
   if (!eventDate) throw new Error("対象日を入力してください");
+  if (!receivedBy) throw new Error("受付者名を入力してください");
   return {
     contact_method: cleanContactMethod(body.contact_method),
-    received_by: cleanText(body.received_by),
+    received_by: receivedBy,
     student_number: studentNumber,
     lesson_id: lessonId,
     event_date: eventDate,
@@ -157,6 +159,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const { id } = await context.params;
   const body = await request.json().catch(() => ({}));
   const cancelledBy = cleanText((body as Record<string, unknown>).cancelled_by);
+  if (!cancelledBy) return NextResponse.json({ error: "確認者名を入力してください" }, { status: 400 });
   const supabase = createSupabaseAdminClient();
   const { data: before, error: beforeError } = await supabase
     .from("attendance_events")
@@ -166,6 +169,26 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     .maybeSingle();
   if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
   if (!before) return NextResponse.json({ error: "手入力データが見つかりません" }, { status: 404 });
+  if (before.status === "cancelled") {
+    return NextResponse.json({ ok: true, event: before, already_cancelled: true, notion_failed: before.notion_status === "failed", notion_error: before.notion_error });
+  }
+
+  const cancelledAt = new Date().toISOString();
+  const { data: cancelled, error: cancelError } = await supabase
+    .from("attendance_events")
+    .update({
+      status: "cancelled",
+      cancelled_by: cancelledBy,
+      cancelled_at: cancelledAt,
+      notion_status: before.notion_page_id ? "pending" : before.notion_status,
+      notion_error: before.notion_page_id ? null : before.notion_error,
+    })
+    .eq("id", id)
+    .neq("status", "cancelled")
+    .select("*")
+    .maybeSingle();
+  if (cancelError) return NextResponse.json({ error: cancelError.message }, { status: 500 });
+  if (!cancelled) return NextResponse.json({ error: "別の取消処理が進行中です" }, { status: 409 });
 
   let notionError: string | null = null;
   if (before.notion_page_id) {
@@ -178,11 +201,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const { data, error } = await supabase
     .from("attendance_events")
     .update({
-      status: "cancelled",
-      cancelled_by: cancelledBy,
-      cancelled_at: new Date().toISOString(),
       notion_status: notionError ? "failed" : before.notion_page_id ? "success" : before.notion_status,
-      notion_error: notionError ? notionError.slice(0, 500) : null,
+      notion_error: before.notion_page_id ? notionError?.slice(0, 500) ?? null : before.notion_error,
     })
     .eq("id", id)
     .select("*")

@@ -50,40 +50,90 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }, { status: 409 });
   }
 
-  const botInfo = await getLineBotInfo(accessToken);
-  const lineRes = await fetch("https://api.line.me/v2/bot/message/push", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      to: lineUserId,
-      messages: [{ type: "text", text }],
-    }),
-  });
-
-  const lineRequestId = lineRes.headers.get("x-line-request-id");
-  const lineResponse = await readLineResponse(lineRes);
-  if (!lineRes.ok) {
-    console.error("LINE attendance reply error", lineResponse);
-    return NextResponse.json({ error: "LINE API error", details: lineResponse }, { status: 502 });
-  }
-
-  const now = new Date().toISOString();
-  const { data: savedMessage, error: saveError } = await supabase.from("line_messages").insert({
-    line_message_id: `attendance_reply_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  const replyKind = existingReply ? "additional" : "initial";
+  const claimTime = new Date().toISOString();
+  const claimRawEvent = {
+    audit_version: 2,
+    operation: "push",
+    send_context: "attendance_candidate_reply",
+    reply_kind: replyKind,
+    send_status: "sending",
+    attendance_candidate_id: id,
+    source_message_id: candidate.source_message_id,
+    target_display_name: lineMessage?.display_name ?? null,
+    claimed_at: claimTime,
+  };
+  const claimLineMessageId = replyKind === "initial"
+    ? `attendance_reply_initial_${id}`
+    : `attendance_reply_additional_${crypto.randomUUID()}`;
+  const claimResult = await supabase.from("line_messages").insert({
+    line_message_id: claimLineMessageId,
     line_user_id: lineUserId,
     direction: "outbound",
     message_type: "text",
     text,
     sent_by: sentBy,
-    received_at: now,
-    raw_event: {
-      audit_version: 1,
+    received_at: claimTime,
+    raw_event: claimRawEvent,
+  }).select("id,line_user_id,direction,text,message_type,received_at,created_at,sent_by").single();
+  if (claimResult.error) {
+    if (replyKind === "initial" && claimResult.error.code === "23505") {
+      return NextResponse.json({
+        error: "LINE_ALREADY_SENT",
+        message: "この欠席連絡は送信済み、または別の送信処理が進行中です。",
+        already_sent: true,
+      }, { status: 409 });
+    }
+    return NextResponse.json({ error: claimResult.error.message }, { status: 500 });
+  }
+  const claim = claimResult.data;
+
+  const botInfo = await getLineBotInfo(accessToken);
+  let lineRes: Response;
+  try {
+    lineRes = await fetch("https://api.line.me/v2/bot/message/push", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        to: lineUserId,
+        messages: [{ type: "text", text }],
+      }),
+    });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    await supabase.from("line_messages").update({
+      raw_event: {
+        ...claimRawEvent,
+        send_status: "unknown",
+        failure_stage: "response_wait",
+        error: message.slice(0, 500),
+      },
+    }).eq("id", claim.id);
+    return NextResponse.json({
+      error: "LINE_DELIVERY_UNKNOWN",
+      message: "LINEの送信結果を確認できませんでした。二重送信を防ぐため再送せず、LINE管理画面で送信履歴を確認してください。",
+      line_delivery_unknown: true,
+    }, { status: 502 });
+  }
+
+  const lineRequestId = lineRes.headers.get("x-line-request-id");
+  const lineResponse = await readLineResponse(lineRes);
+  if (!lineRes.ok) {
+    console.error("LINE attendance reply error", lineResponse);
+    await supabase.from("line_messages").delete().eq("id", claim.id);
+    return NextResponse.json({ error: "LINE API error", details: lineResponse }, { status: 502 });
+  }
+
+  const now = new Date().toISOString();
+  const finalRawEvent = {
+      audit_version: 2,
       operation: "push",
       send_context: "attendance_candidate_reply",
-      reply_kind: existingReply ? "additional" : "initial",
+      reply_kind: replyKind,
+      send_status: "accepted",
       attendance_candidate_id: id,
       source_message_id: candidate.source_message_id,
       target_display_name: lineMessage?.display_name ?? null,
@@ -94,8 +144,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       bot_basic_id: botInfo?.basicId ?? null,
       bot_display_name: botInfo?.displayName ?? null,
       line_accepted_at: now,
-    },
-  }).select("id,line_user_id,direction,text,message_type,received_at,created_at,sent_by").single();
+    };
+  const saveResult = await supabase.from("line_messages")
+    .update({ received_at: now, raw_event: finalRawEvent })
+    .eq("id", claim.id)
+    .select("id,line_user_id,direction,text,message_type,received_at,created_at,sent_by")
+    .single();
+  const { data: savedMessage, error: saveError } = saveResult;
 
   if (saveError) {
     console.error("Failed to save attendance reply", saveError);

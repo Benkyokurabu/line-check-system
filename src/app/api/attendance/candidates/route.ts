@@ -195,7 +195,7 @@ export async function GET(request: Request) {
   let openCandidateQuery = supabase
     .from("attendance_candidates")
     .select(candidateSelect)
-    .in("status", ["pending", "notion_failed"])
+    .in("status", ["pending", "notion_failed", "registering"])
     .order("created_at", { ascending: false });
   if (!includePastPending) {
     openCandidateQuery = openCandidateQuery.or(`event_date.gte.${today},and(event_date.is.null,created_at.gte.${todayStart})`);

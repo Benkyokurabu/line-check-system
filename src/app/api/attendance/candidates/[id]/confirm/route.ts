@@ -285,9 +285,28 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!candidate) return NextResponse.json({ error: "候補が見つかりません" }, { status: 404 });
 
-  const items = fallbackItems(candidate).filter((item) => item.status !== "confirmed");
+  const staleRegistering = candidate.status === "registering" &&
+    Number.isFinite(Date.parse(String(candidate.updated_at ?? ""))) &&
+    Date.now() - Date.parse(String(candidate.updated_at)) > 15 * 60 * 1000;
+  if (candidate.status === "registering" && !staleRegistering) {
+    return NextResponse.json({ error: "別の登録処理が進行中です" }, { status: 409 });
+  }
+
+  const allItems = fallbackItems(candidate);
+  const items = allItems.filter((item) => item.status !== "confirmed" && item.status !== "dismissed");
   if (items.length === 0 && candidate.status === "confirmed") {
     return NextResponse.json({ ok: true, already_registered: true });
+  }
+  if (items.length === 0 && staleRegistering && allItems.some((item) => item.status === "confirmed") && allItems.every((item) => item.status === "confirmed" || item.status === "dismissed")) {
+    const firstConfirmedPageId = allItems.find((item) => item.status === "confirmed" && item.notion_page_id)?.notion_page_id ?? candidate.notion_page_id ?? null;
+    const { error: recoveryError } = await supabase.from("attendance_candidates").update({
+      status: "confirmed",
+      confirmed_at: candidate.confirmed_at ?? new Date().toISOString(),
+      notion_page_id: firstConfirmedPageId,
+      notion_error: null,
+    }).eq("id", id).eq("status", "registering");
+    if (recoveryError) return NextResponse.json({ error: recoveryError.message }, { status: 500 });
+    return NextResponse.json({ ok: true, already_registered: true, recovered_stale_registration: true });
   }
   if (items.length === 0) return NextResponse.json({ error: "登録する行がありません" }, { status: 400 });
   const itemStudentNumbers = [...new Set(items.map((item) => item.student_number ?? candidate.student_number as string | null).filter((value): value is string => Boolean(value)))];
@@ -341,7 +360,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     .from("attendance_candidates")
     .update({ status: "registering", confirmed_by: confirmedBy, notion_error: null })
     .eq("id", id)
-    .in("status", ["pending", "notion_failed"])
+    .in("status", staleRegistering ? ["pending", "notion_failed", "registering"] : ["pending", "notion_failed"])
     .select("id")
     .maybeSingle();
   if (!claimed) return NextResponse.json({ error: "別の登録処理が進行中です" }, { status: 409 });
