@@ -11,9 +11,7 @@ export function candidateHasError(candidate) {
 
 export function candidateActionPriority(candidate) {
   if (candidateHasError(candidate)) return 0;
-  if (candidate?.student_selection_required) return 1;
-  if (!candidate?.reply_status?.sent) return 2;
-  return 3;
+  return 1;
 }
 
 export function actionCandidatesForReview(candidates) {

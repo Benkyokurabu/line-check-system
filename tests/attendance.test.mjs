@@ -213,7 +213,7 @@ function reviewCandidate(id, overrides = {}) {
   };
 }
 
-test("a LINE reply cannot push the operated candidate outside the rendered list", () => {
+test("a LINE reply keeps an incomplete candidate in the same visible position", () => {
   const beforeReply = Array.from({ length: 25 }, (_, index) => reviewCandidate(`candidate-${index}`));
   beforeReply[0] = reviewCandidate("operated");
   const candidates = beforeReply.map((candidate) => candidate.id === "operated"
@@ -221,30 +221,43 @@ test("a LINE reply cannot push the operated candidate outside the rendered list"
     : candidate);
 
   assert.equal(actionCandidatesForReview(beforeReply).findIndex((candidate) => candidate.id === "operated"), 0);
-  assert.equal(actionCandidatesForReview(candidates).findIndex((candidate) => candidate.id === "operated"), 24);
+  assert.equal(actionCandidatesForReview(candidates).findIndex((candidate) => candidate.id === "operated"), 0);
   assert.equal(visibleCandidateCountAfterReload({
     candidates,
     reviewTab: "action",
     keepVisibleCandidateId: "operated",
     currentCount: 20,
-  }), 25);
+  }), 20);
 });
 
-test("guardian linking cannot hide a candidate after student selection is resolved", () => {
+test("guardian linking keeps an incomplete candidate in the same visible position", () => {
   const beforeLinking = Array.from({ length: 25 }, (_, index) => reviewCandidate(`candidate-${index}`));
-  beforeLinking[24] = reviewCandidate("linked-guardian", { student_selection_required: true });
+  beforeLinking[0] = reviewCandidate("linked-guardian", { student_selection_required: true });
   const candidates = beforeLinking.map((candidate) => candidate.id === "linked-guardian"
     ? { ...candidate, student_selection_required: false }
     : candidate);
 
   assert.equal(actionCandidatesForReview(beforeLinking).findIndex((candidate) => candidate.id === "linked-guardian"), 0);
-  assert.equal(actionCandidatesForReview(candidates).findIndex((candidate) => candidate.id === "linked-guardian"), 24);
+  assert.equal(actionCandidatesForReview(candidates).findIndex((candidate) => candidate.id === "linked-guardian"), 0);
   assert.equal(visibleCandidateCountAfterReload({
     candidates,
     reviewTab: "action",
     keepVisibleCandidateId: "linked-guardian",
     currentCount: 20,
-  }), 25);
+  }), 20);
+});
+
+test("Notion errors stay first without reordering other incomplete candidates", () => {
+  const candidates = [
+    reviewCandidate("first-normal"),
+    reviewCandidate("notion-error", { notion_error: "failed" }),
+    reviewCandidate("second-normal"),
+  ];
+  assert.deepEqual(actionCandidatesForReview(candidates).map((candidate) => candidate.id), [
+    "notion-error",
+    "first-normal",
+    "second-normal",
+  ]);
 });
 
 test("Notion completion intentionally moves a candidate out of the action tab", () => {
