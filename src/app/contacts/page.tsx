@@ -733,7 +733,7 @@ export default function ContactsPage() {
                   高校生・個別指導生も同じ名簿から登録できます。LINEメッセージの氏名と、学年・授業形態・校舎・学校・生徒番号を照合してください。
                 </div>
                 <label style={{ display: "grid", gap: 5 }}>② 生徒を検索
-                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="氏名・高3・個別・学校名・生徒番号など" />
+                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="氏名・高3・個別ほか・学校名・生徒番号など" />
                 </label>
                 {matchingStudents.length > 0 && <div style={{ display: "grid", gap: 7 }}>
                   {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); }} style={{ ...(selectedStudentNumber === student.student_number ? btnSave : btnEdit), padding: "9px 11px", textAlign: "left", lineHeight: 1.5 }}>{studentRegistrationLabel(student)}</button>)}
@@ -742,7 +742,7 @@ export default function ContactsPage() {
                 {selectedStudent && <div style={{ padding: "10px 12px", border: "2px solid #16a34a", borderRadius: 7, background: "#f0fdf4", display: "grid", gap: 3 }}>
                   <strong style={{ color: "#166534" }}>選択中：{selectedStudent.grade} {selectedStudent.student_name}</strong>
                   <span style={{ fontSize: "0.78rem", color: "#365544" }}>{studentInstructionTypeLabel(selectedStudent.instruction_type)} / {selectedStudent.campus || "校舎未設定"} / {selectedStudent.school_name || "学校未設定"} / 生徒番号 {selectedStudent.student_number}</span>
-                  {!selectedStudent.instruction_type && <span style={{ color: "#b45309", fontSize: "0.75rem", fontWeight: 700 }}>授業形態が未設定です。本人確認はできますが、Notionで「集団・個別・併用」を設定してください。</span>}
+                  {!selectedStudent.instruction_type && <span style={{ color: "#b45309", fontSize: "0.75rem", fontWeight: 700 }}>授業形態が未設定です。本人確認はできますが、Notionで「集団・個別ほか・併用」を設定してください。</span>}
                 </div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
                   <label style={{ display: "grid", gap: 5 }}>③ 生徒との続柄

@@ -4,7 +4,7 @@ alter table public.student_roster
   add column if not exists instruction_type text;
 
 comment on column public.student_roster.instruction_type is
-  'Notion生徒情報DBの授業形態（例: 集団、個別、併用）。未設定はnull。';
+  'Notion生徒情報DBの授業形態（例: 集団、個別ほか、併用）。未設定はnull。';
 
 create or replace function public.get_line_contact_admin_summaries()
 returns table (

@@ -23,14 +23,14 @@ test("student registration labels show grade, instruction type and identifying d
     student_number: "2026123",
     student_name: "山田 太郎",
     grade: "高3",
-    instruction_type: "個別",
+    instruction_type: "個別ほか",
     campus: "本校",
     school_name: "県立高校",
     homeroom_teacher: "吉川",
   };
-  assert.equal(studentInstructionTypeLabel(student.instruction_type), "個別");
-  assert.equal(studentRegistrationLabel(student), "高3｜山田 太郎｜個別｜本校｜県立高校｜生徒番号 2026123");
-  assert.match(studentRegistrationSearchText(student), /高3個別本校県立高校吉川/);
+  assert.equal(studentInstructionTypeLabel(student.instruction_type), "個別ほか");
+  assert.equal(studentRegistrationLabel(student), "高3｜山田 太郎｜個別ほか｜本校｜県立高校｜生徒番号 2026123");
+  assert.match(studentRegistrationSearchText(student), /高3個別ほか本校県立高校吉川/);
 });
 
 test("student registration labels make missing instruction type explicit", () => {

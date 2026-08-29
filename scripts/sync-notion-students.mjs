@@ -70,6 +70,14 @@ function firstProperty(properties, names) {
   return "";
 }
 
+function countValues(rows, key) {
+  return rows.reduce((counts, row) => {
+    const value = row[key] || "未設定";
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
 async function notionRequest(path, init = {}) {
   const response = await fetch(`https://api.notion.com/v1${path}`, {
     ...init,
@@ -92,6 +100,8 @@ async function fetchNotionStudents() {
   const dataSourceId = process.env.NOTION_STUDENT_DATA_SOURCE_ID?.trim() || DEFAULT_STUDENT_DATA_SOURCE_ID;
   const candidates = [];
   let skipped = 0;
+  let instructionPropertyPages = 0;
+  let instructionValuePages = 0;
   let cursor;
 
   do {
@@ -109,6 +119,9 @@ async function fetchNotionStudents() {
       const rawStudentNumber = normalizeStudentNumber(firstProperty(properties, ["学籍番号", "生徒番号", "番号"]));
       const status = firstProperty(properties, ["状態"]);
       const studentName = firstProperty(properties, ["生徒氏名", "名前", "氏名"]);
+      const instructionType = firstProperty(properties, ["授業形態", "指導形態", "受講形態"]);
+      if (properties["授業形態"]) instructionPropertyPages += 1;
+      if (instructionType) instructionValuePages += 1;
       if (!studentName) {
         skipped += 1;
         continue;
@@ -123,7 +136,7 @@ async function fetchNotionStudents() {
         homeroom_teacher: firstProperty(properties, ["担任"]) || null,
         school_name: firstProperty(properties, ["中学校", "小学校"]) || null,
         gender: firstProperty(properties, ["性別"]) || null,
-        instruction_type: firstProperty(properties, ["授業形態", "指導形態", "受講形態"]) || null,
+        instruction_type: instructionType || null,
       });
     }
 
@@ -148,11 +161,14 @@ async function fetchNotionStudents() {
     homeroom_teacher: student.homeroom_teacher,
     school_name: student.school_name,
     gender: student.gender,
+    instruction_type: student.instruction_type,
   }));
 
   return {
     students: [...new Map(students.map((student) => [student.student_number, student])).values()],
     skipped,
+    instruction_property_pages: instructionPropertyPages,
+    instruction_value_pages: instructionValuePages,
   };
 }
 
@@ -198,6 +214,10 @@ async function main() {
     active_students: notionResult.students.length,
     synced_students: rows.length,
     skipped: notionResult.skipped,
+    notion_instruction_property_pages: notionResult.instruction_property_pages,
+    notion_instruction_value_pages: notionResult.instruction_value_pages,
+    notion_instruction_types: countValues(notionResult.students, "instruction_type"),
+    synced_instruction_types: countValues(rows, "instruction_type"),
     synced_at: updatedAt,
   }, null, 2));
 }
