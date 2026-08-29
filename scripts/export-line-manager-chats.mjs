@@ -142,8 +142,15 @@ async function getPageClient(port) {
 
 function exportExpression(limit) {
   return `async () => {
-    const botId = location.pathname.split('/').filter(Boolean)[0];
-    if (!botId) throw new Error('Bot ID was not found in current URL.');
+    const pageId = decodeURIComponent(location.pathname.split('/').filter(Boolean)[0] || '');
+    const botsResponse = await fetch('/api/v1/bots?limit=1000&noFilter=true', { credentials: 'include' });
+    if (!botsResponse.ok) throw new Error('bots API failed: ' + botsResponse.status);
+    const botsData = await botsResponse.json();
+    const bots = botsData.list ?? [];
+    const bot = bots.find((item) => item.botId === pageId || item.basicSearchId === pageId)
+      ?? (bots.length === 1 ? bots[0] : null);
+    const botId = bot?.botId ?? '';
+    if (!botId) throw new Error('Bot ID could not be resolved for the current LINE account.');
     const rows = [];
     let next = '';
     let guard = 0;
