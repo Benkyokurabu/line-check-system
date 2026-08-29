@@ -150,6 +150,22 @@ export async function POST(request: Request) {
       if (error) throw error;
     }
 
+    const auditResult = await createSupabaseAdminClient()
+      .from("line_alias_sync_runs")
+      .insert({
+        source: clean(body.source, 100) || "csv_upload",
+        source_name: clean(body.source_name, 255) || null,
+        performed_by: clean(body.performed_by, 100) || null,
+        imported_count: applyPlan.upserts.length,
+        already_applied_count: applyPlan.already_applied,
+        skipped_stale_count: applyPlan.skipped_stale,
+        skipped_conflict_count: applyPlan.skipped_conflict,
+        skipped_unmatched_count: applyPlan.skipped_unmatched,
+      });
+    const auditError = auditResult.error && !["42P01", "PGRST205"].includes(auditResult.error.code ?? "")
+      ? auditResult.error.message
+      : null;
+
     return NextResponse.json({
       ok: true,
       imported: applyPlan.upserts.length,
@@ -157,6 +173,7 @@ export async function POST(request: Request) {
       skipped_stale: applyPlan.skipped_stale,
       skipped_conflict: applyPlan.skipped_conflict,
       skipped_unmatched: applyPlan.skipped_unmatched,
+      audit_error: auditError,
       message: applyPlan.skipped_stale > 0
         ? `${applyPlan.upserts.length}件を反映しました。${applyPlan.skipped_stale}件は確認後に登録名が変わったため保護しました。再度CSVを選択して確認してください。`
         : `${applyPlan.upserts.length}件を反映しました。`,

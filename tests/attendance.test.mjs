@@ -354,14 +354,19 @@ test("manual edit and cancellation require an actor and cancellation is recorded
   assert.match(eventsRoute, /\.or\(`event_date\.gte\.\$\{todayInJapan\},notion_status\.eq\.failed`\)/);
 });
 
-test("partial sibling LINE linking remains reviewable until the last account succeeds", async () => {
-  const [page, linkRoute, candidatesRoute] = await Promise.all([
+test("sibling LINE verification is atomic and requires a message evidence", async () => {
+  const [page, verifyRoute, candidatesRoute, migration] = await Promise.all([
     readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/app/api/students/[studentNumber]/link/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/admin/contacts/[userId]/verify/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/app/api/attendance/line-link-candidates/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/line_contact_verification_20260829.sql", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /confirm_evidence: index === targets\.length - 1/);
-  assert.match(linkRoute, /const confirmEvidence = body\.confirm_evidence !== false/);
+  assert.match(page, /targets: targets\.map/);
+  assert.match(page, /evidence_message_id: candidate\.evidence_message_id/);
+  assert.match(verifyRoute, /if \(!evidenceMessageId\)/);
+  assert.match(verifyRoute, /\.rpc\("verify_line_contact"/);
+  assert.match(migration, /create or replace function public\.verify_line_contact/);
+  assert.match(migration, /確認メッセージがこのLINEアカウントのものではありません/);
   assert.match(candidatesRoute, /linkedLineUserIds\.has\(lineUserId\) && !pendingEvidence/);
   assert.doesNotMatch(candidatesRoute, /evidence\.review_status !== "pending" \|\| linkedLineUserIds/);
 });

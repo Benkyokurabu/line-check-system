@@ -8,6 +8,27 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const supabase = createSupabaseAdminClient();
 
+  const summaries = [];
+  let summaryError = null;
+  for (let from = 0; ; from += 1000) {
+    const result = await supabase
+      .rpc("get_line_contact_admin_summaries")
+      .range(from, from + 999);
+    if (result.error) {
+      summaryError = result.error;
+      break;
+    }
+    summaries.push(...(result.data ?? []));
+    if (!result.data || result.data.length < 1000) break;
+  }
+
+  if (!summaryError) {
+    return NextResponse.json({ contacts: summaries });
+  }
+  if (!["42883", "PGRST202"].includes(summaryError.code ?? "")) {
+    return NextResponse.json({ error: summaryError.message }, { status: 500 });
+  }
+
   const [{ data: users, error: usersError }, { data: aliases, error: aliasesError }] =
     await Promise.all([
       supabase
@@ -49,6 +70,14 @@ export async function GET() {
     display_name: displayName ?? null,
     alias_name: aliasMap[userId] ?? null,
     group_name: groupMap[userId] ?? null,
+    latest_message_at: null,
+    latest_text: null,
+    registered_accounts: [],
+    system_verified: false,
+    pending_evidence: false,
+    verified_by: null,
+    verified_at: null,
+    registration_state: "other",
   }));
 
   // エイリアス登録済みを先に、次に LINE 名あり、最後に名前なし

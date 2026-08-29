@@ -144,6 +144,10 @@ create index if not exists line_link_evidence_display_name_idx
 create index if not exists line_link_evidence_review_status_idx
   on public.line_link_evidence (review_status, evidence_at desc);
 
+-- Human-reviewed LINE contact registrations, evidence, and audit history.
+-- The idempotent production migration is maintained in
+-- supabase/line_contact_verification_20260829.sql and applied by the matching script.
+
 create table if not exists public.line_tasks (
   id uuid primary key default gen_random_uuid(),
   message_id uuid not null references public.line_messages (id),
