@@ -20,7 +20,7 @@
     "import:line-manager-aliases": "node scripts/import-line-manager-aliases.mjs",
     "export:line-profiles": "node scripts/export-line-profiles.mjs",
     "link:students": "node scripts/link-students-from-line-history.mjs",
-    "test:attendance": "node --test tests/attendance.test.mjs tests/classroom-attendance-display.test.mjs",
+    "test:attendance": "node --test tests/attendance.test.mjs tests/classroom-attendance-display.test.mjs tests/line-alias-import.test.mjs",
     "test": "npm run test:attendance",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"

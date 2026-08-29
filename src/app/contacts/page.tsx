@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
+import { parseLineAliasCsv } from "@/lib/line-alias-import.mjs";
+
 type RosterImportFile = { file: string; status?: string };
 type RosterImportPreview = { changed?: boolean; first_import?: boolean; message?: string; files?: RosterImportFile[]; changed_files?: RosterImportFile[]; students?: number; class_enrollments?: number; skipped?: boolean };
 
@@ -11,6 +13,30 @@ type Contact = {
   display_name: string | null;
   alias_name: string | null;
   group_name: string | null;
+};
+
+type AliasImportStatus = "insert" | "same_existing" | "different_existing" | "conflict" | "unmatched";
+type AliasImportRow = {
+  id: string;
+  source_row: number;
+  line_user_id: string;
+  alias_name: string;
+  display_name: string;
+  group_name: string;
+  status: AliasImportStatus;
+  enabled: boolean;
+  can_apply: boolean;
+  existing_alias_name: string | null;
+  expected_existing_alias_name: string | null;
+  note: string;
+};
+
+const importStatusLabel: Record<AliasImportStatus, string> = {
+  insert: "新規",
+  same_existing: "一致",
+  different_existing: "変更",
+  conflict: "競合",
+  unmatched: "照合不能",
 };
 
 export default function ContactsPage() {
@@ -25,6 +51,8 @@ export default function ContactsPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importRows, setImportRows] = useState<AliasImportRow[]>([]);
   const [rosterImportMsg, setRosterImportMsg] = useState<string | null>(null);
   const [rosterImportPreview, setRosterImportPreview] = useState<RosterImportPreview | null>(null);
   const [rosterImporting, setRosterImporting] = useState(false);
@@ -88,36 +116,58 @@ export default function ContactsPage() {
     if (!file) return;
     setImporting(true);
     setImportMsg(null);
+    setImportRows([]);
+    setImportFileName(file.name);
     try {
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).filter((l) => l.trim());
-      // ヘッダー行をスキップ（line_user_id で始まる行）
-      const dataLines = lines.filter((l) => !l.startsWith("line_user_id"));
-      const rows: { line_user_id: string; alias_name: string }[] = [];
-      for (const line of dataLines) {
-        // CSV パース: "val1","val2","val3"
-        const cols = line.match(/"([^"]*)"/g)?.map((s) => s.replace(/"/g, "")) ?? line.split(",");
-        const lineUserId = cols[0]?.trim();
-        const aliasName = cols[2]?.trim();
-        if (lineUserId && aliasName) rows.push({ line_user_id: lineUserId, alias_name: aliasName });
-      }
-      if (rows.length === 0) {
-        setImportMsg("登録名が入力された行がありませんでした。");
-        return;
-      }
+      const rows = parseLineAliasCsv(await file.text());
       const res = await fetch("/api/admin/contacts/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ action: "preview", rows }),
       });
       const data = await res.json();
-      setImportMsg(`${data.imported} 件インポートしました。`);
-      await fetchContacts();
-    } catch {
-      setImportMsg("エラーが発生しました。");
+      if (!res.ok) throw new Error(data.error ?? "差分確認に失敗しました");
+      setImportRows(data.rows ?? []);
+      setImportMsg("差分を確認しました。新規は選択済み、既存名の変更は未選択です。");
+    } catch (error) {
+      setImportFileName(null);
+      setImportMsg(error instanceof Error ? error.message : "エラーが発生しました。");
     } finally {
       setImporting(false);
       e.target.value = "";
+    }
+  }
+
+  function toggleImportRow(id: string) {
+    setImportRows((current) => current.map((row) =>
+      row.id === id && row.can_apply ? { ...row, enabled: !row.enabled } : row,
+    ));
+  }
+
+  async function confirmAliasImport() {
+    const selected = importRows.filter((row) => row.enabled && row.can_apply);
+    if (selected.length === 0) return;
+    const changes = selected.filter((row) => row.status === "different_existing").length;
+    const detail = changes > 0 ? `\nこのうち${changes}件は既存の登録名を変更します。` : "";
+    if (!window.confirm(`${selected.length}件のLINE登録名を反映します。${detail}\nよろしいですか？`)) return;
+    setImporting(true);
+    setImportMsg("登録名を反映しています...");
+    try {
+      const response = await fetch("/api/admin/contacts/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "apply", rows: selected }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "登録名の反映に失敗しました");
+      setImportRows([]);
+      setImportFileName(null);
+      setImportMsg(body.message ?? `${body.imported ?? 0}件を反映しました。`);
+      await fetchContacts();
+    } catch (error) {
+      setImportMsg(error instanceof Error ? error.message : "登録名の反映に失敗しました");
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -275,14 +325,70 @@ export default function ContactsPage() {
         LINE名の代わりに表示する「登録名」を設定できます。例: 山田太郎 父
       </p>
 
-      {/* CSVインポート */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
-        <span style={{ fontSize: "0.875rem", color: "var(--muted)", flexShrink: 0 }}>CSVインポート:</span>
-        <label style={{ ...btnEdit, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
-          {importing ? "処理中…" : "CSVを選択"}
-          <input type="file" accept=".csv" onChange={handleCsvImport} disabled={importing} style={{ display: "none" }} />
-        </label>
-        {importMsg && <span style={{ fontSize: "0.875rem", color: "var(--accent)" }}>{importMsg}</span>}
+      {/* LINE登録名インポート */}
+      <div id="line-alias-import" style={{ display: "grid", gap: 12, marginBottom: 16, padding: "14px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)", scrollMarginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <strong style={{ fontSize: "0.9rem" }}>LINE登録名を取り込む</strong>
+          <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>1. CSV選択 → 2. 差分確認 → 3. 確定</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <label style={{ ...btnEdit, cursor: importing ? "default" : "pointer", display: "inline-flex", alignItems: "center" }}>
+            {importing ? "処理中…" : "LINE管理画面のCSVを選択"}
+            <input type="file" accept=".csv,text/csv" onChange={handleCsvImport} disabled={importing} style={{ display: "none" }} />
+          </label>
+          {importFileName && <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{importFileName}</span>}
+          {importMsg && <span style={{ fontSize: "0.82rem", color: importMsg.includes("失敗") || importMsg.includes("必要") ? "#dc2626" : "var(--muted)" }}>{importMsg}</span>}
+        </div>
+        {importRows.length > 0 && (
+          <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: "0.78rem" }}>
+              {(Object.keys(importStatusLabel) as AliasImportStatus[]).map((status) => {
+                const count = importRows.filter((row) => row.status === status).length;
+                return count > 0 ? <span key={status} style={statusBadge(status)}>{importStatusLabel[status]} {count}件</span> : null;
+              })}
+            </div>
+            <div style={{ overflowX: "auto", maxHeight: 360, border: "1px solid var(--line)", borderRadius: 6 }}>
+              <table style={{ width: "100%", minWidth: 700, borderCollapse: "collapse" }}>
+                <thead style={{ position: "sticky", top: 0, background: "var(--background)", zIndex: 1 }}>
+                  <tr><Th>反映</Th><Th>判定</Th><Th>LINE名</Th><Th>現在の登録名</Th><Th>取込後の登録名</Th></tr>
+                </thead>
+                <tbody>
+                  {importRows.map((row) => (
+                    <tr key={row.id} style={{ borderTop: "1px solid var(--line)", opacity: row.can_apply ? 1 : 0.72 }}>
+                      <td style={td}>
+                        <input
+                          type="checkbox"
+                          checked={row.enabled}
+                          disabled={!row.can_apply || importing}
+                          onChange={() => toggleImportRow(row.id)}
+                          aria-label={`${row.alias_name || row.note}を反映`}
+                        />
+                      </td>
+                      <td style={td}><span style={statusBadge(row.status)}>{importStatusLabel[row.status]}</span></td>
+                      <td style={td}>
+                        <div>{row.display_name || "名前未取得"}</div>
+                        <div style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: "0.67rem" }}>{row.line_user_id || `CSV ${row.source_row}行目`}</div>
+                        {row.note && <div style={{ color: "var(--muted)", fontSize: "0.72rem", marginTop: 2 }}>{row.note}</div>}
+                      </td>
+                      <td style={td}>{row.existing_alias_name || "—"}</td>
+                      <td style={{ ...td, fontWeight: row.status === "insert" || row.status === "different_existing" ? 700 : 400 }}>{row.alias_name || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <button
+                onClick={confirmAliasImport}
+                disabled={importing || !importRows.some((row) => row.enabled && row.can_apply)}
+                style={btnSave}
+              >
+                選択した {importRows.filter((row) => row.enabled && row.can_apply).length} 件を確定
+              </button>
+              <span style={{ color: "var(--muted)", fontSize: "0.76rem" }}>「変更」は内容を確認してチェックした場合だけ上書きします。競合・照合不能は反映しません。</span>
+            </div>
+          </>
+        )}
       </div>
 
       <div style={{ display: "grid", gap: 8, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
@@ -537,6 +643,25 @@ function Th({ children }: { children: React.ReactNode }) {
       {children}
     </th>
   );
+}
+
+function statusBadge(status: AliasImportStatus): React.CSSProperties {
+  const colors: Record<AliasImportStatus, { color: string; background: string }> = {
+    insert: { color: "#166534", background: "#dcfce7" },
+    same_existing: { color: "#475569", background: "#e2e8f0" },
+    different_existing: { color: "#9a3412", background: "#ffedd5" },
+    conflict: { color: "#991b1b", background: "#fee2e2" },
+    unmatched: { color: "#6b21a8", background: "#f3e8ff" },
+  };
+  return {
+    display: "inline-block",
+    padding: "2px 7px",
+    borderRadius: 999,
+    fontSize: "0.72rem",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+    ...colors[status],
+  };
 }
 
 const td: React.CSSProperties = { padding: "12px 16px", fontSize: "0.875rem", verticalAlign: "middle" };
