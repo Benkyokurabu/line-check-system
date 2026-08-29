@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
 import { parseLineAliasCsv } from "@/lib/line-alias-import.mjs";
+import { buildLineContactAlias, classifyLineContact, relationLabel } from "@/lib/line-contact-registration.mjs";
 
 type RosterImportFile = { file: string; status?: string };
 type RosterImportPreview = { changed?: boolean; first_import?: boolean; message?: string; files?: RosterImportFile[]; changed_files?: RosterImportFile[]; students?: number; class_enrollments?: number; skipped?: boolean };
@@ -13,7 +14,36 @@ type Contact = {
   display_name: string | null;
   alias_name: string | null;
   group_name: string | null;
+  latest_message_at?: string | null;
+  latest_text?: string | null;
+  registered_accounts?: RegisteredAccount[];
+  system_verified?: boolean;
+  pending_evidence?: boolean;
+  verified_by?: string | null;
+  verified_at?: string | null;
+  registration_state?: "pending" | "system_registered" | "other";
 };
+
+type RegisteredAccount = {
+  student_number: string;
+  student_name: string;
+  grade: string;
+  relation: string;
+  alias_name: string | null;
+  verification_status: string;
+  verified_by: string | null;
+  verified_at: string | null;
+  evidence_message_id: string | null;
+  verification_source: string | null;
+};
+type ContactMessage = { id: string; direction: string; text: string | null; message_type: string; received_at: string | null; created_at: string; sent_by: string | null };
+type ContactDetail = {
+  messages: ContactMessage[];
+  identity_evidence: { detected_message_id: string | null; evidence_text: string; evidence_at: string | null; parsed_student_name: string | null; relation: string; review_status: string } | null;
+  registration_history: { id: string; student_number: string | null; action: string; relation: string | null; alias_name: string | null; performed_by: string; source: string; created_at: string; evidence_message_id: string | null }[];
+};
+type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
+type ContactTab = "pending" | "system_registered" | "other" | "all";
 
 type AliasImportStatus = "insert" | "same_existing" | "different_existing" | "conflict" | "unmatched";
 type AliasImportRow = {
@@ -56,6 +86,19 @@ export default function ContactsPage() {
   const [rosterImportMsg, setRosterImportMsg] = useState<string | null>(null);
   const [rosterImportPreview, setRosterImportPreview] = useState<RosterImportPreview | null>(null);
   const [rosterImporting, setRosterImporting] = useState(false);
+  const [contactTab, setContactTab] = useState<ContactTab>("pending");
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [studentQuery, setStudentQuery] = useState("");
+  const [selectedStudentNumber, setSelectedStudentNumber] = useState("");
+  const [selectedRelation, setSelectedRelation] = useState("mother");
+  const [selectedEvidenceMessageId, setSelectedEvidenceMessageId] = useState("");
+  const [operatorName, setOperatorName] = useState("");
+  const [verificationSaving, setVerificationSaving] = useState(false);
+  const [verificationMsg, setVerificationMsg] = useState<string | null>(null);
+  const [helperSyncing, setHelperSyncing] = useState(false);
 
   // グループへ一斉送信
   const [broadcastGroup, setBroadcastGroup] = useState("");
@@ -67,9 +110,23 @@ export default function ContactsPage() {
   const fetchContacts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/contacts");
-      const data = await res.json();
-      setContacts(data.contacts ?? []);
+      const [contactsResponse, candidatesResponse] = await Promise.all([
+        fetch("/api/admin/contacts"),
+        fetch("/api/attendance/line-link-candidates"),
+      ]);
+      const data = await contactsResponse.json();
+      if (!contactsResponse.ok) throw new Error(data.error ?? "連絡先を取得できませんでした");
+      const candidateBody = await candidatesResponse.json().catch(() => ({}));
+      const candidateIds = new Set<string>(
+        candidatesResponse.ok
+          ? (candidateBody.candidates ?? []).map((candidate: { line_user_id: string }) => candidate.line_user_id)
+          : [],
+      );
+      setContacts((data.contacts ?? []).map((contact: Contact) => (
+        candidateIds.has(contact.line_user_id) && !contact.system_verified
+          ? { ...contact, pending_evidence: true, registration_state: "pending" as const }
+          : contact
+      )));
     } finally {
       setLoading(false);
     }
@@ -79,6 +136,17 @@ export default function ContactsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
   }, [fetchContacts]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("line-contact-operator-name") ?? "";
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOperatorName(saved);
+  }, []);
+
+  function updateOperatorName(value: string) {
+    setOperatorName(value);
+    window.localStorage.setItem("line-contact-operator-name", value);
+  }
 
   function startEdit(c: Contact) {
     setEditingId(c.line_user_id);
@@ -156,7 +224,13 @@ export default function ContactsPage() {
       const response = await fetch("/api/admin/contacts/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "apply", rows: selected }),
+        body: JSON.stringify({
+          action: "apply",
+          rows: selected,
+          performed_by: operatorName.trim() || null,
+          source: importFileName === "LINE管理画面から直接同期" ? "local_line_manager_helper" : "csv_upload",
+          source_name: importFileName,
+        }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "登録名の反映に失敗しました");
@@ -296,16 +370,123 @@ export default function ContactsPage() {
     }
   }
 
+  async function syncFromLineManager() {
+    setHelperSyncing(true);
+    setImportMsg("事務所PCのLINE管理画面から登録名を取得しています...");
+    setImportRows([]);
+    try {
+      const helperResponse = await fetch("http://127.0.0.1:39123/sync", { method: "POST" });
+      const helperBody = await helperResponse.json().catch(() => ({}));
+      if (!helperResponse.ok) throw new Error(helperBody.error ?? "LINE同期ヘルパーに接続できませんでした");
+      const response = await fetch("/api/admin/contacts/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", rows: helperBody.rows ?? [], source: "local_line_manager_helper" }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "差分確認に失敗しました");
+      setImportFileName("LINE管理画面から直接同期");
+      setImportRows(body.rows ?? []);
+      setImportMsg("取得が完了しました。新規は選択済みです。変更は内容を確認して選択してください。");
+    } catch (error) {
+      setImportMsg(`${error instanceof Error ? error.message : String(error)}。専用LINE管理画面が開いた場合はログイン後、もう一度押してください。`);
+    } finally {
+      setHelperSyncing(false);
+    }
+  }
+
+  async function openContactDetail(contact: Contact) {
+    setSelectedContact(contact);
+    setContactDetail(null);
+    setVerificationMsg(null);
+    setDetailLoading(true);
+    try {
+      const [detailResponse, studentsResponse] = await Promise.all([
+        fetch(`/api/admin/contacts/${encodeURIComponent(contact.line_user_id)}/messages?limit=40`),
+        students.length > 0 ? Promise.resolve(null) : fetch("/api/attendance/students"),
+      ]);
+      const detailBody = await detailResponse.json().catch(() => ({}));
+      if (!detailResponse.ok) throw new Error(detailBody.error ?? "LINEメッセージを取得できませんでした");
+      const loadedStudents = studentsResponse
+        ? ((await studentsResponse.json().catch(() => ({}))).students ?? []) as Student[]
+        : students;
+      if (studentsResponse && !studentsResponse.ok) throw new Error("生徒一覧を取得できませんでした");
+      if (studentsResponse) setStudents(loadedStudents);
+      setContactDetail(detailBody as ContactDetail);
+      const evidence = (detailBody as ContactDetail).identity_evidence;
+      setSelectedEvidenceMessageId(evidence?.detected_message_id ?? "");
+      setSelectedRelation(evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "mother");
+      setStudentQuery(evidence?.parsed_student_name ?? "");
+      const normalizedEvidenceName = (evidence?.parsed_student_name ?? "").normalize("NFKC").replace(/[\s　]/g, "");
+      const match = loadedStudents.find((student) => student.student_name.normalize("NFKC").replace(/[\s　]/g, "") === normalizedEvidenceName);
+      setSelectedStudentNumber(match?.student_number ?? "");
+    } catch (error) {
+      setVerificationMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function verifySelectedContact() {
+    if (!selectedContact || !contactDetail) return;
+    const student = students.find((row) => row.student_number === selectedStudentNumber);
+    if (!operatorName.trim()) { setVerificationMsg("確認者名を入力してください。"); return; }
+    if (!student) { setVerificationMsg("登録する生徒を選択してください。"); return; }
+    if (!selectedEvidenceMessageId) { setVerificationMsg("確認に使ったLINEメッセージを選択してください。"); return; }
+    const aliasName = buildLineContactAlias(student, selectedRelation);
+    if (!window.confirm(`LINEメッセージを確認済みとして、\n${student.grade} ${student.student_name}（${relationLabel(selectedRelation)}）\n登録名「${aliasName}」で登録します。\n\n確認者: ${operatorName.trim()}`)) return;
+    setVerificationSaving(true);
+    setVerificationMsg("登録しています...");
+    try {
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(selectedContact.line_user_id)}/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targets: [{ student_number: student.student_number, relation: selectedRelation, alias_name: aliasName, is_primary: selectedRelation === "student" }],
+          friend_display_name: selectedContact.display_name,
+          verified_by: operatorName.trim(),
+          evidence_message_id: selectedEvidenceMessageId,
+          source: "contacts_review",
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "登録に失敗しました");
+      await fetchContacts();
+      setContactTab("system_registered");
+      await openContactDetail({ ...selectedContact, alias_name: aliasName, system_verified: true, registration_state: "system_registered" });
+      setVerificationMsg(`${aliasName}として本人確認済みに登録しました。`);
+    } catch (error) {
+      setVerificationMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setVerificationSaving(false);
+    }
+  }
+
+  const tabCounts = contacts.reduce((counts, contact) => {
+    counts[classifyLineContact(contact) as Exclude<ContactTab, "all">] += 1;
+    return counts;
+  }, { pending: 0, system_registered: 0, other: 0 });
+
   const filtered = contacts.filter((c) => {
+    if (contactTab !== "all" && classifyLineContact(c) !== contactTab) return false;
     if (groupFilter !== "全て" && c.group_name !== groupFilter) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return (
       (c.alias_name ?? "").toLowerCase().includes(q) ||
       (c.display_name ?? "").toLowerCase().includes(q) ||
+      (c.registered_accounts ?? []).some((account) => account.student_name.toLowerCase().includes(q) || account.student_number.toLowerCase().includes(q)) ||
       c.line_user_id.toLowerCase().includes(q)
     );
   });
+  const selectedStudent = students.find((student) => student.student_number === selectedStudentNumber) ?? null;
+  const normalizedStudentQuery = studentQuery.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+  const matchingStudents = students.filter((student) => {
+    if (!normalizedStudentQuery) return false;
+    const haystack = `${student.student_number}${student.student_name}${student.grade}`.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+    return haystack.includes(normalizedStudentQuery);
+  }).slice(0, 8);
+  const selectedAlias = selectedStudent ? buildLineContactAlias(selectedStudent, selectedRelation) : "";
 
   return (
     <div className="shell" style={{ maxWidth: 900 }}>
@@ -322,22 +503,39 @@ export default function ContactsPage() {
       </div>
 
       <p style={{ color: "var(--muted)", fontSize: "0.875rem", marginBottom: 16 }}>
-        LINE名の代わりに表示する「登録名」を設定できます。例: 山田太郎 父
+        LINEメッセージを確認して生徒・続柄を登録し、確認済みの連絡先を一覧で管理します。候補だけで自動登録されることはありません。
       </p>
+
+      <div style={{ display: "grid", gap: 6, marginBottom: 16, maxWidth: 360 }}>
+        <label htmlFor="contact-operator" style={{ fontSize: "0.85rem", fontWeight: 700 }}>操作するスタッフ名</label>
+        <input id="contact-operator" value={operatorName} onChange={(event) => updateOperatorName(event.target.value)} placeholder="例：吉川" style={inputStyle} />
+        <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>本人確認の履歴に保存されます。この端末では次回も同じ名前を表示します。</span>
+      </div>
 
       {/* LINE登録名インポート */}
       <div id="line-alias-import" style={{ display: "grid", gap: 12, marginBottom: 16, padding: "14px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)", scrollMarginTop: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <strong style={{ fontSize: "0.9rem" }}>LINE登録名を取り込む</strong>
-          <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>1. CSV選択 → 2. 差分確認 → 3. 確定</span>
+          <strong style={{ fontSize: "0.9rem" }}>LINE管理画面の登録名を同期</strong>
+          <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>①取得 → ②差分確認 → ③選択した内容だけ確定</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" onClick={() => void syncFromLineManager()} style={btnSave} disabled={helperSyncing || importing}>
+            {helperSyncing ? "LINE管理画面から取得中..." : "LINE登録名を同期する"}
+          </button>
+          <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>通常はこちらを使用します。専用LINE管理画面のログインが切れている場合だけログイン画面が開きます。</span>
+        </div>
+        <details>
+          <summary style={{ cursor: "pointer", color: "var(--muted)", fontSize: "0.8rem" }}>予備：CSVファイルから取り込む</summary>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
           <label style={{ ...btnEdit, cursor: importing ? "default" : "pointer", display: "inline-flex", alignItems: "center" }}>
-            {importing ? "処理中…" : "LINE管理画面のCSVを選択"}
+            {importing ? "処理中…" : "CSVを選択"}
             <input type="file" accept=".csv,text/csv" onChange={handleCsvImport} disabled={importing} style={{ display: "none" }} />
           </label>
+          </div>
+        </details>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {importFileName && <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{importFileName}</span>}
-          {importMsg && <span style={{ fontSize: "0.82rem", color: importMsg.includes("失敗") || importMsg.includes("必要") ? "#dc2626" : "var(--muted)" }}>{importMsg}</span>}
+          {importMsg && <span role="status" style={{ fontSize: "0.82rem", color: importMsg.includes("失敗") || importMsg.includes("必要") || importMsg.includes("接続") ? "#dc2626" : "var(--muted)" }}>{importMsg}</span>}
         </div>
         {importRows.length > 0 && (
           <>
@@ -468,6 +666,90 @@ export default function ContactsPage() {
         )}
       </div>
 
+      <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {([
+            ["pending", `要確認 ${tabCounts.pending}`],
+            ["system_registered", `本人確認済み ${tabCounts.system_registered}`],
+            ["other", `取込のみ・その他 ${tabCounts.other}`],
+            ["all", `すべて ${contacts.length}`],
+          ] as [ContactTab, string][]).map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setContactTab(value)} style={contactTab === value ? btnSave : btnEdit}>{label}</button>
+          ))}
+        </div>
+        <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
+          「本人確認済み」は、スタッフが実際のLINEメッセージを確認し、生徒・続柄を確定した連絡先だけです。LINE管理名を取り込んだだけの連絡先とは分けて表示します。
+        </span>
+      </div>
+
+      {selectedContact && (
+        <section className="panel" style={{ padding: 16, marginBottom: 16, display: "grid", gap: 12, border: "2px solid #67e8f9" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <strong>{selectedContact.alias_name ?? selectedContact.display_name ?? "名前未取得"} の本人確認</strong>
+              <div style={{ color: "var(--muted)", fontSize: "0.76rem", marginTop: 3 }}>LINE表示名：{selectedContact.display_name ?? "未取得"}</div>
+            </div>
+            <button type="button" style={btnCancel} onClick={() => { setSelectedContact(null); setContactDetail(null); }}>閉じる</button>
+          </div>
+          {detailLoading ? <p style={{ color: "var(--muted)" }}>メッセージを読み込んでいます...</p> : contactDetail && (
+            <>
+              <div style={{ display: "grid", gap: 6 }}>
+                <strong style={{ color: "#155e75" }}>① 本人・生徒名・続柄をメッセージで確認</strong>
+                <span style={{ color: "var(--muted)", fontSize: "0.76rem" }}>登録根拠にする受信メッセージを1つ選んでください。名前や続柄が判断できない場合は登録しません。</span>
+                <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gap: 7, padding: 2 }}>
+                  {contactDetail.messages.map((message) => {
+                    const selectable = message.direction === "inbound" && message.message_type === "text" && Boolean(message.text?.trim());
+                    const selected = selectedEvidenceMessageId === message.id;
+                    return <button key={message.id} type="button" disabled={!selectable} onClick={() => selectable && setSelectedEvidenceMessageId(message.id)} style={{ border: selected ? "3px solid #0891b2" : "1px solid var(--line)", borderRadius: 7, padding: 10, textAlign: "left", background: message.direction === "inbound" ? (selected ? "#ecfeff" : "white") : "#f7f7f4", cursor: selectable ? "pointer" : "default", opacity: selectable ? 1 : 0.72 }}>
+                      <span style={{ display: "block", color: "var(--muted)", fontSize: "0.7rem", marginBottom: 4 }}>{message.direction === "inbound" ? "相手から受信" : `教室から送信${message.sent_by ? `（${message.sent_by}）` : ""}`} / {formatDateTime(message.received_at ?? message.created_at)}{selected ? " / 登録根拠に選択中" : ""}</span>
+                      <span style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{message.text ?? `（${message.message_type}）`}</span>
+                    </button>;
+                  })}
+                  {contactDetail.messages.length === 0 && <div style={{ padding: 12, color: "#b42318" }}>確認できるLINEメッセージがありません。この連絡先は本人確認済みにできません。</div>}
+                </div>
+              </div>
+
+              {!selectedContact.system_verified && <div style={{ display: "grid", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+                <strong>②〜④ 登録内容を選択</strong>
+                <label style={{ display: "grid", gap: 5 }}>② 生徒を名前・学年・生徒番号で検索
+                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="例：山田太郎" />
+                </label>
+                {matchingStudents.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); }} style={selectedStudentNumber === student.student_number ? btnSave : btnEdit}>{student.grade} {student.student_name}</button>)}
+                </div>}
+                {studentQuery && matchingStudents.length === 0 && !selectedStudent && <span style={{ color: "#b42318", fontSize: "0.8rem" }}>該当する生徒が見つかりません。</span>}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+                  <label style={{ display: "grid", gap: 5 }}>③ 生徒との続柄
+                    <select style={inputStyle} value={selectedRelation} onChange={(event) => setSelectedRelation(event.target.value)}>
+                      <option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="family">家族</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: 5 }}>④ 教室で表示する登録名
+                    <div style={{ ...inputStyle, background: "#f7f7f4", fontWeight: 700 }}>{selectedAlias || "生徒を選択してください"}</div>
+                  </label>
+                </div>
+                <button type="button" onClick={() => void verifySelectedContact()} disabled={verificationSaving || !operatorName.trim() || !selectedStudent || !selectedEvidenceMessageId} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>
+                  {verificationSaving ? "登録中..." : "この内容で本人確認済みに登録"}
+                </button>
+              </div>}
+
+              {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+                <strong>現在の生徒紐付け</strong>
+                {(selectedContact.registered_accounts ?? []).map((account) => <div key={`${account.student_number}-${account.relation}`} style={{ padding: 9, border: "1px solid var(--line)", borderRadius: 6 }}>
+                  {account.grade} {account.student_name} / {relationLabel(account.relation)} / {account.alias_name ?? "登録名なし"}
+                  <div style={{ color: "var(--muted)", fontSize: "0.72rem" }}>{account.verification_status === "confirmed" ? `本人確認済み：${account.verified_by ?? "確認者不明"} / ${formatDateTime(account.verified_at)}` : "取込・推定による紐付け（本人確認未完了）"}</div>
+                </div>)}
+              </div>}
+
+              {contactDetail.registration_history.length > 0 && <details><summary style={{ cursor: "pointer", fontWeight: 700 }}>登録履歴 {contactDetail.registration_history.length}件</summary>
+                <div style={{ display: "grid", gap: 5, marginTop: 8 }}>{contactDetail.registration_history.map((event) => <div key={event.id} style={{ color: "var(--muted)", fontSize: "0.76rem" }}>{formatDateTime(event.created_at)} / {event.performed_by} / {event.alias_name ?? event.action}</div>)}</div>
+              </details>}
+            </>
+          )}
+          {verificationMsg && <p role="status" style={{ color: verificationMsg.includes("登録しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{verificationMsg}</p>}
+        </section>
+      )}
+
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <input
           type="text"
@@ -499,6 +781,7 @@ export default function ContactsPage() {
               <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
                 <Th>LINE名</Th>
                 <Th>登録名</Th>
+                <Th>確認状態</Th>
                 <Th>グループ</Th>
                 <Th>操作</Th>
               </tr>
@@ -523,6 +806,11 @@ export default function ContactsPage() {
                       </span>
                       <span style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: "0.68rem" }}>{c.line_user_id}</span>
                     </div>
+                  </td>
+                  <td style={td}>
+                    {classifyLineContact(c) === "system_registered" ? <div style={{ display: "grid", gap: 3 }}><span style={{ ...statusBadge("same_existing"), color: "#087a3d" }}>本人確認済み</span><span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>{(c.registered_accounts ?? []).map((account) => `${account.student_name}（${relationLabel(account.relation)}）`).join(" / ")}</span></div>
+                      : classifyLineContact(c) === "pending" ? <span style={{ ...statusBadge("different_existing"), color: "#9a3412" }}>メッセージ確認待ち</span>
+                      : <span style={{ ...statusBadge("unmatched"), color: "#555" }}>取込のみ・未確認</span>}
                   </td>
                   <td style={td}>
                     {editingId === c.line_user_id ? (
@@ -565,6 +853,9 @@ export default function ContactsPage() {
                   </td>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
                     <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                      <button onClick={() => void openContactDetail(c)} disabled={detailLoading && selectedContact?.line_user_id === c.line_user_id} style={classifyLineContact(c) === "pending" ? btnSave : btnEdit}>
+                        {classifyLineContact(c) === "pending" ? "メッセージを確認して登録" : "メッセージ・履歴"}
+                      </button>
                       {editingId === c.line_user_id ? (
                         <>
                           <button
@@ -635,6 +926,16 @@ export default function ContactsPage() {
       </p>
     </div>
   );
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "日時不明";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(date);
 }
 
 function Th({ children }: { children: React.ReactNode }) {

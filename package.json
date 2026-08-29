@@ -18,9 +18,11 @@
     "export:line-manager-chats": "node scripts/export-line-manager-chats.mjs",
     "export:line-manager-contacts": "node scripts/export-line-manager-contacts.mjs",
     "import:line-manager-aliases": "node scripts/import-line-manager-aliases.mjs",
+    "sync:line-manager-helper": "node scripts/line-manager-sync-helper.mjs",
+    "db:apply-line-contact-verification": "node scripts/apply-line-contact-verification-schema.mjs",
     "export:line-profiles": "node scripts/export-line-profiles.mjs",
     "link:students": "node scripts/link-students-from-line-history.mjs",
-    "test:attendance": "node --test tests/attendance.test.mjs tests/classroom-attendance-display.test.mjs tests/line-alias-import.test.mjs",
+    "test:attendance": "node --test tests/attendance.test.mjs tests/classroom-attendance-display.test.mjs tests/line-alias-import.test.mjs tests/line-contact-registration.test.mjs",
     "test": "npm run test:attendance",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"

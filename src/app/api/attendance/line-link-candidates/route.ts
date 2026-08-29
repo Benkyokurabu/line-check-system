@@ -30,6 +30,7 @@ type LineAccountRow = {
 };
 
 type LineMessageRelation = {
+  id: string;
   line_user_id: string | null;
   display_name: string | null;
   text: string | null;
@@ -162,7 +163,7 @@ export async function GET() {
   const [{ data: candidates, error }, { data: roster, error: rosterError }, accountsResult, legacyLinksResult, { data: aliases, error: aliasesError }, evidenceResult] = await Promise.all([
     supabase
       .from("attendance_candidates")
-      .select("id,student_number,suggested_student_name,status,created_at,line_messages(line_user_id,display_name,text,received_at)")
+      .select("id,student_number,suggested_student_name,status,created_at,line_messages(id,line_user_id,display_name,text,received_at)")
       .in("status", ["pending", "notion_failed"])
       .order("created_at", { ascending: false })
       .limit(1000),
@@ -254,6 +255,7 @@ export async function GET() {
       candidate_count: sorted.length,
       suggested_names: suggestedNames,
       latest_text: latestLineMessage?.text ?? identityEvidence?.evidence_text ?? null,
+      evidence_message_id: identityEvidence?.detected_message_id ?? latestLineMessage?.id ?? null,
       identity_evidence: identityEvidence,
       suggestions,
       default_student_number: top?.student_number ?? "",
