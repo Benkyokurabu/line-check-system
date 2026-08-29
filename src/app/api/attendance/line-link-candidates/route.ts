@@ -10,6 +10,8 @@ type RosterRow = {
   grade: string;
   campus: string | null;
   homeroom_teacher: string | null;
+  school_name: string | null;
+  instruction_type: string | null;
 };
 
 type PendingCandidateRow = {
@@ -169,7 +171,7 @@ export async function GET() {
       .limit(1000),
     supabase
       .from("student_roster")
-      .select("student_number,student_name,grade,campus,homeroom_teacher"),
+      .select("student_number,student_name,grade,campus,homeroom_teacher,school_name,instruction_type"),
     supabase
       .from("student_line_accounts")
       .select("line_user_id,student_number,relation,alias_name,friend_display_name"),

@@ -8,11 +8,34 @@ import {
   helperOriginAllowed,
   normalizeVerificationTargets,
   relationLabel,
+  studentInstructionTypeLabel,
+  studentRegistrationLabel,
+  studentRegistrationSearchText,
 } from "../src/lib/line-contact-registration.mjs";
 
 test("buildLineContactAlias makes campus/student/relation label", () => {
   assert.equal(buildLineContactAlias({ student_name: "山田 太郎", campus: "本校" }, "mother"), "本　山田太郎　母");
   assert.equal(buildLineContactAlias({ student_name: "佐藤花子", campus: "南教室" }, "student"), "南　佐藤花子");
+});
+
+test("student registration labels show grade, instruction type and identifying details", () => {
+  const student = {
+    student_number: "2026123",
+    student_name: "山田 太郎",
+    grade: "高3",
+    instruction_type: "個別",
+    campus: "本校",
+    school_name: "県立高校",
+    homeroom_teacher: "吉川",
+  };
+  assert.equal(studentInstructionTypeLabel(student.instruction_type), "個別");
+  assert.equal(studentRegistrationLabel(student), "高3｜山田 太郎｜個別｜本校｜県立高校｜生徒番号 2026123");
+  assert.match(studentRegistrationSearchText(student), /高3個別本校県立高校吉川/);
+});
+
+test("student registration labels make missing instruction type explicit", () => {
+  assert.equal(studentInstructionTypeLabel(null), "授業形態未設定");
+  assert.match(studentRegistrationLabel({ student_name: "佐藤花子", grade: "高1" }), /授業形態未設定/);
 });
 
 test("normalizeVerificationTargets rejects empty and duplicate students", () => {

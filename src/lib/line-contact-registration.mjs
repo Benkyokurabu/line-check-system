@@ -13,6 +13,36 @@ export function buildLineContactAlias(student, relation) {
   return `${base}　保護者`;
 }
 
+export function studentInstructionTypeLabel(value) {
+  const instructionType = String(value ?? "").trim();
+  return instructionType || "授業形態未設定";
+}
+
+export function studentRegistrationLabel(student) {
+  if (!student) return "";
+  return [
+    student.grade || "学年未設定",
+    student.student_name || "氏名未設定",
+    studentInstructionTypeLabel(student.instruction_type),
+    student.campus || "校舎未設定",
+    student.school_name || null,
+    student.student_number ? `生徒番号 ${student.student_number}` : null,
+  ].filter(Boolean).join("｜");
+}
+
+export function studentRegistrationSearchText(student) {
+  if (!student) return "";
+  return [
+    student.student_number,
+    student.student_name,
+    student.grade,
+    student.instruction_type,
+    student.campus,
+    student.school_name,
+    student.homeroom_teacher,
+  ].filter(Boolean).join("").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+}
+
 export function normalizeVerificationTargets(targets) {
   if (!Array.isArray(targets) || targets.length < 1 || targets.length > 10) {
     throw new Error("登録する生徒を1名以上選択してください");

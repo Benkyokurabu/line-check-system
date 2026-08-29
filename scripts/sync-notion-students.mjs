@@ -123,6 +123,7 @@ async function fetchNotionStudents() {
         homeroom_teacher: firstProperty(properties, ["担任"]) || null,
         school_name: firstProperty(properties, ["中学校", "小学校"]) || null,
         gender: firstProperty(properties, ["性別"]) || null,
+        instruction_type: firstProperty(properties, ["授業形態", "指導形態", "受講形態"]) || null,
       });
     }
 
@@ -165,7 +166,7 @@ async function main() {
 
   const { data: currentRows, error: currentError } = await supabase
     .from("student_roster")
-    .select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,source_file")
+    .select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,instruction_type,source_file")
     .in("student_number", studentNumbers);
   if (currentError) throw new Error(currentError.message);
 
@@ -181,6 +182,7 @@ async function main() {
       campus: student.campus || current?.campus || null,
       school_name: student.school_name || current?.school_name || null,
       gender: student.gender || current?.gender || null,
+      instruction_type: student.instruction_type || current?.instruction_type || null,
       source_file: current?.source_file || "Notion生徒情報DB",
       updated_at: updatedAt,
     };

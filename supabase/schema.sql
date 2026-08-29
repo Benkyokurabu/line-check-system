@@ -47,6 +47,7 @@ create table if not exists public.student_roster (
   campus text,
   school_name text,
   gender text,
+  instruction_type text,
   source_file text,
   updated_at timestamptz not null default now()
 );

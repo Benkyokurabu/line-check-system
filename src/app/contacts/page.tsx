@@ -4,7 +4,14 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
 import { parseLineAliasCsv } from "@/lib/line-alias-import.mjs";
-import { buildLineContactAlias, classifyLineContact, relationLabel } from "@/lib/line-contact-registration.mjs";
+import {
+  buildLineContactAlias,
+  classifyLineContact,
+  relationLabel,
+  studentInstructionTypeLabel,
+  studentRegistrationLabel,
+  studentRegistrationSearchText,
+} from "@/lib/line-contact-registration.mjs";
 
 type RosterImportFile = { file: string; status?: string };
 type RosterImportPreview = { changed?: boolean; first_import?: boolean; message?: string; files?: RosterImportFile[]; changed_files?: RosterImportFile[]; students?: number; class_enrollments?: number; skipped?: boolean };
@@ -28,6 +35,9 @@ type RegisteredAccount = {
   student_number: string;
   student_name: string;
   grade: string;
+  instruction_type: string | null;
+  campus: string | null;
+  school_name: string | null;
   relation: string;
   alias_name: string | null;
   verification_status: string;
@@ -42,7 +52,15 @@ type ContactDetail = {
   identity_evidence: { detected_message_id: string | null; evidence_text: string; evidence_at: string | null; parsed_student_name: string | null; relation: string; review_status: string } | null;
   registration_history: { id: string; student_number: string | null; action: string; relation: string | null; alias_name: string | null; performed_by: string; source: string; created_at: string; evidence_message_id: string | null }[];
 };
-type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
+type Student = {
+  student_number: string;
+  student_name: string;
+  grade: string;
+  campus: string | null;
+  homeroom_teacher: string | null;
+  school_name: string | null;
+  instruction_type: string | null;
+};
 type ContactTab = "pending" | "system_registered" | "other" | "all";
 
 type AliasImportStatus = "insert" | "same_existing" | "different_existing" | "conflict" | "unmatched";
@@ -434,7 +452,7 @@ export default function ContactsPage() {
     if (!student) { setVerificationMsg("登録する生徒を選択してください。"); return; }
     if (!selectedEvidenceMessageId) { setVerificationMsg("確認に使ったLINEメッセージを選択してください。"); return; }
     const aliasName = buildLineContactAlias(student, selectedRelation);
-    if (!window.confirm(`LINEメッセージを確認済みとして、\n${student.grade} ${student.student_name}（${relationLabel(selectedRelation)}）\n登録名「${aliasName}」で登録します。\n\n確認者: ${operatorName.trim()}`)) return;
+    if (!window.confirm(`LINEメッセージを確認済みとして、\n${studentRegistrationLabel(student)}\n続柄：${relationLabel(selectedRelation)}\n登録名「${aliasName}」で登録します。\n\n確認者: ${operatorName.trim()}`)) return;
     setVerificationSaving(true);
     setVerificationMsg("登録しています...");
     try {
@@ -483,7 +501,7 @@ export default function ContactsPage() {
   const normalizedStudentQuery = studentQuery.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
   const matchingStudents = students.filter((student) => {
     if (!normalizedStudentQuery) return false;
-    const haystack = `${student.student_number}${student.student_name}${student.grade}`.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+    const haystack = studentRegistrationSearchText(student);
     return haystack.includes(normalizedStudentQuery);
   }).slice(0, 8);
   const selectedAlias = selectedStudent ? buildLineContactAlias(selectedStudent, selectedRelation) : "";
@@ -711,13 +729,21 @@ export default function ContactsPage() {
 
               {!selectedContact.system_verified && <div style={{ display: "grid", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
                 <strong>②〜④ 登録内容を選択</strong>
-                <label style={{ display: "grid", gap: 5 }}>② 生徒を名前・学年・生徒番号で検索
-                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="例：山田太郎" />
+                <div style={{ padding: "9px 11px", borderRadius: 7, background: "#eff6ff", color: "#1e3a8a", fontSize: "0.8rem", lineHeight: 1.6 }}>
+                  高校生・個別指導生も同じ名簿から登録できます。LINEメッセージの氏名と、学年・授業形態・校舎・学校・生徒番号を照合してください。
+                </div>
+                <label style={{ display: "grid", gap: 5 }}>② 生徒を検索
+                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="氏名・高3・個別・学校名・生徒番号など" />
                 </label>
-                {matchingStudents.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); }} style={selectedStudentNumber === student.student_number ? btnSave : btnEdit}>{student.grade} {student.student_name}</button>)}
+                {matchingStudents.length > 0 && <div style={{ display: "grid", gap: 7 }}>
+                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); }} style={{ ...(selectedStudentNumber === student.student_number ? btnSave : btnEdit), padding: "9px 11px", textAlign: "left", lineHeight: 1.5 }}>{studentRegistrationLabel(student)}</button>)}
                 </div>}
-                {studentQuery && matchingStudents.length === 0 && !selectedStudent && <span style={{ color: "#b42318", fontSize: "0.8rem" }}>該当する生徒が見つかりません。</span>}
+                {studentQuery && matchingStudents.length === 0 && !selectedStudent && <span style={{ color: "#b42318", fontSize: "0.8rem", lineHeight: 1.5 }}>該当する生徒が見つかりません。誤って別の生徒へ登録せず、Notion生徒情報DBの状態・氏名・学籍番号を確認して名簿同期してください。</span>}
+                {selectedStudent && <div style={{ padding: "10px 12px", border: "2px solid #16a34a", borderRadius: 7, background: "#f0fdf4", display: "grid", gap: 3 }}>
+                  <strong style={{ color: "#166534" }}>選択中：{selectedStudent.grade} {selectedStudent.student_name}</strong>
+                  <span style={{ fontSize: "0.78rem", color: "#365544" }}>{studentInstructionTypeLabel(selectedStudent.instruction_type)} / {selectedStudent.campus || "校舎未設定"} / {selectedStudent.school_name || "学校未設定"} / 生徒番号 {selectedStudent.student_number}</span>
+                  {!selectedStudent.instruction_type && <span style={{ color: "#b45309", fontSize: "0.75rem", fontWeight: 700 }}>授業形態が未設定です。本人確認はできますが、Notionで「集団・個別・併用」を設定してください。</span>}
+                </div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
                   <label style={{ display: "grid", gap: 5 }}>③ 生徒との続柄
                     <select style={inputStyle} value={selectedRelation} onChange={(event) => setSelectedRelation(event.target.value)}>
@@ -736,7 +762,7 @@ export default function ContactsPage() {
               {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
                 <strong>現在の生徒紐付け</strong>
                 {(selectedContact.registered_accounts ?? []).map((account) => <div key={`${account.student_number}-${account.relation}`} style={{ padding: 9, border: "1px solid var(--line)", borderRadius: 6 }}>
-                  {account.grade} {account.student_name} / {relationLabel(account.relation)} / {account.alias_name ?? "登録名なし"}
+                  {account.grade} {account.student_name} / {studentInstructionTypeLabel(account.instruction_type)} / {relationLabel(account.relation)} / {account.alias_name ?? "登録名なし"}
                   <div style={{ color: "var(--muted)", fontSize: "0.72rem" }}>{account.verification_status === "confirmed" ? `本人確認済み：${account.verified_by ?? "確認者不明"} / ${formatDateTime(account.verified_at)}` : "取込・推定による紐付け（本人確認未完了）"}</div>
                 </div>)}
               </div>}
@@ -808,7 +834,7 @@ export default function ContactsPage() {
                     </div>
                   </td>
                   <td style={td}>
-                    {classifyLineContact(c) === "system_registered" ? <div style={{ display: "grid", gap: 3 }}><span style={{ ...statusBadge("same_existing"), color: "#087a3d" }}>本人確認済み</span><span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>{(c.registered_accounts ?? []).map((account) => `${account.student_name}（${relationLabel(account.relation)}）`).join(" / ")}</span></div>
+                    {classifyLineContact(c) === "system_registered" ? <div style={{ display: "grid", gap: 3 }}><span style={{ ...statusBadge("same_existing"), color: "#087a3d" }}>本人確認済み</span><span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>{(c.registered_accounts ?? []).map((account) => `${account.grade} ${account.student_name}・${studentInstructionTypeLabel(account.instruction_type)}（${relationLabel(account.relation)}）`).join(" / ")}</span></div>
                       : classifyLineContact(c) === "pending" ? <span style={{ ...statusBadge("different_existing"), color: "#9a3412" }}>メッセージ確認待ち</span>
                       : <span style={{ ...statusBadge("unmatched"), color: "#555" }}>取込のみ・未確認</span>}
                   </td>

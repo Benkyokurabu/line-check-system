@@ -48,6 +48,7 @@ export type SyncStudent = {
   homeroom_teacher?: string | null;
   school_name?: string | null;
   gender?: string | null;
+  instruction_type?: string | null;
 };
 
 type ExcelStudentRow = {
@@ -58,6 +59,7 @@ type ExcelStudentRow = {
   campus: string | null;
   school_name: string | null;
   gender: string | null;
+  instruction_type?: string | null;
   source_file: string;
   updated_at: string;
 };
@@ -286,6 +288,7 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
         homeroom_teacher: firstProperty(properties, ["担任"]) || null,
         school_name: firstProperty(properties, ["中学校", "小学校"]) || null,
         gender: firstProperty(properties, ["性別"]) || null,
+        instruction_type: firstProperty(properties, ["授業形態", "指導形態", "受講形態"]) || null,
       });
     }
 
@@ -317,6 +320,7 @@ function targetRosterRowFromNotion(notion: SyncStudent | undefined) {
     campus: notion.campus || null,
     school_name: notion.school_name || null,
     gender: notion.gender || null,
+    instruction_type: notion.instruction_type || null,
     source_file: "Notion生徒情報DB",
     updated_at: new Date().toISOString(),
   } satisfies ExcelStudentRow;
@@ -324,7 +328,7 @@ function targetRosterRowFromNotion(notion: SyncStudent | undefined) {
 
 async function readAppRows(supabase: SupabaseClient, threshold = currentStudentNumberThreshold()) {
   const [studentsResult, enrollmentsResult] = await Promise.all([
-    supabase.from("student_roster").select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,source_file,updated_at"),
+    supabase.from("student_roster").select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,instruction_type,source_file,updated_at"),
     supabase.from("student_class_enrollments").select("student_number,grade,subject,class_name,classroom,source_file,updated_at"),
   ]);
   if (studentsResult.error) throw new Error(studentsResult.error.message);
@@ -360,6 +364,7 @@ function summarizeRow(row: Partial<ExcelStudentRow> | null, classes: string[] = 
     campus: row.campus,
     homeroom_teacher: row.homeroom_teacher,
     school_name: row.school_name,
+    instruction_type: row.instruction_type,
     source_file: row.source_file,
     classes,
   };
@@ -375,6 +380,7 @@ function buildChangeList(target: ExcelStudentRow, app: AppStudentRow | undefined
     ["homeroom_teacher", "担任"],
     ["school_name", "学校"],
     ["gender", "性別"],
+    ["instruction_type", "授業形態"],
   ];
   for (const [key, label] of fields) {
     const before = app[key] ?? "";
@@ -555,7 +561,7 @@ export async function syncActiveNotionStudents({ supabase }: { supabase: Supabas
 
   const { data: currentRows, error: currentError } = await supabase
     .from("student_roster")
-    .select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,source_file")
+    .select("student_number,grade,student_name,homeroom_teacher,campus,school_name,gender,instruction_type,source_file")
     .in("student_number", studentNumbers);
   if (currentError) throw new Error(currentError.message);
 
@@ -571,6 +577,7 @@ export async function syncActiveNotionStudents({ supabase }: { supabase: Supabas
       campus: student.campus || current?.campus || null,
       school_name: student.school_name || current?.school_name || null,
       gender: student.gender || current?.gender || null,
+      instruction_type: student.instruction_type || current?.instruction_type || null,
       source_file: current?.source_file || "Notion生徒情報DB",
       updated_at: updatedAt,
     };
@@ -603,7 +610,11 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   const enrollmentsByNumber = mapByStudent(excel.enrollments as ExcelEnrollmentRow[]);
 
   const rosterRows = selected
-    .map((studentNumber) => targetRosterRow(excelByNumber.get(studentNumber)) ?? targetRosterRowFromNotion(notionByNumber.get(studentNumber)))
+    .map((studentNumber) => {
+      const notion = notionByNumber.get(studentNumber);
+      const row = targetRosterRow(excelByNumber.get(studentNumber)) ?? targetRosterRowFromNotion(notion);
+      return row && notion?.instruction_type ? { ...row, instruction_type: notion.instruction_type } : row;
+    })
     .filter((row): row is ExcelStudentRow => Boolean(row));
   if (rosterRows.length === 0) throw new Error("選択した生徒はクラス一覧Excel/Notion生徒情報に見つかりませんでした");
 
