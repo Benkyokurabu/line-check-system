@@ -4,7 +4,12 @@ import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
 
-import { fileManifest, listRosterExcelFiles } from "@/lib/roster-import-logic.mjs";
+import {
+  fileManifest,
+  listRosterExcelFiles,
+  mergeNotionStudentWithExistingRoster,
+  resolveRosterExcelRoot,
+} from "@/lib/roster-import-logic.mjs";
 import { normalizeStudentName } from "@/lib/student-linking";
 import { notionRequest } from "@/lib/notion";
 import type { createSupabaseAdminClient } from "@/lib/supabase";
@@ -99,6 +104,7 @@ function normalizeCampus(value: unknown) {
 }
 
 function readRosterExcelRowsForSync(files: string[], root = process.cwd(), threshold = currentStudentNumberThreshold()) {
+  const rosterRoot = resolveRosterExcelRoot(root);
   const rows: ExcelStudentRow[] = [];
   const enrollments: ExcelEnrollmentRow[] = [];
   const timestamp = new Date().toISOString();
@@ -107,7 +113,7 @@ function readRosterExcelRowsForSync(files: string[], root = process.cwd(), thres
     const grade = gradeFromFileName(file);
     if (!grade) continue;
 
-    const buffer = fs.readFileSync(path.join(root, file));
+    const buffer = fs.readFileSync(path.join(rosterRoot, file));
     const workbook = XLSX.read(buffer, { type: "buffer" });
     const sheet = workbook.Sheets["クラス一覧表"] ?? workbook.Sheets[workbook.SheetNames[0]];
     const records = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, blankrows: false, defval: "" });
@@ -118,9 +124,9 @@ function readRosterExcelRowsForSync(files: string[], root = process.cwd(), thres
       const gender = cellText(record[3]) || null;
       const campus = normalizeCampus(record[0]);
       const schoolName = cellText(record[4]) || null;
-      const teacher = cellText(record[5]);
+      const teacher = cellText(record[5]) || "未設定";
 
-      if (!studentNumber || !studentName || !teacher) continue;
+      if (!studentNumber || !studentName) continue;
       if (!/^\d+$/.test(studentNumber)) continue;
       if (!isTargetStudentNumber(studentNumber, threshold)) continue;
 
@@ -567,21 +573,11 @@ export async function syncActiveNotionStudents({ supabase }: { supabase: Supabas
 
   const currentByNumber = new Map((currentRows ?? []).map((row) => [row.student_number as string, row]));
   const updatedAt = new Date().toISOString();
-  const rows = notionResult.students.map((student) => {
-    const current = currentByNumber.get(student.student_number);
-    return {
-      student_number: student.student_number,
-      student_name: student.student_name,
-      grade: student.grade || current?.grade || "未設定",
-      homeroom_teacher: student.homeroom_teacher || current?.homeroom_teacher || "未設定",
-      campus: student.campus || current?.campus || null,
-      school_name: student.school_name || current?.school_name || null,
-      gender: student.gender || current?.gender || null,
-      instruction_type: student.instruction_type || current?.instruction_type || null,
-      source_file: current?.source_file || "Notion生徒情報DB",
-      updated_at: updatedAt,
-    };
-  });
+  const rows = notionResult.students.map((student) => mergeNotionStudentWithExistingRoster(
+    student,
+    currentByNumber.get(student.student_number),
+    updatedAt,
+  ));
 
   const { error: syncError } = await supabase
     .from("student_roster")
@@ -613,7 +609,14 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
     .map((studentNumber) => {
       const notion = notionByNumber.get(studentNumber);
       const row = targetRosterRow(excelByNumber.get(studentNumber)) ?? targetRosterRowFromNotion(notion);
-      return row && notion?.instruction_type ? { ...row, instruction_type: notion.instruction_type } : row;
+      if (!row || !notion) return row;
+      return {
+        ...row,
+        ...(row.homeroom_teacher === "未設定" && notion.homeroom_teacher
+          ? { homeroom_teacher: notion.homeroom_teacher }
+          : {}),
+        ...(notion.instruction_type ? { instruction_type: notion.instruction_type } : {}),
+      };
     })
     .filter((row): row is ExcelStudentRow => Boolean(row));
   if (rosterRows.length === 0) throw new Error("選択した生徒はクラス一覧Excel/Notion生徒情報に見つかりませんでした");

@@ -4,6 +4,8 @@ import process from "node:process";
 
 import XLSX from "xlsx";
 
+import { listRosterExcelFiles, resolveRosterExcelRoot } from "../src/lib/roster-import-logic.mjs";
+
 const DEFAULT_CONTACTS = "line_manager_contacts.csv";
 const DEFAULT_OUTPUT = "line_manager_roster_match.csv";
 
@@ -103,13 +105,12 @@ function gradeFromFileName(fileName) {
 }
 
 function readRoster(rootDir) {
-  const files = fs
-    .readdirSync(rootDir)
-    .filter((file) => file.includes("クラス一覧表") && file.endsWith(".xlsx"));
+  const rosterRoot = resolveRosterExcelRoot(rootDir);
+  const files = listRosterExcelFiles(rootDir);
 
   const rows = [];
   for (const file of files) {
-    const workbook = XLSX.readFile(path.join(rootDir, file));
+    const workbook = XLSX.readFile(path.join(rosterRoot, file));
     const sheet = workbook.Sheets["クラス一覧表"] ?? workbook.Sheets[workbook.SheetNames[0]];
     const records = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" });
     const grade = gradeFromFileName(file);

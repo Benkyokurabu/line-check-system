@@ -2,6 +2,8 @@ import fs from "node:fs";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { mergeNotionStudentWithExistingRoster } from "../src/lib/roster-import-logic.mjs";
+
 const DEFAULT_STUDENT_DATA_SOURCE_ID = "19ef0120-80a7-80b7-9f23-000b21e0a53b";
 const NOTION_VERSION = process.env.NOTION_VERSION ?? "2025-09-03";
 const SYNC_STUDENT_STATUSES = ["在塾", "見学中"];
@@ -188,21 +190,11 @@ async function main() {
 
   const currentByNumber = new Map((currentRows ?? []).map((row) => [row.student_number, row]));
   const updatedAt = new Date().toISOString();
-  const rows = notionResult.students.map((student) => {
-    const current = currentByNumber.get(student.student_number);
-    return {
-      student_number: student.student_number,
-      student_name: student.student_name,
-      grade: student.grade || current?.grade || "未設定",
-      homeroom_teacher: student.homeroom_teacher || current?.homeroom_teacher || "未設定",
-      campus: student.campus || current?.campus || null,
-      school_name: student.school_name || current?.school_name || null,
-      gender: student.gender || current?.gender || null,
-      instruction_type: student.instruction_type || current?.instruction_type || null,
-      source_file: current?.source_file || "Notion生徒情報DB",
-      updated_at: updatedAt,
-    };
-  });
+  const rows = notionResult.students.map((student) => mergeNotionStudentWithExistingRoster(
+    student,
+    currentByNumber.get(student.student_number),
+    updatedAt,
+  ));
 
   const { error: syncError } = await supabase
     .from("student_roster")

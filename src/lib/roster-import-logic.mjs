@@ -5,6 +5,7 @@ import * as XLSXNamespace from "xlsx";
 const XLSX = "default" in XLSXNamespace ? XLSXNamespace.default : XLSXNamespace;
 
 export const ROSTER_MANIFEST_KEY = "roster_excel_import_manifest";
+export const CANONICAL_ROSTER_DIRECTORY = "01 ★クラス一覧表(2026)";
 
 const CLASS_COLUMNS = [
   { subject: "数学", classroomIndex: 6, classIndex: 7 },
@@ -12,16 +13,26 @@ const CLASS_COLUMNS = [
   { subject: "国語", classroomIndex: 12, classIndex: 13 },
 ];
 
+export function resolveRosterExcelRoot(root = process.cwd()) {
+  const canonicalRoot = path.join(root, CANONICAL_ROSTER_DIRECTORY);
+  if (fs.existsSync(canonicalRoot) && fs.statSync(canonicalRoot).isDirectory()) {
+    return canonicalRoot;
+  }
+  return root;
+}
+
 export function listRosterExcelFiles(root = process.cwd()) {
+  const rosterRoot = resolveRosterExcelRoot(root);
   return fs
-    .readdirSync(root)
+    .readdirSync(rosterRoot)
     .filter((file) => file.includes("クラス一覧表") && file.endsWith(".xlsx"))
     .sort((a, b) => a.localeCompare(b, "ja"));
 }
 
 export function fileManifest(fileNames, root = process.cwd()) {
+  const rosterRoot = resolveRosterExcelRoot(root);
   return fileNames.map((file) => {
-    const stat = fs.statSync(path.join(root, file));
+    const stat = fs.statSync(path.join(rosterRoot, file));
     return {
       file,
       size: stat.size,
@@ -99,6 +110,7 @@ function normalizeCampus(value) {
 }
 
 export function readRosterExcelRows(files, root = process.cwd()) {
+  const rosterRoot = resolveRosterExcelRoot(root);
   const rows = [];
   const enrollments = [];
   const skippedFiles = [];
@@ -110,7 +122,7 @@ export function readRosterExcelRows(files, root = process.cwd()) {
       continue;
     }
 
-    const workbook = XLSX.readFile(path.join(root, file));
+    const workbook = XLSX.readFile(path.join(rosterRoot, file));
     const sheet = workbook.Sheets["クラス一覧表"] ?? workbook.Sheets[workbook.SheetNames[0]];
     const records = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" });
 
@@ -120,9 +132,9 @@ export function readRosterExcelRows(files, root = process.cwd()) {
       const gender = cellText(record[3]) || null;
       const campus = normalizeCampus(record[0]);
       const schoolName = cellText(record[4]) || null;
-      const teacher = cellText(record[5]);
+      const teacher = cellText(record[5]) || "未設定";
 
-      if (!studentNumber || !studentName || !teacher) continue;
+      if (!studentNumber || !studentName) continue;
       if (!/^\d+$/.test(studentNumber)) continue;
 
       rows.push({
@@ -156,6 +168,49 @@ export function readRosterExcelRows(files, root = process.cwd()) {
   return { rows, enrollments, skippedFiles };
 }
 
+export async function preserveExistingTeachers(supabase, rows) {
+  const missingTeacherNumbers = rows
+    .filter((row) => row.homeroom_teacher === "未設定")
+    .map((row) => row.student_number);
+  if (missingTeacherNumbers.length === 0) return rows;
+
+  const { data, error } = await supabase
+    .from("student_roster")
+    .select("student_number,homeroom_teacher")
+    .in("student_number", missingTeacherNumbers);
+  if (error) throw error;
+
+  const existingTeachers = new Map(
+    (data ?? [])
+      .filter((row) => row.homeroom_teacher && row.homeroom_teacher !== "未設定")
+      .map((row) => [row.student_number, row.homeroom_teacher]),
+  );
+  return rows.map((row) => ({
+    ...row,
+    homeroom_teacher: existingTeachers.get(row.student_number) ?? row.homeroom_teacher,
+  }));
+}
+
+export function mergeNotionStudentWithExistingRoster(student, current, updatedAt = new Date().toISOString()) {
+  const preserveExcelFields = Boolean(current?.source_file?.includes("クラス一覧表"));
+  return {
+    student_number: student.student_number,
+    student_name: preserveExcelFields ? current.student_name : student.student_name,
+    grade: preserveExcelFields ? current.grade : student.grade || current?.grade || "未設定",
+    homeroom_teacher: preserveExcelFields
+      ? current.homeroom_teacher === "未設定"
+        ? student.homeroom_teacher || current.homeroom_teacher
+        : current.homeroom_teacher
+      : student.homeroom_teacher || current?.homeroom_teacher || "未設定",
+    campus: preserveExcelFields ? current.campus : student.campus || current?.campus || null,
+    school_name: preserveExcelFields ? current.school_name : student.school_name || current?.school_name || null,
+    gender: preserveExcelFields ? current.gender : student.gender || current?.gender || null,
+    instruction_type: student.instruction_type || current?.instruction_type || null,
+    source_file: current?.source_file || "Notion生徒情報DB",
+    updated_at: updatedAt,
+  };
+}
+
 export async function importRosterFromExcel({ supabase, root = process.cwd(), force = false }) {
   const preview = await getRosterImportPreview({ supabase, root });
   if (!force && !preview.changed) {
@@ -172,6 +227,7 @@ export async function importRosterFromExcel({ supabase, root = process.cwd(), fo
 
   const { rows, enrollments, skippedFiles } = readRosterExcelRows(preview.files.map((file) => file.file), root);
   const uniqueRows = [...new Map(rows.map((row) => [row.student_number, row])).values()];
+  const rosterRows = await preserveExistingTeachers(supabase, uniqueRows);
   const uniqueEnrollments = [
     ...new Map(
       enrollments.map((row) => [
@@ -183,7 +239,7 @@ export async function importRosterFromExcel({ supabase, root = process.cwd(), fo
 
   const { error } = await supabase
     .from("student_roster")
-    .upsert(uniqueRows, { onConflict: "student_number" });
+    .upsert(rosterRows, { onConflict: "student_number" });
   if (error) throw error;
 
   const { error: deleteEnrollmentError } = await supabase
@@ -212,7 +268,7 @@ export async function importRosterFromExcel({ supabase, root = process.cwd(), fo
   return {
     ...preview,
     skipped: false,
-    students: uniqueRows.length,
+    students: rosterRows.length,
     class_enrollments: uniqueEnrollments.length,
     duplicate_roster_rows_skipped: rows.length - uniqueRows.length,
     skipped_files: skippedFiles,

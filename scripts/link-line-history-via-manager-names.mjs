@@ -5,6 +5,8 @@ import process from "node:process";
 import { createClient } from "@supabase/supabase-js";
 import XLSX from "xlsx";
 
+import { listRosterExcelFiles, resolveRosterExcelRoot } from "../src/lib/roster-import-logic.mjs";
+
 const DEFAULT_CHATS = "line_manager_chats.csv";
 const DEFAULT_PROFILES = "line_profiles_export.csv";
 const DEFAULT_OUTPUT = "line_history_roster_match_by_name.csv";
@@ -155,13 +157,12 @@ function gradeFromFileName(fileName) {
 }
 
 function readRoster(rootDir) {
-  const files = fs
-    .readdirSync(rootDir)
-    .filter((file) => file.includes("クラス一覧表") && file.endsWith(".xlsx"));
+  const rosterRoot = resolveRosterExcelRoot(rootDir);
+  const files = listRosterExcelFiles(rootDir);
 
   const rows = [];
   for (const file of files) {
-    const workbook = XLSX.readFile(path.join(rootDir, file));
+    const workbook = XLSX.readFile(path.join(rosterRoot, file));
     const sheet = workbook.Sheets["クラス一覧表"] ?? workbook.Sheets[workbook.SheetNames[0]];
     const records = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" });
     const grade = gradeFromFileName(file);
