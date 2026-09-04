@@ -41,6 +41,16 @@ const menuItems = [
     title: "LINE登録名の取り込み",
     description: "LINE管理画面で入力した登録名を一覧確認し、編集してから一括反映します。",
   },
+  {
+    href: "/self-study-room",
+    title: "自習室予約",
+    description: "自習室の空き状況を確認し、生徒ごとに座席と時間帯を予約します。",
+  },
+  {
+    href: "/admin/self-study-room",
+    title: "自習室管理",
+    description: "日別の予約確認、予約上限、使用不可時間帯を管理します。",
+  },
 ];
 
 export default function Home() {
