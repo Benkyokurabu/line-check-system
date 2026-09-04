@@ -30,6 +30,7 @@ type Candidate = {
   suggested_subject: string | null; suggested_class_name: string | null;
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
   status: string; notion_error: string | null;
+  review_hidden_at: string | null; review_hidden_by: string | null;
   reply_status?: { sent: boolean; count: number; last_sent_at: string | null; last_sent_by: string | null };
   reply_messages?: ReplyMessage[];
   attendance_candidate_items?: CandidateItem[];
@@ -389,7 +390,7 @@ export default function AttendancePage() {
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去の要対応を非表示" : "過去の要対応も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE登録候補を閉じる" : "LINE登録候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
-      <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>対応済みの表示期間</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value) as HistoryDays)}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
+      <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>消去済みの表示期間</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value) as HistoryDays)}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {analysisStatus && <p role={analysisStatus.alert_active || analysisStatus.dead > 0 ? "alert" : undefined} style={{ flexBasis: "100%", margin: 0, color: analysisStatus.alert_active || analysisStatus.dead > 0 ? "#b42318" : "#555", fontWeight: analysisStatus.alert_active || analysisStatus.dead > 0 ? 800 : 400 }}>待機 {analysisStatus.queued}件（実行可能 {analysisStatus.ready}件・再試行待ち {analysisStatus.retry_wait}件） / 解析中 {analysisStatus.processing}件 / 要確認 {analysisStatus.dead}件 / 直近1時間 {analysisStatus.processed_last_hour}件 / 最終正常実行 {formatTime(analysisStatus.last_worker_succeeded_at)} / 最終確認 {formatTime(analysisStatus.last_checked_at)}{analysisStatus.oldest_queued_at ? ` / 最古 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? ` / エラー: ${analysisStatus.last_worker_error}` : ""}</p>}
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
@@ -401,14 +402,14 @@ export default function AttendancePage() {
     {manualEventsOpen && <ManualEventsPanel students={students} confirmedBy={confirmedBy} refreshKey={manualRefreshKey} onChanged={() => setManualRefreshKey((value) => value + 1)} />}
     <nav aria-label="連絡候補の表示切り替え" style={{ display: "flex", gap: 8, marginTop: 20, padding: 5, border: "1px solid var(--line)", borderRadius: 9, background: "#f7f7f4", width: "fit-content", maxWidth: "100%", flexWrap: "wrap" }}>
       {([
-        { value: "action", label: `要対応 ${actionCandidates.length}件` },
-        { value: "done", label: `対応済み ${doneCandidates.length}件` },
+        { value: "action", label: `表示中 ${actionCandidates.length}件` },
+        { value: "done", label: `消去済み ${doneCandidates.length}件` },
         { value: "all", label: `すべて ${candidates.length}件` },
       ] as Array<{ value: ReviewTab; label: string }>).map((tab) => <button key={tab.value} type="button" aria-pressed={reviewTab === tab.value} onClick={() => { setReviewTab(tab.value); setVisibleCandidateCount(20); }} style={{ ...ghostButtonStyle, border: reviewTab === tab.value ? "1px solid var(--accent)" : "1px solid transparent", background: reviewTab === tab.value ? "white" : "transparent", color: reviewTab === tab.value ? "var(--accent)" : "#555", boxShadow: reviewTab === tab.value ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{tab.label}</button>)}
     </nav>
     {reviewTab === "action" && errorCount > 0 && <div role="alert" style={{ marginTop: 12, border: "1px solid #fecaca", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: "10px 12px", fontWeight: 800 }}>登録エラーが{errorCount}件あります。先頭に表示しています。</div>}
     <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-      {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "要対応の連絡はありません。" : "今日以降の要対応連絡はありません。過去分は「過去pendingも表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の対応済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
+      {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "表示中の連絡はありません。" : "今日以降の表示中の連絡はありません。過去分は「過去の要対応も表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の消去済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
       {visibleCandidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />)}
       {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
@@ -1121,6 +1122,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [lessonLists, setLessonLists] = useState<Record<string, Lesson[]>>({});
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
@@ -1397,6 +1399,29 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     }
   }
 
+  async function changeReviewVisibility() {
+    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+    const hide = !candidate.review_hidden_at;
+    if (hide && !window.confirm("この連絡を表示中の一覧から消しますか？\n消去済みから後で確認できます。")) return;
+    setVisibilityBusy(true);
+    setCardMessage(hide ? "表示を消しています..." : "表示中へ戻しています...");
+    try {
+      const response = await fetch(`/api/attendance/candidates/${candidate.id}/visibility`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: hide, changed_by: confirmedBy }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "表示状態の変更に失敗しました");
+      setMessage(hide ? "連絡を消去済みに移しました。" : "連絡を表示中へ戻しました。");
+      await onChanged();
+    } catch (error) {
+      setCardMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setVisibilityBusy(false);
+    }
+  }
+
   async function copyReply() {
     try {
       await navigator.clipboard.writeText(replyText);
@@ -1425,7 +1450,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+        <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+        <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>

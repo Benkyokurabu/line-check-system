@@ -64,6 +64,15 @@ create index if not exists attendance_candidates_status_idx
 create index if not exists attendance_candidates_student_idx
   on public.attendance_candidates (student_number, event_date desc);
 
+-- Completing a workflow must not remove a card from the review screen. Only an
+-- explicit staff action changes these visibility fields.
+alter table public.attendance_candidates
+  add column if not exists review_hidden_at timestamptz,
+  add column if not exists review_hidden_by text;
+
+create index if not exists attendance_candidates_review_visibility_idx
+  on public.attendance_candidates (review_hidden_at, created_at desc);
+
 create table if not exists public.attendance_candidate_items (
   id uuid primary key default gen_random_uuid(),
   candidate_id uuid not null references public.attendance_candidates (id) on delete cascade,

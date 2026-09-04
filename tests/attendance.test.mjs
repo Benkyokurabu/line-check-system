@@ -260,14 +260,39 @@ test("Notion errors stay first without reordering other incomplete candidates", 
   ]);
 });
 
-test("Notion completion intentionally moves a candidate out of the action tab", () => {
+test("workflow actions never hide a candidate without the explicit display button", () => {
   const candidates = [reviewCandidate("registered", { status: "confirmed" })];
+  assert.deepEqual(actionCandidatesForReview(candidates).map((candidate) => candidate.id), ["registered"]);
   assert.equal(visibleCandidateCountAfterReload({
     candidates,
     reviewTab: "action",
     keepVisibleCandidateId: "registered",
     currentCount: 20,
   }), 20);
+});
+
+test("only an explicitly hidden candidate leaves the visible list", () => {
+  const candidates = [
+    reviewCandidate("registered", { status: "confirmed" }),
+    reviewCandidate("replied", { reply_status: { sent: true } }),
+    reviewCandidate("hidden", { review_hidden_at: "2026-09-04T10:00:00.000Z", review_hidden_by: "吉川" }),
+  ];
+  assert.deepEqual(actionCandidatesForReview(candidates).map((candidate) => candidate.id), ["registered", "replied"]);
+});
+
+test("review visibility is persisted and exposed through explicit UI controls", async () => {
+  const [schema, page, visibilityRoute] = await Promise.all([
+    readFile(new URL("../supabase/attendance_schema.sql", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/attendance/candidates/[id]/visibility/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(schema, /add column if not exists review_hidden_at timestamptz/);
+  assert.match(schema, /add column if not exists review_hidden_by text/);
+  assert.match(page, /"表示を消す"/);
+  assert.match(page, /消去済み/);
+  assert.match(page, /"表示に戻す"/);
+  assert.match(visibilityRoute, /review_hidden_at: body\.hidden \? new Date\(\)\.toISOString\(\) : null/);
+  assert.match(visibilityRoute, /review_hidden_by: body\.hidden \? changedBy : null/);
 });
 
 test("ordinary attendance refresh keeps the normal 20-card page size", () => {

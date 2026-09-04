@@ -4,6 +4,10 @@ export function candidateIsDone(candidate) {
   return candidate?.status === "confirmed" || candidate?.status === "dismissed";
 }
 
+export function candidateIsReviewHidden(candidate) {
+  return Boolean(candidate?.review_hidden_at);
+}
+
 export function candidateHasError(candidate) {
   return candidate?.status === "notion_failed" || Boolean(candidate?.notion_error) ||
     (candidate?.attendance_candidate_items ?? []).some((item) => item?.status === "notion_failed" || Boolean(item?.notion_error));
@@ -16,12 +20,12 @@ export function candidateActionPriority(candidate) {
 
 export function actionCandidatesForReview(candidates) {
   return [...(candidates ?? [])]
-    .filter((candidate) => !candidateIsDone(candidate))
+    .filter((candidate) => !candidateIsReviewHidden(candidate))
     .sort((a, b) => candidateActionPriority(a) - candidateActionPriority(b));
 }
 
 export function doneCandidatesForReview(candidates) {
-  return (candidates ?? []).filter(candidateIsDone);
+  return (candidates ?? []).filter(candidateIsReviewHidden);
 }
 
 export function visibleCandidatesForReview(candidates, reviewTab) {

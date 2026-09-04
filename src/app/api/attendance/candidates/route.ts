@@ -200,6 +200,13 @@ export async function GET(request: Request) {
   if (!includePastPending) {
     openCandidateQuery = openCandidateQuery.or(`event_date.gte.${today},and(event_date.is.null,created_at.gte.${todayStart})`);
   }
+  const visibleClosedCandidateQuery = supabase
+    .from("attendance_candidates")
+    .select(candidateSelect)
+    .in("status", ["confirmed", "dismissed"])
+    .is("review_hidden_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(500);
   const doneCandidateQuery = supabase
     .from("attendance_candidates")
     .select(candidateSelect)
@@ -207,10 +214,21 @@ export async function GET(request: Request) {
     .gte("updated_at", cutoff)
     .order("updated_at", { ascending: false })
     .limit(120);
+  const hiddenCandidateQuery = supabase
+    .from("attendance_candidates")
+    .select(candidateSelect)
+    .not("review_hidden_at", "is", null)
+    .gte("review_hidden_at", cutoff)
+    .order("review_hidden_at", { ascending: false })
+    .limit(120);
   const candidateQuery = status === "review"
-    ? Promise.all([openCandidateQuery, doneCandidateQuery]).then(([openResult, doneResult]) => ({
-        data: [...(openResult.data ?? []), ...(doneResult.data ?? [])],
-        error: openResult.error ?? doneResult.error,
+    ? Promise.all([openCandidateQuery, visibleClosedCandidateQuery, hiddenCandidateQuery]).then(([openResult, visibleClosedResult, hiddenResult]) => ({
+        data: [...new Map([
+          ...(openResult.data ?? []),
+          ...(visibleClosedResult.data ?? []),
+          ...(hiddenResult.data ?? []),
+        ].map((candidate) => [candidate.id, candidate])).values()],
+        error: openResult.error ?? visibleClosedResult.error ?? hiddenResult.error,
       }))
     : status === "done"
       ? doneCandidateQuery
