@@ -39,9 +39,16 @@ export default function ReservationDemo() {
     if(next.blocked) {setSelectionMessage('間に満席の時間帯があるため、選択を広げられません。現在の選択は残しています。');return;}
     updateSelection(next.selection);
   }
-  const summary = <div className={styles.summary}><strong>{actor==='student' ? 'デモ生徒A' : child} さん</strong>
-    <p>本校自習室 ／ {date} ／ {seat}番席<br/>{selectedSlots.join(' ／ ')}<br/>{selectedSlots.length}コマ・{selectedSlots.length*90}分（休憩時間を除く）</p>
-    <p>{actor==='guardian' ? '保護者による代理申請' : '生徒本人による申請'}{date===today ? '・当日申請' : '・事前申請'}</p></div>;
+  const summary = <dl className={styles.summary} aria-label="予約内容">
+    <div><dt>生徒名</dt><dd><strong>{actor==='student' ? 'デモ生徒A' : child} さん</strong></dd></div>
+    <div><dt>教室</dt><dd>本校自習室</dd></div>
+    <div><dt>利用日</dt><dd>{date}</dd></div>
+    <div><dt>座席</dt><dd>{seat}番席</dd></div>
+    <div><dt>時間帯</dt><dd>{selectedSlots.map(slot=><div key={slot}>{slot}</div>)}</dd></div>
+    <div><dt>合計時間</dt><dd>{selectedSlots.length}コマ・{selectedSlots.length*90}分<span className={styles.summaryNote}>休憩時間を除く</span></dd></div>
+    <div><dt>申請する人</dt><dd>{actor==='guardian' ? '保護者による代理申請' : '生徒本人による申請'}</dd></div>
+    <div><dt>申請区分</dt><dd>{date===today ? '当日申請' : '事前申請'}</dd></div>
+  </dl>;
   return <main className={styles.screen}><section className={styles.panel}>
     <span className={styles.badge}>操作デモ・実際の予約は登録されません</span>
     <h1>勉強クラブ本校<br/>自習室予約</h1>

@@ -36,6 +36,15 @@ test('student demo covers unavailable seats, request, staff approval and cancell
   await page.screenshot({path:'test-results/reservation-demo-seat-map.png',fullPage:true});
   await page.getByRole('button',{name:'申請内容を確認する'}).click();
   await expect(page.getByRole('heading',{name:'この内容で申請しますか？'})).toBeVisible();
+  const summary=page.locator('dl[aria-label="予約内容"]');
+  await expect(summary.locator('dt')).toHaveText(['生徒名','教室','利用日','座席','時間帯','合計時間','申請する人','申請区分']);
+  const rows=await summary.locator(':scope > div').all();
+  for(let index=1;index<rows.length;index++) {
+    const before=await rows[index-1].boundingBox();
+    const after=await rows[index].boundingBox();
+    expect(after!.y).toBeGreaterThanOrEqual(before!.y+before!.height);
+  }
+  await expect(summary.locator('dd').nth(4).locator('div')).toHaveCount(3);
   await expect(page.getByText(/3コマ・270分/)).toBeVisible();
   await page.getByRole('button',{name:'この内容で申請する（デモ）'}).click();
   await expect(page.getByRole('status')).toContainText('承認待ち');
