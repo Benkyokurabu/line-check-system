@@ -33,6 +33,7 @@ before(async () => {
   await db.exec(await readFile(new URL("../supabase/staff_study_room_intake_20260905.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_options_20260905.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_visits_20260905.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/staff_study_room_visit_history_20260905.sql", import.meta.url), "utf8"));
 });
 after(async () => { await db.close(); });
 beforeEach(async () => {
@@ -121,6 +122,28 @@ test('visit audit failure rolls back facts and migration never restores revoked 
   await db.exec("delete from public.staff_role_permissions where permission='study_room.visit';");
   await db.exec(await readFile(new URL('../supabase/staff_study_room_visits_20260905.sql',import.meta.url),'utf8'));
   await assert.rejects(save(),/staff_permission_denied/);
+});
+
+test('visit history is permission checked, strips internal identities and pages by immutable version',async()=>{
+  const {save,approved}=await visitFixture();
+  for(let version=0;version<23;version++) await save(version,null,null,version?'時刻確認の訂正':'');
+  const read=(before=null)=>db.query('select public.staff_study_room_visit_history($1,$2,$3,$4) result',[userId,sessionId,approved.id,before]);
+  await db.exec('set role service_role;');
+  let first;
+  try {first=(await read()).rows[0].result;} finally {await db.exec('reset role;');}
+  assert.equal(first.events.length,20);assert.equal(first.hasMore,true);
+  assert.equal(first.events[0].version,23);assert.equal(first.events.at(-1).version,4);
+  assert.deepEqual(Object.keys(first.events[0]).sort(),['after_state','before_state','reason','recorded_at','staff_code','staff_name','version']);
+  assert.deepEqual(Object.keys(first.events[0].after_state).sort(),['destination','ended_at','started_at']);
+  await save(23,null,null,'追加の訂正');
+  const second=(await read(4)).rows[0].result;
+  assert.deepEqual(second.events.map(event=>event.version),[3,2,1]);assert.equal(second.hasMore,false);
+  assert.equal(second.events.at(-1).before_state,null);
+  await db.query("insert into public.staff_permission_overrides values ($1,'study_room.read',false)",[staffId]);
+  await assert.rejects(read(),/staff_permission_denied/);
+  const rights=(await db.query(`select has_function_privilege('anon','public.staff_study_room_visit_history(uuid,uuid,uuid,integer)','EXECUTE') a,
+    has_function_privilege('authenticated','public.staff_study_room_visit_history(uuid,uuid,uuid,integer)','EXECUTE') b`)).rows[0];
+  assert.deepEqual(rights,{a:false,b:false});
 });
 
 test('cancelled visits retain facts for correction but unapproved requests cannot record arrivals',async()=>{

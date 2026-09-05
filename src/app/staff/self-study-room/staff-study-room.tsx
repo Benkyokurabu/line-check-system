@@ -5,6 +5,7 @@ import { getJapanDate } from "@/lib/reservation-date.mjs";
 import styles from "./staff-study-room.module.css";
 import StaffIntake from "./staff-intake";
 import StaffVisit, {destinations,type Visit} from './staff-visit';
+import VisitHistory from './visit-history';
 
 type Staff = { staffId: string; displayName: string };
 type Status = "pending" | "approved" | "rejected" | "cancelled";
@@ -158,6 +159,7 @@ export default function StaffStudyRoom() {
           <p>退室：{row.visit?.ended_at ? intakeTime(row.visit.ended_at) : '未確認'}</p>
           {row.visit && <p>移動先：{row.visit.destination ? destinations[row.visit.destination] : '未記録'}<br/>最終確認：{intakeTime(row.visit.confirmed_at)} ／ {row.visit.staff_name}（現在の登録名）</p>}
           <h2>{row.student_name} <small>（{row.grade}・{row.student_number}）</small></h2>
+          <VisitHistory requestId={row.id} busy={frozen} request={request} work={work}/>
           <p>{row.reservation_date} ／ {row.seat}番席<br />{row.slot_ids.join("、")}</p>
           <p>{row.request_kind === "same_day" ? "当日申請" : "事前申請"} ／ {row.intake_channel === "line_screen" ? "LINE予約画面" : row.intake_channel === "line_message" ? "LINE個別連絡" : "職員代理入力"}</p>
           {row.staff_intake && <details className={styles.evidence}><summary>代理受付の経緯を確認</summary>

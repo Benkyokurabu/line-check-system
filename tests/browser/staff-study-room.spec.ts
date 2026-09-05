@@ -26,6 +26,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
   if(visitMode) row={...row,status:'approved',version:2};
   let visit:Record<string,unknown>|null=null;
   const visits:Record<string,unknown>[]=[];
+  const historyQueries:string[]=[];
   const operations: Record<string, unknown>[] = [];
   const forbidden: string[] = [];
   const intakes: Record<string, unknown>[] = [];
@@ -54,6 +55,14 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
         confirmed_at:'2030-01-01T12:00:00Z',staff_name:'検証職員'};
       if(loseVisit && visits.length===1) {await route.abort('connectionreset');return;}
       await route.fulfill({json:{visit}});return;
+    }
+    if(url.pathname==='/api/staff/study-room/visit-history') {
+      if(!loggedIn) {await route.fulfill({status:401,json:{error:'ログインし直してください。'}});return;}
+      historyQueries.push(url.search);
+      const older=url.searchParams.has('before');
+      await route.fulfill({json:{events:[{version:older?1:21,reason:older?'':'移動先を再確認\n<script>文字列として表示</script>',recorded_at:'2030-01-01T08:00:00Z',staff_name:'履歴確認職員',staff_code:'HISTORY01',
+        before_state:older?null:{started_at:'2030-01-01T05:55:00Z',ended_at:'2030-01-01T07:25:00Z',destination:'lesson'},
+        after_state:{started_at:'2030-01-01T05:55:00Z',ended_at:older?null:'2030-01-01T07:25:00Z',destination:older?null:'home'}}],hasMore:!older}});return;
     }
     if(url.pathname==='/api/staff/study-room/intake-options') {
       if(!loggedIn) {await route.fulfill({status:401,json:{error:'ログインし直してください。'}});return;}
@@ -84,7 +93,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
   await page.getByLabel("対象日").fill("2030-01-01");
   await page.getByRole("button", { name: "一覧を更新" }).click();
   await expect(page.getByRole("heading", { name: /検証用の生徒/ })).toBeVisible();
-  return { operations, forbidden, intakes, visits, expireSession: () => { loggedIn = false; } };
+  return { operations, forbidden, intakes, visits, historyQueries, expireSession: () => { loggedIn = false; } };
 }
 
 test("login, explicit confirmation, approval refresh and logout remove student data", async ({ page }) => {
@@ -261,4 +270,24 @@ test('visit controls respect permission and expiry clears open editor',async({pa
   await expect(page.getByLabel('職員コード')).toBeVisible();
   await expect(editor).toHaveCount(0);
   expect(state.visits).toHaveLength(0);
+});
+
+test('read-only staff compare visit history, page older records and expiry removes all details',async({page})=>{
+  const state=await setup(page,{readOnly:true});
+  await page.getByRole('button',{name:'来室・退室の履歴を確認'}).click();
+  const history=page.getByRole('region',{name:'来室・退室の変更履歴'});
+  await expect(history.getByRole('heading',{name:'第21版',exact:true})).toBeVisible();
+  await expect(history.getByText('移動先：授業へ移動',{exact:true})).toBeVisible();
+  await expect(history.getByText('移動先：帰宅',{exact:true})).toBeVisible();
+  await expect(history.getByText('記録日時：2030/01/01 17:00:00',{exact:true})).toBeVisible();
+  await expect(history.locator('script')).toHaveCount(0);
+  await history.getByRole('button',{name:'さらに古い20件を表示'}).click();
+  await expect(history.getByRole('heading',{name:'第1版',exact:true})).toBeVisible();
+  expect(state.historyQueries[1]).toContain('before=21');
+  await expect(history.getByRole('button',{name:'さらに古い20件を表示'})).toHaveCount(0);
+  state.expireSession();
+  await page.getByRole('button',{name:'来室・退室の履歴を確認'}).click();
+  await expect(page.getByLabel('職員コード')).toBeVisible();
+  await expect(history).toHaveCount(0);
+  expect(state.operations).toHaveLength(0);expect(state.visits).toHaveLength(0);expect(state.forbidden).toEqual([]);
 });
