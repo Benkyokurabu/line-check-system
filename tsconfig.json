@@ -32,5 +32,5 @@
     ".next-staff-test/types/**/*.ts",
     ".next-staff-test/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "**/*.before_*.*"]
 }
