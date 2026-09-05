@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { submitStaffStudyRoom } from "../src/lib/staff-study-room-intake.mjs";
 import { loginStaff, requireStaff, logoutStaff, isStaffSameOrigin, staffCookieOptions,
   transitionStaffStudyRoom, listStaffStudyRoom } from "../src/lib/staff-auth-core.mjs";
 
@@ -118,4 +119,19 @@ test("request list validates date, filter and pagination before RPC", async () =
   await listStaffStudyRoom(f.dataClient, identity, { date: "2030-01-01", offset: 50, status: "pending" });
   assert.deepEqual(f.calls[0], ["staff_study_room_requests", { p_auth_user_id: user,
     p_auth_session_id: sessionId, p_date: "2030-01-01", p_status: "pending", p_offset: 50 }]);
+});
+test("proxy submission validates input and always uses verified identity", async () => {
+  const f = fixture(); const identity = { authUserId:user,authSessionId:sessionId };
+  const input = { operationKey:sessionId,studentNumber:'test',date:'2030-01-01',seat:1,
+    slotIds:['14:55-16:25'],contactChannel:'line_message',note:'Confirmed by staff',actorId:'forged' };
+  for (const change of [{ note:'' },{ contactChannel:'line_screen' },{ slotIds:[] },{ seat:11 },{ date:'2030-02-30' }]) {
+    await assert.rejects(submitStaffStudyRoom(f.dataClient,identity,{...input,...change}),status(400));
+  }
+  assert.equal(f.calls.length,0);
+  await submitStaffStudyRoom(f.dataClient,identity,input);
+  assert.equal(f.calls[0][0],'staff_study_room_submit');
+  assert.equal(f.calls[0][1].p_auth_user_id,user);
+  assert.equal('actorId' in f.calls[0][1],false);
+  f.dataClient.rpc = async () => ({ error:{message:'pending_student_slot_conflict'} });
+  await assert.rejects(submitStaffStudyRoom(f.dataClient,identity,input),status(409));
 });

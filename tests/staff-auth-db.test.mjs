@@ -30,18 +30,19 @@ before(async () => {
   }
   await db.exec(migration);
   await db.exec(await readFile(new URL("../supabase/staff_study_room_read_20260905.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/staff_study_room_intake_20260905.sql", import.meta.url), "utf8"));
 });
 after(async () => { await db.close(); });
 beforeEach(async () => {
-  await db.exec(`truncate public.study_room_notification_intents, public.study_room_request_events,
+  await db.exec(`truncate public.study_room_staff_intakes, public.study_room_notification_intents, public.study_room_request_events,
     public.study_room_reservations, public.study_room_requests, public.study_room_day_settings,
     public.student_line_accounts, public.student_roster;
     update public.study_room_workflow_settings set enabled=true;`);
-  await db.exec(`truncate public.staff_session_activity,public.staff_permission_overrides,public.staff_accounts,
+  await db.exec(`truncate public.study_room_staff_intakes,public.staff_session_activity,public.staff_permission_overrides,public.staff_accounts,
     public.staff_login_buckets,auth.sessions,auth.users;
     update public.staff_auth_settings set enabled=true,idle_seconds=1800,absolute_seconds=28800;
     delete from public.staff_role_permissions;
-    insert into public.staff_role_permissions values ('office','study_room.approve'),('office','study_room.read'),('office','study_room.cancel');
+    insert into public.staff_role_permissions values ('office','study_room.approve'),('office','study_room.read'),('office','study_room.cancel'),('office','study_room.submit');
   `);
   await db.query("insert into auth.users(id,email,encrypted_password) values ($1,'staff@example.invalid','fixture-password-hash')", [userId]);
   staffId = (await db.query(`insert into public.staff_accounts(auth_user_id,staff_code,display_name,role,active)
@@ -200,4 +201,62 @@ test("request read RPC is not executable by browser roles and refuses disabled w
   assert.deepEqual(privileges,{ a:false,b:false });
   await db.exec("update public.study_room_workflow_settings set enabled=false;");
   await assert.rejects(db.query("select public.staff_study_room_requests($1,$2,'2030-01-01')", [userId,sessionId]), /workflow_disabled/);
+});
+
+async function proxyFixture() {
+  await authorize({ initialize:true });
+  await db.exec(`insert into public.student_roster(student_number,grade,student_name,homeroom_teacher)
+    values ('proxy-test','test','Proxy Student','Teacher');`);
+  const day = (await db.query("select ((clock_timestamp() at time zone 'Asia/Tokyo')::date + 1)::text as day")).rows[0].day;
+  const key = randomUUID();
+  return (note = 'LINEで例外利用の連絡を確認', channel = 'line_message') => db.query(
+    "select public.staff_study_room_submit($1,$2,$3,'proxy-test',$4,1,array['14:55-16:25'],$5,$6) result",
+    [userId,sessionId,key,day,channel,note]);
+}
+test("staff proxy intake keeps the staff actor, contact reason and pending-only state", async () => {
+  const submit = await proxyFixture();
+  await db.exec("set role service_role;");
+  let result;
+  try { result = (await submit()).rows[0].result; }
+  finally { await db.exec("reset role;"); }
+  assert.equal(result.request.status,'pending');
+  assert.equal(result.request.actor_kind,'staff');
+  assert.equal(result.request.actor_id,staffId);
+  assert.equal(result.request.approved_at,null);
+  const saved = (await db.query("select * from public.study_room_staff_intakes")).rows[0];
+  assert.equal(saved.contact_channel,'line_message');
+  assert.equal(saved.note,'LINEで例外利用の連絡を確認');
+  assert.equal(Number((await db.query("select count(*) n from public.study_room_reservations")).rows[0].n),0);
+  assert.equal(Number((await db.query("select count(*) n from public.study_room_notification_intents")).rows[0].n),0);
+  assert.equal((await submit()).rows[0].result.replayed,true);
+  await assert.rejects(submit('違う内容'),/idempotency_conflict/);
+  await assert.rejects(submit('LINEで例外利用の連絡を確認','in_person'),/idempotency_conflict/);
+});
+test("proxy requires permission and reason and never restores revoked permission on migration rerun", async () => {
+  const submit = await proxyFixture();
+  await assert.rejects(submit('  '),/invalid_request/);
+  await db.exec("delete from public.staff_role_permissions where permission='study_room.submit';");
+  await db.exec(await readFile(new URL("../supabase/staff_study_room_intake_20260905.sql",import.meta.url),'utf8'));
+  await assert.rejects(submit(),/staff_permission_denied/);
+  assert.equal(Number((await db.query("select count(*) n from public.study_room_requests")).rows[0].n),0);
+});
+test("failure saving proxy evidence rolls back the request and event too", async () => {
+  const submit = await proxyFixture();
+  await db.exec("alter table public.study_room_staff_intakes add constraint test_reject_evidence check (note='never');");
+  try { await assert.rejects(submit(),/test_reject_evidence/); }
+  finally { await db.exec("alter table public.study_room_staff_intakes drop constraint test_reject_evidence;"); }
+  assert.equal(Number((await db.query("select count(*) n from public.study_room_requests")).rows[0].n),0);
+  assert.equal(Number((await db.query("select count(*) n from public.study_room_request_events")).rows[0].n),0);
+});
+test("proxy intake cannot bypass closures and browser roles cannot invoke it or alter evidence", async () => {
+  const submit = await proxyFixture();
+  await db.exec(`insert into public.study_room_day_settings(reservation_date,closed_slot_ids)
+    values ((clock_timestamp() at time zone 'Asia/Tokyo')::date+1,'["14:55-16:25"]'::jsonb);`);
+  await assert.rejects(submit(),/slot_closed/);
+  const rights = (await db.query(`select
+    has_function_privilege('anon','public.staff_study_room_submit(uuid,uuid,uuid,text,date,integer,text[],text,text)','EXECUTE') a,
+    has_function_privilege('authenticated','public.staff_study_room_submit(uuid,uuid,uuid,text,date,integer,text[],text,text)','EXECUTE') b,
+    has_table_privilege('service_role','public.study_room_staff_intakes','UPDATE') c,
+    has_table_privilege('service_role','public.study_room_staff_intakes','DELETE') d`)).rows[0];
+  assert.deepEqual(rights,{a:false,b:false,c:false,d:false});
 });
