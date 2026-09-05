@@ -24,7 +24,7 @@
     "link:students": "node scripts/link-students-from-line-history.mjs",
     "test:attendance": "node --test tests/attendance.test.mjs tests/classroom-attendance-display.test.mjs tests/line-alias-import.test.mjs tests/line-contact-registration.test.mjs",
     "test:roster": "node --test tests/roster-import-logic.test.mjs",
-    "test:reservation": "node --test tests/reservation-date.test.mjs",
+    "test:reservation": "node --test tests/reservation-date.test.mjs tests/reservation-access.test.mjs",
     "test": "npm run test:attendance && npm run test:roster && npm run test:reservation",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"
