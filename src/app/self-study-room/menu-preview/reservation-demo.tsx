@@ -1,9 +1,16 @@
 "use client";
 import { useState } from "react";
+import Image from "next/image";
 import { getJapanDate, isValidReservationDate } from "@/lib/reservation-date.mjs";
 import styles from "./reservation-demo.module.css";
 
 const slots = ['14:55–16:25','16:45–18:15','18:35–20:05','20:25–21:55'];
+// Seat centers follow the supplied floor plan; the original image is unchanged.
+const positions = [
+  {seat:1,x:14,y:82},{seat:2,x:14,y:69},{seat:3,x:14,y:56},
+  {seat:4,x:14,y:43},{seat:5,x:14,y:30},{seat:6,x:14,y:17},
+  {seat:7,x:64,y:24.5},{seat:8,x:83.5,y:24.5},{seat:9,x:64,y:37.3},{seat:10,x:83.5,y:37.3},
+];
 type Stage = 'select'|'review'|'pending'|'confirmed'|'cancelled';
 
 // Completely local demonstration: no fetch, API, storage, personal data or LINE send.
@@ -40,9 +47,13 @@ export default function ReservationDemo() {
       <div className={styles.slots}>{slots.map((label,index)=><button key={label} className={`${styles.slot} ${slot===index ? styles.selected : ''}`} aria-pressed={slot===index} onClick={()=>{setSlot(index);setSeat(null);}}>
         <span>{label}</span><small>{index===3 ? '満席（例）' : '空きあり'}</small>
       </button>)}</div>
-      <h2>席を選ぶ</h2><p>数字を押して選択します。灰色の席は予約できません。</p>
+      <h2>配置図から席を選ぶ</h2><p>図の席番号を押して選択します。灰色の席は予約できません。空席状況はデモ用です。</p>
       {full && <p role="status" className={styles.notice}>この時間帯は満席です。別の時間帯を選んでください。</p>}
-      <div className={styles.seats}>{Array.from({length:10},(_,i)=>i+1).map(n=><button key={n} aria-label={`${n}番席${busySeats.includes(n) ? ' 予約済み' : ''}`} aria-pressed={seat===n} disabled={busySeats.includes(n)} className={seat===n ? styles.selected : ''} onClick={()=>setSeat(n)}>{n}</button>)}</div>
+      <div className={styles.map} role="group" aria-label="本校自習室の配置図から座席選択">
+        <Image src="/main-study-room-seat-map.png" alt="本校自習室の配置図。左側に下から1〜6番席、右上に7・8番席と9・10番席。出入口は右側、本棚は右下。" width={1086} height={1448} className={styles.mapImage} priority unoptimized />
+        {positions.map(({seat:n,x,y})=><button key={n} style={{left:`${x}%`,top:`${y}%`}} aria-label={`${n}番席${busySeats.includes(n) ? ' 予約済み' : ''}`} aria-pressed={seat===n} disabled={busySeats.includes(n)} className={seat===n ? styles.selected : ''} onClick={()=>setSeat(n)}>{n}</button>)}
+      </div>
+      <p aria-live="polite">{seat ? `${seat}番席を選択中` : '席を選んでください。'}</p>
       <button className={styles.primary} disabled={!valid} onClick={()=>setStage('review')}>申請内容を確認する</button>
     </>}
     {stage==='review' && <><h2>この内容で申請しますか？</h2>{summary}<p>申請しただけでは予約は確定しません。職員の確認・承認をお待ちください。</p>

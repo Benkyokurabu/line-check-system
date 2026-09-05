@@ -10,6 +10,14 @@ test('student demo covers unavailable seats, request, staff approval and cancell
   });
   await page.setViewportSize({width:390,height:844});
   await page.goto('/self-study-room/menu-preview');
+  const map = page.getByRole('group',{name:'本校自習室の配置図から座席選択'});
+  await expect(map.getByRole('img')).toBeVisible();
+  await expect(map.getByRole('button')).toHaveCount(10);
+  const first = await map.getByRole('button',{name:'1番席',exact:true}).boundingBox();
+  const sixth = await map.getByRole('button',{name:'6番席',exact:true}).boundingBox();
+  const eighth = await map.getByRole('button',{name:'8番席',exact:true}).boundingBox();
+  expect(first!.y).toBeGreaterThan(sixth!.y);
+  expect(eighth!.x).toBeGreaterThan(sixth!.x);
   await expect(page.getByRole('link',{name:'トップページへ'})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
   await page.getByRole('button',{name:/20:25–21:55/}).click();
@@ -17,6 +25,8 @@ test('student demo covers unavailable seats, request, staff approval and cancell
   await expect(page.getByRole('button',{name:'1番席 予約済み',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:/14:55–16:25/}).click();
   await page.getByRole('button',{name:'1番席',exact:true}).click();
+  await expect(page.getByText('1番席を選択中')).toBeVisible();
+  await page.screenshot({path:'test-results/reservation-demo-seat-map.png',fullPage:true});
   await page.getByRole('button',{name:'申請内容を確認する'}).click();
   await expect(page.getByRole('heading',{name:'この内容で申請しますか？'})).toBeVisible();
   await page.getByRole('button',{name:'この内容で申請する（デモ）'}).click();
