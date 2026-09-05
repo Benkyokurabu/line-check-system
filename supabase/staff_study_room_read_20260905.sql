@@ -24,7 +24,7 @@ begin
   select jsonb_object_agg(p,coalesce(
     (select allowed from public.staff_permission_overrides where staff_id=(v_staff->>'staffId')::uuid and permission=p),
     exists(select 1 from public.staff_role_permissions where role=v_staff->>'role' and permission=p)))
-    into v_permissions from unnest(array['study_room.approve','study_room.cancel']) p;
+    into v_permissions from unnest(array['study_room.approve','study_room.cancel','study_room.submit']) p;
   return jsonb_build_object('requests',case when jsonb_array_length(v_rows)>50 then v_rows - 50 else v_rows end,
     'hasMore',jsonb_array_length(v_rows)>50,'permissions',v_permissions);
 end;

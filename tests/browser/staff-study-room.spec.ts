@@ -20,11 +20,13 @@ test("reservation preview has the requested school title and cannot submit a res
   await expect(page.getByRole("link", { name: "トップページへ" })).toHaveCount(0);
 });
 
-async function setup(page: Page, { loseResponse = false, readOnly = false } = {}) {
+async function setup(page: Page, { loseResponse = false, readOnly = false, loseIntake = false, conflictIntake = false } = {}) {
   let loggedIn = false;
   let row = { ...fixtureRow };
   const operations: Record<string, unknown>[] = [];
   const forbidden: string[] = [];
+  const intakes: Record<string, unknown>[] = [];
+  const pupil={student_number:'SOUTH001',student_name:'南の検証生徒',grade:'中1',campus:'南教室'};
   // No request goes to a real service. All API calls are intercepted, and all
   // external hosts are blocked before navigation. The server also uses fake DB env.
   await page.context().route("**/*", async route => {
@@ -40,7 +42,19 @@ async function setup(page: Page, { loseResponse = false, readOnly = false } = {}
     if (url.pathname === "/api/staff/study-room/requests") {
       if (!loggedIn) { await route.fulfill({ status: 401, json: { error: "ログインし直してください。" } }); return; }
       await route.fulfill({ json: { requests: [row], hasMore: false,
-        permissions: { "study_room.approve": !readOnly, "study_room.cancel": !readOnly } } }); return;
+        permissions: { "study_room.approve": !readOnly, "study_room.cancel": !readOnly, "study_room.submit": !readOnly } } }); return;
+    }
+    if(url.pathname==='/api/staff/study-room/intake-options') {
+      if(!loggedIn) {await route.fulfill({status:401,json:{error:'ログインし直してください。'}});return;}
+      await route.fulfill({json:{students:[pupil],hasMore:false,student:url.searchParams.has('student') ? pupil : null,
+        date:url.searchParams.get('date'),booked:[{seat:1,slotId:'16:45-18:15'}],closedSlotIds:['20:25-21:55'],
+        limitMinutes:270,studentMinutes:90,pendingSlotIds:[],studentSlotIds:['18:35-20:05']}});return;
+    }
+    if(url.pathname==='/api/staff/study-room/intake') {
+      intakes.push(route.request().postDataJSON());
+      if(conflictIntake) {await route.fulfill({status:409,json:{error:'空席状況が変わりました。'}});return;}
+      if(loseIntake && intakes.length===1) {await route.abort('connectionreset');return;}
+      await route.fulfill({json:{request:{status:'pending'}}});return;
     }
     if (url.pathname === "/api/staff/study-room/transition") {
       operations.push(route.request().postDataJSON());
@@ -59,7 +73,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false } = {}
   await page.getByLabel("対象日").fill("2030-01-01");
   await page.getByRole("button", { name: "一覧を更新" }).click();
   await expect(page.getByRole("heading", { name: /検証用の生徒/ })).toBeVisible();
-  return { operations, forbidden, expireSession: () => { loggedIn = false; } };
+  return { operations, forbidden, intakes, expireSession: () => { loggedIn = false; } };
 }
 
 test("login, explicit confirmation, approval refresh and logout remove student data", async ({ page }) => {
@@ -94,8 +108,62 @@ test("read-only staff see no approval buttons and mobile layout stays within vie
   const state = await setup(page, { readOnly: true });
   await expect(page.getByRole("button", { name: "承認して確定", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "予約を取り消す", exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'職員による代理受付',exact:true})).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/staff-study-room-mobile.png", fullPage: true });
+  expect(state.forbidden).toEqual([]);
+});
+
+async function prepareIntake(page:Page) {
+  await page.getByRole('button',{name:'職員による代理受付',exact:true}).click();
+  const panel=page.getByRole('region',{name:'職員代理受付'});
+  await panel.getByLabel('代理申請の利用日').fill('2030-01-01');
+  await panel.getByLabel('生徒名・学籍番号').fill('南');
+  await panel.getByRole('button',{name:'生徒を検索'}).click();
+  await panel.getByRole('button',{name:/南の検証生徒/}).click();
+  await expect(panel.getByRole('checkbox',{name:/16:45-18:15/})).toBeDisabled();
+  await panel.getByLabel('希望座席').selectOption('2');
+  await expect(panel.getByRole('checkbox',{name:/16:45-18:15/})).toBeEnabled();
+  await expect(panel.getByRole('checkbox',{name:/18:35-20:05/})).toBeDisabled();
+  await expect(panel.getByRole('checkbox',{name:/20:25-21:55/})).toBeDisabled();
+  await panel.getByRole('checkbox',{name:/14:55-16:25/}).check();
+  await expect(panel.getByRole('button',{name:'申請内容を確認',exact:true})).toBeDisabled();
+  await panel.getByLabel('受付内容・理由（必須）').fill('LINEで本校利用の希望を確認');
+  await panel.getByRole('button',{name:'申請内容を確認',exact:true}).click();
+  return panel;
+}
+
+test('staff proxy retries exactly the same request and protects concurrent confirmation',async ({page})=>{
+  const state=await setup(page,{loseIntake:true});
+  const panel=await prepareIntake(page);
+  expect(state.intakes).toHaveLength(0);
+  await page.getByRole('button',{name:'承認して確定',exact:true}).click();
+  await panel.getByRole('button',{name:'承認待ちとして登録'}).click();
+  await expect(panel.getByRole('button',{name:'同じ申請の結果を再確認'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'内容を確認して実行'})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'代理受付を閉じる'})).toBeDisabled();
+  await expect(panel.getByLabel('生徒名・学籍番号')).toBeDisabled();
+  await panel.getByRole('button',{name:'同じ申請の結果を再確認'}).click();
+  await expect(panel.getByRole('status')).toContainText('承認待ちとして受け付けました');
+  expect(state.intakes).toHaveLength(2);
+  expect(state.intakes[0]).toEqual(state.intakes[1]);
+  expect(state.intakes[0]).toMatchObject({studentNumber:'SOUTH001',seat:2,slotIds:['14:55-16:25'],contactChannel:'line_message'});
+  expect(state.operations).toHaveLength(0);
+  expect(state.forbidden).toEqual([]);
+});
+
+test('proxy conflict requires fresh availability and expired session removes pupil details',async ({page})=>{
+  const state=await setup(page,{conflictIntake:true});
+  const panel=await prepareIntake(page);
+  await panel.getByRole('button',{name:'承認待ちとして登録'}).click();
+  await expect(page.getByRole('status')).toContainText('空席状況が変わりました');
+  await expect(panel.getByRole('button',{name:'承認待ちとして登録'})).toHaveCount(0);
+  await expect(panel.getByRole('button',{name:'同じ申請の結果を再確認'})).toHaveCount(0);
+  state.expireSession();
+  await panel.getByRole('button',{name:'空席を再確認'}).click();
+  await expect(page.getByLabel('職員コード')).toBeVisible();
+  await expect(page.getByText(/選択中：南の検証生徒/)).toHaveCount(0);
+  expect(state.intakes).toHaveLength(1);
   expect(state.forbidden).toEqual([]);
 });
 

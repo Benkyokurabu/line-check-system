@@ -31,6 +31,7 @@ before(async () => {
   await db.exec(migration);
   await db.exec(await readFile(new URL("../supabase/staff_study_room_read_20260905.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_intake_20260905.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/staff_study_room_options_20260905.sql", import.meta.url), "utf8"));
 });
 after(async () => { await db.close(); });
 beforeEach(async () => {
@@ -259,4 +260,44 @@ test("proxy intake cannot bypass closures and browser roles cannot invoke it or 
     has_table_privilege('service_role','public.study_room_staff_intakes','UPDATE') c,
     has_table_privilege('service_role','public.study_room_staff_intakes','DELETE') d`)).rows[0];
   assert.deepEqual(rights,{a:false,b:false,c:false,d:false});
+});
+test("proxy search includes South pupils but returns no LINE identifiers or other pupil booking details", async () => {
+  await authorize({initialize:true});
+  await db.exec(`insert into public.student_roster(student_number,student_name,grade,campus,homeroom_teacher)
+    values ('south-proxy','南の生徒','中1','南教室','Teacher');`);
+  const result = (await db.query("select public.staff_study_room_intake_options($1,$2,'2030-01-01','南','south-proxy') result",[userId,sessionId])).rows[0].result;
+  assert.equal(result.students.length,1);
+  assert.equal(result.student.campus,'南教室');
+  assert.deepEqual(result.booked,[]);
+  assert.deepEqual(result.pendingSlotIds,[]);
+  assert.deepEqual(result.studentSlotIds,[]);
+  assert.deepEqual(Object.keys(result.student).sort(),['campus','grade','student_name','student_number']);
+  await db.query("insert into public.staff_permission_overrides values ($1,'study_room.submit',false)",[staffId]);
+  await assert.rejects(db.query("select public.staff_study_room_intake_options($1,$2,'2030-01-01','南')",[userId,sessionId]),/staff_permission_denied/);
+});
+
+test('proxy options separate own slot conflicts from anonymous seat occupancy and bound search',async()=>{
+  await authorize({initialize:true});
+  await db.exec(`insert into public.student_roster(student_number,student_name,grade,homeroom_teacher)
+    select 'search-'||n,'検索 生徒 '||n,'中1','Teacher' from generate_series(1,25) n;
+    update public.study_room_workflow_settings set enabled=false;
+    insert into public.study_room_reservations(student_number,reservation_date,seat,slot_id,start_time,end_time,grade,student_name,minutes,status)
+    values ('search-1','2030-01-01',8,'14:55-16:25','14:55','16:25','中1','検索 生徒 1',90,'active'),
+      ('search-2','2030-01-01',1,'16:45-18:15','16:45','18:15','中1','検索 生徒 2',90,'active');
+    update public.study_room_workflow_settings set enabled=true;`);
+  const read=()=>db.query("select public.staff_study_room_intake_options($1,$2,'2030-01-01','検索生徒','search-1') result",[userId,sessionId]);
+  await db.exec('set role service_role;');
+  let result;
+  try {result=(await read()).rows[0].result;} finally {await db.exec('reset role;');}
+  assert.equal(result.hasMore,true);assert.equal(result.students.length,20);
+  assert.equal(result.studentMinutes,90);assert.deepEqual(result.studentSlotIds,['14:55-16:25']);
+  assert.equal(result.booked.length,2);
+  for(const booked of result.booked) assert.deepEqual(Object.keys(booked).sort(),['seat','slotId']);
+  const permissions=(await db.query("select public.staff_study_room_requests($1,$2,'2030-01-01') result",[userId,sessionId])).rows[0].result.permissions;
+  assert.equal(permissions['study_room.submit'],true);
+  await db.exec('update public.study_room_workflow_settings set enabled=false;');
+  await assert.rejects(read(),/workflow_disabled/);
+  const rights=(await db.query(`select has_function_privilege('anon','public.staff_study_room_intake_options(uuid,uuid,date,text,text)','EXECUTE') a,
+    has_function_privilege('authenticated','public.staff_study_room_intake_options(uuid,uuid,date,text,text)','EXECUTE') b`)).rows[0];
+  assert.deepEqual(rights,{a:false,b:false});
 });

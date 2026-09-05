@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { getJapanDate } from "@/lib/reservation-date.mjs";
 import styles from "./staff-study-room.module.css";
+import StaffIntake from "./staff-intake";
 
 type Staff = { staffId: string; displayName: string };
 type Status = "pending" | "approved" | "rejected" | "cancelled";
@@ -36,12 +37,14 @@ export default function StaffStudyRoom() {
   const [selected, setSelected] = useState<{ row: Reservation; action: Action } | null>(null);
   const [reason, setReason] = useState("");
   const [retry, setRetry] = useState<Operation | null>(null);
+  const [intakeOpen, setIntakeOpen] = useState(false);
+  const [intakePending, setIntakePending] = useState(false);
 
   async function request(url: string, init?: RequestInit) {
     const response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin" });
     const data = await response.json();
     if (!response.ok) {
-      if (response.status === 401) { setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); }
+      if (response.status === 401) { setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setIntakeOpen(false); setIntakePending(false); }
       throw Object.assign(new Error(data.error ?? "処理に失敗しました。"), { status: response.status });
     }
     return data;
@@ -85,7 +88,7 @@ export default function StaffStudyRoom() {
   }
   async function logout() {
     await work(async () => {
-      setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setPassword("");
+      setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setPassword(""); setIntakeOpen(false); setIntakePending(false);
       try { await request("/api/staff/session", { method: "DELETE" }); setMessage("ログアウトしました。"); }
       catch { setMessage("この画面の情報を消しましたが、サーバー側のログアウトを確認できませんでした。管理者に確認してください。"); }
     });
@@ -110,7 +113,7 @@ export default function StaffStudyRoom() {
       await load(date, status, 0);
     });
   }
-  const frozen = busy || !!retry;
+  const frozen = busy || !!retry || intakePending;
   return <main className={`shell ${styles.screen}`}><section className="panel">
     <p className="eyebrow">職員用</p><h1>自習室の申請管理</h1>
     <p>申請を確認して承認すると予約が確定します。承認時にも空席を再確認します。</p>
@@ -123,6 +126,8 @@ export default function StaffStudyRoom() {
       </form> : <>
         <div className={styles.toolbar}><p>{staff.displayName} さん</p><button onClick={logout} disabled={busy}>ログアウト</button></div>
         <p>共有端末では、離席する前にログアウトしてください。未到着を理由に自動取消・自動連絡は行いません。</p>
+        {permissions['study_room.submit'] && <div className={styles.actions}><button type="button" disabled={frozen} onClick={()=>{setSelected(null);setIntakeOpen(value=>!value);}}>{intakeOpen ? '代理受付を閉じる' : '職員による代理受付'}</button></div>}
+        {intakeOpen && <StaffIntake busy={busy || !!retry} request={request} work={work} onPending={setIntakePending} onDone={async day=>{setDate(day);await load(day,status,0);}} />}
         <div className={styles.toolbar}>
           <label className={styles.field}>対象日<input type="date" value={date} disabled={frozen} onChange={e => { setDate(e.target.value); setRows([]); setOffset(0); setMore(false); setSelected(null); }} /></label>
           <label className={styles.field}>状態<select value={status} disabled={frozen} onChange={e => {
@@ -147,10 +152,10 @@ export default function StaffStudyRoom() {
               : row.status === "pending" && permissions["study_room.approve"]).map(action =>
               <button key={action} className={action === "approve" ? styles.primary : undefined} disabled={frozen} onClick={() => { setSelected({ row, action }); setReason(""); }}>{actionLabels[action]}</button>)}
           </div>
-          {selected?.row.id === row.id && !retry && <form className={styles.confirm} onSubmit={e => { e.preventDefault(); void apply({ operationKey: crypto.randomUUID(), requestId: row.id, expectedVersion: row.version, action: selected.action, reason }); }}>
+          {selected?.row.id === row.id && !retry && <form className={styles.confirm} onSubmit={e => { e.preventDefault(); if(!frozen) void apply({ operationKey: crypto.randomUUID(), requestId: row.id, expectedVersion: row.version, action: selected.action, reason }); }}>
             <p>{row.student_name} さんの上記の申請を「{actionLabels[selected.action]}」します。</p>
             <label className={styles.field}>理由{selected.action === "reject" ? "（必須）" : "（任意）"}<textarea maxLength={2000} required={selected.action === "reject"} value={reason} disabled={busy} onChange={e => setReason(e.target.value)} /></label>
-            <div className={styles.actions}><button disabled={busy} className={styles.primary}>内容を確認して実行</button><button type="button" disabled={busy} onClick={() => setSelected(null)}>戻る</button></div>
+            <div className={styles.actions}><button disabled={frozen} className={styles.primary}>内容を確認して実行</button><button type="button" disabled={frozen} onClick={() => setSelected(null)}>戻る</button></div>
           </form>}
         </article>)}</div>
         {!busy && rows.length === 0 && <p>表示中の申請はありません。「一覧を更新」で最新の状態を確認できます。</p>}
