@@ -20,9 +20,12 @@ test("reservation preview has the requested school title and cannot submit a res
   await expect(page.getByRole("link", { name: "トップページへ" })).toHaveCount(0);
 });
 
-async function setup(page: Page, { loseResponse = false, readOnly = false, loseIntake = false, conflictIntake = false, evidence = false } = {}) {
+async function setup(page: Page, { loseResponse = false, readOnly = false, loseIntake = false, conflictIntake = false, evidence = false, visitMode = false, loseVisit = false } = {}) {
   let loggedIn = false;
   let row = { ...fixtureRow };
+  if(visitMode) row={...row,status:'approved',version:2};
+  let visit:Record<string,unknown>|null=null;
+  const visits:Record<string,unknown>[]=[];
   const operations: Record<string, unknown>[] = [];
   const forbidden: string[] = [];
   const intakes: Record<string, unknown>[] = [];
@@ -41,8 +44,16 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
     }
     if (url.pathname === "/api/staff/study-room/requests") {
       if (!loggedIn) { await route.fulfill({ status: 401, json: { error: "ログインし直してください。" } }); return; }
-      await route.fulfill({ json: { requests: [{...row,staff_intake:evidence ? {contactChannel:'line_message',note:'本校での利用を希望\n<script>悪意のある文字列</script>',staffName:'検証受付担当',staffCode:'OFFICE01',createdAt:'2030-01-01T00:05:00Z'} : null}], hasMore: false,
-        permissions: { "study_room.approve": !readOnly, "study_room.cancel": !readOnly, "study_room.submit": !readOnly } } }); return;
+      await route.fulfill({ json: { requests: [{...row,visit,staff_intake:evidence ? {contactChannel:'line_message',note:'本校での利用を希望\n<script>悪意のある文字列</script>',staffName:'検証受付担当',staffCode:'OFFICE01',createdAt:'2030-01-01T00:05:00Z'} : null}], hasMore: false,
+        permissions: { "study_room.approve": !readOnly, "study_room.cancel": !readOnly, "study_room.submit": !readOnly, "study_room.visit": !readOnly } } }); return;
+    }
+    if(url.pathname==='/api/staff/study-room/visits') {
+      if(!loggedIn) {await route.fulfill({status:401,json:{error:'ログインし直してください。'}});return;}
+      const body=route.request().postDataJSON();visits.push(body);
+      visit={version:body.expectedVersion+1,started_at:body.startedAt,ended_at:body.endedAt,destination:body.destination,
+        confirmed_at:'2030-01-01T12:00:00Z',staff_name:'検証職員'};
+      if(loseVisit && visits.length===1) {await route.abort('connectionreset');return;}
+      await route.fulfill({json:{visit}});return;
     }
     if(url.pathname==='/api/staff/study-room/intake-options') {
       if(!loggedIn) {await route.fulfill({status:401,json:{error:'ログインし直してください。'}});return;}
@@ -73,7 +84,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
   await page.getByLabel("対象日").fill("2030-01-01");
   await page.getByRole("button", { name: "一覧を更新" }).click();
   await expect(page.getByRole("heading", { name: /検証用の生徒/ })).toBeVisible();
-  return { operations, forbidden, intakes, expireSession: () => { loggedIn = false; } };
+  return { operations, forbidden, intakes, visits, expireSession: () => { loggedIn = false; } };
 }
 
 test("login, explicit confirmation, approval refresh and logout remove student data", async ({ page }) => {
@@ -199,4 +210,55 @@ test("expired session clears displayed pupils before allowing another login", as
   await expect(page.getByRole("heading", { name: /検証用の生徒/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "承認して確定", exact: true })).toHaveCount(0);
   expect(state.forbidden).toEqual([]);
+});
+
+test('visit arrival retry, departure destination and correction use separate record versions',async({page})=>{
+  await page.clock.setFixedTime(new Date('2030-01-01T12:00:00Z'));
+  const state=await setup(page,{visitMode:true,loseVisit:true});
+  await page.getByRole('button',{name:'来室・退室を記録'}).click();
+  const editor=page.getByRole('region',{name:'来室・退室の記録'});
+  await expect(editor.getByRole('button',{name:'記録内容を確認',exact:true})).toBeDisabled();
+  await editor.getByLabel('実際の利用開始').fill('14:55:00');
+  await editor.getByRole('button',{name:'記録内容を確認',exact:true}).click();
+  expect(state.visits).toHaveLength(0);
+  await editor.getByRole('button',{name:'確認して記録を保存'}).click();
+  await expect(editor.getByRole('button',{name:'同じ記録の結果を再確認'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'一覧を更新'})).toBeDisabled();
+  await expect(editor.getByRole('button',{name:'記録画面を閉じる'})).toBeDisabled();
+  await editor.getByRole('button',{name:'同じ記録の結果を再確認'}).click();
+  await expect(editor).toHaveCount(0);
+  expect(state.visits[0]).toEqual(state.visits[1]);
+  expect(state.visits[0].startedAt).toBe('2030-01-01T14:55:00+09:00');
+  await expect(page.getByText('来室：2030/01/01 14:55',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'来室・退室を記録'}).click();
+  await editor.getByLabel('実際の利用終了').fill('16:25:00');
+  await expect(editor.getByRole('button',{name:'記録内容を確認',exact:true})).toBeDisabled();
+  await editor.getByLabel('退室後の移動先').selectOption('lesson');
+  await editor.getByRole('button',{name:'記録内容を確認',exact:true}).click();
+  await editor.getByRole('button',{name:'確認して記録を保存'}).click();
+  await expect(editor).toHaveCount(0);
+  expect(state.visits[2]).toMatchObject({expectedVersion:1,destination:'lesson',reason:''});
+  await page.getByRole('button',{name:'来室・退室を記録'}).click();
+  await editor.getByLabel('退室後の移動先').selectOption('home');
+  await expect(editor.getByRole('button',{name:'記録内容を確認',exact:true})).toBeDisabled();
+  await editor.getByLabel('記録・訂正の理由（必須）').fill('行き先を訂正');
+  await editor.getByRole('button',{name:'記録内容を確認',exact:true}).click();
+  await editor.getByRole('button',{name:'確認して記録を保存'}).click();
+  await expect(editor).toHaveCount(0);
+  expect(state.visits[3]).toMatchObject({expectedVersion:2,destination:'home',reason:'行き先を訂正'});
+  expect(state.operations).toHaveLength(0);expect(state.forbidden).toEqual([]);
+});
+
+test('visit controls respect permission and expiry clears open editor',async({page})=>{
+  await page.clock.setFixedTime(new Date('2030-01-01T12:00:00Z'));
+  const state=await setup(page,{visitMode:true});
+  await page.getByRole('button',{name:'来室・退室を記録'}).click();
+  const editor=page.getByRole('region',{name:'来室・退室の記録'});
+  await editor.getByLabel('実際の利用開始').fill('14:55:00');
+  await editor.getByRole('button',{name:'記録内容を確認',exact:true}).click();
+  state.expireSession();
+  await editor.getByRole('button',{name:'確認して記録を保存'}).click();
+  await expect(page.getByLabel('職員コード')).toBeVisible();
+  await expect(editor).toHaveCount(0);
+  expect(state.visits).toHaveLength(0);
 });

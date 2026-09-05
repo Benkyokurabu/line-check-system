@@ -20,17 +20,22 @@ begin
       r.status,r.version,r.request_kind,r.intake_channel,r.created_at,r.updated_at,
       case when i.request_id is not null then jsonb_build_object(
         'contactChannel',i.contact_channel,'note',i.note,'createdAt',i.created_at,
-        'staffName',a.display_name,'staffCode',a.staff_code) else null end as staff_intake
+        'staffName',a.display_name,'staffCode',a.staff_code) else null end as staff_intake,
+      case when v.request_id is not null then jsonb_build_object('version',v.version,
+        'started_at',v.started_at,'ended_at',v.ended_at,'destination',v.destination,
+        'confirmed_at',v.confirmed_at,'staff_name',va.display_name) else null end as visit
     from public.study_room_requests r join public.student_roster s on s.student_number=r.student_number
     left join public.study_room_staff_intakes i on i.request_id=r.id
     left join public.staff_accounts a on a.id=i.staff_id
+    left join public.study_room_visits v on v.request_id=r.id
+    left join public.staff_accounts va on va.id=v.confirmed_by
     where r.reservation_date=p_date and (p_status is null or r.status=p_status)
     order by r.created_at desc,r.id limit 51 offset p_offset
   ) q;
   select jsonb_object_agg(p,coalesce(
     (select allowed from public.staff_permission_overrides where staff_id=(v_staff->>'staffId')::uuid and permission=p),
     exists(select 1 from public.staff_role_permissions where role=v_staff->>'role' and permission=p)))
-    into v_permissions from unnest(array['study_room.approve','study_room.cancel','study_room.submit']) p;
+    into v_permissions from unnest(array['study_room.approve','study_room.cancel','study_room.submit','study_room.visit']) p;
   return jsonb_build_object('requests',case when jsonb_array_length(v_rows)>50 then v_rows - 50 else v_rows end,
     'hasMore',jsonb_array_length(v_rows)>50,'permissions',v_permissions);
 end;

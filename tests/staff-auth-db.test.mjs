@@ -75,6 +75,11 @@ test('visit arrival, departure to lesson and corrections preserve inventory and 
   try {first=(await save(0,null,null,'',key)).rows[0].result;} finally {await db.exec('reset role;');}
   assert.equal(first.visit.version,1);assert.equal(first.visit.ended_at,null);
   assert.equal(first.visit.confirmed_by,staffId);
+  const listed=(await db.query('select public.staff_study_room_requests($1,$2,$3) result',[userId,sessionId,approved.reservation_date])).rows[0].result;
+  assert.equal(listed.permissions['study_room.visit'],true);
+  assert.equal(listed.requests[0].visit.version,1);
+  assert.equal(listed.requests[0].visit.staff_name,'Test Staff');
+  assert.equal('confirmed_by' in listed.requests[0].visit,false);
   assert.equal((await save(0,null,null,'',key)).rows[0].result.replayed,true);
   await assert.rejects(save(0,null,null,'違う理由',key),/idempotency_conflict/);
   await assert.rejects(save(0),/version_conflict/);

@@ -4,12 +4,13 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { getJapanDate } from "@/lib/reservation-date.mjs";
 import styles from "./staff-study-room.module.css";
 import StaffIntake from "./staff-intake";
+import StaffVisit, {destinations,type Visit} from './staff-visit';
 
 type Staff = { staffId: string; displayName: string };
 type Status = "pending" | "approved" | "rejected" | "cancelled";
 type Reservation = { id: string; student_number: string; student_name: string; grade: string;
   reservation_date: string; seat: number; slot_ids: string[]; status: Status; version: number;
-  request_kind: string; intake_channel: string;
+  request_kind: string; intake_channel: string; visit?:Visit|null;
   staff_intake?: {contactChannel:string;note:string;createdAt:string;staffName:string;staffCode:string}|null };
 type Action = "approve" | "reject" | "cancel";
 type Operation = { operationKey: string; requestId: string; expectedVersion: number; action: Action; reason: string };
@@ -47,12 +48,13 @@ export default function StaffStudyRoom() {
   const [retry, setRetry] = useState<Operation | null>(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [intakePending, setIntakePending] = useState(false);
+  const [visitRow,setVisitRow]=useState<Reservation|null>(null);
 
   async function request(url: string, init?: RequestInit) {
     const response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin" });
     const data = await response.json();
     if (!response.ok) {
-      if (response.status === 401) { setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setIntakeOpen(false); setIntakePending(false); }
+      if (response.status === 401) { setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setIntakeOpen(false); setIntakePending(false); setVisitRow(null); }
       throw Object.assign(new Error(data.error ?? "処理に失敗しました。"), { status: response.status });
     }
     return data;
@@ -96,7 +98,7 @@ export default function StaffStudyRoom() {
   }
   async function logout() {
     await work(async () => {
-      setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setPassword(""); setIntakeOpen(false); setIntakePending(false);
+      setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setPassword(""); setIntakeOpen(false); setIntakePending(false); setVisitRow(null);
       try { await request("/api/staff/session", { method: "DELETE" }); setMessage("ログアウトしました。"); }
       catch { setMessage("この画面の情報を消しましたが、サーバー側のログアウトを確認できませんでした。管理者に確認してください。"); }
     });
@@ -121,7 +123,7 @@ export default function StaffStudyRoom() {
       await load(date, status, 0);
     });
   }
-  const frozen = busy || !!retry || intakePending;
+  const frozen = busy || !!retry || intakePending || !!visitRow;
   return <main className={`shell ${styles.screen}`}><section className="panel">
     <p className="eyebrow">職員用</p><h1>自習室の申請管理</h1>
     <p>申請を確認して承認すると予約が確定します。承認時にも空席を再確認します。</p>
@@ -135,7 +137,8 @@ export default function StaffStudyRoom() {
         <div className={styles.toolbar}><p>{staff.displayName} さん</p><button onClick={logout} disabled={busy}>ログアウト</button></div>
         <p>共有端末では、離席する前にログアウトしてください。未到着を理由に自動取消・自動連絡は行いません。</p>
         {permissions['study_room.submit'] && <div className={styles.actions}><button type="button" disabled={frozen} onClick={()=>{setSelected(null);setIntakeOpen(value=>!value);}}>{intakeOpen ? '代理受付を閉じる' : '職員による代理受付'}</button></div>}
-        {intakeOpen && <StaffIntake busy={busy || !!retry} request={request} work={work} onPending={setIntakePending} onDone={async day=>{setDate(day);await load(day,status,0);}} />}
+        {intakeOpen && <StaffIntake busy={busy || !!retry || !!visitRow} request={request} work={work} onPending={setIntakePending} onDone={async day=>{setDate(day);await load(day,status,0);}} />}
+        {visitRow && <StaffVisit key={visitRow.id} row={visitRow} busy={busy} request={request} work={work} onClose={()=>setVisitRow(null)} onDone={async()=>{setVisitRow(null);setRows([]);await load(date,status,0);}}/>}
         <div className={styles.toolbar}>
           <label className={styles.field}>対象日<input type="date" value={date} disabled={frozen} onChange={e => { setDate(e.target.value); setRows([]); setOffset(0); setMore(false); setSelected(null); }} /></label>
           <label className={styles.field}>状態<select value={status} disabled={frozen} onChange={e => {
@@ -151,6 +154,9 @@ export default function StaffStudyRoom() {
         {busy && <p role="status">処理中です…</p>}
         <div className={styles.cards}>{rows.map(row => <article className={styles.card} key={row.id}>
           <span className={styles.status}>{statusLabels[row.status]}</span>
+          <p>来室：{row.visit?.started_at ? intakeTime(row.visit.started_at) : '未確認'}</p>
+          <p>退室：{row.visit?.ended_at ? intakeTime(row.visit.ended_at) : '未確認'}</p>
+          {row.visit && <p>移動先：{row.visit.destination ? destinations[row.visit.destination] : '未記録'}<br/>最終確認：{intakeTime(row.visit.confirmed_at)} ／ {row.visit.staff_name}（現在の登録名）</p>}
           <h2>{row.student_name} <small>（{row.grade}・{row.student_number}）</small></h2>
           <p>{row.reservation_date} ／ {row.seat}番席<br />{row.slot_ids.join("、")}</p>
           <p>{row.request_kind === "same_day" ? "当日申請" : "事前申請"} ／ {row.intake_channel === "line_screen" ? "LINE予約画面" : row.intake_channel === "line_message" ? "LINE個別連絡" : "職員代理入力"}</p>
@@ -161,6 +167,7 @@ export default function StaffStudyRoom() {
               <div><dt>受付内容・理由</dt><dd>{row.staff_intake.note}</dd></div></dl>
           </details>}
           <div className={styles.actions}>
+            {permissions['study_room.visit'] && (row.status==='approved' || (row.status==='cancelled' && row.visit)) && <button disabled={frozen} onClick={()=>{setSelected(null);setVisitRow(row);}}>来室・退室を記録</button>}
             {(["approve", "reject", "cancel"] as Action[]).filter(action => action === "cancel"
               ? ["pending", "approved"].includes(row.status) && permissions["study_room.cancel"]
               : row.status === "pending" && permissions["study_room.approve"]).map(action =>
