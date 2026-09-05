@@ -1,5 +1,6 @@
 // Server-side orchestration. No provider token or internal login address is returned
 // in the public staff profile. Inject separate identity/data clients per request.
+import { isValidReservationDate } from "./reservation-date.mjs";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const STAFF_ACCESS_COOKIE = "__Host-bentan-staff-access";
 export const STAFF_REFRESH_COOKIE = "__Host-bentan-staff-refresh";
@@ -150,5 +151,19 @@ export async function transitionStaffStudyRoom(dataClient, identity, input) {
     if (error.message === "reason_required") throw new StaffAuthError("reason_required", 400);
     throw dbAuthError(error);
   }
+  return data;
+}
+
+/** @param {object} dataClient @param {object} identity @param {{date: unknown, status?: string | null, offset?: number}} input */
+export async function listStaffStudyRoom(dataClient, identity, { date, status = null, offset = 0 }) {
+  if (!isValidReservationDate(date) || (status !== null && !["pending", "approved", "rejected", "cancelled"].includes(status))
+    || !Number.isSafeInteger(offset) || offset < 0 || offset > 2147483597) {
+    throw new StaffAuthError("invalid_request", 400);
+  }
+  const { data, error } = await dataClient.rpc("staff_study_room_requests", {
+    p_auth_user_id: identity.authUserId, p_auth_session_id: identity.authSessionId,
+    p_date: date, p_status: status, p_offset: offset,
+  });
+  if (error) throw dbAuthError(error);
   return data;
 }

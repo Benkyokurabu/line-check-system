@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loginStaff, requireStaff, logoutStaff, isStaffSameOrigin, staffCookieOptions,
-  transitionStaffStudyRoom } from "../src/lib/staff-auth-core.mjs";
+  transitionStaffStudyRoom, listStaffStudyRoom } from "../src/lib/staff-auth-core.mjs";
 
 const user = "00000000-0000-0000-0000-000000000001";
 const sessionId = "00000000-0000-0000-0000-000000000002";
@@ -107,4 +107,15 @@ test("approval uses verified actor, ignores claimed approver, validates before R
   assert.equal("actorId" in f.calls[0][1], false);
   await assert.rejects(transitionStaffStudyRoom(f.dataClient, {}, { ...input, expectedVersion: 0 }), status(400));
   assert.equal(f.calls.length, 1);
+});
+test("request list validates date, filter and pagination before RPC", async () => {
+  const f = fixture(); const identity = { authUserId: user, authSessionId: sessionId };
+  for (const input of [{ date: "2030-02-30" }, { date: "2030-01-01", status: "unknown" },
+    { date: "2030-01-01", offset: -1 }, { date: "2030-01-01", offset: 0.5 }]) {
+    await assert.rejects(listStaffStudyRoom(f.dataClient, identity, input), status(400));
+  }
+  assert.equal(f.calls.length, 0);
+  await listStaffStudyRoom(f.dataClient, identity, { date: "2030-01-01", offset: 50, status: "pending" });
+  assert.deepEqual(f.calls[0], ["staff_study_room_requests", { p_auth_user_id: user,
+    p_auth_session_id: sessionId, p_date: "2030-01-01", p_status: "pending", p_offset: 50 }]);
 });

@@ -27,6 +27,7 @@
     "test:reservation": "node --test tests/reservation-date.test.mjs tests/reservation-access.test.mjs tests/study-room-workflow.test.mjs",
     "test:reservation-db": "node --test tests/study-room-workflow.test.mjs",
     "test:staff": "node --test tests/staff-auth-core.test.mjs tests/staff-auth-db.test.mjs",
+    "test:browser": "playwright test",
     "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

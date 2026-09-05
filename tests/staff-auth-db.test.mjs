@@ -29,9 +29,14 @@ before(async () => {
     await db.exec(await readFile(new URL(`../supabase/${file}`, import.meta.url), "utf8"));
   }
   await db.exec(migration);
+  await db.exec(await readFile(new URL("../supabase/staff_study_room_read_20260905.sql", import.meta.url), "utf8"));
 });
 after(async () => { await db.close(); });
 beforeEach(async () => {
+  await db.exec(`truncate public.study_room_notification_intents, public.study_room_request_events,
+    public.study_room_reservations, public.study_room_requests, public.study_room_day_settings,
+    public.student_line_accounts, public.student_roster;
+    update public.study_room_workflow_settings set enabled=true;`);
   await db.exec(`truncate public.staff_session_activity,public.staff_permission_overrides,public.staff_accounts,
     public.staff_login_buckets,auth.sessions,auth.users;
     update public.staff_auth_settings set enabled=true,idle_seconds=1800,absolute_seconds=28800;
@@ -167,4 +172,32 @@ test("service role uses the definer functions without direct access to managed a
     await target();
     assert.equal((await authorize({ initialize: true })).staffId, staffId);
   } finally { await db.exec("reset role;"); }
+});
+
+test("request reads require read permission, omit LINE identities and preserve pagination", async () => {
+  await authorize({ initialize: true });
+  await db.exec(`insert into public.student_roster(student_number,grade,student_name,homeroom_teacher)
+    values ('read-test','test','Student','Teacher');
+    insert into public.study_room_requests(student_number,reservation_date,seat,slot_ids,actor_kind,actor_id,intake_channel,request_kind)
+    select 'read-test','2030-01-01',1,array['14:55-16:25'],'guardian','private-line-id','line_screen','advance'
+      from generate_series(1,51);`);
+  const read = (offset = 0, status = null) => db.query("select public.staff_study_room_requests($1,$2,'2030-01-01',$3,$4) result", [userId, sessionId, status, offset]);
+  const first = (await read()).rows[0].result;
+  const second = (await read(50)).rows[0].result;
+  assert.equal(first.requests.length, 50); assert.equal(first.hasMore, true);
+  assert.equal(second.requests.length, 1); assert.equal(second.hasMore, false);
+  assert.equal(new Set([...first.requests, ...second.requests].map(r => r.id)).size, 51);
+  assert.equal(JSON.stringify(first).includes('private-line-id'), false);
+  assert.equal(first.permissions['study_room.approve'], true);
+  assert.equal((await read(0,'approved')).rows[0].result.requests.length, 0);
+  await db.query("insert into public.staff_permission_overrides values ($1,'study_room.read',false)", [staffId]);
+  await assert.rejects(read(), /staff_permission_denied/);
+});
+test("request read RPC is not executable by browser roles and refuses disabled workflow", async () => {
+  await authorize({ initialize: true });
+  const privileges = (await db.query(`select has_function_privilege('anon','public.staff_study_room_requests(uuid,uuid,date,text,integer)','EXECUTE') a,
+    has_function_privilege('authenticated','public.staff_study_room_requests(uuid,uuid,date,text,integer)','EXECUTE') b`)).rows[0];
+  assert.deepEqual(privileges,{ a:false,b:false });
+  await db.exec("update public.study_room_workflow_settings set enabled=false;");
+  await assert.rejects(db.query("select public.staff_study_room_requests($1,$2,'2030-01-01')", [userId,sessionId]), /workflow_disabled/);
 });

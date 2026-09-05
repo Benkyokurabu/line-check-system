@@ -1,0 +1,16 @@
+.form { display: grid; gap: 16px; max-width: 420px; margin-top: 20px; }
+.field { display: grid; gap: 6px; }
+.screen input, .screen select, .screen textarea, .screen button { font: inherit; padding: 10px 12px; border: 1px solid #bbc6bf; border-radius: 6px; background: white; color: #1d2320; }
+.screen button { cursor: pointer; font-weight: 600; }
+.screen button:disabled { cursor: default; opacity: .55; }
+.screen :focus-visible { outline: 3px solid #1b7652; outline-offset: 3px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin: 20px 0; }
+.notice { padding: 12px 16px; margin: 16px 0; border: 1px solid #d8bb73; background: #fff8e7; border-radius: 6px; white-space: pre-wrap; }
+.cards { display: grid; gap: 16px; margin: 20px 0; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+.card h2 { font-size: 1.2rem; margin-bottom: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.screen .primary { background: #17683f; color: white; border-color: #17683f; }
+.status { display: inline-block; padding: 3px 10px; margin-bottom: 10px; border-radius: 20px; background: #eef3ef; font-weight: 600; }
+.confirm { border: 2px solid #17683f; padding: 20px; border-radius: 8px; margin-top: 16px; }
+@media (max-width: 600px) { .screen { padding: 72px 12px 24px; } .screen section { padding: 20px 14px; } }
