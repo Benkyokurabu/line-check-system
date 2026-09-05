@@ -4,6 +4,18 @@ const fixtureRow = { id: "00000000-0000-0000-0000-000000000001", student_number:
   student_name: "検証用の生徒", grade: "中1", reservation_date: "2030-01-01", seat: 1,
   slot_ids: ["14:55-16:25"], status: "pending", version: 1, request_kind: "advance", intake_channel: "line_screen" };
 
+test("reservation preview has the requested school title and cannot submit a reservation", async ({ page }) => {
+  await page.route("**/*", async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== "http://127.0.0.1:3197" || url.pathname.startsWith("/api/")) await route.abort();
+    else await route.continue();
+  });
+  await page.goto("/self-study-room/menu-preview");
+  await expect(page).toHaveTitle("勉強クラブ本校自習室予約");
+  await expect(page.getByText("表示確認用・予約は登録されません")).toBeVisible();
+  await expect(page.locator("form")).toHaveCount(0);
+});
+
 async function setup(page: Page, { loseResponse = false, readOnly = false } = {}) {
   let loggedIn = false;
   let row = { ...fixtureRow };
