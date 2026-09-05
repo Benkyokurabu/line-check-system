@@ -30,9 +30,7 @@ export function getStudyRoomSlot(slotId: string) {
   return STUDY_ROOM_SLOTS.find((slot) => slot.id === slotId) ?? null;
 }
 
-export function isValidDate(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
-}
+export { isValidReservationDate as isValidDate } from "@/lib/reservation-date.mjs";
 
 export function formatSlotLimit(minutes: number) {
   return `1人${Math.floor(minutes / 90)}枠まで`;

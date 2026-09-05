@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getJapanDate } from "@/lib/reservation-date.mjs";
 
 const slots = ["14:55-16:25", "16:45-18:15", "18:35-20:05", "20:25-21:55"];
 type Reservation = { id: string; start_time: string; end_time: string; seat: number; student_number: string; grade: string; student_name: string };
 
 export default function SelfStudyRoomAdminPage() {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(getJapanDate());
   const [limit, setLimit] = useState(0);
   const [closed, setClosed] = useState<string[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);

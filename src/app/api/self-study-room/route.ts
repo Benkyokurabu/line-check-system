@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { getReservationRequestKind } from "@/lib/reservation-date.mjs";
 import { formatSlotLimit, getStudyRoomAvailability, getStudyRoomSlot, isValidDate } from "@/lib/self-study-room";
 
 export const runtime = "nodejs";
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
   const seat = Number(body?.seat);
   const slotIds = [...new Set(Array.isArray(body?.slotIds) ? body.slotIds.map(String) : [])];
   if (!isValidDate(date) || !studentNumber || !Number.isInteger(seat) || seat < 1 || seat > 10 || !slotIds.length) return errorResponse("予約内容を正しく指定してください。");
-  if (date < new Date().toISOString().slice(0, 10)) return errorResponse("過去の日付には予約できません。");
+  if (getReservationRequestKind(date) === "past") return errorResponse("過去の日付には予約できません。");
   const slots = slotIds.map(getStudyRoomSlot);
   if (slots.some((slot) => !slot)) return errorResponse("時間帯を正しく指定してください。");
 
