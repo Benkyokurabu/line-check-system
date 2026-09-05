@@ -227,6 +227,10 @@ test("staff proxy intake keeps the staff actor, contact reason and pending-only 
   const saved = (await db.query("select * from public.study_room_staff_intakes")).rows[0];
   assert.equal(saved.contact_channel,'line_message');
   assert.equal(saved.note,'LINEで例外利用の連絡を確認');
+  const listed=(await db.query('select public.staff_study_room_requests($1,$2,$3) result',[userId,sessionId,result.request.reservation_date])).rows[0].result;
+  assert.equal(listed.requests[0].staff_intake.note,saved.note);
+  assert.equal(listed.requests[0].staff_intake.staffName,'Test Staff');
+  assert.deepEqual(Object.keys(listed.requests[0].staff_intake).sort(),['contactChannel','createdAt','note','staffCode','staffName']);
   assert.equal(Number((await db.query("select count(*) n from public.study_room_reservations")).rows[0].n),0);
   assert.equal(Number((await db.query("select count(*) n from public.study_room_notification_intents")).rows[0].n),0);
   assert.equal((await submit()).rows[0].result.replayed,true);

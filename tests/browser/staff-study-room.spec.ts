@@ -20,7 +20,7 @@ test("reservation preview has the requested school title and cannot submit a res
   await expect(page.getByRole("link", { name: "トップページへ" })).toHaveCount(0);
 });
 
-async function setup(page: Page, { loseResponse = false, readOnly = false, loseIntake = false, conflictIntake = false } = {}) {
+async function setup(page: Page, { loseResponse = false, readOnly = false, loseIntake = false, conflictIntake = false, evidence = false } = {}) {
   let loggedIn = false;
   let row = { ...fixtureRow };
   const operations: Record<string, unknown>[] = [];
@@ -41,7 +41,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
     }
     if (url.pathname === "/api/staff/study-room/requests") {
       if (!loggedIn) { await route.fulfill({ status: 401, json: { error: "ログインし直してください。" } }); return; }
-      await route.fulfill({ json: { requests: [row], hasMore: false,
+      await route.fulfill({ json: { requests: [{...row,staff_intake:evidence ? {contactChannel:'line_message',note:'本校での利用を希望\n<script>悪意のある文字列</script>',staffName:'検証受付担当',staffCode:'OFFICE01',createdAt:'2030-01-01T00:05:00Z'} : null}], hasMore: false,
         permissions: { "study_room.approve": !readOnly, "study_room.cancel": !readOnly, "study_room.submit": !readOnly } } }); return;
     }
     if(url.pathname==='/api/staff/study-room/intake-options') {
@@ -87,6 +87,20 @@ test("login, explicit confirmation, approval refresh and logout remove student d
   await page.getByRole("button", { name: "ログアウト" }).click();
   await expect(page.getByLabel("職員コード")).toBeVisible();
   await expect(page.getByRole("heading", { name: /検証用の生徒/ })).toHaveCount(0);
+  expect(state.forbidden).toEqual([]);
+});
+
+test('proxy evidence is labeled, escaped, uses Japan time and disappears at logout',async ({page})=>{
+  const state=await setup(page,{evidence:true,readOnly:true});
+  await page.getByText('代理受付の経緯を確認',{exact:true}).click();
+  const detail=page.locator('article details');
+  await expect(detail.getByText('LINE個別メッセージ',{exact:true})).toBeVisible();
+  await expect(detail.getByText('検証受付担当（OFFICE01）',{exact:true})).toBeVisible();
+  await expect(detail.getByText('2030/01/01 09:05',{exact:true})).toBeVisible();
+  await expect(detail.getByText(/<script>悪意のある文字列<\/script>/)).toBeVisible();
+  await expect(detail.locator('script')).toHaveCount(0);
+  await page.getByRole('button',{name:'ログアウト',exact:true}).click();
+  await expect(page.getByText(/検証受付担当/)).toHaveCount(0);
   expect(state.forbidden).toEqual([]);
 });
 

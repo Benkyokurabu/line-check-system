@@ -13,4 +13,9 @@
 .screen .primary { background: #17683f; color: white; border-color: #17683f; }
 .status { display: inline-block; padding: 3px 10px; margin-bottom: 10px; border-radius: 20px; background: #eef3ef; font-weight: 600; }
 .confirm { border: 2px solid #17683f; padding: 20px; border-radius: 8px; margin-top: 16px; }
+.evidence { margin-top:16px; border:1px solid #d5ded8; border-radius:8px; padding:12px; }
+.evidence summary { cursor:pointer; font-weight:600; }
+.evidence dl > div { margin-top:12px; }
+.evidence dt { font-size:13px; font-weight:600; color:#506655; }
+.evidence dd { margin:4px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 @media (max-width: 600px) { .screen { padding: 72px 12px 24px; } .screen section { padding: 20px 14px; } }

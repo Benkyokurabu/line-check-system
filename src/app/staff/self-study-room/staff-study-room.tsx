@@ -9,12 +9,20 @@ type Staff = { staffId: string; displayName: string };
 type Status = "pending" | "approved" | "rejected" | "cancelled";
 type Reservation = { id: string; student_number: string; student_name: string; grade: string;
   reservation_date: string; seat: number; slot_ids: string[]; status: Status; version: number;
-  request_kind: string; intake_channel: string };
+  request_kind: string; intake_channel: string;
+  staff_intake?: {contactChannel:string;note:string;createdAt:string;staffName:string;staffCode:string}|null };
 type Action = "approve" | "reject" | "cancel";
 type Operation = { operationKey: string; requestId: string; expectedVersion: number; action: Action; reason: string };
 const statusLabels: Record<Status, string> = { pending: "承認待ち", approved: "確定", rejected: "却下", cancelled: "取消済み" };
 const actionLabels: Record<Action, string> = { approve: "承認して確定", reject: "却下", cancel: "予約を取り消す" };
 const preferenceKey = (staffId: string) => `bentan:staff:${staffId}:study-room-status`;
+const contactLabels:Record<string,string>={line_message:'LINE個別メッセージ',in_person:'来室時の申出',phone:'電話',other:'その他'};
+function intakeTime(value:string) {
+  const date=new Date(value);
+  return Number.isNaN(date.getTime()) ? '日時を確認できません' : new Intl.DateTimeFormat('ja-JP',{
+    timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,
+  }).format(date);
+}
 function rememberedStatus(staffId: string) {
   try { const value = localStorage.getItem(preferenceKey(staffId)) ?? ""; return value in statusLabels ? value : ""; }
   catch { return ""; }
@@ -146,6 +154,12 @@ export default function StaffStudyRoom() {
           <h2>{row.student_name} <small>（{row.grade}・{row.student_number}）</small></h2>
           <p>{row.reservation_date} ／ {row.seat}番席<br />{row.slot_ids.join("、")}</p>
           <p>{row.request_kind === "same_day" ? "当日申請" : "事前申請"} ／ {row.intake_channel === "line_screen" ? "LINE予約画面" : row.intake_channel === "line_message" ? "LINE個別連絡" : "職員代理入力"}</p>
+          {row.staff_intake && <details className={styles.evidence}><summary>代理受付の経緯を確認</summary>
+            <dl><div><dt>連絡方法</dt><dd>{contactLabels[row.staff_intake.contactChannel] ?? '確認が必要な連絡方法'}</dd></div>
+              <div><dt>受付担当者（現在の登録名）</dt><dd>{row.staff_intake.staffName}（{row.staff_intake.staffCode}）</dd></div>
+              <div><dt>受付日時（日本時間）</dt><dd>{intakeTime(row.staff_intake.createdAt)}</dd></div>
+              <div><dt>受付内容・理由</dt><dd>{row.staff_intake.note}</dd></div></dl>
+          </details>}
           <div className={styles.actions}>
             {(["approve", "reject", "cancel"] as Action[]).filter(action => action === "cancel"
               ? ["pending", "approved"].includes(row.status) && permissions["study_room.cancel"]

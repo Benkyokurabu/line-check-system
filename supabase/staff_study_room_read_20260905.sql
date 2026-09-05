@@ -1,4 +1,5 @@
--- Unapplied. Requires staff_auth_20260905.sql. No feature is enabled here.
+-- Unapplied. Requires staff_auth_20260905.sql and the intake table before use.
+-- No feature is enabled here. The function may be created before the intake migration.
 begin;
 create or replace function public.staff_study_room_requests(
   p_auth_user_id uuid, p_auth_session_id uuid, p_date date,
@@ -16,8 +17,13 @@ begin
   end if;
   select coalesce(jsonb_agg(to_jsonb(q) order by q.created_at desc,q.id),'[]'::jsonb) into v_rows from (
     select r.id,r.student_number,s.student_name,s.grade,r.reservation_date,r.seat,r.slot_ids,
-      r.status,r.version,r.request_kind,r.intake_channel,r.created_at,r.updated_at
+      r.status,r.version,r.request_kind,r.intake_channel,r.created_at,r.updated_at,
+      case when i.request_id is not null then jsonb_build_object(
+        'contactChannel',i.contact_channel,'note',i.note,'createdAt',i.created_at,
+        'staffName',a.display_name,'staffCode',a.staff_code) else null end as staff_intake
     from public.study_room_requests r join public.student_roster s on s.student_number=r.student_number
+    left join public.study_room_staff_intakes i on i.request_id=r.id
+    left join public.staff_accounts a on a.id=i.staff_id
     where r.reservation_date=p_date and (p_status is null or r.status=p_status)
     order by r.created_at desc,r.id limit 51 offset p_offset
   ) q;
