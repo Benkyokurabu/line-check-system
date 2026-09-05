@@ -12,7 +12,7 @@ test("reservation preview has the requested school title and cannot submit a res
   });
   await page.goto("/self-study-room/menu-preview");
   await expect(page).toHaveTitle("勉強クラブ本校自習室予約");
-  await expect(page.getByText("表示確認用・予約は登録されません")).toBeVisible();
+  await expect(page.getByText("操作デモ・実際の予約は登録されません")).toBeVisible();
   await expect(page.locator("form")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "トップページへ" })).toHaveCount(0);
   await page.goto("/self-study-room");
