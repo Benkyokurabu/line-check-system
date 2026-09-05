@@ -21,6 +21,9 @@ test('student demo covers unavailable seats, request, staff approval and cancell
   await expect(page.getByRole('link',{name:'トップページへ'})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
   await expect(page.getByRole('button',{name:/20:25–21:55/})).toBeDisabled();
+  const clearBox=await page.getByRole('button',{name:'選択をクリア',exact:true}).boundingBox();
+  const slotBox=await page.getByRole('button',{name:/14:55–16:25/}).boundingBox();
+  expect(slotBox!.y-(clearBox!.y+clearBox!.height)).toBeGreaterThanOrEqual(16);
   await expect(page.getByRole('button',{name:'1番席',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:/14:55–16:25/}).click();
   await page.getByRole('button',{name:/18:35–20:05/}).click();
