@@ -32,23 +32,101 @@ before(async () => {
   await db.exec(await readFile(new URL("../supabase/staff_study_room_read_20260905.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_intake_20260905.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_options_20260905.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/staff_study_room_visits_20260905.sql", import.meta.url), "utf8"));
 });
 after(async () => { await db.close(); });
 beforeEach(async () => {
-  await db.exec(`truncate public.study_room_staff_intakes, public.study_room_notification_intents, public.study_room_request_events,
+  await db.exec(`truncate public.study_room_visits,public.study_room_visit_events,public.study_room_staff_intakes, public.study_room_notification_intents, public.study_room_request_events,
     public.study_room_reservations, public.study_room_requests, public.study_room_day_settings,
     public.student_line_accounts, public.student_roster;
     update public.study_room_workflow_settings set enabled=true;`);
-  await db.exec(`truncate public.study_room_staff_intakes,public.staff_session_activity,public.staff_permission_overrides,public.staff_accounts,
+  await db.exec(`truncate public.study_room_visits,public.study_room_visit_events,public.study_room_staff_intakes,public.staff_session_activity,public.staff_permission_overrides,public.staff_accounts,
     public.staff_login_buckets,auth.sessions,auth.users;
     update public.staff_auth_settings set enabled=true,idle_seconds=1800,absolute_seconds=28800;
     delete from public.staff_role_permissions;
     insert into public.staff_role_permissions values ('office','study_room.approve'),('office','study_room.read'),('office','study_room.cancel'),('office','study_room.submit');
+    insert into public.staff_role_permissions values ('office','study_room.visit');
   `);
   await db.query("insert into auth.users(id,email,encrypted_password) values ($1,'staff@example.invalid','fixture-password-hash')", [userId]);
   staffId = (await db.query(`insert into public.staff_accounts(auth_user_id,staff_code,display_name,role,active)
     values ($1,'TEST01','Test Staff','office',true) returning id`, [userId])).rows[0].id;
   await db.query("insert into auth.sessions(id,user_id) values ($1,$2)", [sessionId, userId]);
+});
+
+async function visitFixture() {
+  await authorize({initialize:true});
+  await db.exec("insert into public.student_roster(student_number,grade,student_name,homeroom_teacher) values ('visit-test','中1','Visit Student','Teacher');");
+  const day=(await db.query("select (clock_timestamp() at time zone 'Asia/Tokyo')::date::text as day")).rows[0].day;
+  const submitted=(await db.query("select public.staff_study_room_submit($1,$2,$3,'visit-test',$4,1,array['14:55-16:25'],'in_person','来室希望') result",[userId,sessionId,randomUUID(),day])).rows[0].result.request;
+  const approved=(await db.query("select public.staff_study_room_transition($1,$2,$3,$4,1,'approve','') result",[userId,sessionId,randomUUID(),submitted.id])).rows[0].result.request;
+  const start=`${day}T00:00:00+09:00`;
+  const save=(version=0,ended=null,destination=null,reason='',key=randomUUID(),started=start)=>db.query(
+    'select public.staff_study_room_save_visit($1,$2,$3,$4,$5,$6,$7,$8,$9) result',
+    [userId,sessionId,key,approved.id,version,started,ended,destination,reason]);
+  return {save,start,approved};
+}
+
+test('visit arrival, departure to lesson and corrections preserve inventory and audit every change',async()=>{
+  const {save,start,approved}=await visitFixture();
+  const notificationCount=Number((await db.query('select count(*) n from public.study_room_notification_intents')).rows[0].n);
+  const key=randomUUID();
+  await db.exec('set role service_role;');
+  let first;
+  try {first=(await save(0,null,null,'',key)).rows[0].result;} finally {await db.exec('reset role;');}
+  assert.equal(first.visit.version,1);assert.equal(first.visit.ended_at,null);
+  assert.equal(first.visit.confirmed_by,staffId);
+  assert.equal((await save(0,null,null,'',key)).rows[0].result.replayed,true);
+  await assert.rejects(save(0,null,null,'違う理由',key),/idempotency_conflict/);
+  await assert.rejects(save(0),/version_conflict/);
+  await assert.rejects(save(1,null,null,'',randomUUID(),null),/reason_required/);
+  const departed=(await save(1,start,'lesson')).rows[0].result.visit;
+  assert.equal(departed.destination,'lesson');
+  const corrected=(await save(2,start,'home','移動先の確認を訂正')).rows[0].result.visit;
+  assert.equal(corrected.destination,'home');
+  const events=(await db.query('select * from public.study_room_visit_events order by version')).rows;
+  assert.equal(events.length,3);assert.equal(events[2].before_state.destination,'lesson');
+  assert.equal(Number((await db.query("select count(*) n from public.study_room_reservations where status='active'")).rows[0].n),1);
+  assert.equal(Number((await db.query('select count(*) n from public.study_room_notification_intents')).rows[0].n),notificationCount);
+  const request=(await db.query('select status,version from public.study_room_requests where id=$1',[approved.id])).rows[0];
+  assert.deepEqual(request,{status:'approved',version:2});
+  const cleared=(await save(3,null,null,'記録した生徒を取り違えたため訂正',randomUUID(),null)).rows[0].result.visit;
+  assert.equal(cleared.started_at,null);assert.equal(cleared.version,4);
+});
+
+test('visit rejects impossible times, denied permissions and unauthenticated database access',async()=>{
+  const {save,start}=await visitFixture();
+  await assert.rejects(save(0,start,'home','',randomUUID(),null),/invalid_visit_time/);
+  await assert.rejects(save(0,'2099-01-01T00:00:00Z','home'),/invalid_visit_time/);
+  await assert.rejects(save(0,null,'home'),/invalid_visit_time/);
+  await db.query("insert into public.staff_permission_overrides values ($1,'study_room.visit',false)",[staffId]);
+  await assert.rejects(save(),/staff_permission_denied/);
+  const rights=(await db.query(`select
+    has_function_privilege('anon','public.staff_study_room_save_visit(uuid,uuid,uuid,uuid,integer,timestamptz,timestamptz,text,text)','EXECUTE') a,
+    has_function_privilege('authenticated','public.staff_study_room_save_visit(uuid,uuid,uuid,uuid,integer,timestamptz,timestamptz,text,text)','EXECUTE') b,
+    has_table_privilege('service_role','public.study_room_visit_events','UPDATE') c,
+    has_table_privilege('service_role','public.study_room_visit_events','DELETE') d`)).rows[0];
+  assert.deepEqual(rights,{a:false,b:false,c:false,d:false});
+});
+
+test('visit audit failure rolls back facts and migration never restores revoked permissions',async()=>{
+  const {save}=await visitFixture();
+  await db.exec("alter table public.study_room_visit_events add constraint test_visit_failure check(reason='never');");
+  try {await assert.rejects(save(),/test_visit_failure/);} finally {await db.exec('alter table public.study_room_visit_events drop constraint test_visit_failure;');}
+  assert.equal(Number((await db.query('select count(*) n from public.study_room_visits')).rows[0].n),0);
+  await db.exec("delete from public.staff_role_permissions where permission='study_room.visit';");
+  await db.exec(await readFile(new URL('../supabase/staff_study_room_visits_20260905.sql',import.meta.url),'utf8'));
+  await assert.rejects(save(),/staff_permission_denied/);
+});
+
+test('cancelled visits retain facts for correction but unapproved requests cannot record arrivals',async()=>{
+  const {save,approved}=await visitFixture();
+  await save();
+  await db.query("select public.staff_study_room_transition($1,$2,$3,$4,2,'cancel','利用取消')",[userId,sessionId,randomUUID(),approved.id]);
+  const corrected=(await save(1,null,null,'利用取消後に誤った来室記録を訂正',randomUUID(),null)).rows[0].result.visit;
+  assert.equal(corrected.started_at,null);
+  const pendingSubmit=await proxyFixture();
+  const pending=(await pendingSubmit()).rows[0].result.request;
+  await assert.rejects(db.query("select public.staff_study_room_save_visit($1,$2,$3,$4,0,clock_timestamp(),null,null,'')",[userId,sessionId,randomUUID(),pending.id]),/invalid_state_transition/);
 });
 
 async function authorize({ user = userId, session = sessionId, permission = null, initialize = false } = {}) {
