@@ -20,9 +20,8 @@ test('student demo covers unavailable seats, request, staff approval and cancell
   expect(eighth!.x).toBeGreaterThan(sixth!.x);
   await expect(page.getByRole('link',{name:'トップページへ'})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
-  await page.getByRole('button',{name:/20:25–21:55/}).click();
-  await expect(page.getByRole('status')).toContainText('満席');
-  await expect(page.getByRole('button',{name:'1番席 予約済み',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:/20:25–21:55/})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'1番席',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:/14:55–16:25/}).click();
   await page.getByRole('button',{name:/18:35–20:05/}).click();
   await expect(page.getByText(/^3コマ選択中/)).toBeVisible();
@@ -48,4 +47,59 @@ test('student demo covers unavailable seats, request, staff approval and cancell
   await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
   expect(apiCalls).toEqual([]);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('slot order, repeat clicks, clear and seat availability remain consistent',async ({page})=>{
+  await page.goto('/self-study-room/menu-preview');
+  const times=[/14:55–16:25/,/16:45–18:15/,/18:35–20:05/];
+  for(const order of [[0,1,2],[2,1,0],[0,2],[2,0],[1,0,2],[1,2,0]]) {
+    for(const index of order) await page.getByRole('button',{name:times[index]}).click();
+    await expect(page.getByText(/^3コマ選択中/)).toBeVisible();
+    for(const name of times) await expect(page.getByRole('button',{name})).toHaveAttribute('aria-pressed','true');
+    await page.getByRole('button',{name:'1番席',exact:true}).click();
+    await page.getByRole('button',{name:times[1]}).click();
+    await expect(page.getByText('1番席を選択中')).toBeVisible();
+    await expect(page.getByText(/^3コマ選択中/)).toBeVisible();
+    await page.getByRole('button',{name:'選択をクリア',exact:true}).click();
+    await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
+    await expect(page.getByRole('button',{name:'1番席',exact:true})).toBeDisabled();
+  }
+  await page.getByRole('button',{name:times[0]}).click();
+  await page.getByRole('button',{name:'2番席',exact:true}).click();
+  await page.getByRole('button',{name:times[1]}).click();
+  await expect(page.getByRole('button',{name:'2番席 予約済み',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
+  await page.getByRole('button',{name:'空きのある3コマをまとめて選ぶ'}).click();
+  await expect(page.getByText(/^3コマ選択中/)).toBeVisible();
+  await page.getByRole('button',{name:'選択をクリア',exact:true}).click();
+  await page.getByRole('button',{name:times[1]}).click();
+  await expect(page.getByText(/^1コマ選択中/)).toBeVisible();
+});
+
+test('date validation, guardian review, back, cancellation back and reset',async ({page})=>{
+  await page.goto('/self-study-room/menu-preview');
+  await page.getByLabel('申請する人').selectOption('guardian');
+  await page.getByLabel('利用するお子さま').selectOption('デモ生徒B');
+  await page.getByRole('button',{name:/14:55–16:25/}).click();
+  for(const date of ['', '2000-01-01']) {
+    await page.getByLabel('利用日').fill(date);
+    await page.getByRole('button',{name:'1番席',exact:true}).click();
+    await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
+  }
+  await page.getByLabel('利用日').fill('2099-01-01');
+  await expect(page.getByRole('button',{name:'申請内容を確認する'})).toBeDisabled();
+  await page.getByRole('button',{name:'1番席',exact:true}).click();
+  await page.getByRole('button',{name:'申請内容を確認する'}).click();
+  await expect(page.getByText('デモ生徒B さん')).toBeVisible();
+  await page.getByRole('button',{name:'選び直す',exact:true}).click();
+  await expect(page.getByText('1番席を選択中')).toBeVisible();
+  await page.getByRole('button',{name:'申請内容を確認する'}).click();
+  await page.getByRole('button',{name:'この内容で申請する（デモ）'}).click();
+  await page.getByRole('button',{name:'キャンセルの流れを試す'}).click();
+  await page.getByRole('button',{name:'戻る',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('承認待ち');
+  await page.getByRole('button',{name:'最初から試す'}).click();
+  await expect(page.getByLabel('申請する人')).toHaveValue('student');
+  await expect(page.getByLabel('利用日')).not.toHaveValue('2099-01-01');
+  await expect(page.getByRole('button',{name:'選択をクリア',exact:true})).toBeDisabled();
 });

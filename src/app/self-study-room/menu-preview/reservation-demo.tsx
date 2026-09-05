@@ -3,8 +3,10 @@ import { useState } from "react";
 import Image from "next/image";
 import { getJapanDate, isValidReservationDate } from "@/lib/reservation-date.mjs";
 import styles from "./reservation-demo.module.css";
+import { extendReservationRange } from "@/lib/reservation-slot-selection.mjs";
 
 const slots = ['14:55–16:25','16:45–18:15','18:35–20:05','20:25–21:55'];
+const occupancy = [[3,7],[2,4,8],[5],[1,2,3,4,5,6,7,8,9,10]];
 // Seat centers follow the supplied floor plan; the original image is unchanged.
 const positions = [
   {seat:1,x:14,y:82},{seat:2,x:14,y:69},{seat:3,x:14,y:56},
@@ -17,23 +19,25 @@ type Stage = 'select'|'review'|'pending'|'confirmed'|'cancelled';
 export default function ReservationDemo() {
   const [stage,setStage] = useState<Stage>('select');
   const [date,setDate] = useState(getJapanDate());
-  const [range,setRange] = useState<[number,number]>([0,0]);
-  const [anchor,setAnchor] = useState<number|null>(null);
+  const [range,setRange] = useState<[number,number]|null>(null);
+  const [selectionMessage,setSelectionMessage] = useState('');
   const [seat,setSeat] = useState<number|null>(null);
   const [actor,setActor] = useState('student'); const [child,setChild] = useState('デモ生徒A');
   const [cancelCheck,setCancelCheck] = useState(false);
   const today = getJapanDate();
-  const selectedSlots = slots.slice(range[0],range[1]+1);
-  const full = range[1]===3;
-  const occupancy = [[3,7],[2,4,8],[5],[1,2,3,4,5,6,7,8,9,10]];
-  const busySeats = [...new Set(occupancy.slice(range[0],range[1]+1).flat())];
-  const valid = isValidReservationDate(date) && date>=today && seat!==null && !busySeats.includes(seat);
-  function reset(){setStage('select');setSeat(null);setCancelCheck(false);setAnchor(null);}
+  const selectedSlots = range===null ? [] : slots.slice(range[0],range[1]+1);
+  const busySeats = range===null ? [] : [...new Set(occupancy.slice(range[0],range[1]+1).flat())];
+  const valid = isValidReservationDate(date) && date>=today && range!==null && seat!==null && !busySeats.includes(seat);
+  function reset(){setStage('select');setDate(getJapanDate());setRange(null);setSeat(null);setCancelCheck(false);setSelectionMessage('');setActor('student');setChild('デモ生徒A');}
+  function updateRange(next:[number,number]|null) {
+    setRange(next);setSelectionMessage('');
+    const blocked = next===null ? [] : occupancy.slice(next[0],next[1]+1).flat();
+    setSeat(current=>next===null || (current!==null && blocked.includes(current)) ? null : current);
+  }
   function selectSlot(index:number) {
-    setSeat(null);
-    // A full demo slot can be inspected but must not become an accidental range anchor.
-    if(anchor===null || index===3) {setRange([index,index]);setAnchor(index===3 ? null : index);}
-    else {setRange([Math.min(anchor,index),Math.max(anchor,index)]);setAnchor(null);}
+    const next=extendReservationRange(range,index,[3],slots.length);
+    if(next.blocked) {setSelectionMessage('間に満席の時間帯があるため、選択を広げられません。現在の選択は残しています。');return;}
+    updateRange(next.range);
   }
   const summary = <div className={styles.summary}><strong>{actor==='student' ? 'デモ生徒A' : child} さん</strong>
     <p>本校自習室 ／ {date} ／ {seat}番席<br/>{selectedSlots.join(' ／ ')}<br/>{selectedSlots.length}コマ・{selectedSlots.length*90}分（休憩時間を除く）</p>
@@ -52,26 +56,26 @@ export default function ReservationDemo() {
       <label className={styles.field}>申請する人<select value={actor} onChange={e=>setActor(e.target.value)}><option value="student">生徒本人</option><option value="guardian">保護者（代理で申請）</option></select></label>
       {actor==='guardian' && <label className={styles.field}>利用するお子さま<select value={child} onChange={e=>setChild(e.target.value)}><option>デモ生徒A</option><option>デモ生徒B</option></select></label>}
       <label className={styles.field}>利用日<input type="date" min={today} value={date} onChange={e=>{setDate(e.target.value);setSeat(null);}} /></label>
-      <p>{date===today ? '当日の申請も、空席があれば受け付けます。' : '前日の23:59まで事前申請できます。'}</p>
+      <p>{!isValidReservationDate(date) ? '利用日を選んでください。' : date<today ? '過去の日付は申請できません。' : date===today ? '当日の申請も、空席があれば受け付けます。' : '前日の23:59まで事前申請できます。'}</p>
       <h2>時間帯を選ぶ</h2>
-      <p>開始の時間帯 → 終了の時間帯の順に押すと、間もまとめて選べます。1コマだけでも申請できます。</p>
-      <div className={styles.actions}><button onClick={()=>{setRange([0,2]);setAnchor(null);setSeat(null);}}>空きのある3コマをまとめて選ぶ</button></div>
-      <div className={styles.slots}>{slots.map((label,index)=><button key={label} className={`${styles.slot} ${index>=range[0] && index<=range[1] ? styles.selected : ''}`} aria-pressed={index>=range[0] && index<=range[1]} onClick={()=>selectSlot(index)}>
+      <p>利用したい時間帯を押すと、間も含めて追加できます。押す順番は自由です。減らす場合は「選択をクリア」して選び直してください。</p>
+      <div className={styles.actions}><button onClick={()=>updateRange([0,2])}>空きのある3コマをまとめて選ぶ</button><button disabled={range===null} onClick={()=>updateRange(null)}>選択をクリア</button></div>
+      <div className={styles.slots}>{slots.map((label,index)=><button key={label} className={`${styles.slot} ${range!==null && index>=range[0] && index<=range[1] ? styles.selected : ''}`} aria-pressed={range!==null && index>=range[0] && index<=range[1]} disabled={index===3} onClick={()=>selectSlot(index)}>
         <span>{label}</span><small>{index===3 ? '満席（例）' : '空きあり'}</small>
       </button>)}</div>
-      <p aria-live="polite">{selectedSlots.length}コマ選択中：{selectedSlots.join(' ／ ')}</p>
-      {anchor!==null && <p className={styles.small}>続けて終了の時間帯を押すと、連続で選択できます。</p>}
+      <p aria-live="polite">{range===null ? '時間帯を選んでください。' : `${selectedSlots.length}コマ選択中：${selectedSlots.join(' ／ ')}`}</p>
+      {selectionMessage && <p role="status" className={styles.notice}>{selectionMessage}</p>}
       <h2>配置図から席を選ぶ</h2><p>選んだ全時間帯で空いている席を選べます。灰色の席は、いずれかの時間帯が予約済みです。空席状況はデモ用です。</p>
-      {full && <p role="status" className={styles.notice}>この時間帯は満席です。別の時間帯を選んでください。</p>}
+      <p className={styles.small}>満席の時間帯は選べません。時間帯を広げたとき、選択中の席が使えなくなる場合は席を選び直します。</p>
       <div className={styles.map} role="group" aria-label="本校自習室の配置図から座席選択">
         <Image src="/main-study-room-seat-map.png" alt="本校自習室の配置図。左側に下から1〜6番席、右上に7・8番席と9・10番席。出入口は右側、本棚は右下。" width={1086} height={1448} className={styles.mapImage} priority unoptimized />
-        {positions.map(({seat:n,x,y})=><button key={n} style={{left:`${x}%`,top:`${y}%`}} aria-label={`${n}番席${busySeats.includes(n) ? ' 予約済み' : ''}`} aria-pressed={seat===n} disabled={busySeats.includes(n)} className={seat===n ? styles.selected : ''} onClick={()=>setSeat(n)}>{n}</button>)}
+        {positions.map(({seat:n,x,y})=><button key={n} style={{left:`${x}%`,top:`${y}%`}} aria-label={`${n}番席${busySeats.includes(n) ? ' 予約済み' : ''}`} aria-pressed={seat===n} disabled={range===null || busySeats.includes(n)} className={seat===n ? styles.selected : ''} onClick={()=>setSeat(n)}>{n}</button>)}
       </div>
       <p aria-live="polite">{seat ? `${seat}番席を選択中` : '席を選んでください。'}</p>
       <button className={styles.primary} disabled={!valid} onClick={()=>setStage('review')}>申請内容を確認する</button>
     </>}
     {stage==='review' && <><h2>この内容で申請しますか？</h2>{summary}<p>申請しただけでは予約は確定しません。職員の確認・承認をお待ちください。</p>
-      <button className={styles.primary} onClick={()=>setStage('pending')}>この内容で申請する（デモ）</button><div className={styles.actions}><button onClick={()=>setStage('select')}>選び直す</button></div></>}
+      <button className={styles.primary} disabled={!valid} onClick={()=>{if(valid)setStage('pending');}}>この内容で申請する（デモ）</button><div className={styles.actions}><button onClick={()=>setStage('select')}>選び直す</button></div></>}
     {stage==='pending' && <><p className={styles.result} role="status">申請を受け付けました（承認待ち）</p>{summary}<p>まだ予約は確定していません。職員が内容と空席を確認して承認すると、予約が確定します。</p>
       <details className={styles.test}><summary>デモの続きを見る：職員の承認を再現</summary><p className={styles.small}>これは確認用の操作です。本番では生徒・保護者が自分で承認することはできません。</p><button className={styles.primary} onClick={()=>{setStage('confirmed');setCancelCheck(false);}}>職員が承認した状態に進む</button></details></>}
     {stage==='confirmed' && <><p className={styles.result} role="status">予約が確定しました</p>{summary}<p>当日は職員へ声をかけて、自習室を利用してください。</p><p className={styles.notice}>デモ上の確定です。実際の席の確保やLINE通知は行っていません。</p></>}
