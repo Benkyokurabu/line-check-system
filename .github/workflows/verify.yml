@@ -19,3 +19,31 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
+
+  study-room-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: study_room_workflow_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d study_room_workflow_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:reservation-db
+        env:
+          # Disposable CI service only; never use the production DB or its secrets.
+          STUDY_ROOM_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:5432/study_room_workflow_test
