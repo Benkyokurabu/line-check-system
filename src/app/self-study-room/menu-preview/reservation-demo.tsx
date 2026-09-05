@@ -17,16 +17,26 @@ type Stage = 'select'|'review'|'pending'|'confirmed'|'cancelled';
 export default function ReservationDemo() {
   const [stage,setStage] = useState<Stage>('select');
   const [date,setDate] = useState(getJapanDate());
-  const [slot,setSlot] = useState(0); const [seat,setSeat] = useState<number|null>(null);
+  const [range,setRange] = useState<[number,number]>([0,0]);
+  const [anchor,setAnchor] = useState<number|null>(null);
+  const [seat,setSeat] = useState<number|null>(null);
   const [actor,setActor] = useState('student'); const [child,setChild] = useState('デモ生徒A');
   const [cancelCheck,setCancelCheck] = useState(false);
   const today = getJapanDate();
-  const full = slot===3;
-  const busySeats = slot===0 ? [3,7] : slot===1 ? [2,4,8] : slot===2 ? [5] : [1,2,3,4,5,6,7,8,9,10];
+  const selectedSlots = slots.slice(range[0],range[1]+1);
+  const full = range[1]===3;
+  const occupancy = [[3,7],[2,4,8],[5],[1,2,3,4,5,6,7,8,9,10]];
+  const busySeats = [...new Set(occupancy.slice(range[0],range[1]+1).flat())];
   const valid = isValidReservationDate(date) && date>=today && seat!==null && !busySeats.includes(seat);
-  function reset(){setStage('select');setSeat(null);setCancelCheck(false);}
+  function reset(){setStage('select');setSeat(null);setCancelCheck(false);setAnchor(null);}
+  function selectSlot(index:number) {
+    setSeat(null);
+    // A full demo slot can be inspected but must not become an accidental range anchor.
+    if(anchor===null || index===3) {setRange([index,index]);setAnchor(index===3 ? null : index);}
+    else {setRange([Math.min(anchor,index),Math.max(anchor,index)]);setAnchor(null);}
+  }
   const summary = <div className={styles.summary}><strong>{actor==='student' ? 'デモ生徒A' : child} さん</strong>
-    <p>本校自習室 ／ {date}<br/>{slots[slot]} ／ {seat}番席</p>
+    <p>本校自習室 ／ {date} ／ {seat}番席<br/>{selectedSlots.join(' ／ ')}<br/>{selectedSlots.length}コマ・{selectedSlots.length*90}分（休憩時間を除く）</p>
     <p>{actor==='guardian' ? '保護者による代理申請' : '生徒本人による申請'}{date===today ? '・当日申請' : '・事前申請'}</p></div>;
   return <main className={styles.screen}><section className={styles.panel}>
     <span className={styles.badge}>操作デモ・実際の予約は登録されません</span>
@@ -44,10 +54,14 @@ export default function ReservationDemo() {
       <label className={styles.field}>利用日<input type="date" min={today} value={date} onChange={e=>{setDate(e.target.value);setSeat(null);}} /></label>
       <p>{date===today ? '当日の申請も、空席があれば受け付けます。' : '前日の23:59まで事前申請できます。'}</p>
       <h2>時間帯を選ぶ</h2>
-      <div className={styles.slots}>{slots.map((label,index)=><button key={label} className={`${styles.slot} ${slot===index ? styles.selected : ''}`} aria-pressed={slot===index} onClick={()=>{setSlot(index);setSeat(null);}}>
+      <p>開始の時間帯 → 終了の時間帯の順に押すと、間もまとめて選べます。1コマだけでも申請できます。</p>
+      <div className={styles.actions}><button onClick={()=>{setRange([0,2]);setAnchor(null);setSeat(null);}}>空きのある3コマをまとめて選ぶ</button></div>
+      <div className={styles.slots}>{slots.map((label,index)=><button key={label} className={`${styles.slot} ${index>=range[0] && index<=range[1] ? styles.selected : ''}`} aria-pressed={index>=range[0] && index<=range[1]} onClick={()=>selectSlot(index)}>
         <span>{label}</span><small>{index===3 ? '満席（例）' : '空きあり'}</small>
       </button>)}</div>
-      <h2>配置図から席を選ぶ</h2><p>図の席番号を押して選択します。灰色の席は予約できません。空席状況はデモ用です。</p>
+      <p aria-live="polite">{selectedSlots.length}コマ選択中：{selectedSlots.join(' ／ ')}</p>
+      {anchor!==null && <p className={styles.small}>続けて終了の時間帯を押すと、連続で選択できます。</p>}
+      <h2>配置図から席を選ぶ</h2><p>選んだ全時間帯で空いている席を選べます。灰色の席は、いずれかの時間帯が予約済みです。空席状況はデモ用です。</p>
       {full && <p role="status" className={styles.notice}>この時間帯は満席です。別の時間帯を選んでください。</p>}
       <div className={styles.map} role="group" aria-label="本校自習室の配置図から座席選択">
         <Image src="/main-study-room-seat-map.png" alt="本校自習室の配置図。左側に下から1〜6番席、右上に7・8番席と9・10番席。出入口は右側、本棚は右下。" width={1086} height={1448} className={styles.mapImage} priority unoptimized />

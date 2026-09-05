@@ -24,11 +24,17 @@ test('student demo covers unavailable seats, request, staff approval and cancell
   await expect(page.getByRole('status')).toContainText('満席');
   await expect(page.getByRole('button',{name:'1番席 予約済み',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:/14:55–16:25/}).click();
+  await page.getByRole('button',{name:/18:35–20:05/}).click();
+  await expect(page.getByText(/^3コマ選択中/)).toBeVisible();
+  await expect(page.getByRole('button',{name:/16:45–18:15/})).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByRole('button',{name:'2番席 予約済み',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'5番席 予約済み',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:'1番席',exact:true}).click();
   await expect(page.getByText('1番席を選択中')).toBeVisible();
   await page.screenshot({path:'test-results/reservation-demo-seat-map.png',fullPage:true});
   await page.getByRole('button',{name:'申請内容を確認する'}).click();
   await expect(page.getByRole('heading',{name:'この内容で申請しますか？'})).toBeVisible();
+  await expect(page.getByText(/3コマ・270分/)).toBeVisible();
   await page.getByRole('button',{name:'この内容で申請する（デモ）'}).click();
   await expect(page.getByRole('status')).toContainText('承認待ち');
   await page.getByText('デモの続きを見る：職員の承認を再現').click();
