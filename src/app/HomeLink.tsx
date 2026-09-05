@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 export function HomeLink() {
   const pathname = usePathname();
 
-  if (pathname === "/") return null;
+  if (pathname === "/" || pathname === "/self-study-room" || pathname.startsWith("/self-study-room/")) return null;
 
   return (
     <Link href="/" className="home-link">

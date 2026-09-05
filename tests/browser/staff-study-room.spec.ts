@@ -14,6 +14,10 @@ test("reservation preview has the requested school title and cannot submit a res
   await expect(page).toHaveTitle("勉強クラブ本校自習室予約");
   await expect(page.getByText("表示確認用・予約は登録されません")).toBeVisible();
   await expect(page.locator("form")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "トップページへ" })).toHaveCount(0);
+  await page.goto("/self-study-room");
+  await expect(page).toHaveTitle("勉強クラブ本校自習室予約");
+  await expect(page.getByRole("link", { name: "トップページへ" })).toHaveCount(0);
 });
 
 async function setup(page: Page, { loseResponse = false, readOnly = false } = {}) {
@@ -47,6 +51,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false } = {}
     forbidden.push(url.pathname); await route.abort();
   });
   await page.goto("/staff/self-study-room");
+  await expect(page.getByRole("link", { name: "トップページへ" })).toBeVisible();
   await page.getByLabel("職員コード").fill("TESTOFFICE");
   await page.getByLabel("パスワード").fill("test-password-not-real");
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
