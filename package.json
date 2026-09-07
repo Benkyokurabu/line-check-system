@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "schedule:preview": "node scripts/preview-schedule-from-cloud.mjs",
+    "test:schedule": "node --test tests/schedule-preview.test.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -28,7 +30,7 @@
     "test:reservation-db": "node --test tests/study-room-workflow.test.mjs",
     "test:staff": "node --test tests/staff-auth-core.test.mjs tests/staff-auth-db.test.mjs tests/staff-study-room-visits.test.mjs",
     "test:browser": "playwright test",
-    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff",
+    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"
   },
