@@ -1,6 +1,6 @@
 # 自習室の承認処理：実装と切替条件
 
-更新日: 2026-09-05
+更新日: 2026-09-07
 
 設計の正本は `自習室予約システム/統合システム設計メモ.md`。本書は実装・検証・切替の補助資料。
 
@@ -32,6 +32,18 @@ GitHub Actions の `study-room-postgres` は、廃棄可能なPostgreSQL 16サ�
 同日の `npm audit` は既存パッケージにhigh 8件を報告（next、xlsx等）。追加したPGliteは対象に含まれず、ロックファイルの変更もPGliteの追加のみ。今回、無関係な依存関係の一括更新は行っていない。利用開始前のセキュリティ確認項目として残す。
 
 ## 本番切替の前に必要な作業
+
+2026-09-07: 認証なしの旧 `/api/self-study-room`（GET/POST）、
+`/api/self-study-room/cancel`（POST）、`/api/admin/self-study-room`（GET/POST）は、
+DBや入力内容を参照せず `503 legacy_study_room_unavailable` と `Cache-Control: no-store` を返す。
+旧予約画面は受付準備中の案内、旧管理画面は職員専用画面への案内に置き換えた。
+職員認証やDBワークフローを有効化しても旧APIは再開しない。
+本番開始時には認証済みの新経路を完成させ、旧APIの拒否を解除して代用しない。
+この変更はDB適用・機能有効化・通知送信を伴わない。
+
+`tests/browser/legacy-study-room-security.spec.ts` は、職員認証を有効にし、
+到達不能のテスト用DBを指定した実サーバーに対して、旧経路のデータ取得・作成・取消・設定変更、
+不正JSON・偽装認証・別HTTPメソッドの拒否と、旧画面がAPIを呼ばず学籍番号を求めないことを確認する。
 
 以下は未完了。SQLのテスト成功やコードの公開だけをもって利用開始しない。
 

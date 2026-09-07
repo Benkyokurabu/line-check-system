@@ -40,14 +40,15 @@ test("request classification depends on the instant, not the caller's offset", (
   }
 });
 
-test("both reservation screens and the server use the shared Japanese date policy", async () => {
-  for (const path of ["../src/app/self-study-room/page.tsx", "../src/app/admin/self-study-room/page.tsx"]) {
+test("supported reservation screens and server validation use the shared Japanese date policy", async () => {
+  for (const path of ["../src/app/self-study-room/menu-preview/reservation-demo.tsx",
+    "../src/app/staff/self-study-room/staff-study-room.tsx", "../src/app/staff/self-study-room/staff-intake.tsx"]) {
     const source = await readFile(new URL(path, import.meta.url), "utf8");
     assert.match(source, /getJapanDate/);
     assert.doesNotMatch(source, /toISOString\(\)\.slice\(0, 10\)/);
   }
-  const route = await readFile(new URL("../src/app/api/self-study-room/route.ts", import.meta.url), "utf8");
-  assert.match(route, /getReservationRequestKind\(date\) === "past"/);
+  const staff = await readFile(new URL("../src/lib/staff-auth-core.mjs", import.meta.url), "utf8");
+  assert.match(staff, /isValidReservationDate/);
   const library = await readFile(new URL("../src/lib/self-study-room.ts", import.meta.url), "utf8");
   assert.match(library, /isValidReservationDate as isValidDate/);
 });
