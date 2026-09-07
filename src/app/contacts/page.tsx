@@ -760,7 +760,7 @@ export default function ContactsPage() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
                   <label style={{ display: "grid", gap: 5 }}>③ 生徒との続柄
                     <select style={inputStyle} value={selectedRelation} onChange={(event) => { const relation = event.target.value; setSelectedRelation(relation); if (selectedStudent) setSelectedAliasName(buildLineContactAlias(selectedStudent, relation)); }}>
-                      <option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="family">家族</option>
+                      <option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="family">家族</option><option value="shared">生徒・保護者共有</option>
                     </select>
                   </label>
                   <label style={{ display: "grid", gap: 5 }}>④ 教室で表示する登録名（自由入力）

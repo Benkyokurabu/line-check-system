@@ -742,7 +742,7 @@ function LineLinkReviewPanel({ candidates, students, confirmedBy, loading, onRel
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, alignItems: "end" }}>
               <label style={fieldStyle}>LINE表示名（参考）<input style={inputStyle} value={draft.display_name} onChange={(event) => updateDraft(candidate.line_user_id, { display_name: event.target.value })} placeholder="例: Shiho" /></label>
               <StudentPicker label="② 登録する生徒" students={students} value={draft.student_number} query={draft.query} onQueryChange={(query) => updateDraft(candidate.line_user_id, { query })} onChange={(student_number) => updateDraft(candidate.line_user_id, { student_number })} candidates={suggestionStudents} />
-              <label style={fieldStyle}>③ 生徒との続柄<select style={inputStyle} value={draft.relation} onChange={(event) => updateDraft(candidate.line_user_id, { relation: event.target.value })}><option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option></select></label>
+              <label style={fieldStyle}>③ 生徒との続柄<select style={inputStyle} value={draft.relation} onChange={(event) => updateDraft(candidate.line_user_id, { relation: event.target.value })}><option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="shared">生徒・保護者共有</option></select></label>
             </div>
             {selected.length > 0 && <div style={{ display: "grid", gap: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>④ 教室で表示する登録名（登録前に編集できます）</span>

@@ -100,7 +100,7 @@ create table if not exists public.student_line_accounts (
   is_primary boolean not null default false,
   updated_at timestamptz not null default now(),
   constraint student_line_accounts_relation_check
-    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown')),
+    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'shared', 'unknown')),
   constraint student_line_accounts_unique
     unique (student_number, line_user_id)
 );
@@ -134,7 +134,7 @@ create table if not exists public.line_link_evidence (
   verified_at timestamptz default now(),
   updated_at timestamptz not null default now(),
   constraint line_link_evidence_relation_check
-    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown')),
+    check (relation in ('student', 'mother', 'father', 'guardian', 'family', 'shared', 'unknown')),
   constraint line_link_evidence_review_status_check
     check (review_status in ('pending', 'confirmed', 'rejected'))
 );

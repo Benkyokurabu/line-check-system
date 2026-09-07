@@ -1,4 +1,4 @@
-const ALLOWED_RELATIONS = new Set(["student", "mother", "father", "guardian", "family", "unknown"]);
+const ALLOWED_RELATIONS = new Set(["student", "mother", "father", "guardian", "family", "shared", "unknown"]);
 
 export function compactStudentName(value) {
   return String(value ?? "").normalize("NFKC").replace(/[\s　]/g, "");
@@ -72,7 +72,7 @@ export function classifyLineContact(contact) {
 }
 
 export function relationLabel(value) {
-  return ({ student: "本人", mother: "母", father: "父", guardian: "保護者", family: "家族", unknown: "続柄未確認" })[value] ?? "保護者";
+  return ({ student: "本人", mother: "母", father: "父", guardian: "保護者", family: "家族", shared: "生徒・保護者共有", unknown: "続柄未確認" })[value] ?? "保護者";
 }
 
 export function helperOriginAllowed(origin) {

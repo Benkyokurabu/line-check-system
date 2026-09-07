@@ -1,4 +1,6 @@
 -- Human-reviewed LINE contact registration and audit trail.
+alter table public.student_line_accounts drop constraint if exists student_line_accounts_relation_check;
+alter table public.student_line_accounts add constraint student_line_accounts_relation_check check (relation in ('student','mother','father','guardian','family','shared','unknown'));
 -- Existing rows remain usable and are deliberately marked unverified until a staff member
 -- confirms them from a LINE message in the application.
 
@@ -43,7 +45,7 @@ create table if not exists public.line_contact_registration_events (
   constraint line_contact_registration_events_action_check
     check (action in ('confirmed', 'updated', 'revoked')),
   constraint line_contact_registration_events_relation_check
-    check (relation is null or relation in ('student', 'mother', 'father', 'guardian', 'family', 'unknown'))
+    check (relation is null or relation in ('student', 'mother', 'father', 'guardian', 'family', 'shared', 'unknown'))
 );
 
 create index if not exists line_contact_registration_events_line_user_idx
@@ -134,7 +136,7 @@ begin
     ) then
       raise exception '生徒が見つかりません: %', target_student_number;
     end if;
-    if target_relation not in ('student', 'mother', 'father', 'guardian', 'family', 'unknown') then
+    if target_relation not in ('student', 'mother', 'father', 'guardian', 'family', 'shared', 'unknown') then
       raise exception '続柄が不正です';
     end if;
     if target_alias_name = '' or length(target_alias_name) > 200 then

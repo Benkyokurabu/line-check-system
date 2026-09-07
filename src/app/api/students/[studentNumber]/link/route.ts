@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function allowedRelation(value: string) {
-  return ["student", "mother", "father", "guardian", "family", "unknown"].includes(value)
+  return ["student", "mother", "father", "guardian", "family", "shared", "unknown"].includes(value)
     ? value
     : "guardian";
 }
