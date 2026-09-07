@@ -140,6 +140,13 @@ test("attendance review keeps past candidates out of the initial response", asyn
   assert.match(route, /if \(!includePastPending\) \{\s*visibleClosedCandidateQuery = visibleClosedCandidateQuery\.gte\("event_date", today\);\s*\}/);
 });
 
+test("LINE registration lets staff edit the classroom display name before saving", async () => {
+  const page = await readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /教室で表示する登録名（登録前に編集できます）/);
+  assert.match(page, /const \[registrationName, setRegistrationName\] = useState/);
+  assert.match(page, /alias_name: aliasName/);
+});
+
 test("all attendance write APIs enforce campus consistency", async () => {
   const routes = await Promise.all([
     readFile(new URL("../src/app/api/attendance/candidates/[id]/confirm/route.ts", import.meta.url), "utf8"),
