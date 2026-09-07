@@ -147,6 +147,12 @@ test("LINE registration lets staff edit the classroom display name before saving
   assert.match(page, /alias_name: aliasName/);
 });
 
+test("staff LINE contacts can be named without a student link", async () => {
+  const contacts = await readFile(new URL("../src/app/contacts/page.tsx", import.meta.url), "utf8");
+  assert.match(contacts, /スタッフとして登録/);
+  assert.match(contacts, /group_name: "スタッフ"/);
+});
+
 test("all attendance write APIs enforce campus consistency", async () => {
   const routes = await Promise.all([
     readFile(new URL("../src/app/api/attendance/candidates/[id]/confirm/route.ts", import.meta.url), "utf8"),

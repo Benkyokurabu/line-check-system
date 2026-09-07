@@ -94,6 +94,7 @@ export default function ContactsPage() {
   const [groupFilter, setGroupFilter] = useState("全て");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [staffRegistrationId, setStaffRegistrationId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupValue, setEditGroupValue] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
@@ -169,29 +170,39 @@ export default function ContactsPage() {
   function startEdit(c: Contact) {
     setEditingId(c.line_user_id);
     setEditValue(c.alias_name ?? c.display_name ?? "");
+    setStaffRegistrationId(null);
+  }
+
+  function startStaffRegistration(c: Contact) {
+    setEditingId(c.line_user_id);
+    setEditValue(c.alias_name ?? c.display_name ?? "");
+    setStaffRegistrationId(c.line_user_id);
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditValue("");
+    setStaffRegistrationId(null);
   }
 
   async function saveAlias(userId: string) {
     const trimmed = editValue.trim();
     if (!trimmed) return;
+    const registerAsStaff = staffRegistrationId === userId;
     setSaving(userId);
     try {
       await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alias_name: trimmed }),
+        body: JSON.stringify(registerAsStaff ? { alias_name: trimmed, group_name: "スタッフ" } : { alias_name: trimmed }),
       });
       setContacts((prev) =>
         prev.map((c) =>
-          c.line_user_id === userId ? { ...c, alias_name: trimmed } : c,
+          c.line_user_id === userId ? { ...c, alias_name: trimmed, group_name: registerAsStaff ? "スタッフ" : c.group_name } : c,
         ),
       );
       setEditingId(null);
+      setStaffRegistrationId(null);
     } finally {
       setSaving(null);
     }
@@ -889,7 +900,7 @@ export default function ContactsPage() {
                             disabled={saving === c.line_user_id || !editValue.trim()}
                             style={btnSave}
                           >
-                            保存
+                            {staffRegistrationId === c.line_user_id ? "スタッフとして保存" : "保存"}
                           </button>
                           <button onClick={cancelEdit} style={btnCancel}>
                             キャンセル
@@ -903,6 +914,13 @@ export default function ContactsPage() {
                             style={btnEdit}
                           >
                             登録名編集
+                          </button>
+                          <button
+                            onClick={() => startStaffRegistration(c)}
+                            disabled={saving === c.line_user_id || Boolean(c.system_verified)}
+                            style={btnEdit}
+                          >
+                            スタッフとして登録
                           </button>
                           {c.alias_name && (
                             <button
