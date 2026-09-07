@@ -32,6 +32,8 @@ type Contact = {
 };
 
 type RegisteredAccount = {
+  enrollment_status?: string;
+  study_room_enabled?: boolean;
   student_number: string;
   student_name: string;
   grade: string;
@@ -776,6 +778,8 @@ export default function ContactsPage() {
                 <strong>現在の生徒紐付け</strong>
                 {(selectedContact.registered_accounts ?? []).map((account) => <div key={`${account.student_number}-${account.relation}`} style={{ padding: 9, border: "1px solid var(--line)", borderRadius: 6 }}>
                   {account.grade} {account.student_name} / {studentInstructionTypeLabel(account.instruction_type)} / {relationLabel(account.relation)} / {account.alias_name ?? "登録名なし"}
+                  {account.enrollment_status === "卒塾" && " / 卒塾"}
+                  {account.study_room_enabled && " / 自習室利用可"}
                   <div style={{ color: "var(--muted)", fontSize: "0.72rem" }}>{account.verification_status === "confirmed" ? `本人確認済み：${account.verified_by ?? "確認者不明"} / ${formatDateTime(account.verified_at)}` : "取込・推定による紐付け（本人確認未完了）"}</div>
                 </div>)}
               </div>}

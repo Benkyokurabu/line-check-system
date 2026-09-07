@@ -10,6 +10,7 @@ export function buildLineContactAlias(student, relation) {
   if (relation === "student") return base;
   if (relation === "mother") return `${base}　母`;
   if (relation === "father") return `${base}　父`;
+  if (relation === "shared") return `${base}　生徒・保護者共有`;
   return `${base}　保護者`;
 }
 

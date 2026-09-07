@@ -1,4 +1,4 @@
-const RESERVATION_RELATIONS = new Set(["student", "mother", "father", "guardian"]);
+const RESERVATION_RELATIONS = new Set(["student", "mother", "father", "guardian", "shared"]);
 
 /**
  * Domain check only, not LINE authentication. The caller must obtain actorLineUserId
@@ -34,6 +34,6 @@ export function authorizeReservationSubject({ actorLineUserId, targetStudentNumb
   return {
     allowed: true,
     reason: "confirmed_link",
-    actingAs: account.relation === "student" ? "self" : "guardian",
+    actingAs: account.relation === "shared" ? "shared" : account.relation === "student" ? "self" : "guardian",
   };
 }
