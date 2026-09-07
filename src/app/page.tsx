@@ -1,6 +1,27 @@
 import Link from "next/link";
+import { Fragment } from "react";
 
 const menuItems = [
+  {
+    href: "/attendance",
+    title: "欠席連絡の確認",
+    description: "LINEから抽出した欠席候補を確認し、Notionへ登録します。",
+  },
+  {
+    href: "/classroom-office",
+    title: "教室への連絡",
+    description: "教室ごとの欠席・遅刻情報を確認し、事務部から教室へメッセージを出します。",
+  },
+  {
+    href: "/admin/self-study-room",
+    title: "自習室管理",
+    description: "日別の予約確認、予約上限、使用不可時間帯を管理します。",
+  },
+  {
+    href: "/self-study-room",
+    title: "自習室予約",
+    description: "自習室の空き状況を確認し、生徒ごとに座席と時間帯を予約します。",
+  },
   {
     href: "/schedule-import",
     title: "授業スケジュール取込",
@@ -10,16 +31,6 @@ const menuItems = [
     href: "/contacts#roster-import",
     title: "クラス一覧表の取り込み",
     description: "更新済みのクラス一覧Excelを確認し、変更分だけを取り込みます。",
-  },
-  {
-    href: "/classroom-office",
-    title: "教室への連絡",
-    description: "教室ごとの欠席・遅刻情報を確認し、事務部から教室へメッセージを出します。",
-  },
-  {
-    href: "/attendance",
-    title: "欠席連絡の確認",
-    description: "LINEから抽出した欠席候補を確認し、Notionへ登録します。",
   },
   {
     href: "/dashboard",
@@ -51,16 +62,6 @@ const menuItems = [
     title: "LINE登録名の取り込み",
     description: "LINE管理画面で入力した登録名を一覧確認し、編集してから一括反映します。",
   },
-  {
-    href: "/self-study-room",
-    title: "自習室予約",
-    description: "自習室の空き状況を確認し、生徒ごとに座席と時間帯を予約します。",
-  },
-  {
-    href: "/admin/self-study-room",
-    title: "自習室管理",
-    description: "日別の予約確認、予約上限、使用不可時間帯を管理します。",
-  },
 ];
 
 export default function Home() {
@@ -69,14 +70,19 @@ export default function Home() {
       <section>
         <p className="eyebrow">BENKYO KURABU Integrated Assistant System</p>
         <h1><span>勉たん（仮）</span> <span style={{ fontSize: "60%" }}>-勉強クラブ総合アシスたんトさん-</span></h1>
-        <div className="home-menu">
-          {menuItems.map((item) => (
-            <Link key={item.href} href={item.href} className="home-menu-item">
-              <span className="home-menu-title">{item.title}</span>
-              <span className="home-menu-description">{item.description}</span>
-            </Link>
-          ))}
-        </div>
+        {[menuItems.slice(0, 4), menuItems.slice(4)].map((items, index) => (
+          <Fragment key={index}>
+            {index === 1 && <hr style={{ border: 0, borderTop: "2px solid var(--line)", margin: "28px 0" }} />}
+            <div className="home-menu">
+              {items.map((item) => (
+                <Link key={item.href} href={item.href} className="home-menu-item">
+                  <span className="home-menu-title">{item.title}</span>
+                  <span className="home-menu-description">{item.description}</span>
+                </Link>
+              ))}
+            </div>
+          </Fragment>
+        ))}
       </section>
     </main>
   );
