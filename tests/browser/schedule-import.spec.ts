@@ -1,6 +1,34 @@
 import { test, expect } from "@playwright/test";
 import { buildSchedulePreview, scheduleRows } from "../../src/lib/schedule-preview.mjs";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/schedule/status", (route) => route.fulfill({ json: { enabled: true, stale: false, months: ["2026-09", "2026-10"], runs: [] } }));
+});
+
+test("manual import shows completion or review without accepting client lesson data", async ({ page }) => {
+  await page.route("**/api/schedule/preview*", (route) => route.fulfill({ json: { months: [{ month: "2026-09" }] } }));
+  let review = false;
+  await page.route("**/api/schedule/sync?*", (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postData()).toBeNull();
+    return route.fulfill({ json: { status: review ? "review" : "applied", message: review ? "休講の確認が必要です。反映を保留します。" : "授業への反映が完了しました。" } });
+  });
+  await page.goto("/schedule-import");
+  await page.getByLabel("対象月", { exact: true }).fill("2026-09");
+  await page.getByRole("button", { name: "今すぐ取り込む", exact: true }).click();
+  await expect(page.getByText("授業への反映が完了しました。", { exact: true })).toBeVisible();
+  review = true;
+  await page.getByRole("button", { name: "今すぐ取り込む", exact: true }).click();
+  await expect(page.getByText("休講の確認が必要です。反映を保留します。", { exact: true })).toBeVisible();
+  await page.getByLabel("対象月", { exact: true }).fill("2026-08");
+  await expect(page.getByRole("button", { name: "今すぐ取り込む", exact: true })).toBeDisabled();
+});
+
+test("foreign origins and unauthenticated cron cannot start imports", async ({ request }) => {
+  expect((await request.post("/api/schedule/sync?month=2026-09", { headers: { origin: "https://foreign.invalid" } })).status()).toBe(403);
+  expect((await request.post("/api/cron/schedule-sync")).status()).toBe(401);
+});
+
 test("one button reads cloud schedule and retries errors without file selection", async ({ page }) => {
   const item = { date: "2026-09-07", time: "6:35～8:05", grade: "j1", class: "S", subject: "eng", campus: "hon", room: "1", groupKey: "hon_j1_S_eng", label: "中１S 英語", teacher: "確認用講師" };
   const existing = scheduleRows([item], "2026-09").map((r) => ({ ...r, id: "test-lesson" }));

@@ -87,7 +87,7 @@ async function readAll(db, table, select, filter) {
   }
   throw new ScheduleCloudError("比較件数が上限を超えました。");
 }
-export async function getScheduleCloudPreview(db, month, key, fetcher = fetch) {
+export async function getScheduleCloudPreview(db, month, key, fetcher = fetch, options = {}) {
   validateScheduleMonth(month);
   const session = await cloudSession(db, key, fetcher);
   const candidates = (await files(session)).filter((f) => f.month === month);
@@ -115,7 +115,8 @@ export async function getScheduleCloudPreview(db, month, key, fetcher = fetch) {
     for (const row of batches.flat()) references[row.lesson_id] = (references[row.lesson_id] ?? 0) + 1;
   }
   if (JSON.stringify(existing) !== JSON.stringify(await load())) throw new ScheduleCloudError("比較中に登録済み授業が変更されました。もう一度確認してください。", 409);
+  if ((await session.graph(metadataUrl)).eTag !== before.eTag) throw new ScheduleCloudError("照合中に原本が更新されました。もう一度確認してください。", 409);
   const result = buildSchedulePreview(items, existing, month, references);
   // No credentials, Graph IDs/URLs, student IDs, messages or connection metadata.
-  return { ...result, generatedAt: new Date().toISOString(), source: { file: file.name, modifiedAt: before.lastModifiedDateTime, sha256: createHash("sha256").update(buffer).digest("hex") } };
+  return { ...result, ...(options.includeSnapshot ? { existing } : {}), generatedAt: new Date().toISOString(), source: { file: file.name, modifiedAt: before.lastModifiedDateTime, sha256: createHash("sha256").update(buffer).digest("hex") } };
 }

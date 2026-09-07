@@ -6,6 +6,9 @@ import { scheduleFieldLabels } from "@/lib/schedule-preview.mjs";
 type Lesson = { lesson_date: string; campus: string; classroom: string; start_time: string; label: string; teacher_name?: string };
 type Change = { kind: string; before: Lesson | Lesson[] | null; after: Lesson | Lesson[] | null; changedFields: string[]; linkedRecords: number };
 type Report = { month: string; generatedAt: string; source: { file: string }; summary: Record<string, number>; warnings: string[]; changes: Change[]; lessons: Lesson[] };
+type SyncRun = { id: string; month: string; status: string; message: string; started_at: string; finished_at: string | null; source: { file?: string } | null };
+type SyncStatus = { enabled: boolean; stale: boolean; months: string[]; runs: SyncRun[] };
+const syncLabels: Record<string, string> = { running: "処理中", applied: "反映完了", unchanged: "反映済み・変更なし", review: "確認が必要・反映保留", error: "エラー・再試行待ち", waiting: "原本の保存待ち" };
 const kinds: Record<string, string> = { add: "追加", update: "変更", remove: "原本に見当たらない", ambiguous: "対応の確認が必要" };
 const labels: Record<string, string> = { existing: "現在の登録", incoming: "原本の授業", unchanged: "変更なし", add: "追加", update: "変更", remove: "原本に見当たらない", ambiguous: "対応確認" };
 function describe(value: Lesson | Lesson[] | null): string {
@@ -25,7 +28,24 @@ export default function ScheduleImportPage() {
   const [busy, setBusy] = useState(false);
   const [loadingMonths, setLoadingMonths] = useState(true);
   const [reload, setReload] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [statusError, setStatusError] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
+  const [statusReload, setStatusReload] = useState(0);
   const active = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    async function refreshStatus() {
+      try {
+        const response = await fetch("/api/schedule/status", { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]), cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+        setSyncStatus(data); setStatusError("");
+      } catch { if (!controller.signal.aborted) setStatusError("自動反映の状況を取得できません。接続を確認して再試行してください。"); }
+    }
+    void refreshStatus(); const timer = setInterval(() => void refreshStatus(), 30000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [statusReload]);
   useEffect(() => {
     const controller = new AbortController();
     async function discover() {
@@ -43,12 +63,20 @@ export default function ScheduleImportPage() {
     void discover();
     return () => { controller.abort(); active.current?.abort(); };
   }, [reload, thisMonth]);
-  async function checkSchedule() {
+  async function checkSchedule(apply = false) {
     active.current?.abort();
     const controller = new AbortController(); active.current = controller;
     const timeout = setTimeout(() => controller.abort(), 115000);
-    setBusy(true); setReport(null); setError(""); setKind("all"); setCampus("all"); setShowLessons(false);
+    setBusy(true); setReport(null); setError(""); setSyncMessage(""); setKind("all"); setCampus("all"); setShowLessons(false);
     try {
+      if (apply) {
+        const sync = await fetch(`/api/schedule/sync?month=${encodeURIComponent(month)}`, { method: "POST", signal: controller.signal, cache: "no-store" });
+        const outcome = await sync.json();
+        if (!sync.ok) throw new Error(outcome.error || "反映できませんでした。");
+        if (active.current === controller) { setSyncMessage(outcome.message); setStatusReload((n) => n + 1); }
+        // A separate comparison can be requested without extending the mutation request timeout.
+        return;
+      }
       const response = await fetch(`/api/schedule/preview?month=${encodeURIComponent(month)}`, { signal: controller.signal, cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "スケジュールを確認できませんでした。");
@@ -58,16 +86,25 @@ export default function ScheduleImportPage() {
   }
   return <main className="shell"><section className="panel">
     <p className="eyebrow">授業管理</p><h1>授業スケジュール取込</h1>
-    <p>OneDriveのスケジュール原本と、教室に表示する授業の差分を確認します。</p>
-    <p>「【完成版】授業日誌システム」にスケジュールのExcelを保存したら、対象月を選んで確認してください。</p>
+    <p>「【完成版】授業日誌システム」に「2026年9月スケジュール.xlsm」の形式でExcelを保存すると、今月・翌月の授業を自動で取り込みます。</p>
+    <p>各月を約10分ごとに確認します。お急ぎの場合は「今すぐ取り込む」を押してください。時間・教室の変更後も欠席・遅刻の記録を引き継ぎます。</p>
+    {statusError && <p role="alert">{statusError}</p>}
+    {syncStatus && <section aria-label="自動反映の状況">
+      <h2>自動反映の状況</h2>
+      {(!syncStatus.enabled || syncStatus.stale) && <p role="alert">{!syncStatus.enabled ? "自動反映が停止しています。管理担当者による確認が必要です。" : "20分以上、処理の開始を確認できていません。「今すぐ取り込む」で再試行し、続く場合は管理担当者へお知らせください。"}</p>}
+      {syncStatus.months.map((m) => { const last = syncStatus.runs.find((r) => r.month === m); return <p key={m}><strong>{m}：{last ? syncLabels[last.status] : "初回確認待ち"}</strong>{last && <><br />{new Date(last.finished_at || last.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）{last.message && <><br />{last.message}</>}</>}</p>; })}
+      <details><summary>最近の処理履歴</summary><ul>{syncStatus.runs.map((r) => <li key={r.id}>{r.month} ／ {new Date(r.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} ／ {syncLabels[r.status]} {r.message}</li>)}</ul></details>
+    </section>}
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end", margin: "24px 0" }}>
       <label style={{ display: "grid", gap: 8 }}>対象月
-        <input aria-label="対象月" type="month" value={month} disabled={busy || loadingMonths} onChange={(e) => { setMonth(e.target.value); setReport(null); setError(""); }} style={{ fontSize: "1.1rem", padding: 10 }} /></label>
+        <input aria-label="対象月" type="month" value={month} disabled={busy || loadingMonths} onChange={(e) => { setMonth(e.target.value); setReport(null); setError(""); setSyncMessage(""); }} style={{ fontSize: "1.1rem", padding: 10 }} /></label>
       <button type="button" disabled={busy || loadingMonths || !month} onClick={() => void checkSchedule()} style={{ padding: "12px 20px", fontWeight: 800 }}>{busy ? "Excelを読み取り・照合中…" : "スケジュールを確認"}</button>
+      <button type="button" disabled={busy || loadingMonths || !syncStatus?.enabled || !syncStatus.months.includes(month)} onClick={() => void checkSchedule(true)} style={{ padding: "12px 20px", fontWeight: 800 }}>今すぐ取り込む</button>
       <button type="button" disabled={busy || loadingMonths} onClick={() => { setReport(null); setReload((n) => n + 1); }}>フォルダを再確認</button>
     </div>
     <p role="status" aria-live="polite">{busy ? "OneDriveの原本を取得して、登録済み授業と比較しています。そのままお待ちください。" : loadingMonths ? "OneDriveの保存済みスケジュールを確認しています…" : available.length ? `保存済みの月: ${available.join("、")}` : "原本が見つからない場合は、フォルダにExcelが保存されているか確認してください。"}</p>
-    <p>この操作では差分を確認します。授業の登録・変更・削除はまだ行いません。</p>
+    <p>「スケジュールを確認」は差分の表示、「今すぐ取り込む」は本番への反映です。休講・日付や校舎の移動・対応が曖昧な変更は、自動で確定せず、その月の反映を保留します。表示された差分を管理担当者へお知らせください。</p>
+    {syncMessage && <p role="status">{syncMessage}</p>}
     {error && <p role="alert">{error}</p>}
     {report && <>
       <h2>{report.month} の確認結果</h2><p>原本: {report.source.file}<br />確認日時: {new Date(report.generatedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）</p>
