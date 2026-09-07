@@ -4,7 +4,9 @@ import process from "node:process";
 
 const DEFAULT_PORT = 9222;
 const DEFAULT_OUTPUT = "line_manager_chats.csv";
-const DEFAULT_LIMIT = 100;
+// LINE Chat currently rejects chat-list requests above 25 records.
+const MAX_LIMIT = 25;
+const DEFAULT_LIMIT = MAX_LIMIT;
 
 function parseArgs(argv) {
   const args = {
@@ -35,6 +37,7 @@ function parseArgs(argv) {
 
   if (!Number.isFinite(args.port) || args.port < 1) args.port = DEFAULT_PORT;
   if (!Number.isFinite(args.limit) || args.limit < 1) args.limit = DEFAULT_LIMIT;
+  args.limit = Math.min(Math.floor(args.limit), MAX_LIMIT);
   return args;
 }
 
@@ -44,7 +47,7 @@ function printHelp() {
 
 Options:
   --output <path>  CSV output path. Default: ${DEFAULT_OUTPUT}
-  --limit <num>    Chats per request. Default: ${DEFAULT_LIMIT}
+  --limit <num>    Chats per request (maximum ${MAX_LIMIT}). Default: ${DEFAULT_LIMIT}
   --port <num>     DevTools port. Default: ${DEFAULT_PORT}`);
 }
 
