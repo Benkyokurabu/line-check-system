@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "schedule:preview": "node scripts/preview-schedule-from-cloud.mjs",
-    "test:schedule": "node --test tests/schedule-preview.test.mjs",
+    "test:schedule": "node --test tests/schedule-preview.test.mjs tests/schedule-excel.test.mjs tests/schedule-cloud.test.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

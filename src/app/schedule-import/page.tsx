@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { readSchedulePreview, scheduleFieldLabels } from "@/lib/schedule-preview.mjs";
+import { useEffect, useRef, useState } from "react";
+import { scheduleFieldLabels } from "@/lib/schedule-preview.mjs";
 
 type Lesson = { lesson_date: string; campus: string; classroom: string; start_time: string; label: string; teacher_name?: string };
 type Change = { kind: string; before: Lesson | Lesson[] | null; after: Lesson | Lesson[] | null; changedFields: string[]; linkedRecords: number };
@@ -19,22 +19,55 @@ export default function ScheduleImportPage() {
   const [kind, setKind] = useState("all");
   const [campus, setCampus] = useState("all");
   const [showLessons, setShowLessons] = useState(false);
-  async function openFile(file?: File) {
-    setReport(null); setError(""); setKind("all"); setCampus("all");
-    if (!file) return;
+  const thisMonth = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit" }).format(new Date());
+  const [month, setMonth] = useState(thisMonth);
+  const [available, setAvailable] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [loadingMonths, setLoadingMonths] = useState(true);
+  const [reload, setReload] = useState(0);
+  const active = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    async function discover() {
+      setLoadingMonths(true); setError("");
+      try {
+        const response = await fetch("/api/schedule/preview", { signal: controller.signal, cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "保存済みのスケジュールを確認できませんでした。");
+        const months = [...new Set<string>(data.months.map((f: { month: string }) => f.month))];
+        setAvailable(months);
+        if (months.length && !months.includes(thisMonth)) setMonth(months[0]);
+      } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "OneDriveに接続できませんでした。"); }
+      finally { if (!controller.signal.aborted) setLoadingMonths(false); }
+    }
+    void discover();
+    return () => { controller.abort(); active.current?.abort(); };
+  }, [reload, thisMonth]);
+  async function checkSchedule() {
+    active.current?.abort();
+    const controller = new AbortController(); active.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 115000);
+    setBusy(true); setReport(null); setError(""); setKind("all"); setCampus("all"); setShowLessons(false);
     try {
-      if (file.size > 20 * 1024 * 1024) throw new Error("確認ファイルは20MB以内にしてください。");
-      setReport(readSchedulePreview(JSON.parse(await file.text())) as Report);
-    } catch (e) { setError(e instanceof Error ? e.message : "ファイルを読み取れませんでした。"); }
+      const response = await fetch(`/api/schedule/preview?month=${encodeURIComponent(month)}`, { signal: controller.signal, cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "スケジュールを確認できませんでした。");
+      if (active.current === controller) setReport(data as Report);
+    } catch (e) { if (active.current === controller) setError(controller.signal.aborted ? "確認に時間がかかっています。もう一度お試しください。" : e instanceof Error ? e.message : "スケジュールを確認できませんでした。"); }
+    finally { clearTimeout(timeout); if (active.current === controller) { setBusy(false); active.current = null; } }
   }
   return <main className="shell"><section className="panel">
     <p className="eyebrow">授業管理</p><h1>授業スケジュール取込</h1>
     <p>OneDriveのスケジュール原本と、教室に表示する授業の差分を確認します。</p>
-    <p><strong>現在は取込前の確認機能です。本番への登録・変更・削除は行いません。</strong></p>
-    <label style={{ display: "grid", gap: 8, margin: "20px 0" }}>取込処理で作成した確認ファイルを開く
-      <input type="file" accept=".json,application/json" onChange={(e) => void openFile(e.target.files?.[0])} /></label>
-    <p>ファイルの内容はこのブラウザ内で表示します。サーバーへ送信せず、画面を閉じると表示を終了します。</p>
-    {!report && <p>確認ファイルは「【完成版】授業日誌システム」のクラウド原本を読む専用処理で作成します。定期取得と本番反映の連携は未接続です。</p>}
+    <p>「【完成版】授業日誌システム」にスケジュールのExcelを保存したら、対象月を選んで確認してください。</p>
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end", margin: "24px 0" }}>
+      <label style={{ display: "grid", gap: 8 }}>対象月
+        <input aria-label="対象月" type="month" value={month} disabled={busy || loadingMonths} onChange={(e) => { setMonth(e.target.value); setReport(null); setError(""); }} style={{ fontSize: "1.1rem", padding: 10 }} /></label>
+      <button type="button" disabled={busy || loadingMonths || !month} onClick={() => void checkSchedule()} style={{ padding: "12px 20px", fontWeight: 800 }}>{busy ? "Excelを読み取り・照合中…" : "スケジュールを確認"}</button>
+      <button type="button" disabled={busy || loadingMonths} onClick={() => { setReport(null); setReload((n) => n + 1); }}>フォルダを再確認</button>
+    </div>
+    <p role="status" aria-live="polite">{busy ? "OneDriveの原本を取得して、登録済み授業と比較しています。そのままお待ちください。" : loadingMonths ? "OneDriveの保存済みスケジュールを確認しています…" : available.length ? `保存済みの月: ${available.join("、")}` : "原本が見つからない場合は、フォルダにExcelが保存されているか確認してください。"}</p>
+    <p>この操作では差分を確認します。授業の登録・変更・削除はまだ行いません。</p>
     {error && <p role="alert">{error}</p>}
     {report && <>
       <h2>{report.month} の確認結果</h2><p>原本: {report.source.file}<br />確認日時: {new Date(report.generatedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）</p>
