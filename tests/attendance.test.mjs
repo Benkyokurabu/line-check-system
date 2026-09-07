@@ -135,6 +135,11 @@ test("attendance schema contains the child table required for multi-row registra
   assert.match(sql, /attendance_events_cross_campus_reason_check/);
 });
 
+test("attendance review keeps past candidates out of the initial response", async () => {
+  const route = await readFile(new URL("../src/app/api/attendance/candidates/route.ts", import.meta.url), "utf8");
+  assert.match(route, /if \(!includePastPending\) \{\s*visibleClosedCandidateQuery = visibleClosedCandidateQuery\.gte\("event_date", today\);\s*\}/);
+});
+
 test("all attendance write APIs enforce campus consistency", async () => {
   const routes = await Promise.all([
     readFile(new URL("../src/app/api/attendance/candidates/[id]/confirm/route.ts", import.meta.url), "utf8"),

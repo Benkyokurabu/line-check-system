@@ -200,13 +200,16 @@ export async function GET(request: Request) {
   if (!includePastPending) {
     openCandidateQuery = openCandidateQuery.or(`event_date.gte.${today},and(event_date.is.null,created_at.gte.${todayStart})`);
   }
-  const visibleClosedCandidateQuery = supabase
+  let visibleClosedCandidateQuery = supabase
     .from("attendance_candidates")
     .select(candidateSelect)
     .in("status", ["confirmed", "dismissed"])
     .is("review_hidden_at", null)
     .order("updated_at", { ascending: false })
     .limit(500);
+  if (!includePastPending) {
+    visibleClosedCandidateQuery = visibleClosedCandidateQuery.gte("event_date", today);
+  }
   const doneCandidateQuery = supabase
     .from("attendance_candidates")
     .select(candidateSelect)

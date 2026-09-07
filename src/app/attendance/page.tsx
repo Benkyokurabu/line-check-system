@@ -387,7 +387,7 @@ export default function AttendancePage() {
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
       <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "待機中LINEを今すぐ解析"}</button>
-      <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去の要対応を非表示" : "過去の要対応も表示"}</button>
+      <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去の連絡を非表示" : "過去の連絡も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE登録候補を閉じる" : "LINE登録候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>消去済みの表示期間</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value) as HistoryDays)}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
@@ -409,7 +409,7 @@ export default function AttendancePage() {
     </nav>
     {reviewTab === "action" && errorCount > 0 && <div role="alert" style={{ marginTop: 12, border: "1px solid #fecaca", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: "10px 12px", fontWeight: 800 }}>登録エラーが{errorCount}件あります。先頭に表示しています。</div>}
     <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-      {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "表示中の連絡はありません。" : "今日以降の表示中の連絡はありません。過去分は「過去の要対応も表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の消去済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
+      {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "表示中の連絡はありません。" : "今日以降の表示中の連絡はありません。過去分は「過去の連絡も表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の消去済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
       {visibleCandidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />)}
       {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
