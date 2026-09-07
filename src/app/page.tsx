@@ -7,6 +7,11 @@ const menuItems = [
     description: "スケジュール原本と登録済み授業を照合し、追加・変更・休講候補を確認します。",
   },
   {
+    href: "/contacts#roster-import",
+    title: "クラス一覧表の取り込み",
+    description: "更新済みのクラス一覧Excelを確認し、変更分だけを取り込みます。",
+  },
+  {
     href: "/classroom-office",
     title: "教室への連絡",
     description: "教室ごとの欠席・遅刻情報を確認し、事務部から教室へメッセージを出します。",

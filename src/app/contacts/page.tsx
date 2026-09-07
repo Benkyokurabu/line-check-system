@@ -622,7 +622,7 @@ export default function ContactsPage() {
         )}
       </div>
 
-      <div style={{ display: "grid", gap: 8, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
+      <div id="roster-import" style={{ display: "grid", gap: 8, marginBottom: 16, padding: "12px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: "0.875rem", color: "var(--muted)", flexShrink: 0 }}>クラス一覧表:</span>
           <button onClick={handleRosterImportClick} style={btnEdit} disabled={rosterImporting}>

@@ -93,16 +93,16 @@ async function main() {
   const apply = process.argv.includes("--apply");
   loadEnv(path.resolve(".env.local"));
   const client = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
-  const [messages, accounts, roster, notion, legacyLinks] = await Promise.all([
+  const [messages, accounts, registry, notion, legacyLinks] = await Promise.all([
     selectAll(client, "line_messages", "line_user_id,direction,text,display_name,received_at"),
     selectAll(client, "student_line_accounts", "line_user_id"),
-    selectAll(client, "student_roster", "student_number,student_name"),
+    selectAll(client, "student_registry", "student_number,student_name"),
     notionStudents(),
     selectAll(client, "student_line_links", "student_number,line_user_id"),
   ]);
   const linked = new Set(accounts.map((row) => row.line_user_id));
-  const rosterByName = new Map(roster.map((row) => [compact(row.student_name), row]));
-  const people = [...new Map([...roster, ...notion].map((row) => [compact(row.student_name), row])).values()];
+  const registryByName = new Map(registry.map((row) => [compact(row.student_name), row]));
+  const people = [...new Map([...registry, ...notion].map((row) => [compact(row.student_name), row])).values()];
   const matches = [];
   for (const message of messages) {
     if (message.direction !== "inbound" || !message.line_user_id || linked.has(message.line_user_id) || !message.text) continue;
@@ -117,7 +117,7 @@ async function main() {
         notion_status: person.status ?? "",
         grade: person.grade ?? "",
         campus: person.campus ?? "",
-        in_roster: rosterByName.has(compact(person.student_name)),
+        in_registry: registryByName.has(compact(person.student_name)),
         received_at: message.received_at,
         evidence: String(message.text).replace(/\s+/g, " ").slice(0, 180),
       });
@@ -132,7 +132,7 @@ async function main() {
   }
   const unique = [...uniqueByAccountAndStudent.values()];
   const rowsToApply = unique.map((row) => ({
-    student_number: rosterByName.get(compact(row.student_name)).student_number,
+    student_number: registryByName.get(compact(row.student_name)).student_number,
     line_user_id: row.line_user_id,
     relation: row.relation,
     alias_name: null,
