@@ -1420,15 +1420,18 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     try {
       const response = await fetch(`/api/attendance/candidates/${candidate.id}/visibility`, {
         method: "PATCH",
+        signal: AbortSignal.timeout(20000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hidden: hide, changed_by: confirmedBy }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "表示状態の変更に失敗しました");
-      setMessage(hide ? "連絡を消去済みに移しました。" : "連絡を表示中へ戻しました。");
+      const successMessage = hide ? "連絡を消去済みに移しました。" : "連絡を表示中へ戻しました。";
+      setCardMessage(successMessage);
+      setMessage(successMessage);
       await onChanged();
     } catch (error) {
-      setCardMessage(error instanceof Error ? error.message : String(error));
+      setCardMessage(error instanceof Error && error.name === "TimeoutError" ? "表示状態の確認に時間がかかっています。「最新状態に更新」で結果を確認してください。" : error instanceof Error ? error.message : String(error));
     } finally {
       setVisibilityBusy(false);
     }
@@ -1467,6 +1470,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
+    {cardMessage && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</div>
     {!expanded && <div style={{ marginTop: 6, color: "#555", fontSize: 14, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>}
 
@@ -1565,7 +1569,6 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       })}
     </div>
 
-    {cardMessage && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || dismissing || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : registering ? "登録状態を確認・再試行" : "確認してNotionへ登録"}</button>{!registered && !registering && <button style={secondaryButtonStyle} disabled={busy || dismissing} onClick={dismiss}>{dismissing ? "処理中..." : "対応不要"}</button>}</div>}
     </>}
   </section>;
