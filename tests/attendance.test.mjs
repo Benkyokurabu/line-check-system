@@ -153,6 +153,12 @@ test("staff LINE contacts can be named without a student link", async () => {
   assert.match(contacts, /group_name: "スタッフ"/);
 });
 
+test("guardian contact registration accepts an operator-entered display name", async () => {
+  const contacts = await readFile(new URL("../src/app/contacts/page.tsx", import.meta.url), "utf8");
+  assert.match(contacts, /教室で表示する登録名（自由入力）/);
+  assert.match(contacts, /const aliasName = selectedAliasName\.trim\(\)/);
+});
+
 test("all attendance write APIs enforce campus consistency", async () => {
   const routes = await Promise.all([
     readFile(new URL("../src/app/api/attendance/candidates/[id]/confirm/route.ts", import.meta.url), "utf8"),

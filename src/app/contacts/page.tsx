@@ -113,6 +113,7 @@ export default function ContactsPage() {
   const [studentQuery, setStudentQuery] = useState("");
   const [selectedStudentNumber, setSelectedStudentNumber] = useState("");
   const [selectedRelation, setSelectedRelation] = useState("mother");
+  const [selectedAliasName, setSelectedAliasName] = useState("");
   const [selectedEvidenceMessageId, setSelectedEvidenceMessageId] = useState("");
   const [operatorName, setOperatorName] = useState("");
   const [verificationSaving, setVerificationSaving] = useState(false);
@@ -444,11 +445,13 @@ export default function ContactsPage() {
       setContactDetail(detailBody as ContactDetail);
       const evidence = (detailBody as ContactDetail).identity_evidence;
       setSelectedEvidenceMessageId(evidence?.detected_message_id ?? "");
-      setSelectedRelation(evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "mother");
+      const initialRelation = evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "mother";
+      setSelectedRelation(initialRelation);
       setStudentQuery(evidence?.parsed_student_name ?? "");
       const normalizedEvidenceName = (evidence?.parsed_student_name ?? "").normalize("NFKC").replace(/[\s　]/g, "");
       const match = loadedStudents.find((student) => student.student_name.normalize("NFKC").replace(/[\s　]/g, "") === normalizedEvidenceName);
       setSelectedStudentNumber(match?.student_number ?? "");
+      setSelectedAliasName(match ? buildLineContactAlias(match, initialRelation) : "");
     } catch (error) {
       setVerificationMsg(error instanceof Error ? error.message : String(error));
     } finally {
@@ -462,7 +465,8 @@ export default function ContactsPage() {
     if (!operatorName.trim()) { setVerificationMsg("確認者名を入力してください。"); return; }
     if (!student) { setVerificationMsg("登録する生徒を選択してください。"); return; }
     if (!selectedEvidenceMessageId) { setVerificationMsg("確認に使ったLINEメッセージを選択してください。"); return; }
-    const aliasName = buildLineContactAlias(student, selectedRelation);
+    const aliasName = selectedAliasName.trim();
+    if (!aliasName) { setVerificationMsg("教室で表示する登録名を入力してください。"); return; }
     if (!window.confirm(`LINEメッセージを確認済みとして、\n${studentRegistrationLabel(student)}\n続柄：${relationLabel(selectedRelation)}\n登録名「${aliasName}」で登録します。\n\n確認者: ${operatorName.trim()}`)) return;
     setVerificationSaving(true);
     setVerificationMsg("登録しています...");
@@ -515,8 +519,6 @@ export default function ContactsPage() {
     const haystack = studentRegistrationSearchText(student);
     return haystack.includes(normalizedStudentQuery);
   }).slice(0, 8);
-  const selectedAlias = selectedStudent ? buildLineContactAlias(selectedStudent, selectedRelation) : "";
-
   return (
     <div className="shell" style={{ maxWidth: 900 }}>
       <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -747,7 +749,7 @@ export default function ContactsPage() {
                   <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="氏名・高3・個別ほか・学校名・生徒番号など" />
                 </label>
                 {matchingStudents.length > 0 && <div style={{ display: "grid", gap: 7 }}>
-                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); }} style={{ ...(selectedStudentNumber === student.student_number ? btnSave : btnEdit), padding: "9px 11px", textAlign: "left", lineHeight: 1.5 }}>{studentRegistrationLabel(student)}</button>)}
+                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); setSelectedAliasName(buildLineContactAlias(student, selectedRelation)); }} style={{ ...(selectedStudentNumber === student.student_number ? btnSave : btnEdit), padding: "9px 11px", textAlign: "left", lineHeight: 1.5 }}>{studentRegistrationLabel(student)}</button>)}
                 </div>}
                 {studentQuery && matchingStudents.length === 0 && !selectedStudent && <span style={{ color: "#b42318", fontSize: "0.8rem", lineHeight: 1.5 }}>該当する生徒が見つかりません。誤って別の生徒へ登録せず、Notion生徒情報DBの状態・氏名・学籍番号を確認して名簿同期してください。</span>}
                 {selectedStudent && <div style={{ padding: "10px 12px", border: "2px solid #16a34a", borderRadius: 7, background: "#f0fdf4", display: "grid", gap: 3 }}>
@@ -757,12 +759,12 @@ export default function ContactsPage() {
                 </div>}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
                   <label style={{ display: "grid", gap: 5 }}>③ 生徒との続柄
-                    <select style={inputStyle} value={selectedRelation} onChange={(event) => setSelectedRelation(event.target.value)}>
+                    <select style={inputStyle} value={selectedRelation} onChange={(event) => { const relation = event.target.value; setSelectedRelation(relation); if (selectedStudent) setSelectedAliasName(buildLineContactAlias(selectedStudent, relation)); }}>
                       <option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="family">家族</option>
                     </select>
                   </label>
-                  <label style={{ display: "grid", gap: 5 }}>④ 教室で表示する登録名
-                    <div style={{ ...inputStyle, background: "#f7f7f4", fontWeight: 700 }}>{selectedAlias || "生徒を選択してください"}</div>
+                  <label style={{ display: "grid", gap: 5 }}>④ 教室で表示する登録名（自由入力）
+                    <input style={{ ...inputStyle, fontWeight: 700 }} value={selectedAliasName} onChange={(event) => setSelectedAliasName(event.target.value)} disabled={!selectedStudent} placeholder={selectedStudent ? "例: 本　山田花子　母" : "先に生徒を選択してください"} />
                   </label>
                 </div>
                 <button type="button" onClick={() => void verifySelectedContact()} disabled={verificationSaving || !operatorName.trim() || !selectedStudent || !selectedEvidenceMessageId} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>
