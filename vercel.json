@@ -16,5 +16,9 @@
       "path": "/api/cron/line-identity-candidates",
       "schedule": "0 21 * * *"
     }
-  ]
+  ],
+  "env": {
+    "STAFF_AUTH_ENABLED": "true",
+    "STAFF_AUTH_ORIGIN": "https://line-check-system.vercel.app"
+  }
 }

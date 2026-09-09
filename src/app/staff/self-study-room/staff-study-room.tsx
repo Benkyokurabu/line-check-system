@@ -7,7 +7,7 @@ import StaffIntake from "./staff-intake";
 import StaffVisit, {destinations,type Visit} from './staff-visit';
 import VisitHistory from './visit-history';
 
-type Staff = { staffId: string; displayName: string };
+type Staff = { staffId: string; displayName: string; role?: string; staffCode?: string };
 type Status = "pending" | "approved" | "rejected" | "cancelled";
 type Reservation = { id: string; student_number: string; student_name: string; grade: string;
   reservation_date: string; seat: number; slot_ids: string[]; status: Status; version: number;
@@ -30,7 +30,7 @@ function rememberedStatus(staffId: string) {
   catch { return ""; }
 }
 
-export default function StaffStudyRoom() {
+export default function StaffStudyRoom({trial = false}: {trial?: boolean}) {
   const [staff, setStaff] = useState<Staff | null>(null);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,7 +52,8 @@ export default function StaffStudyRoom() {
   const [visitRow,setVisitRow]=useState<Reservation|null>(null);
 
   async function request(url: string, init?: RequestInit) {
-    const response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin" });
+    const endpoint = trial ? url.replace('/api/staff/study-room/', '/api/staff/study-room-trial/') : url;
+    const response = await fetch(endpoint, { ...init, cache: "no-store", credentials: "same-origin" });
     const data = await response.json();
     if (!response.ok) {
       if (response.status === 401) { setStaff(null); setRows([]); setPermissions({}); setSelected(null); setRetry(null); setIntakeOpen(false); setIntakePending(false); setVisitRow(null); }
@@ -126,7 +127,9 @@ export default function StaffStudyRoom() {
   }
   const frozen = busy || !!retry || intakePending || !!visitRow;
   return <main className={`shell ${styles.screen}`}><section className="panel">
-    <p className="eyebrow">職員用</p><h1>自習室の申請管理</h1>
+    <p className="eyebrow">職員用{trial ? '・操作確認' : ''}</p><h1>自習室の申請管理</h1>
+    {trial && <div className={styles.notice}><strong>これは検証用です。実際の予約・通知は発生しません。</strong>
+      <p>架空の生徒で代理受付・承認・取消・来室退室の操作を確認できます。確認用の予約は他の職員・生徒役の画面と共有されます。実際の生徒名簿や予約には影響しません。</p></div>}
     <p>申請を確認して承認すると予約が確定します。承認時にも空席を再確認します。</p>
     {message && <p role="status" className={styles.notice}>{message}</p>}
     {!checked ? <p role="status">ログイン状態を確認しています…</p> : !staff ?
@@ -135,7 +138,8 @@ export default function StaffStudyRoom() {
         <label className={styles.field}>パスワード<input type="password" autoComplete="current-password" required maxLength={1024} value={password} onChange={e => setPassword(e.target.value)} disabled={busy} /></label>
         <button className={styles.primary} disabled={busy}>ログイン</button>
       </form> : <>
-        <div className={styles.toolbar}><p>{staff.displayName} さん</p><button onClick={logout} disabled={busy}>ログアウト</button></div>
+        <div className={styles.toolbar}><p>{staff.displayName} さん{staff.role && ' ／ ' + (staff.role === 'admin' ? '管理者' : staff.role === 'office' ? '事務部' : '職員')}</p><button onClick={logout} disabled={busy}>ログアウト</button></div>
+        {trial && <p><a href="/self-study-room/trial">生徒役の操作確認へ</a></p>}
         <p>共有端末では、離席する前にログアウトしてください。未到着を理由に自動取消・自動連絡は行いません。</p>
         {permissions['study_room.submit'] && <div className={styles.actions}><button type="button" disabled={frozen} onClick={()=>{setSelected(null);setIntakeOpen(value=>!value);}}>{intakeOpen ? '代理受付を閉じる' : '職員による代理受付'}</button></div>}
         {intakeOpen && <StaffIntake busy={busy || !!retry || !!visitRow} request={request} work={work} onPending={setIntakePending} onDone={async day=>{setDate(day);await load(day,status,0);}} />}
