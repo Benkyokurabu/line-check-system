@@ -61,6 +61,9 @@ test('student trial submits, sees approval from another screen, then cancels',as
     await route.fulfill({json:room.handle(`/api/staff/study-room/${input.action==='submit'?'intake':'transition'}`,{method:'POST',body:JSON.stringify(body)},staff)});
   });
   await page.goto('/self-study-room/trial');
+  await expect(page.getByRole('heading',{name:'自習室の予約',exact:true})).toBeVisible();
+  await expect(page.getByText('管理者',{exact:false})).toHaveCount(0);
+  await expect(page.locator('a[href*="/staff/"]')).toHaveCount(0);
   await page.getByRole('button',{name:'空席・申請状況を更新'}).click();
   await page.getByRole('checkbox',{name:'14:55-16:25',exact:true}).check();
   await page.getByRole('button',{name:'申請内容を確認'}).click();
