@@ -1,9 +1,10 @@
 import { getJapanDate, isValidReservationDate } from './reservation-date.mjs';
+import {STUDY_ROOM_TRIAL_SLOTS as slots} from './study-room-trial-slots.mjs';
 
 // Pure trial state machine. The API authenticates staff and persists its snapshot
 // separately from real reservations, with an optimistic version check.
 export function createStaffStudyRoomTrial(saved = null, empty = false) {
-  const slots=['14:55-16:25','16:45-18:15','18:35-20:05','20:25-21:55'];
+
   const students=[{student_number:'TRIAL001',student_name:'操作確認用 生徒A',grade:'中1',campus:'本校'},
     {student_number:'TRIAL002',student_name:'操作確認用 生徒B',grade:'中2',campus:'南教室'},
     {student_number:'TRIAL-KUDO',student_name:'工藤（確認用生徒）',grade:'確認用',campus:'本校'},
@@ -35,7 +36,7 @@ export function createStaffStudyRoomTrial(saved = null, empty = false) {
         const same=rows.filter(r=>r.reservation_date===date);
         return {students:students.filter(s=>!query||Object.values(s).some(v=>v.includes(query))),hasMore:false,student,date,
           booked:same.filter(r=>r.status==='approved').flatMap(r=>r.slot_ids.map(slotId=>({seat:r.seat,slotId}))),
-          closedSlotIds:[slots[3]],limitMinutes:270,studentMinutes:same.filter(r=>r.status==='approved'&&r.student_number===student?.student_number).reduce((n,r)=>n+r.slot_ids.length*90,0),
+          slotIds:slots,closedSlotIds:[],limitMinutes:270,studentMinutes:same.filter(r=>r.status==='approved'&&r.student_number===student?.student_number).reduce((n,r)=>n+r.slot_ids.length*90,0),
           studentSlotIds:same.filter(r=>r.status==='approved'&&r.student_number===student?.student_number).flatMap(r=>r.slot_ids),
           pendingSlotIds:same.filter(r=>r.status==='pending'&&r.student_number===student?.student_number).flatMap(r=>r.slot_ids)};
       }
@@ -69,6 +70,7 @@ export function createStaffStudyRoomTrial(saved = null, empty = false) {
         if(!['approve','reject','cancel'].includes(input.action)||!['pending','approved'].includes(row.status)||row.status==='approved'&&input.action!=='cancel')fail('この状態では操作できません。',409);
         if(input.action==='reject'&&!input.reason?.trim())fail('却下理由を入力してください。');
         if(input.action==='approve'){
+          if(row.slot_ids.some(s=>!slots.includes(s)))fail('受付対象外の時間帯です。申請し直してください。',409);
           const other=rows.filter(r=>r.id!==row.id&&r.reservation_date===row.reservation_date&&r.status==='approved');
           if(other.some(r=>(r.seat===row.seat||r.student_number===row.student_number)&&r.slot_ids.some(s=>row.slot_ids.includes(s))))fail('同じ席または生徒の時間帯が予約済みです。',409);
           if(other.filter(r=>r.student_number===row.student_number).reduce((n,r)=>n+r.slot_ids.length*90,0)+row.slot_ids.length*90>270)fail('利用上限を超えています。',409);

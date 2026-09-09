@@ -38,7 +38,7 @@ async function handle(request:NextRequest,params:Params,mutate:boolean){
       const rows=room.snapshot().rows;
       result={studentName:staff.displayName,date,requests:rows.filter((r:{student_number:string})=>r.student_number===subject),
         booked:rows.filter((r:{status:string;reservation_date:string})=>r.status==='approved'&&r.reservation_date===date).flatMap((r:{seat:number;slot_ids:string[]})=>r.slot_ids.map(slotId=>({seat:r.seat,slotId}))),
-        closedSlotIds:['20:25-21:55']};
+        closedSlotIds:[]};
     }else if(input?.action==='submit'){
       result=room.handle('/api/staff/study-room/intake',{method:'POST',body:JSON.stringify({operationKey:input.operationKey,studentNumber:subject,date,seat:input.seat,slotIds:input.slotIds,contactChannel:'other',note:'生徒としての操作確認'})},actor);
     }else if(input?.action==='cancel'){

@@ -4,16 +4,17 @@ import { getJapanDate, isValidReservationDate } from "@/lib/reservation-date.mjs
 import styles from "./staff-study-room.module.css";
 
 type Student = { student_number:string; student_name:string; grade:string; campus:string|null };
-type Options = { students:Student[]; hasMore:boolean; student:Student|null; date:string;
+type Options = { slotIds?:string[]; students:Student[]; hasMore:boolean; student:Student|null; date:string;
   booked:{seat:number;slotId:string}[]; closedSlotIds:string[]; limitMinutes:number; studentMinutes:number; pendingSlotIds:string[]; studentSlotIds:string[] };
 type Intake = { operationKey:string; studentNumber:string; date:string; seat:number; slotIds:string[]; contactChannel:string; note:string };
 type Props = { busy:boolean; request:(url:string,init?:RequestInit)=>Promise<unknown>;
   work:(task:()=>Promise<void>)=>Promise<void>; onPending:(pending:boolean)=>void; onDone:(date:string)=>Promise<void> };
-const slots = ['14:55-16:25','16:45-18:15','18:35-20:05','20:25-21:55'];
+const defaultSlots = ['14:55-16:25','16:45-18:15','18:35-20:05','20:25-21:55'];
 
 export default function StaffIntake({busy,request,work,onPending,onDone}:Props) {
   const [query,setQuery] = useState(''); const [date,setDate] = useState(getJapanDate());
-  const [options,setOptions] = useState<Options|null>(null); const [student,setStudent] = useState<Student|null>(null);
+  const [options,setOptions] = useState<Options|null>(null);
+  const slots=options?.slotIds??defaultSlots; const [student,setStudent] = useState<Student|null>(null);
   const [seat,setSeat] = useState(1); const [selectedSlots,setSlots] = useState<string[]>([]);
   const [channel,setChannel] = useState('line_message'); const [note,setNote] = useState('');
   const [confirm,setConfirm] = useState(false); const [pending,setPending] = useState<Intake|null>(null);

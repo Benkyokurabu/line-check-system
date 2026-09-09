@@ -18,7 +18,7 @@ test('trial approves and cancels only trial rows, resetting restores fixture',()
 
 test('shared snapshots retain requests, idempotency and visit history',()=>{
  let room=createStaffStudyRoomTrial(null,true);
- const op={operationKey:'shared',studentNumber:'TRIAL-KUDO',date:getJapanDate(),seat:2,slotIds:['14:55-16:25'],contactChannel:'other',note:'生徒役'};
+ const op={operationKey:'shared',studentNumber:'TRIAL-KUDO',date:getJapanDate(),seat:2,slotIds:['16:45-18:15'],contactChannel:'other',note:'生徒役'};
  const row=post(room,'intake',op).request;
  room=createStaffStudyRoomTrial(room.snapshot(),true);
  assert.equal(post(room,'intake',op).request.id,row.id);
@@ -37,7 +37,7 @@ test('trial proxy intake searches fixtures and prevents double booking',()=>{
  assert.equal(opts.students.length,1);assert.equal(opts.student.student_number,'TRIAL002');
  const a=get(room,`requests?date=${getJapanDate()}`).requests[0];
  post(room,'transition',{operationKey:'a',requestId:a.id,expectedVersion:1,action:'approve'});
- const b=post(room,'intake',{operationKey:'b',studentNumber:'TRIAL002',date:getJapanDate(),seat:1,slotIds:['14:55-16:25'],contactChannel:'phone',note:'操作確認'}).request;
+ const b=post(room,'intake',{operationKey:'b',studentNumber:'TRIAL002',date:getJapanDate(),seat:1,slotIds:['16:45-18:15'],contactChannel:'phone',note:'操作確認'}).request;
  assert.throws(()=>post(room,'transition',{operationKey:'c',requestId:b.id,expectedVersion:1,action:'approve'}),{status:409});
 });
 test('trial rejects unauthorized roles and has no production route fallback',()=>{
@@ -45,3 +45,5 @@ test('trial rejects unauthorized roles and has no production route fallback',()=
  assert.throws(()=>room.handle('/api/staff/study-room/requests',undefined,{role:'teacher'}),{status:403});
  assert.throws(()=>room.handle('/api/admin/contacts',undefined,staff),{status:404});
 });
+
+test('trial rejects the unapproved 14:55 slot',()=>{const room=createStaffStudyRoomTrial(null,true);assert.throws(()=>post(room,'intake',{operationKey:'removed',studentNumber:'TRIAL-KUDO',date:getJapanDate(),seat:1,slotIds:['14:55-16:25'],contactChannel:'other',note:'確認'}),{status:400});});
