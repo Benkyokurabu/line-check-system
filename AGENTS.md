@@ -1,5 +1,9 @@
 # Project Agent Instructions
 
+## Session Continuity
+
+- 「続き」などの再開依頼では、まず `docs/next-session.md` の最新の再開対象と許可範囲を確認する。終了日ごとの詳細は同ファイルから参照する。
+
 ## Communication Policy
 
 - 原則として本番運用を前提に提案する。
