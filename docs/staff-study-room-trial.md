@@ -4,7 +4,8 @@
 
 - 生徒役: https://line-check-system.vercel.app/self-study-room/trial
 - 職員役: https://line-check-system.vercel.app/staff/self-study-room/trial
-- 工藤の職員コード: `KUDO`、金城正樹: `KINJO`。パスワードは公開リポジトリに置かず個別に管理します。
+- 個別入口（生徒役）: `/self-study-room/trial?staff=KUDO`、`/self-study-room/trial?staff=KINJO`。入力はパスワードのみです。共通入口では名前を選んでからログインします。
+- 工藤・金城のパスワードは依頼により共通設定です。コードへの埋め込みはせず、管理認証を継続します。操作記録は選択されたアカウント名であり、個人の識別を保証しません。
 - 事務部は個人ごとに `office` 権限で登録します。未登録の担当者は利用できません。
 
 ## 確認手順

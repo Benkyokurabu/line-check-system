@@ -2,14 +2,15 @@
 import {useEffect,useRef,useState, type FormEvent} from 'react';
 import {getJapanDate} from '@/lib/reservation-date.mjs';
 import styles from '@/app/staff/self-study-room/staff-study-room.module.css';
+import StaffEntry from '@/app/staff/self-study-room/staff-entry';
 type Staff={displayName:string;role:string;staffCode:string};
 type Row={id:string;reservation_date:string;seat:number;slot_ids:string[];status:string;version:number};
 type Options={studentName:string;requests:Row[];booked:{seat:number;slotId:string}[];closedSlotIds:string[]};
 const slots=['14:55-16:25','16:45-18:15','18:35-20:05','20:25-21:55'];
 const labels:Record<string,string>={pending:'承認待ち',approved:'予約確定',rejected:'却下',cancelled:'取消済み'};
-export default function StudentTrial(){
+export default function StudentTrial({entryCode=''}:{entryCode?:string}){
  const [staff,setStaff]=useState<Staff|null>(null),[checked,setChecked]=useState(false);
- const [code,setCode]=useState(''),[password,setPassword]=useState('');
+ const [code,setCode]=useState(entryCode),[password,setPassword]=useState('');
  const [date,setDate]=useState(getJapanDate()),[selected,setSelected]=useState<string[]>([]),[seat,setSeat]=useState(1);
  const [options,setOptions]=useState<Options|null>(null),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false);
  const [pending,setPending]=useState<Record<string,unknown>|null>(null);
@@ -37,12 +38,13 @@ export default function StudentTrial(){
   <div className={styles.notice}><strong>これは検証用です。実際の生徒の予約・LINE通知は発生しません。</strong><p>工藤さん・金城さんが生徒役で申請し、職員側で承認すると、この画面でも結果を確認できます。確認用の予約は職員間で共有されます。</p></div>
   {notice&&<p role="status" className={styles.notice}>{notice}</p>}
   {!checked?<p>ログイン状態を確認しています…</p>:!staff?<form onSubmit={login} className={styles.form}>
-   <label className={styles.field}>職員コード<input required value={code} onChange={e=>setCode(e.target.value)} autoComplete="username" disabled={busy}/></label>
+   <StaffEntry code={code} onChange={value=>{setCode(value);setPassword('');}} disabled={busy}/>
+   {code&&<>
    <label className={styles.field}>パスワード<input required type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} disabled={busy}/></label>
-   <button disabled={busy} className={styles.primary}>ログイン</button>
+   <button disabled={busy} className={styles.primary}>ログイン</button></>}
   </form>:<>
    <div className={styles.toolbar}><p>{staff.displayName} さん ／ 生徒役（アカウント権限：{staff.role==='admin'?'管理者':'事務部'}）</p>
-    <a href="/staff/self-study-room/trial">職員側の操作確認へ</a>
+    <a href={`/staff/self-study-room/trial?staff=${encodeURIComponent(staff.staffCode)}`}>職員側の操作確認へ</a>
     <button disabled={frozen} onClick={()=>work(async()=>{await api('/api/staff/session',{method:'DELETE'});setStaff(null);setOptions(null);setSelected([]);setConfirm(false);})}>ログアウト</button></div>
    <p>この画面へのログインは操作確認用の職員認証です。本番の生徒用LINEログインの検証は別途必要です。</p>
    <div className={styles.toolbar}><label className={styles.field}>利用日<input type="date" min={getJapanDate()} value={date} disabled={frozen||confirm} onChange={e=>{setDate(e.target.value);setOptions(null);setSelected([]);}}/></label>

@@ -19,7 +19,7 @@ test('office trial uses actual staff components without reservation API writes',
   });
   await page.goto('/staff/self-study-room/trial');
   await expect(page.getByText('これは検証用です。実際の予約・通知は発生しません。')).toBeVisible();
-  await page.getByLabel('職員コード').fill('TEST');
+  await page.getByRole('button',{name:'工藤さんの入口',exact:true}).click();
   await page.getByLabel('パスワード').fill('only-a-test');
   await page.getByRole('button',{name:'ログイン',exact:true}).click();
   await expect(page.getByText('検証事務担当 さん ／ 事務部')).toBeVisible();
@@ -33,7 +33,7 @@ test('office trial uses actual staff components without reservation API writes',
   await page.getByRole('button',{name:'確認して記録を保存',exact:true}).click();
   await expect(page.locator('article').getByText(/来室：/)).not.toHaveText('来室：未確認');
   await page.getByRole('button',{name:'ログアウト',exact:true}).click();
-  await expect(page.getByLabel('職員コード')).toBeVisible();
+  await expect(page.getByRole('button',{name:/入口|選び直す/}).first()).toBeVisible();
   await expect(page.locator('article')).toHaveCount(0);
   expect(forbidden).toEqual([]);
 });

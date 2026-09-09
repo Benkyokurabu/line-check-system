@@ -6,6 +6,7 @@ import styles from "./staff-study-room.module.css";
 import StaffIntake from "./staff-intake";
 import StaffVisit, {destinations,type Visit} from './staff-visit';
 import VisitHistory from './visit-history';
+import StaffEntry from './staff-entry';
 
 type Staff = { staffId: string; displayName: string; role?: string; staffCode?: string };
 type Status = "pending" | "approved" | "rejected" | "cancelled";
@@ -30,12 +31,12 @@ function rememberedStatus(staffId: string) {
   catch { return ""; }
 }
 
-export default function StaffStudyRoom({trial = false}: {trial?: boolean}) {
+export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: boolean;entryCode?:string}) {
   const [staff, setStaff] = useState<Staff | null>(null);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(entryCode);
   const [password, setPassword] = useState("");
   const [date, setDate] = useState(getJapanDate());
   const [status, setStatus] = useState("");
@@ -134,12 +135,13 @@ export default function StaffStudyRoom({trial = false}: {trial?: boolean}) {
     {message && <p role="status" className={styles.notice}>{message}</p>}
     {!checked ? <p role="status">ログイン状態を確認しています…</p> : !staff ?
       <form onSubmit={login} className={styles.form}>
-        <label className={styles.field}>職員コード<input autoComplete="username" required maxLength={64} value={code} onChange={e => setCode(e.target.value)} disabled={busy} /></label>
+        <StaffEntry code={code} onChange={value=>{setCode(value);setPassword('');}} disabled={busy}/>
+        {code&&<>
         <label className={styles.field}>パスワード<input type="password" autoComplete="current-password" required maxLength={1024} value={password} onChange={e => setPassword(e.target.value)} disabled={busy} /></label>
-        <button className={styles.primary} disabled={busy}>ログイン</button>
+        <button className={styles.primary} disabled={busy}>ログイン</button></>}
       </form> : <>
         <div className={styles.toolbar}><p>{staff.displayName} さん{staff.role && ' ／ ' + (staff.role === 'admin' ? '管理者' : staff.role === 'office' ? '事務部' : '職員')}</p><button onClick={logout} disabled={busy}>ログアウト</button></div>
-        {trial && <p><a href="/self-study-room/trial">生徒役の操作確認へ</a></p>}
+        {trial && <p><a href={`/self-study-room/trial?staff=${encodeURIComponent(staff.staffCode??'')}`}>生徒役の操作確認へ</a></p>}
         <p>共有端末では、離席する前にログアウトしてください。未到着を理由に自動取消・自動連絡は行いません。</p>
         {permissions['study_room.submit'] && <div className={styles.actions}><button type="button" disabled={frozen} onClick={()=>{setSelected(null);setIntakeOpen(value=>!value);}}>{intakeOpen ? '代理受付を閉じる' : '職員による代理受付'}</button></div>}
         {intakeOpen && <StaffIntake busy={busy || !!retry || !!visitRow} request={request} work={work} onPending={setIntakePending} onDone={async day=>{setDate(day);await load(day,status,0);}} />}

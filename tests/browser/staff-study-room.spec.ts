@@ -86,7 +86,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
   });
   await page.goto("/staff/self-study-room");
   await expect(page.getByRole("link", { name: "トップページへ" })).toBeVisible();
-  await page.getByLabel("職員コード").fill("TESTOFFICE");
+  await page.getByRole('button',{name:'工藤さんの入口',exact:true}).click();
   await page.getByLabel("パスワード").fill("test-password-not-real");
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
   await expect(page.getByText("検証職員 さん")).toBeVisible();
@@ -105,7 +105,7 @@ test("login, explicit confirmation, approval refresh and logout remove student d
   expect(state.operations).toHaveLength(1);
   expect(state.operations[0].expectedVersion).toBe(1);
   await page.getByRole("button", { name: "ログアウト" }).click();
-  await expect(page.getByLabel("職員コード")).toBeVisible();
+  await expect(page.getByRole('button',{name:/入口|選び直す/}).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: /検証用の生徒/ })).toHaveCount(0);
   expect(state.forbidden).toEqual([]);
 });
@@ -195,7 +195,7 @@ test('proxy conflict requires fresh availability and expired session removes pup
   await expect(panel.getByRole('button',{name:'同じ申請の結果を再確認'})).toHaveCount(0);
   state.expireSession();
   await panel.getByRole('button',{name:'空席を再確認'}).click();
-  await expect(page.getByLabel('職員コード')).toBeVisible();
+  await expect(page.getByRole('button',{name:/入口|選び直す/}).first()).toBeVisible();
   await expect(page.getByText(/選択中：南の検証生徒/)).toHaveCount(0);
   expect(state.intakes).toHaveLength(1);
   expect(state.forbidden).toEqual([]);
@@ -215,7 +215,7 @@ test("expired session clears displayed pupils before allowing another login", as
   const state = await setup(page);
   state.expireSession();
   await page.getByRole("button", { name: "一覧を更新" }).click();
-  await expect(page.getByLabel("職員コード")).toBeVisible();
+  await expect(page.getByRole('button',{name:/入口|選び直す/}).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: /検証用の生徒/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "承認して確定", exact: true })).toHaveCount(0);
   expect(state.forbidden).toEqual([]);
@@ -267,7 +267,7 @@ test('visit controls respect permission and expiry clears open editor',async({pa
   await editor.getByRole('button',{name:'記録内容を確認',exact:true}).click();
   state.expireSession();
   await editor.getByRole('button',{name:'確認して記録を保存'}).click();
-  await expect(page.getByLabel('職員コード')).toBeVisible();
+  await expect(page.getByRole('button',{name:/入口|選び直す/}).first()).toBeVisible();
   await expect(editor).toHaveCount(0);
   expect(state.visits).toHaveLength(0);
 });
@@ -287,7 +287,7 @@ test('read-only staff compare visit history, page older records and expiry remov
   await expect(history.getByRole('button',{name:'さらに古い20件を表示'})).toHaveCount(0);
   state.expireSession();
   await page.getByRole('button',{name:'来室・退室の履歴を確認'}).click();
-  await expect(page.getByLabel('職員コード')).toBeVisible();
+  await expect(page.getByRole('button',{name:/入口|選び直す/}).first()).toBeVisible();
   await expect(history).toHaveCount(0);
   expect(state.operations).toHaveLength(0);expect(state.visits).toHaveLength(0);expect(state.forbidden).toEqual([]);
 });

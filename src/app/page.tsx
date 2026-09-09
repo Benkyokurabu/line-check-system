@@ -13,14 +13,14 @@ const menuItems = [
     description: "教室ごとの欠席・遅刻情報を確認し、事務部から教室へメッセージを出します。",
   },
   {
-    href: "/admin/self-study-room",
+    href: "/staff/self-study-room/trial",
     title: "自習室管理",
-    description: "日別の予約確認、予約上限、使用不可時間帯を管理します。",
+    description: "職員による操作確認用。確認用の申請を承認・取消し、来室・退室を記録します。",
   },
   {
-    href: "/self-study-room",
+    href: "/self-study-room/trial",
     title: "自習室予約",
-    description: "自習室の空き状況を確認し、生徒ごとに座席と時間帯を予約します。",
+    description: "生徒役の操作確認用。座席・時間帯を選んで申請し、承認結果を確認します。",
   },
   {
     href: "/schedule-import",
@@ -69,7 +69,7 @@ export default function Home() {
     <main className="shell">
       <section>
         <p className="eyebrow">BENKYO KURABU Integrated Assistant System</p>
-        <h1><span>勉たん（仮）</span> <span style={{ fontSize: "60%" }}>-勉強クラブ総合アシスたんトさん-</span></h1>
+        <h1><span>勉たん</span> <span style={{ fontSize: "60%" }}>-<strong style={{ color: "#08783c", borderBottom: "3px solid #06c755" }}>勉</strong>強クラブ総合アシス<strong style={{ color: "#08783c", borderBottom: "3px solid #06c755" }}>たん</strong>トさん-</span></h1>
         {[menuItems.slice(0, 4), menuItems.slice(4)].map((items, index) => (
           <Fragment key={index}>
             {index === 1 && <hr style={{ border: 0, borderTop: "2px solid var(--line)", margin: "28px 0" }} />}
