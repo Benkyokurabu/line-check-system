@@ -255,6 +255,7 @@ export default function AttendancePage() {
   const [busy, setBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
+  const [listUpdatedAt, setListUpdatedAt] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
@@ -279,6 +280,7 @@ export default function AttendancePage() {
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     const nextCandidates = (body.candidates ?? []) as Candidate[];
     setCandidates(nextCandidates);
+    setListUpdatedAt(new Date().toISOString());
     setVisibleCandidateCount((currentCount) => visibleCandidateCountAfterReload({
       candidates: nextCandidates,
       reviewTab: keepVisibleTab,
@@ -342,22 +344,31 @@ export default function AttendancePage() {
   }
 
   async function refreshLatest() {
-    setStatusBusy(true); setMessage("最新状態を確認しています...");
+    if (busy || statusBusy || bulkBusy) return;
+    setStatusBusy(true); setMessage("チェック済みの連絡を読み込んでいます…");
     try {
       await Promise.all([load(), loadStatus()]);
-      setMessage("最新状態に更新しました。");
+      setMessage("チェック済みの一覧を更新しました。未チェックのLINEは自動チェック後に一覧へ反映できます。");
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setStatusBusy(false); }
   }
 
   async function analyze() {
-    setBusy(true); setMessage("待機中のLINE解析ジョブを処理しています...");
+    if (busy || statusBusy || bulkBusy) return;
+    setBusy(true); setMessage("未チェックのLINEを最大10件確認しています。完了後に一覧を更新します…");
     try {
       const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
-      setMessage(`${body.processed}件を解析し、連絡候補${body.candidates}件を追加しました。対象外${body.ignored}件、再試行${body.retrying ?? 0}件、要確認${body.dead ?? 0}件です。`);
-      await Promise.all([load(), loadStatus()]);
+      const result = body.processed > 0
+        ? `${body.processed}件をチェックしました。遅刻・欠席の候補${body.candidates}件、対象外${body.ignored}件、再試行待ち${body.retrying ?? 0}件、チェック失敗${body.dead ?? 0}件。残りは自動チェックが順次処理します。`
+        : "今回すぐにチェックできるLINEはありませんでした。処理中・再試行待ちのLINEがある場合は、自動チェックの完了をお待ちください。";
+      try {
+        await Promise.all([load(), loadStatus()]);
+        setMessage(`${result} 一覧を更新しました。`);
+      } catch {
+        setMessage(`${result} 一覧または処理状況の更新に失敗しました。「チェック済みの一覧を更新」を押してください。`);
+      }
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
@@ -440,16 +451,43 @@ export default function AttendancePage() {
     <p className="eyebrow">Attendance review</p>
     <h1>遅刻・欠席連絡の確認</h1>
     <p>LINEの確認作業に近い流れで、返信文案とNotion登録内容を確認できます。</p>
+    <section className="panel" aria-labelledby="attendance-check-heading" style={{ padding: 20, marginTop: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <h2 id="attendance-check-heading" style={{ margin: 0, fontSize: 18 }}>この一覧は、AIがチェック済みの遅刻・欠席連絡です</h2>
+        <span style={{ background: "var(--accent-soft)", color: "var(--accent)", padding: "5px 10px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>自動チェック：1分ごと</span>
+      </div>
+      <p style={{ margin: "10px 0 16px", color: "var(--muted)", fontSize: 14 }}>受信したLINEを自動で順番にチェックしています。先生による内容確認・返信・Notion登録は、この後に行います。</p>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+        <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, borderRadius: 12, background: "var(--accent-soft)" }}>
+          <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--accent)" }}>普段はこちら</p>
+          <button type="button" style={buttonStyle} disabled={statusBusy || busy || bulkBusy} onClick={refreshLatest}>{statusBusy ? "一覧を更新中…" : "チェック済みの一覧を更新"}</button>
+          <p style={{ margin: "10px 0", fontSize: 14 }}>自動チェックが終わった連絡を、この画面に読み込みます。</p>
+          <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>一覧の更新時刻：{listUpdatedAt ? formatDateTime(listUpdatedAt) : "未取得"}／画面は手動更新</p>
+        </div>
+        <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, border: "1px solid var(--line)", borderRadius: 12 }}>
+          <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--muted)" }}>届いたばかりの連絡を急いで確認したいとき</p>
+          <button type="button" style={ghostButtonStyle} disabled={busy || statusBusy || bulkBusy} onClick={analyze}>{busy ? "未チェックのLINEを確認中…" : "未チェックのLINEを今すぐ確認"}</button>
+          <p style={{ margin: "10px 0 0", fontSize: 14 }}>自動チェックを待たず、処理待ちのLINEを最大10件チェックして一覧を更新します。直近5分間に限らず、以前からの待機分も対象です。</p>
+        </div>
+      </div>
+      {analysisStatus ? <>
+        <p style={{ fontSize: 14, margin: "16px 0 0" }}>未チェック {analysisStatus.queued}件（再試行待ち {analysisStatus.retry_wait}件を含む）・チェック中 {analysisStatus.processing}件・チェック失敗 {analysisStatus.dead}件</p>
+        {(analysisStatus.alert_active || analysisStatus.dead > 0) && <p role="alert" style={{ color: "#b42318", fontWeight: 700 }}>自動チェックに遅延または失敗があります。一覧にまだ反映されていない連絡があります。お急ぎの場合はLINEの原文も確認してください。</p>}
+        <details style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
+          <summary style={{ cursor: "pointer" }}>自動チェックの仕組み・処理状況</summary>
+          <p>LINEのチェック処理は1分ごと、処理の停滞・エラーの監視は5分ごとです。混雑時や再試行中は反映まで時間がかかります。</p>
+          <p>直近の処理正常終了（自動・手動共通）：{formatDateTime(analysisStatus.last_worker_succeeded_at)}／処理状況の取得：{formatDateTime(analysisStatus.last_checked_at)}</p>
+          <p>すぐに処理可能 {analysisStatus.ready}件／直近1時間の処理 {analysisStatus.processed_last_hour}件{analysisStatus.oldest_queued_at ? `／最も古い待機 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? `／エラー：${analysisStatus.last_worker_error}` : ""}</p>
+        </details>
+      </> : <p style={{ color: "var(--muted)", fontSize: 14 }}>処理状況はまだ取得できていません。未チェック件数は「チェック済みの一覧を更新」で確認できます。</p>}
+      {message && <p role="status" style={{ marginBottom: 0 }}>{message}</p>}
+    </section>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
-      <button style={buttonStyle} disabled={statusBusy || bulkBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
-      <button type="button" style={ghostButtonStyle} disabled={busy || bulkBusy} onClick={analyze}>{busy ? "解析中" : "待機中LINEを今すぐ解析"}</button>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} disabled={bulkBusy} onClick={() => { clearSelection(); setIncludePastPending((value) => !value); }}>{includePastPending ? "過去の連絡を非表示" : "過去の連絡も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE登録候補を閉じる" : "LINE登録候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} disabled={manualSaving} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>消去済みの表示期間</span><select style={inputStyle} value={historyDays} disabled={bulkBusy} onChange={(event) => { clearSelection(); setHistoryDays(Number(event.target.value) as HistoryDays); }}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
-      {analysisStatus && <p role={analysisStatus.alert_active || analysisStatus.dead > 0 ? "alert" : undefined} style={{ flexBasis: "100%", margin: 0, color: analysisStatus.alert_active || analysisStatus.dead > 0 ? "#b42318" : "#555", fontWeight: analysisStatus.alert_active || analysisStatus.dead > 0 ? 800 : 400 }}>待機 {analysisStatus.queued}件（実行可能 {analysisStatus.ready}件・再試行待ち {analysisStatus.retry_wait}件） / 解析中 {analysisStatus.processing}件 / 要確認 {analysisStatus.dead}件 / 直近1時間 {analysisStatus.processed_last_hour}件 / 最終正常実行 {formatTime(analysisStatus.last_worker_succeeded_at)} / 最終確認 {formatTime(analysisStatus.last_checked_at)}{analysisStatus.oldest_queued_at ? ` / 最古 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? ` / エラー: ${analysisStatus.last_worker_error}` : ""}</p>}
-      {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     {linkReviewOpen && <LineLinkReviewPanel candidates={linkCandidates} students={students} confirmedBy={confirmedBy} loading={linkCandidatesLoading} onReload={loadLineLinkCandidates} onChanged={async () => { await Promise.all([loadLineLinkCandidates(), load()]); }} setMessage={setMessage} />}
     {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSavingChange={setManualSaving} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
@@ -487,11 +525,6 @@ export default function AttendancePage() {
       {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} disabled={bulkBusy} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
   </main>;
-}
-
-function formatTime(value: string | null) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
 }
 
 function todayJst() {
