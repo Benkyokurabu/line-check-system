@@ -522,7 +522,7 @@ export default function AttendancePage() {
       {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "表示中の連絡はありません。" : "今日以降の表示中の連絡はありません。過去分は「過去の連絡も表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の消去済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
       {displayedCandidates.map((candidate) => <fieldset key={candidate.id} disabled={bulkBusy} style={{ margin: 0, padding: selectionMode ? 8 : 0, minWidth: 0, border: selectionMode ? `2px solid ${selectedCandidateIds.includes(candidate.id) ? "var(--accent)" : "var(--line)"}` : 0, borderRadius: 8, background: selectionMode && selectedCandidateIds.includes(candidate.id) ? "#f0f7ff" : undefined }}>
         {selectionMode && reviewTab === "action" && <label style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 4px 12px", cursor: "pointer", fontWeight: 700 }}><input type="checkbox" style={{ width: 20, height: 20, accentColor: "var(--accent)" }} checked={selectedCandidateIds.includes(candidate.id)} onChange={(event) => setSelectedCandidateIds((current) => event.target.checked ? [...new Set([...current, candidate.id])] : current.filter((id) => id !== candidate.id))} aria-label={`${candidate.student_roster?.student_name ?? candidate.suggested_student_name ?? candidate.line_messages?.display_name ?? "名前未登録"}の連絡を選択`} />この連絡を選択</label>}
-        <CandidateCard candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />
+        <CandidateCard candidate={candidate} students={students} confirmedBy={confirmedBy} onConfirmedByChange={setConfirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />
       </fieldset>)}
       {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} disabled={bulkBusy} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
@@ -1232,7 +1232,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
     </div>}
   </section>;
 }
-function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
+function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; onConfirmedByChange: (value: string) => void; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
   const [manualPeriod, setManualPeriod] = useState(false);
@@ -1622,7 +1622,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
-    {cardMessage && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
+    {cardMessage && !showAutoPeriod && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{showAutoPeriod && periodProposal ? `${periodProposal.start} 〜 ${periodProposal.end} / ${eventTypeLabel(periodProposal.eventType)}` : <>{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</>}</div>
     {!expanded && <div style={{ marginTop: 6, color: "#555", fontSize: 14, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>}
 
@@ -1660,7 +1660,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       {!closed && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
 
-    {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {
+    {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} confirmedBy={confirmedBy} onConfirmedByChange={onConfirmedByChange} registrationMessage={cardMessage} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {
       const rows: EditableItem[] = lessons.map((lesson) => ({ client_id: makeClientId(), student_number: studentNumber, event_type: eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: eventType === "late" ? periodProposal.arrival : "", note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }));
       if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
       setItems(rows);

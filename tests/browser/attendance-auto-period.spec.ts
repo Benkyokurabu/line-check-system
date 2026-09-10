@@ -108,3 +108,18 @@ test("manual editing can return to the proposal with type and selected lessons p
   await expect(page.getByText("Notionへ登録しました。", { exact: true })).toBeVisible();
   expect(state.writes.map((row) => [row.lesson_id, row.event_type])).toEqual([["lesson-18", "late"]]);
 });
+
+test("missing reviewer is explained at the bulk button and can be filled without leaving it", async ({ page }) => {
+  const state = await setup(page);
+  await page.getByLabel("確認者名", { exact: true }).fill("");
+  await page.getByLabel("まとめて登録する種別").selectOption("late");
+  const panel = page.getByRole("group", { name: "期間の遅刻をまとめて登録" });
+  await panel.getByRole("button", { name: "この2授業をまとめて遅刻登録" }).click();
+  await expect(panel.getByRole("status")).toContainText("確認者名");
+  expect(state.writes).toHaveLength(0);
+  await panel.getByLabel("登録する確認者名").fill("工藤");
+  await expect(page.getByLabel("確認者名", { exact: true })).toHaveValue("工藤");
+  await panel.getByRole("button", { name: "この2授業をまとめて遅刻登録" }).click();
+  await expect(page.getByText("Notionへ登録しました。", { exact: true })).toBeVisible();
+  expect(state.confirms).toBe(1);
+});
