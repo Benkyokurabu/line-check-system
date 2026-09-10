@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { HomeLink } from "./HomeLink";
+import { AppFrame } from "./AppFrame";
 import { PwaRegistration } from "./PwaRegistration";
 
 export const metadata: Metadata = {
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#06c755",
+  themeColor: "#12263e",
 };
 
 export default function RootLayout({
@@ -36,7 +36,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body><PwaRegistration /><HomeLink />{children}</body>
+      <body><PwaRegistration /><AppFrame>{children}</AppFrame></body>
     </html>
   );
 }
