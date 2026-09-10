@@ -97,3 +97,27 @@
   .brand small { letter-spacing: 1px; }
 }
 @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+
+/* Daily work navigation, retaining the approved navy and mint palette. */
+.hero { padding-bottom: 22px; }
+.hero h1 { font-size: 34px; margin-bottom: 6px; }
+.eyebrow { margin-bottom: 7px; }
+.tagline { font-size: 14px; }
+.monogram { width: 68px; height: 68px; font-size: 36px; border-radius: 18px; }
+.topbar a { color: var(--home-accent); font-size: 13px; letter-spacing: 0; }
+.cardShell { min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--home-line); border-radius: 12px; background: white; overflow: hidden; }
+.cardShell .card { flex: 1; border: 0; border-radius: 0; }
+.cardActions { display: flex; justify-content: space-between; gap: 8px; padding: 8px 14px; border-top: 1px solid #edf1f5; }
+.cardActions button { border: 0; border-radius: 5px; background: transparent; color: var(--home-accent); padding: 6px 8px; font-size: 12px; min-height: 34px; }
+.cardActions button:hover { background: #e6f4ef; }
+.cardActions button:disabled { opacity: .45; cursor: default; }
+.cardActions span { display: flex; gap: 4px; }
+.badge { display: inline-block; margin-bottom: 6px; padding: 2px 7px; background: #fff3d9; color: #77531d; border-radius: 4px; font-size: 11px; }
+.sectionNote { margin: -4px 0 16px; font-size: 12px; line-height: 1.8; color: var(--home-muted); }
+.quickLinks { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.quickLinks a { display: flex; align-items: center; gap: 10px; padding: 18px 14px; border: 1px solid #c8e1d8; border-radius: 10px; background: #e6f4ef; color: #125f58; font-size: 13px; font-weight: 600; }
+.quickLinks a span:last-child { margin-left: auto; }
+.quickLinks a:hover { background: #d8eee5; }
+@media (max-width: 1050px) { .quickLinks { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .hero h1 { font-size: 30px; } .navigation { grid-template-columns: repeat(3,minmax(0,1fr)); } .navigation button { gap: 6px; padding: 10px 8px; } }
+@media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }
