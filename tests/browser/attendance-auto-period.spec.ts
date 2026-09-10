@@ -72,3 +72,39 @@ test("partial failure reloads saved row IDs and preserves the confirmed row on r
   await expect(page.getByText("Notionへ登録しました。", { exact: true })).toBeVisible();
   expect(state.writes.map((row) => row.id)).toEqual(["saved-0", "saved-1"]);
 });
+
+test("bulk type can switch both ways without reloading lessons and writes the chosen type", async ({ page }) => {
+  const state = await setup(page);
+  await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toBeVisible();
+  const type = page.getByLabel("まとめて登録する種別");
+  await type.selectOption("late");
+  await expect(page.getByRole("button", { name: "この2授業をまとめて遅刻登録" })).toBeVisible();
+  await expect(page.getByLabel("まとめて登録する理由")).toHaveValue("検証用");
+  await page.getByLabel("まとめて登録する理由").fill("遅刻連絡");
+  await type.selectOption("absence");
+  await expect(page.getByLabel("まとめて登録する理由")).toHaveValue("欠席連絡");
+  await type.selectOption("late");
+  await expect(page.getByLabel("まとめて登録する理由")).toHaveValue("遅刻連絡");
+  expect(state.rangeReads).toBe(1);
+  expect(state.writes).toHaveLength(0);
+  await page.getByRole("button", { name: "この2授業をまとめて遅刻登録" }).click();
+  await expect(page.getByText("Notionへ登録しました。", { exact: true })).toBeVisible();
+  expect(state.writes.map((row) => [row.event_type, row.ai_summary])).toEqual([["late", "遅刻連絡"], ["late", "遅刻連絡"]]);
+});
+
+test("manual editing can return to the proposal with type and selected lessons preserved", async ({ page }) => {
+  const state = await setup(page);
+  await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toBeVisible();
+  await page.getByLabel("まとめて登録する種別").selectOption("late");
+  await page.getByRole("group", { name: "期間の遅刻をまとめて登録" }).getByRole("checkbox").first().uncheck();
+  await page.getByRole("button", { name: "日付・授業を自分で修正" }).click();
+  await expect(page.getByRole("button", { name: "確認してNotionへ登録", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "授業の自動提案に戻る" }).click();
+  await expect(page.getByRole("button", { name: "この1授業をまとめて遅刻登録" })).toBeVisible();
+  await expect(page.getByLabel("まとめて登録する種別")).toHaveValue("late");
+  expect(state.rangeReads).toBe(1);
+  expect(state.writes).toHaveLength(0);
+  await page.getByRole("button", { name: "この1授業をまとめて遅刻登録" }).click();
+  await expect(page.getByText("Notionへ登録しました。", { exact: true })).toBeVisible();
+  expect(state.writes.map((row) => [row.lesson_id, row.event_type])).toEqual([["lesson-18", "late"]]);
+});

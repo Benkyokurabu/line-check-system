@@ -1660,13 +1660,14 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       {!closed && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
 
-    {showAutoPeriod && periodProposal && <AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason) => {
-      const rows: EditableItem[] = lessons.map((lesson) => ({ client_id: makeClientId(), student_number: studentNumber, event_type: periodProposal.eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: periodProposal.arrival, note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }));
+    {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {
+      const rows: EditableItem[] = lessons.map((lesson) => ({ client_id: makeClientId(), student_number: studentNumber, event_type: eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: eventType === "late" ? periodProposal.arrival : "", note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }));
       if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
       setItems(rows);
       await confirmCandidate(rows, lessons);
-    }} />}
+    }} /></div>}
     {!showAutoPeriod && <div style={{ display: "grid", gap: 8 }}>
+      {periodProposal && !closed && !registering && <button type="button" style={ghostButtonStyle} disabled={busy || Boolean(resyncItems)} onClick={() => setManualPeriod(false)}>授業の自動提案に戻る</button>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <strong>Notion登録行</strong>
         {!closed && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" style={ghostButtonStyle} disabled={!selectedStudent || busy || registering} onClick={() => setPeriodOpen((value) => !value)}>{periodOpen ? "期間指定を閉じる" : "期間を指定して登録行を作る"}</button><button type="button" style={ghostButtonStyle} disabled={items.length >= 80 || busy} onClick={addItem}>行を追加</button></div>}
