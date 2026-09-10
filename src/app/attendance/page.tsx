@@ -4,6 +4,8 @@
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
+import AutoPeriodReview from "./auto-period-review";
+import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
 import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
 import {
   actionCandidatesForReview,
@@ -1233,6 +1235,9 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
 function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
+  const [manualPeriod, setManualPeriod] = useState(false);
+  const [resyncItems, setResyncItems] = useState<CandidateItem[] | null>(null);
+  const periodProposal = useMemo(() => attendancePeriodProposal(candidate.attendance_candidate_items), [candidate.attendance_candidate_items]);
   const lineManagedNames = useMemo(() => (candidate.sender_profile?.alias_names ?? [])
     .filter((value, index, values) => values.indexOf(value) === index), [candidate.sender_profile?.alias_names]);
   const lineManagedName = lineManagedNames.length > 0 ? lineManagedNames.join(" / ") : "未登録";
@@ -1291,9 +1296,15 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const datesKey = useMemo(() => [...new Set(items.map((item) => item.event_date).filter(Boolean))].sort().join("|"), [items]);
   const eventSummary = items.slice(0, 2).map((item) => [item.event_date || "日付未定", eventTypeLabel(item.event_type), item.ai_summary || fallbackReason(item.event_type)].join(" / ")).join("　｜　");
   const hasError = candidateHasError(candidate);
+  const showAutoPeriod = Boolean(periodProposal && !manualPeriod && !closed && !registering);
+
+  if (resyncItems && candidate.attendance_candidate_items !== resyncItems) {
+    setItems(initialItems(candidate, initialCampus, studentNumber));
+    setResyncItems(null);
+  }
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || showAutoPeriod) return;
     const controller = new AbortController();
     const dates = datesKey ? datesKey.split("|") : [];
     for (const date of dates) {
@@ -1328,7 +1339,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         });
     }
     return () => controller.abort();
-  }, [datesKey, expanded, studentNumber, selectedStudent?.campus, studentOptions]);
+  }, [datesKey, expanded, studentNumber, selectedStudent?.campus, studentOptions, showAutoPeriod]);
 
   function updateItem(clientId: string, patch: Partial<EditableItem>) {
     setItems((current) => current.map((item) => item.client_id === clientId ? { ...item, ...patch } : item));
@@ -1422,8 +1433,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     finally { setSavingTemplate(false); }
   }
 
-  async function save() {
-    const firstItem = items[0];
+  async function save(rows = items) {
+    const firstItem = rows[0];
     const response = await fetch(`/api/attendance/candidates/${candidate.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1433,7 +1444,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         event_type: firstItem?.event_type || candidate.event_type,
         lesson_id: firstItem?.lesson_id || null,
         ai_summary: firstItem?.ai_summary?.trim() || fallbackReason(firstItem?.event_type || candidate.event_type),
-        items: items.map((item) => ({
+        items: rows.map((item) => ({
           id: item.id ?? null,
           student_number: item.student_number,
           event_type: item.event_type,
@@ -1453,15 +1464,16 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     const body = await response.json(); if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
   }
 
-  async function confirmCandidate() {
+  async function confirmCandidate(rows = items, proposedLessons: PeriodLesson[] = []) {
+    if (busy || !rows.length || rows.length > 80) return;
     if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
-    const invalidStudent = items.find((item) => !item.student_number);
+    const invalidStudent = rows.find((item) => !item.student_number);
     if (invalidStudent) { setCardMessage("すべての登録行で名前を選択してください。"); return; }
-    const invalid = items.find((item) => !item.event_date || !item.campus || !item.lesson_id || !item.ai_summary.trim());
+    const invalid = rows.find((item) => !item.event_date || !item.campus || !item.lesson_id || !item.ai_summary.trim());
     if (invalid) { setCardMessage("すべての登録行で、日付・校舎・授業・理由を入力してください。"); return; }
-    const invalidCampus = items.find((item) => {
+    const invalidCampus = rows.find((item) => {
       const student = studentOptions.find((entry) => entry.student_number === item.student_number);
-      const lesson = (lessonLists[item.event_date] ?? []).find((entry) => entry.id === item.lesson_id) ?? candidateLesson(candidate, item);
+      const lesson = proposedLessons.find((entry) => entry.id === item.lesson_id) ?? (lessonLists[item.event_date] ?? []).find((entry) => entry.id === item.lesson_id) ?? candidateLesson(candidate, item);
       const crossCampus = lessonIsCrossCampus(student, lesson, item.campus);
       return crossCampus && (!item.cross_campus_override || !item.cross_campus_reason.trim());
     });
@@ -1469,7 +1481,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     setBusy(true);
     setCardMessage("Notionへ登録しています...");
     try {
-      await save();
+      await save(rows);
       const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1480,7 +1492,14 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       setCardMessage(`${body.notion_page_ids?.length ?? 1}行をNotionへ登録しました。`);
       setMessage("Notionへ登録しました。");
       await onChanged();
-    } catch (error) { setCardMessage(error instanceof Error ? error.message : String(error)); }
+    } catch (error) {
+      setCardMessage(error instanceof Error ? error.message : String(error));
+      if (proposedLessons.length) {
+        setManualPeriod(true);
+        setResyncItems(candidate.attendance_candidate_items ?? []);
+        await onChanged().catch(() => {});
+      }
+    }
     finally { setBusy(false); }
   }
 
@@ -1598,13 +1617,13 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{items.length}行 / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
+        <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{showAutoPeriod ? "期間の連絡" : `${items.length}行`} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
         <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
     {cardMessage && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
-    <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</div>
+    <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{showAutoPeriod && periodProposal ? `${periodProposal.start} 〜 ${periodProposal.end} / ${eventTypeLabel(periodProposal.eventType)}` : <>{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</>}</div>
     {!expanded && <div style={{ marginTop: 6, color: "#555", fontSize: 14, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>}
 
     {expanded && <>
@@ -1635,13 +1654,19 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
     {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 6, padding: 10, marginBottom: 12, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</div>}
     <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,280px) minmax(0,1fr) minmax(220px,280px) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
-      <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed} />
+      <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed || busy || registering} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
       {!closed && <label style={fieldStyle}>LINE連絡先の登録名<input style={{ ...inputStyle, fontWeight: 700 }} value={registrationName} onChange={(event) => setRegistrationName(event.target.value)} placeholder="例: 本　山田花子　母" /><small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small></label>}
       {!closed && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
 
-    <div style={{ display: "grid", gap: 8 }}>
+    {showAutoPeriod && periodProposal && <AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason) => {
+      const rows: EditableItem[] = lessons.map((lesson) => ({ client_id: makeClientId(), student_number: studentNumber, event_type: periodProposal.eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: periodProposal.arrival, note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }));
+      if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+      setItems(rows);
+      await confirmCandidate(rows, lessons);
+    }} />}
+    {!showAutoPeriod && <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <strong>Notion登録行</strong>
         {!closed && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" style={ghostButtonStyle} disabled={!selectedStudent || busy || registering} onClick={() => setPeriodOpen((value) => !value)}>{periodOpen ? "期間指定を閉じる" : "期間を指定して登録行を作る"}</button><button type="button" style={ghostButtonStyle} disabled={items.length >= 80 || busy} onClick={addItem}>行を追加</button></div>}
@@ -1715,9 +1740,9 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
           </div>
         </div>;
       })}
-    </div>
+    </div>}
 
-    {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button style={buttonStyle} disabled={busy || dismissing || registered} onClick={confirmCandidate}>{registered ? "Notion登録済み" : busy ? "登録中..." : registering ? "登録状態を確認・再試行" : "確認してNotionへ登録"}</button>{!registered && !registering && <button style={secondaryButtonStyle} disabled={busy || dismissing} onClick={dismiss}>{dismissing ? "処理中..." : "対応不要"}</button>}</div>}
+    {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}>{!showAutoPeriod && <button style={buttonStyle} disabled={busy || dismissing || registered || Boolean(resyncItems)} onClick={() => void confirmCandidate()}>{registered ? "Notion登録済み" : busy ? "登録中..." : registering ? "登録状態を確認・再試行" : "確認してNotionへ登録"}</button>}{!registered && !registering && <button style={secondaryButtonStyle} disabled={busy || dismissing} onClick={dismiss}>{dismissing ? "処理中..." : "対応不要"}</button>}</div>}
     </>}
   </section>;
 }
@@ -1750,4 +1775,3 @@ function ReplyHistory({ replies }: { replies: ReplyMessage[] }) {
     </div>)}
   </div>;
 }
-
