@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import styles from "./home-dashboard.module.css";
 
 type Group = "all" | "student" | "lesson" | "communication" | "reservation" | "admin";
@@ -14,8 +14,7 @@ const groups: { id: Group; label: string; icon: string }[] = [
   { id: "reservation", label: "予約", icon: "room" },
   { id: "admin", label: "設定・管理", icon: "sync" },
 ];
-const favoritesKey = "bentan:home:favorites:v1";
-const defaultFavorites = ["/attendance", "/dashboard", "/students", "/karte"];
+const frequentLinks = ["/attendance", "/dashboard", "/students", "/karte"];
 function Icon({ name }: { name: string }) {
   const paths: Record<string, React.ReactNode> = {
     home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v12h5v-7h4v7h5V9" /></>,
@@ -33,54 +32,17 @@ function Icon({ name }: { name: string }) {
 export default function HomeDashboard({ items }: { items: MenuItem[] }) {
   const [group, setGroup] = useState<Group>("all");
   const [query, setQuery] = useState("");
-  const [favorites, setFavorites] = useState<string[]>(defaultFavorites);
-  const [ready, setReady] = useState(false);
-  const [storageNotice, setStorageNotice] = useState("");
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(favoritesKey);
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.every(value => typeof value === "string")) {
-          // eslint-disable-next-line react-hooks/set-state-in-effect
-          setFavorites([...new Set(parsed)].filter(href => items.some(item => item.href === href)));
-        }
-      }
-    } catch { setStorageNotice("保存設定を読み込めません。この画面内で変更できます。"); }
-    setReady(true);
-  }, [items]);
-  function saveFavorites(next: string[]) {
-    setFavorites(next);
-    try { localStorage.setItem(favoritesKey, JSON.stringify(next)); setStorageNotice(""); }
-    catch { setStorageNotice("設定を保存できませんでした。この画面内だけに反映しています。"); }
-  }
-  function toggleFavorite(href: string) {
-    saveFavorites(favorites.includes(href) ? favorites.filter(value => value !== href) : [...favorites, href]);
-  }
-  function moveFavorite(index: number, direction: number) {
-    const next = [...favorites];
-    [next[index], next[index + direction]] = [next[index + direction], next[index]];
-    saveFavorites(next);
-  }
   const normalized = query.normalize("NFKC").trim().toLocaleLowerCase("ja");
   const visible = items.filter(item => (group === "all" || item.group === group) &&
     (!normalized || `${item.title} ${item.description}`.normalize("NFKC").toLocaleLowerCase("ja").includes(normalized)));
   const home = group === "all" && !normalized;
-  function card(item: MenuItem, favoriteIndex?: number) {
-    const pinned = favorites.includes(item.href);
+  function card(item: MenuItem) {
     return <div className={styles.cardShell} key={item.href}>
       <Link className={styles.card} href={item.href} prefetch={false}>
         <span className={styles.icon}><Icon name={item.icon} /></span>
         <div className={styles.cardText}>{item.trial && <span className={styles.badge}>操作確認用</span>}<h3>{item.title}</h3><p>{item.description}</p></div>
         <span className={styles.arrow}><Icon name="arrow" /></span>
       </Link>
-      <div className={styles.cardActions}>
-        <button type="button" disabled={!ready} aria-label={`${item.title}を${pinned ? "固定解除" : "固定"}`} aria-pressed={pinned} onClick={() => toggleFavorite(item.href)}>{pinned ? "★ 固定済み" : "☆ 固定する"}</button>
-        {favoriteIndex !== undefined && <span>
-          <button type="button" disabled={!ready || favoriteIndex === 0} aria-label={`${item.title}を前へ`} onClick={() => moveFavorite(favoriteIndex, -1)}>←</button>
-          <button type="button" disabled={!ready || favoriteIndex === favorites.length - 1} aria-label={`${item.title}を後へ`} onClick={() => moveFavorite(favoriteIndex, 1)}>→</button>
-        </span>}
-      </div>
     </div>;
   }
   return <div className={styles.dashboard}>
@@ -119,10 +81,7 @@ export default function HomeDashboard({ items }: { items: MenuItem[] }) {
           </section>
           <section className={styles.section} aria-labelledby="favorites-title">
             <h2 id="favorites-title">よく使う業務</h2>
-            <p className={styles.sectionNote}>各業務の「固定する」で追加できます。並び順はこのブラウザに保存され、同じブラウザを使う人と共有されます。</p>
-            {storageNotice && <p role="status" className={styles.sectionNote}>{storageNotice}</p>}
-            <div className={styles.primary}>{favorites.map((href, index) => { const item = items.find(item => item.href === href); return item ? card(item, index) : null; })}</div>
-            {favorites.length === 0 && <p className={styles.empty}>下の業務一覧から、よく使う業務を固定してください。</p>}
+            <div className={styles.primary}>{frequentLinks.map(href => { const item = items.find(item => item.href === href); return item ? card(item) : null; })}</div>
           </section>
         </>}
         {groups.filter(category => category.id !== "all").map(category => {
