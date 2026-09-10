@@ -468,7 +468,7 @@ export default function ContactsPage() {
     if (!student) { setVerificationMsg("登録する生徒を選択してください。"); return; }
     if (!selectedEvidenceMessageId) { setVerificationMsg("確認に使ったLINEメッセージを選択してください。"); return; }
     const aliasName = selectedAliasName.trim();
-    if (!aliasName) { setVerificationMsg("教室で表示する登録名を入力してください。"); return; }
+    if (!aliasName) { setVerificationMsg("LINE連絡先の登録名を入力してください。"); return; }
     if (!window.confirm(`LINEメッセージを確認済みとして、\n${studentRegistrationLabel(student)}\n続柄：${relationLabel(selectedRelation)}\n登録名「${aliasName}」で登録します。\n\n確認者: ${operatorName.trim()}`)) return;
     setVerificationSaving(true);
     setVerificationMsg("登録しています...");
@@ -765,8 +765,9 @@ export default function ContactsPage() {
                       <option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="family">家族</option><option value="shared">生徒・保護者共有</option>
                     </select>
                   </label>
-                  <label style={{ display: "grid", gap: 5 }}>④ 教室で表示する登録名（自由入力）
+                  <label style={{ display: "grid", gap: 5 }}>④ LINE連絡先の登録名（自由入力）
                     <input style={{ ...inputStyle, fontWeight: 700 }} value={selectedAliasName} onChange={(event) => setSelectedAliasName(event.target.value)} disabled={!selectedStudent} placeholder={selectedStudent ? "例: 本　山田花子　母" : "先に生徒を選択してください"} />
+                    <small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small>
                   </label>
                 </div>
                 <button type="button" onClick={() => void verifySelectedContact()} disabled={verificationSaving || !operatorName.trim() || !selectedStudent || !selectedEvidenceMessageId} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>

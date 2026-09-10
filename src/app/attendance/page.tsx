@@ -259,6 +259,10 @@ export default function AttendancePage() {
   const [manualEventsOpen, setManualEventsOpen] = useState(false);
   const [manualRefreshKey, setManualRefreshKey] = useState(0);
   const [visibleCandidateCount, setVisibleCandidateCount] = useState(20);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState("");
   const [linkReviewOpen, setLinkReviewOpen] = useState(false);
   const [linkCandidates, setLinkCandidates] = useState<LineLinkCandidate[]>([]);
   const [linkCandidatesLoading, setLinkCandidatesLoading] = useState(false);
@@ -378,6 +382,57 @@ export default function AttendancePage() {
   const actionCandidates = useMemo(() => actionCandidatesForReview(candidates) as Candidate[], [candidates]);
   const doneCandidates = useMemo(() => doneCandidatesForReview(candidates) as Candidate[], [candidates]);
   const visibleCandidates = useMemo(() => visibleCandidatesForReview(candidates, reviewTab) as Candidate[], [candidates, reviewTab]);
+  const displayedCandidates = visibleCandidates.slice(0, visibleCandidateCount);
+  const selectedCandidates = reviewTab === "action"
+    ? displayedCandidates.filter((candidate) => selectedCandidateIds.includes(candidate.id)) : [];
+
+  function clearSelection() {
+    setSelectedCandidateIds([]);
+    setSelectionMode(false);
+    setBulkMessage("");
+  }
+
+  async function hideSelectedCandidates() {
+    if (bulkBusy || selectedCandidates.length === 0) return;
+    if (!confirmedBy.trim()) { setBulkMessage("画面上部の「確認者名」を入力してください。"); return; }
+    const targets = [...selectedCandidates];
+    const names = targets.slice(0, 20).map((candidate) => {
+      const name = candidate.student_roster?.student_name ?? candidate.suggested_student_name ?? candidate.sender_profile?.alias_names?.[0] ?? candidate.line_messages?.display_name ?? "名前未登録";
+      return `・${name}（${formatReceivedAt(candidate.line_messages?.received_at)}）`;
+    }).join("\n");
+    if (!window.confirm(`選択した${targets.length}件の表示を消しますか？\n\n${names}${targets.length > 20 ? `\nほか${targets.length - 20}件` : ""}\n\n「消去済み」から確認・復元できます。\nNotionの登録内容やLINEの送信状態は変わりません。`)) return;
+    setBulkBusy(true);
+    const succeeded = new Set<string>();
+    const failures: string[] = [];
+    try {
+      for (let offset = 0; offset < targets.length; offset += 5) {
+        const batch = targets.slice(offset, offset + 5);
+        await Promise.all(batch.map(async (candidate) => {
+          try {
+            const response = await fetch(`/api/attendance/candidates/${candidate.id}/visibility`, {
+              method: "PATCH",
+              signal: AbortSignal.timeout(20000),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ hidden: true, changed_by: confirmedBy.trim() }),
+            });
+            const body = await response.json();
+            if (!response.ok || !body.candidate?.review_hidden_at) throw new Error(body.error ?? "表示の変更を確認できませんでした");
+            succeeded.add(candidate.id);
+            setCandidates((current) => current.map((row) => row.id === candidate.id ? { ...row, ...body.candidate } : row));
+          } catch (error) {
+            failures.push(error instanceof Error ? error.message : String(error));
+          }
+        }));
+        setBulkMessage(`${Math.min(offset + 5, targets.length)} / ${targets.length}件を処理しました…`);
+      }
+      setSelectedCandidateIds(targets.filter((candidate) => !succeeded.has(candidate.id)).map((candidate) => candidate.id));
+      setBulkMessage(failures.length
+        ? `${succeeded.size}件の表示を消しました。${failures.length}件は変更を確認できませんでした。選択が残っている連絡を再試行できます。詳細：${failures[0]}`
+        : `${succeeded.size}件の表示を消しました。「消去済み」から確認・復元できます。`);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
   const errorCount = actionCandidates.filter(candidateHasError).length;
   return <main className="shell" style={{ maxWidth: 1180 }}>
     <p className="eyebrow">Attendance review</p>
@@ -385,12 +440,12 @@ export default function AttendancePage() {
     <p>LINEの確認作業に近い流れで、返信文案とNotion登録内容を確認できます。</p>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
-      <button style={buttonStyle} disabled={statusBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
-      <button type="button" style={ghostButtonStyle} disabled={busy} onClick={analyze}>{busy ? "解析中" : "待機中LINEを今すぐ解析"}</button>
-      <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} onClick={() => setIncludePastPending((value) => !value)}>{includePastPending ? "過去の連絡を非表示" : "過去の連絡も表示"}</button>
+      <button style={buttonStyle} disabled={statusBusy || bulkBusy} onClick={refreshLatest}>{statusBusy ? "更新中" : "最新状態に更新"}</button>
+      <button type="button" style={ghostButtonStyle} disabled={busy || bulkBusy} onClick={analyze}>{busy ? "解析中" : "待機中LINEを今すぐ解析"}</button>
+      <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} disabled={bulkBusy} onClick={() => { clearSelection(); setIncludePastPending((value) => !value); }}>{includePastPending ? "過去の連絡を非表示" : "過去の連絡も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE登録候補を閉じる" : "LINE登録候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
-      <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>消去済みの表示期間</span><select style={inputStyle} value={historyDays} onChange={(event) => setHistoryDays(Number(event.target.value) as HistoryDays)}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
+      <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>消去済みの表示期間</span><select style={inputStyle} value={historyDays} disabled={bulkBusy} onChange={(event) => { clearSelection(); setHistoryDays(Number(event.target.value) as HistoryDays); }}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {analysisStatus && <p role={analysisStatus.alert_active || analysisStatus.dead > 0 ? "alert" : undefined} style={{ flexBasis: "100%", margin: 0, color: analysisStatus.alert_active || analysisStatus.dead > 0 ? "#b42318" : "#555", fontWeight: analysisStatus.alert_active || analysisStatus.dead > 0 ? 800 : 400 }}>待機 {analysisStatus.queued}件（実行可能 {analysisStatus.ready}件・再試行待ち {analysisStatus.retry_wait}件） / 解析中 {analysisStatus.processing}件 / 要確認 {analysisStatus.dead}件 / 直近1時間 {analysisStatus.processed_last_hour}件 / 最終正常実行 {formatTime(analysisStatus.last_worker_succeeded_at)} / 最終確認 {formatTime(analysisStatus.last_checked_at)}{analysisStatus.oldest_queued_at ? ` / 最古 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? ` / エラー: ${analysisStatus.last_worker_error}` : ""}</p>}
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
@@ -405,13 +460,29 @@ export default function AttendancePage() {
         { value: "action", label: `表示中 ${actionCandidates.length}件` },
         { value: "done", label: `消去済み ${doneCandidates.length}件` },
         { value: "all", label: `すべて ${candidates.length}件` },
-      ] as Array<{ value: ReviewTab; label: string }>).map((tab) => <button key={tab.value} type="button" aria-pressed={reviewTab === tab.value} onClick={() => { setReviewTab(tab.value); setVisibleCandidateCount(20); }} style={{ ...ghostButtonStyle, border: reviewTab === tab.value ? "1px solid var(--accent)" : "1px solid transparent", background: reviewTab === tab.value ? "white" : "transparent", color: reviewTab === tab.value ? "var(--accent)" : "#555", boxShadow: reviewTab === tab.value ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{tab.label}</button>)}
+      ] as Array<{ value: ReviewTab; label: string }>).map((tab) => <button key={tab.value} type="button" disabled={bulkBusy} aria-pressed={reviewTab === tab.value} onClick={() => { clearSelection(); setReviewTab(tab.value); setVisibleCandidateCount(20); }} style={{ ...ghostButtonStyle, border: reviewTab === tab.value ? "1px solid var(--accent)" : "1px solid transparent", background: reviewTab === tab.value ? "white" : "transparent", color: reviewTab === tab.value ? "var(--accent)" : "#555", boxShadow: reviewTab === tab.value ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{tab.label}</button>)}
     </nav>
     {reviewTab === "action" && errorCount > 0 && <div role="alert" style={{ marginTop: 12, border: "1px solid #fecaca", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: "10px 12px", fontWeight: 800 }}>登録エラーが{errorCount}件あります。先頭に表示しています。</div>}
+    {reviewTab === "action" && <section aria-label="連絡の一括操作" style={{ position: "sticky", top: 8, zIndex: 10, marginTop: 12, padding: 12, border: "1px solid var(--line)", borderRadius: 8, background: selectionMode ? "#f0f7ff" : "white", boxShadow: selectionMode ? "0 2px 8px #0002" : "none" }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        {!selectionMode ? <button type="button" style={ghostButtonStyle} disabled={!displayedCandidates.length || statusBusy || busy} onClick={() => { setSelectionMode(true); setBulkMessage(""); }}>複数選択</button> : <>
+          <strong>{selectedCandidates.length}件選択中</strong>
+          <button type="button" style={ghostButtonStyle} disabled={bulkBusy || !displayedCandidates.length} onClick={() => setSelectedCandidateIds(displayedCandidates.map((candidate) => candidate.id))}>表示中の{displayedCandidates.length}件をすべて選択</button>
+          <button type="button" style={ghostButtonStyle} disabled={bulkBusy || !selectedCandidates.length} onClick={() => setSelectedCandidateIds([])}>選択を解除</button>
+          <button type="button" style={dangerButtonStyle} disabled={bulkBusy || !selectedCandidates.length} onClick={() => void hideSelectedCandidates()}>{bulkBusy ? "表示を消しています…" : `選択した${selectedCandidates.length}件の表示を消す`}</button>
+          <button type="button" style={ghostButtonStyle} disabled={bulkBusy} onClick={clearSelection}>選択を終了</button>
+        </>}
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: 13, color: "#4b5563" }}>選んだ連絡を「消去済み」へ移します。後から表示に戻せます。{selectionMode && "「続きを表示」で追加した連絡は自動では選択されません。"}</p>
+      {bulkMessage && <p role="status" style={{ margin: "8px 0 0", fontWeight: 700 }}>{bulkMessage}</p>}
+    </section>}
     <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
       {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "表示中の連絡はありません。" : "今日以降の表示中の連絡はありません。過去分は「過去の連絡も表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の消去済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
-      {visibleCandidates.slice(0, visibleCandidateCount).map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />)}
-      {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
+      {displayedCandidates.map((candidate) => <fieldset key={candidate.id} disabled={bulkBusy} style={{ margin: 0, padding: selectionMode ? 8 : 0, minWidth: 0, border: selectionMode ? `2px solid ${selectedCandidateIds.includes(candidate.id) ? "var(--accent)" : "var(--line)"}` : 0, borderRadius: 8, background: selectionMode && selectedCandidateIds.includes(candidate.id) ? "#f0f7ff" : undefined }}>
+        {selectionMode && reviewTab === "action" && <label style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 4px 12px", cursor: "pointer", fontWeight: 700 }}><input type="checkbox" style={{ width: 20, height: 20, accentColor: "var(--accent)" }} checked={selectedCandidateIds.includes(candidate.id)} onChange={(event) => setSelectedCandidateIds((current) => event.target.checked ? [...new Set([...current, candidate.id])] : current.filter((id) => id !== candidate.id))} aria-label={`${candidate.student_roster?.student_name ?? candidate.suggested_student_name ?? candidate.line_messages?.display_name ?? "名前未登録"}の連絡を選択`} />この連絡を選択</label>}
+        <CandidateCard candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />
+      </fieldset>)}
+      {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} disabled={bulkBusy} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
   </main>;
 }
@@ -641,7 +712,7 @@ function LineLinkReviewPanel({ candidates, students, confirmedBy, loading, onRel
     if (!candidate.evidence_message_id) { setMessage("本人確認に使うLINEメッセージが見つかりません。候補を更新してください。"); return; }
     const displayName = draft.display_name.trim();
     const aliasNames = targets.map((student) => aliasNameFor(student, draft).trim()).filter(Boolean);
-    if (aliasNames.length !== targets.length) { setMessage("教室で表示する登録名を入力してください。"); return; }
+    if (aliasNames.length !== targets.length) { setMessage("LINE連絡先の登録名を入力してください。"); return; }
     if (!window.confirm(`表示されているLINEメッセージを確認済みとして、\n${displayName || "表示名なし"} を ${aliasNames.join(" / ")} に登録します。\n\n確認者: ${confirmedBy.trim()}\nよろしいですか？`)) return;
     setSavingLineUserId(candidate.line_user_id);
     try {
@@ -745,7 +816,8 @@ function LineLinkReviewPanel({ candidates, students, confirmedBy, loading, onRel
               <label style={fieldStyle}>③ 生徒との続柄<select style={inputStyle} value={draft.relation} onChange={(event) => updateDraft(candidate.line_user_id, { relation: event.target.value })}><option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="shared">生徒・保護者共有</option></select></label>
             </div>
             {selected.length > 0 && <div style={{ display: "grid", gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>④ 教室で表示する登録名（登録前に編集できます）</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>④ LINE連絡先の登録名（登録前に編集できます）</span>
+              <small style={{ color: "var(--muted)" }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small>
               {selected.map((student) => <label key={student.student_number} style={fieldStyle}>{student.grade} {student.student_name}<input style={{ ...inputStyle, fontWeight: 700 }} value={aliasNameFor(student, draft)} onChange={(event) => updateDraft(candidate.line_user_id, { alias_names: { ...draft.alias_names, [student.student_number]: event.target.value } })} placeholder="例: 本　山田花子　母" /></label>)}
             </div>}
             <div style={{ display: "grid", gap: 8 }}>
@@ -1214,7 +1286,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     const student = studentOptions.find((item) => item.student_number === studentNumber);
     if (!student) { setCardMessage("選択中の生徒を確認できません。"); return; }
     const aliasName = registrationName.trim();
-    if (!aliasName) { setCardMessage("教室で表示する登録名を入力してください。"); return; }
+    if (!aliasName) { setCardMessage("LINE連絡先の登録名を入力してください。"); return; }
     if (!window.confirm(`${student.grade} ${student.student_name} に ${aliasName}（${senderDisplayName}）を保護者LINEとして登録します。よろしいですか？`)) return;
     setLinkingSender(true);
     setCardMessage("LINE連絡先を登録しています...");
@@ -1504,7 +1576,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,280px) minmax(0,1fr) minmax(220px,280px) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
       <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
-      {!closed && <label style={fieldStyle}>教室で表示する登録名<input style={{ ...inputStyle, fontWeight: 700 }} value={registrationName} onChange={(event) => setRegistrationName(event.target.value)} placeholder="例: 本　山田花子　母" /></label>}
+      {!closed && <label style={fieldStyle}>LINE連絡先の登録名<input style={{ ...inputStyle, fontWeight: 700 }} value={registrationName} onChange={(event) => setRegistrationName(event.target.value)} placeholder="例: 本　山田花子　母" /><small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small></label>}
       {!closed && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
     </div>
 

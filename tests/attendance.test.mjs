@@ -140,9 +140,9 @@ test("attendance review keeps past candidates out of the initial response", asyn
   assert.match(route, /if \(!includePastPending\) \{\s*visibleClosedCandidateQuery = visibleClosedCandidateQuery\.gte\("event_date", today\);\s*\}/);
 });
 
-test("LINE registration lets staff edit the classroom display name before saving", async () => {
+test("LINE registration lets staff edit the LINE contact name before saving", async () => {
   const page = await readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /教室で表示する登録名（登録前に編集できます）/);
+  assert.match(page, /LINE連絡先の登録名（登録前に編集できます）/);
   assert.match(page, /const \[registrationName, setRegistrationName\] = useState/);
   assert.match(page, /alias_name: aliasName/);
 });
@@ -155,7 +155,7 @@ test("staff LINE contacts can be named without a student link", async () => {
 
 test("guardian contact registration accepts an operator-entered display name", async () => {
   const contacts = await readFile(new URL("../src/app/contacts/page.tsx", import.meta.url), "utf8");
-  assert.match(contacts, /教室で表示する登録名（自由入力）/);
+  assert.match(contacts, /LINE連絡先の登録名（自由入力）/);
   assert.match(contacts, /const aliasName = selectedAliasName\.trim\(\)/);
 });
 
