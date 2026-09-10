@@ -61,6 +61,13 @@ const menuItems = [
     title: "LINE登録名の取り込み",
     description: "LINE管理画面で入力した登録名を一覧確認し、編集してから一括反映します。",
   },
+  {
+    href: "/feedback",
+    group: "communication" as const,
+    icon: "message",
+    title: "改善してほしいことなど、何でも",
+    description: "勉たんへのご意見・ご要望を送れます。送信内容は工藤だけが確認します。",
+  },
 ];
 
 export default function Home() {

@@ -3,6 +3,7 @@
 // Notion registration settings are supplied by the Vercel production environment.
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
 import {
   actionCandidatesForReview,
@@ -256,6 +257,7 @@ export default function AttendancePage() {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const [message, setMessage] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualSaving, setManualSaving] = useState(false);
   const [manualEventsOpen, setManualEventsOpen] = useState(false);
   const [manualRefreshKey, setManualRefreshKey] = useState(0);
   const [visibleCandidateCount, setVisibleCandidateCount] = useState(20);
@@ -444,13 +446,13 @@ export default function AttendancePage() {
       <button type="button" style={ghostButtonStyle} disabled={busy || bulkBusy} onClick={analyze}>{busy ? "解析中" : "待機中LINEを今すぐ解析"}</button>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} disabled={bulkBusy} onClick={() => { clearSelection(); setIncludePastPending((value) => !value); }}>{includePastPending ? "過去の連絡を非表示" : "過去の連絡も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE登録候補を閉じる" : "LINE登録候補を表示"}</button>
-      <button type="button" style={secondaryButtonStyle} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
+      <button type="button" style={secondaryButtonStyle} disabled={manualSaving} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
       <label style={{ display: "grid", gap: 6, minWidth: 170 }}><span>消去済みの表示期間</span><select style={inputStyle} value={historyDays} disabled={bulkBusy} onChange={(event) => { clearSelection(); setHistoryDays(Number(event.target.value) as HistoryDays); }}><option value={3}>直近3日</option><option value={5}>直近5日</option><option value={7}>直近7日</option><option value={14}>直近14日</option></select></label>
       {analysisStatus && <p role={analysisStatus.alert_active || analysisStatus.dead > 0 ? "alert" : undefined} style={{ flexBasis: "100%", margin: 0, color: analysisStatus.alert_active || analysisStatus.dead > 0 ? "#b42318" : "#555", fontWeight: analysisStatus.alert_active || analysisStatus.dead > 0 ? 800 : 400 }}>待機 {analysisStatus.queued}件（実行可能 {analysisStatus.ready}件・再試行待ち {analysisStatus.retry_wait}件） / 解析中 {analysisStatus.processing}件 / 要確認 {analysisStatus.dead}件 / 直近1時間 {analysisStatus.processed_last_hour}件 / 最終正常実行 {formatTime(analysisStatus.last_worker_succeeded_at)} / 最終確認 {formatTime(analysisStatus.last_checked_at)}{analysisStatus.oldest_queued_at ? ` / 最古 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? ` / エラー: ${analysisStatus.last_worker_error}` : ""}</p>}
       {message && <p style={{ flexBasis: "100%" }}>{message}</p>}
     </section>
     {linkReviewOpen && <LineLinkReviewPanel candidates={linkCandidates} students={students} confirmedBy={confirmedBy} loading={linkCandidatesLoading} onReload={loadLineLinkCandidates} onChanged={async () => { await Promise.all([loadLineLinkCandidates(), load()]); }} setMessage={setMessage} />}
-    {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
+    {manualOpen && <ManualEntryForm students={students} confirmedBy={confirmedBy} onSavingChange={setManualSaving} onSaved={async () => { setMessage("手入力の欠席・遅刻を登録しました。"); setManualRefreshKey((value) => value + 1); setManualOpen(false); }} />}
     <div style={{ marginTop: 16 }}>
       <button type="button" style={secondaryButtonStyle} onClick={() => setManualEventsOpen((value) => !value)}>{manualEventsOpen ? "手入力済み連絡を閉じる" : "手入力済み・Notion未反映を表示"}</button>
     </div>
@@ -835,7 +837,7 @@ function LineLinkReviewPanel({ candidates, students, confirmedBy, loading, onRel
     </div>}
   </section>;
 }
-function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student[]; confirmedBy: string; onSaved: () => Promise<void> }) {
+function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { students: Student[]; confirmedBy: string; onSaved: () => Promise<void>; onSavingChange: (saving: boolean) => void }) {
   const [contactMethod, setContactMethod] = useState("phone");
   const [receivedBy, setReceivedBy] = useState(confirmedBy);
   const [studentNumber, setStudentNumber] = useState("");
@@ -853,10 +855,12 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [periodMode, setPeriodMode] = useState(false);
+  const [periodLessons, setPeriodLessons] = useState<PeriodLesson[]>([]);
   const selectedStudent = students.find((student) => student.student_number === studentNumber) ?? null;
 
   useEffect(() => {
-    if (!eventDate) return;
+    if (!eventDate || periodMode) return;
     const controller = new AbortController();
     const query = new URLSearchParams({ date: eventDate });
     if (studentNumber) query.set("student_number", studentNumber);
@@ -873,7 +877,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
         setMessage(error instanceof Error ? error.message : String(error));
       });
     return () => controller.abort();
-  }, [eventDate, studentNumber]);
+  }, [eventDate, studentNumber, periodMode]);
   const effectiveReceivedBy = receivedBy || confirmedBy;
   const effectiveCampus = campus || selectableCampus(selectedStudent?.campus);
   const candidateStudents = effectiveCampus ? students.filter((student) => studentMatchesCampus(student, effectiveCampus)) : [];
@@ -881,14 +885,22 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
   const isCrossCampus = lessonIsCrossCampus(selectedStudent, selectedLesson, effectiveCampus);
 
   async function saveManualEvent() {
+    if (saving) return;
     if (!effectiveReceivedBy.trim()) { setMessage("受付者名を入力してください。"); return; }
     if (!studentNumber) { setMessage("生徒を選択してください。"); return; }
     if (!eventDate) { setMessage("対象日を入力してください。"); return; }
-    if (!lessonId) { setMessage("授業を選択してください。"); return; }
-    if (isCrossCampus && (!crossCampusOverride || !crossCampusReason.trim())) { setMessage("別校舎受講として登録するチェックと理由が必要です。"); return; }
+    if (periodMode ? !periodLessons.length : !lessonId) { setMessage("授業を選択してください。"); return; }
+    if (!periodMode && isCrossCampus && (!crossCampusOverride || !crossCampusReason.trim())) { setMessage("別校舎受講として登録するチェックと理由が必要です。"); return; }
+    if (periodMode && !window.confirm(`${selectedStudent?.student_name}：選択した${periodLessons.length}授業を「${eventTypeLabel(eventType)}」として登録します。\n理由：${reason}\n\n同じ生徒・授業の登録がある場合は今回の内容に更新します。よろしいですか？`)) return;
     setSaving(true);
+    onSavingChange(true);
     setMessage("保存しています...");
     try {
+      const targets = periodMode ? periodLessons : [{ id: lessonId, lesson_date: eventDate }];
+      const failedIds = new Set<string>();
+      let failureDetail = "";
+      for (const [index, target] of targets.entries()) {
+      try {
       const response = await fetch("/api/attendance/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -897,22 +909,32 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
           contact_received_at: new Date().toISOString(),
           received_by: effectiveReceivedBy,
           student_number: studentNumber,
-          lesson_id: lessonId,
-          event_date: eventDate,
+          lesson_id: target.id,
+          event_date: target.lesson_date,
           event_type: eventType,
           reason,
           arrival_expected_time: arrivalExpectedTime,
           note_internal: noteInternal,
           note_for_classroom: noteForClassroom,
-          cross_campus_override: isCrossCampus && crossCampusOverride,
-          cross_campus_reason: isCrossCampus ? crossCampusReason : null,
+          cross_campus_override: !periodMode && isCrossCampus && crossCampusOverride,
+          cross_campus_reason: !periodMode && isCrossCampus ? crossCampusReason : null,
         }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "保存に失敗しました");
       if (body.notion_failed) {
         const notionError = body.notion_results?.find((result: { notion_error?: string | null }) => result.notion_error)?.notion_error;
-        setMessage(`データは保存しましたが、Notion反映に失敗しました。再度保存すると再試行できます。${notionError ? ` ${notionError}` : ""}`);
+        throw new Error(`データは保存しましたが、Notion反映に失敗しました。${notionError ? ` ${notionError}` : ""}`);
+      }
+      } catch (error) {
+        failedIds.add(target.id);
+        failureDetail = error instanceof Error ? error.message : String(error);
+      }
+      setMessage(`${index + 1} / ${targets.length}授業を処理しました…`);
+      }
+      if (failedIds.size) {
+        if (periodMode) setPeriodLessons((current) => current.filter((lesson) => failedIds.has(lesson.id)));
+        setMessage(`${targets.length - failedIds.size}授業を登録しました。${failedIds.size}授業は登録・Notion反映を確認できませんでした。${periodMode ? "選択が残っている授業だけ" : "再度保存して"}再試行できます。 ${failureDetail}`);
         return;
       }
       setMessage("保存しました。");
@@ -927,6 +949,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
+      onSavingChange(false);
     }
   }
 
@@ -935,29 +958,32 @@ function ManualEntryForm({ students, confirmedBy, onSaved }: { students: Student
 
   return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
     <strong>電話・口頭連絡を手入力</strong>
+    <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "grid", gap: 12 }}>
+    <div style={{ display: "flex", gap: 8 }}><button type="button" style={periodMode ? ghostButtonStyle : buttonStyle} aria-pressed={!periodMode} onClick={() => { setPeriodMode(false); setPeriodLessons([]); setMessage(""); }}>1日ずつ登録</button><button type="button" style={periodMode ? buttonStyle : ghostButtonStyle} aria-pressed={periodMode} onClick={() => { setPeriodMode(true); setMessage(""); }}>期間を指定して登録</button></div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10 }}>
       <label style={fieldStyle}>連絡経路<select style={inputStyle} value={contactMethod} onChange={(event) => setContactMethod(event.target.value)}><option value="phone">電話</option><option value="oral">口頭</option><option value="other">その他</option></select></label>
       <label style={fieldStyle}>受付者名<input style={inputStyle} value={effectiveReceivedBy} onChange={(event) => setReceivedBy(event.target.value)} placeholder="例: 吉川" /></label>
-      <StudentPicker label="生徒" students={students} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} candidates={candidateStudents} onChange={(value) => { setStudentNumber(value); setLessonId(""); }} />
-      <label style={fieldStyle}>対象日<input style={inputStyle} type="date" value={eventDate} onChange={(event) => { setEventDate(event.target.value); setLessonId(""); }} /></label>
+      <StudentPicker label="生徒" students={students} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} candidates={candidateStudents} onChange={(value) => { setStudentNumber(value); setLessonId(""); setPeriodLessons([]); }} />
+      {!periodMode && <label style={fieldStyle}>対象日<input style={inputStyle} type="date" value={eventDate} onChange={(event) => { setEventDate(event.target.value); setLessonId(""); }} /></label>}
       <label style={fieldStyle}>種別<select style={inputStyle} value={eventType} onChange={(event) => setEventType(event.target.value)}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      <label style={fieldStyle}>校舎<select style={inputStyle} value={effectiveCampus} onChange={(event) => { setCampus(event.target.value); setLessonId(""); }}><option value="">校舎すべて</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+      {!periodMode && <label style={fieldStyle}>校舎<select style={inputStyle} value={effectiveCampus} onChange={(event) => { setCampus(event.target.value); setLessonId(""); }}><option value="">校舎すべて</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>}
       <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(reason) ? reason : ""} onChange={(event) => { if (event.target.value) setReason(event.target.value); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} /></div></label>
       
     </div>
-    <div style={{ display: "grid", gap: 6 }}>
+    {periodMode ? <PeriodLessonPicker key={studentNumber} studentNumber={studentNumber} initialDate={eventDate} selected={periodLessons} onChange={setPeriodLessons} disabled={saving} /> : <div style={{ display: "grid", gap: 6 }}>
       <span style={{ fontWeight: 700 }}>授業</span>
       {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
         <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: lesson.id === lessonId ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === lessonId ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
       </div>)}
-    </div>
-    {isCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
+    </div>}
+    {!periodMode && isCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
       <label style={{ fontWeight: 800 }}><input type="checkbox" checked={crossCampusOverride} onChange={(event) => setCrossCampusOverride(event.target.checked)} /> 別校舎での振替・受講として登録する</label>
       <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={crossCampusReason} onChange={(event) => setCrossCampusReason(event.target.value)} placeholder="例：本日のみ南教室へ振替" /></label>
     </div>}
-    {message && <p style={{ color: !message.includes("失敗") && message.includes("保存しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{message}</p>}
-    <div><button type="button" style={buttonStyle} disabled={saving} onClick={saveManualEvent}>{saving ? "保存中..." : "確定データとして保存"}</button></div>
+    <div><button type="button" style={buttonStyle} disabled={saving || (periodMode && !periodLessons.length)} onClick={saveManualEvent}>{saving ? "保存中..." : periodMode ? `選択した${periodLessons.length}授業を登録` : "確定データとして保存"}</button></div>
+    </fieldset>
+    {message && <p role="status" style={{ color: !message.includes("失敗") && message.includes("保存しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{message}</p>}
   </section>;
 }
 function contactMethodLabel(value: string) {
@@ -1173,6 +1199,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
 }
 function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [periodOpen, setPeriodOpen] = useState(false);
   const lineManagedNames = useMemo(() => (candidate.sender_profile?.alias_names ?? [])
     .filter((value, index, values) => values.indexOf(value) === index), [candidate.sender_profile?.alias_names]);
   const lineManagedName = lineManagedNames.length > 0 ? lineManagedNames.join(" / ") : "未登録";
@@ -1275,6 +1302,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   function selectStudent(value: string) {
+    setPeriodOpen(false);
     setStudentNumber(value);
     const student = studentOptions.find((option) => option.student_number === value);
     setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" })));
@@ -1583,8 +1611,23 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <strong>Notion登録行</strong>
-        {!closed && <button type="button" style={ghostButtonStyle} disabled={items.length >= 80} onClick={addItem}>行を追加</button>}
+        {!closed && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" style={ghostButtonStyle} disabled={!selectedStudent || busy || registering} onClick={() => setPeriodOpen((value) => !value)}>{periodOpen ? "期間指定を閉じる" : "期間を指定して登録行を作る"}</button><button type="button" style={ghostButtonStyle} disabled={items.length >= 80 || busy} onClick={addItem}>行を追加</button></div>}
       </div>
+      {!closed && periodOpen && selectedStudent && <PeriodCandidateBuilder key={studentNumber} student={selectedStudent} initialDate={candidate.event_date ?? todayJst()} initialType={candidate.event_type} initialReason={candidate.ai_summary ?? fallbackReason(candidate.event_type)} disabled={busy || registering} onApply={(lessons, eventType, reason) => {
+        const retained = items.filter((item) => item.status === "confirmed" || (item.student_number && item.student_number !== studentNumber));
+        const additions = lessons.filter((lesson) => !retained.some((item) => item.student_number === studentNumber && item.lesson_id === lesson.id));
+        if (retained.length + additions.length > 80) { setCardMessage("登録行は合計80行以内にしてください。期間を短くするか、対象の授業を減らしてください。"); return; }
+        if (!additions.length) { setCardMessage("選択した授業はすべて登録済みです。"); return; }
+        if (!window.confirm(`${selectedStudent.student_name}の未登録行を、選択した${additions.length}授業の「${eventTypeLabel(eventType)}」に作り直します。\n入力済みの未登録行とメモは置き換わります。登録済みの行と他の生徒の行は残します。\n\nこの後、内容を確認してNotionへ登録してください。`)) return;
+        setItems([...retained, ...additions.map((lesson): EditableItem => ({ client_id: makeClientId(), student_number: studentNumber, event_type: eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: "", note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }))]);
+        setLessonLists((current) => {
+          const next = { ...current };
+          for (const lesson of lessons) next[lesson.lesson_date] = [...(next[lesson.lesson_date] ?? []).filter((row) => row.id !== lesson.id), lesson];
+          return next;
+        });
+        setPeriodOpen(false);
+        setCardMessage(`${additions.length}授業の登録行を作りました。内容を確認し、「確認してNotionへ登録」を押してください。`);
+      }} />}
       {items.map((item, index) => {
         const lessons = item.event_date ? lessonLists[item.event_date] ?? [] : [];
         const currentLesson = lessons.find((lesson) => lesson.id === item.lesson_id) ?? candidateLesson(candidate, item);
@@ -1645,6 +1688,25 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     </>}
   </section>;
 }
+function PeriodCandidateBuilder({ student, initialDate, initialType, initialReason, disabled, onApply }: {
+  student: Student; initialDate: string; initialType: string; initialReason: string; disabled: boolean;
+  onApply: (lessons: PeriodLesson[], eventType: string, reason: string) => void;
+}) {
+  const [lessons, setLessons] = useState<PeriodLesson[]>([]);
+  const [eventType, setEventType] = useState(eventTypeOptions.some((option) => option.value === initialType) ? initialType : "absence");
+  const [reason, setReason] = useState(initialReason);
+  return <fieldset disabled={disabled} style={{ minWidth: 0, border: "1px solid var(--line)", padding: 12, borderRadius: 8, display: "grid", gap: 12 }}>
+    <legend>{student.student_name}の期間指定</legend>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10 }}>
+      <label style={fieldStyle}>期間内の種別<select style={inputStyle} value={eventType} onChange={(event) => setEventType(event.target.value)}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      <label style={fieldStyle}>期間内の理由<input style={inputStyle} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+    </div>
+    <PeriodLessonPicker studentNumber={student.student_number} initialDate={initialDate} selected={lessons} onChange={setLessons} disabled={disabled} />
+    <p style={{ margin: 0, fontSize: 13 }}>この生徒の未登録行を、選択した授業で作り直します。登録前に各行を修正できます。</p>
+    <button type="button" style={buttonStyle} disabled={!lessons.length || !reason.trim()} onClick={() => onApply(lessons, eventType, reason.trim())}>{lessons.length}授業の登録行を作る</button>
+  </fieldset>;
+}
+
 function ReplyHistory({ replies }: { replies: ReplyMessage[] }) {
   if (replies.length === 0) return null;
   return <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
