@@ -1,0 +1,31 @@
+
+.page { min-width: 0; }
+.staffEntry { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 18px; margin-bottom: 20px; border: 1px solid #badbd1; border-radius: 10px; background: #edf8f3; }
+.staffEntry p, .staffGuide p { margin: 6px 0; font-size: 13px; line-height: 1.7; }
+.staffEntry > div { flex: 1 1 320px; }
+.staffGuide { padding: 16px; border: 1px solid #badbd1; background: #edf8f3; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+.filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.filters input { min-width: 160px; scroll-margin-top: 24px; }
+.error { color: #a12222; padding: 12px; background: #fff0f0; }
+.contactPanel { min-width: 0; }
+.contactTable { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.contactTable th:nth-child(1) { width: 19%; }
+.contactTable th:nth-child(2) { width: 17%; }
+.contactTable th:nth-child(3) { width: 18%; }
+.contactTable th:nth-child(4) { width: 13%; }
+.contactTable th:nth-child(5) { width: 33%; }
+.contactTable td { overflow-wrap: anywhere; }
+.contactTable td input { width: 100% !important; min-width: 0; box-sizing: border-box; }
+.contactTable td span { max-width: 100%; white-space: normal !important; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.actions button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; min-height: 34px; }
+@media (max-width: 1000px) {
+ .contactTable, .contactTable tbody { display: block; }
+ .contactTable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+ .contactTable tr { display: block; padding: 12px 0; }
+ .contactTable td { display: grid; grid-template-columns: 78px minmax(0,1fr); align-items: start; gap: 10px; padding: 8px 14px !important; }
+ .contactTable td::before { content: attr(data-label); font-size: 12px; color: var(--muted); font-weight: 700; padding-top: 3px; }
+ .contactTable td > * { min-width: 0; }
+ .contactTable td[data-label="操作"] { display: block; }
+ .contactTable td[data-label="操作"]::before { display: block; margin-bottom: 8px; }
+}

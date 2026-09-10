@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import styles from "./contacts.module.css";
 
 import { parseLineAliasCsv } from "@/lib/line-alias-import.mjs";
 import {
@@ -96,6 +97,8 @@ export default function ContactsPage() {
   const [groupFilter, setGroupFilter] = useState("全て");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [staffRegistrationMode, setStaffRegistrationMode] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [staffRegistrationId, setStaffRegistrationId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupValue, setEditGroupValue] = useState("");
@@ -177,6 +180,7 @@ export default function ContactsPage() {
   }
 
   function startStaffRegistration(c: Contact) {
+    setSaveError(null);
     setEditingId(c.line_user_id);
     setEditValue(c.alias_name ?? c.display_name ?? "");
     setStaffRegistrationId(c.line_user_id);
@@ -190,15 +194,18 @@ export default function ContactsPage() {
 
   async function saveAlias(userId: string) {
     const trimmed = editValue.trim();
-    if (!trimmed) return;
+    if (!trimmed || saving === userId) return;
+    setSaveError(null);
     const registerAsStaff = staffRegistrationId === userId;
     setSaving(userId);
     try {
-      await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(registerAsStaff ? { alias_name: trimmed, group_name: "スタッフ" } : { alias_name: trimmed }),
       });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "登録名を保存できませんでした");
       setContacts((prev) =>
         prev.map((c) =>
           c.line_user_id === userId ? { ...c, alias_name: trimmed, group_name: registerAsStaff ? "スタッフ" : c.group_name } : c,
@@ -206,6 +213,8 @@ export default function ContactsPage() {
       );
       setEditingId(null);
       setStaffRegistrationId(null);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "登録名を保存できませんでした");
     } finally {
       setSaving(null);
     }
@@ -522,7 +531,7 @@ export default function ContactsPage() {
     return haystack.includes(normalizedStudentQuery);
   }).slice(0, 8);
   return (
-    <div className="shell" style={{ maxWidth: 900 }}>
+    <div className={`shell ${styles.page}`} style={{ maxWidth: 1280 }}>
       <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <Link href="/dashboard" style={{ color: "var(--muted)", fontSize: "0.875rem", textDecoration: "none" }}>
@@ -544,6 +553,14 @@ export default function ContactsPage() {
         <input id="contact-operator" value={operatorName} onChange={(event) => updateOperatorName(event.target.value)} placeholder="例：吉川" style={inputStyle} />
         <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>本人確認の履歴に保存されます。この端末では次回も同じ名前を表示します。</span>
       </div>
+
+      <section className={styles.staffEntry} aria-label="先生・スタッフのLINE登録">
+        <div><strong>先生・スタッフのLINE登録</strong><p>対象のLINE連絡先を検索し、登録名を入力して「スタッフ」グループへ登録します。職員ログインアカウントの作成は含みません。</p></div>
+        <button type="button" style={btnSave} onClick={() => {
+          setStaffRegistrationMode(true); setContactTab("all"); setGroupFilter("全て"); setSearch(""); cancelEdit();
+          requestAnimationFrame(() => document.getElementById("contact-search")?.focus());
+        }}>先生・スタッフを探して登録</button>
+      </section>
 
       {/* LINE登録名インポート */}
       <div id="line-alias-import" style={{ display: "grid", gap: 12, marginBottom: 16, padding: "14px 16px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line)", scrollMarginTop: 16 }}>
@@ -794,8 +811,16 @@ export default function ContactsPage() {
         </section>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      {staffRegistrationMode && <div className={styles.staffGuide} role="status">
+        <strong>① LINE名で検索 → ②「先生・スタッフとして登録」→ ③ 登録名を入力して保存</strong>
+        <p>見つからない場合は、上の「LINE登録名を同期する」から連絡先を取得してください。</p>
+        <button type="button" style={btnCancel} onClick={() => { setStaffRegistrationMode(false); cancelEdit(); }}>登録案内を閉じる</button>
+      </div>}
+      {saveError && <p role="alert" className={styles.error}>{saveError}</p>}
+      <div className={styles.filters}>
         <input
+          id="contact-search"
+          aria-label="連絡先を名前で検索"
           type="text"
           placeholder="名前で検索…"
           value={search}
@@ -814,18 +839,18 @@ export default function ContactsPage() {
         </select>
       </div>
 
-      <div className="panel" style={{ padding: 0, overflow: "hidden", marginTop: 12 }}>
+      <div className={`panel ${styles.contactPanel}`} style={{ padding: 0, marginTop: 12 }}>
         {loading ? (
           <p style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>読み込み中...</p>
         ) : filtered.length === 0 ? (
           <p style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>該当なし</p>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table className={styles.contactTable} aria-label="連絡先一覧">
             <thead>
               <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
                 <Th>LINE名</Th>
-                <Th>登録名</Th>
                 <Th>確認状態</Th>
+                <Th>登録名</Th>
                 <Th>グループ</Th>
                 <Th>操作</Th>
               </tr>
@@ -840,7 +865,7 @@ export default function ContactsPage() {
                     transition: "opacity 0.15s",
                   }}
                 >
-                  <td style={td}>
+                  <td data-label="LINE名" style={td}>
                     <div style={{ display: "grid", gap: 3 }}>
                       <span style={{ color: c.display_name ? "var(--muted)" : "var(--foreground)", fontSize: "0.875rem", fontWeight: c.display_name ? 400 : 700 }}>
                         {c.display_name ?? c.alias_name ?? "名前未取得"}
@@ -851,15 +876,16 @@ export default function ContactsPage() {
                       <span style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: "0.68rem" }}>{c.line_user_id}</span>
                     </div>
                   </td>
-                  <td style={td}>
+                  <td data-label="確認状態" style={td}>
                     {classifyLineContact(c) === "system_registered" ? <div style={{ display: "grid", gap: 3 }}><span style={{ ...statusBadge("same_existing"), color: "#087a3d" }}>本人確認済み</span><span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>{(c.registered_accounts ?? []).map((account) => `${account.grade} ${account.student_name}・${studentInstructionTypeLabel(account.instruction_type)}（${relationLabel(account.relation)}）`).join(" / ")}</span></div>
                       : classifyLineContact(c) === "pending" ? <span style={{ ...statusBadge("different_existing"), color: "#9a3412" }}>メッセージ確認待ち</span>
                       : <span style={{ ...statusBadge("unmatched"), color: "#555" }}>取込のみ・未確認</span>}
                   </td>
-                  <td style={td}>
+                  <td data-label="登録名" style={td}>
                     {editingId === c.line_user_id ? (
                       <input
                         type="text"
+                        aria-label="登録名"
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         onKeyDown={(e) => {
@@ -875,10 +901,11 @@ export default function ContactsPage() {
                       </span>
                     )}
                   </td>
-                  <td style={td}>
+                  <td data-label="グループ" style={td}>
                     {editingGroupId === c.line_user_id ? (
                       <input
                         type="text"
+                        aria-label="グループ名"
                         value={editGroupValue}
                         onChange={(e) => setEditGroupValue(e.target.value)}
                         onKeyDown={(e) => {
@@ -895,8 +922,8 @@ export default function ContactsPage() {
                       </span>
                     )}
                   </td>
-                  <td style={{ ...td, whiteSpace: "nowrap" }}>
-                    <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                  <td data-label="操作" style={td}>
+                    <div className={styles.actions}>
                       <button onClick={() => void openContactDetail(c)} disabled={detailLoading && selectedContact?.line_user_id === c.line_user_id} style={classifyLineContact(c) === "pending" ? btnSave : btnEdit}>
                         {classifyLineContact(c) === "pending" ? "メッセージを確認して登録" : "メッセージ・履歴"}
                       </button>
@@ -907,7 +934,7 @@ export default function ContactsPage() {
                             disabled={saving === c.line_user_id || !editValue.trim()}
                             style={btnSave}
                           >
-                            {staffRegistrationId === c.line_user_id ? "スタッフとして保存" : "保存"}
+                            {staffRegistrationId === c.line_user_id ? "先生・スタッフとして保存" : "保存"}
                           </button>
                           <button onClick={cancelEdit} style={btnCancel}>
                             キャンセル
@@ -927,7 +954,7 @@ export default function ContactsPage() {
                             disabled={saving === c.line_user_id || Boolean(c.system_verified)}
                             style={btnEdit}
                           >
-                            スタッフとして登録
+                            先生・スタッフとして登録
                           </button>
                           {c.alias_name && (
                             <button
@@ -941,7 +968,7 @@ export default function ContactsPage() {
                         </>
                       )}
                     </div>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <div className={styles.actions}>
                       {editingGroupId === c.line_user_id ? (
                         <>
                           <button
