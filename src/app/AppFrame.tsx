@@ -29,7 +29,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
     </aside>}
     <div className="app-workspace">
       <header className="app-topbar">
-        <span className="app-topbar-brand">勉<span>たん</span></span><span className="app-location">{title}</span>
+        {studentView?<span>勉強クラブ 自習室予約</span>:<><span className="app-topbar-brand">勉<span>たん</span></span><span className="app-location">{title}</span></>}
         {!studentView && <Link href="/" className="app-topbar-home" prefetch={false}>トップページへ <span aria-hidden="true">↗</span></Link>}
       </header>
       <div id="app-content" className="app-content" tabIndex={-1}>{children}</div>

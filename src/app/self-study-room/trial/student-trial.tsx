@@ -6,6 +6,7 @@ import ReservationPicker from './reservation-picker';
 import {STUDY_ROOM_TRIAL_SLOTS as slots} from '@/lib/study-room-trial-slots.mjs';
 import StaffEntry from '@/app/staff/self-study-room/staff-entry';
 import statusStyles from './student-status.module.css';
+import StudentAvailability from './student-availability';
 type Staff={displayName:string;role:string;staffCode:string};
 type Row={id:string;reservation_date:string;seat:number;slot_ids:string[];status:string;version:number};
 type Options={studentName:string;requests:Row[];booked:{seat:number;slotId:string}[];closedSlotIds:string[]};
@@ -71,7 +72,7 @@ export default function StudentTrial({entryCode=''}:{entryCode?:string}){
  const hasActive=options?.requests.some(row=>row.reservation_date>=getJapanDate()&&['pending','approved'].includes(row.status));
  return <main className={styles.screen}><section className={styles.panel}>
   <span className={styles.badge}>操作確認用・実際の予約やLINE通知は行いません</span>
-  <h1>勉強クラブ本校<br/>自習室予約</h1>
+  <h1>勉強クラブ<br/>自習室予約</h1>
   {notice&&<p role="status" className={styles.notice}>{notice}</p>}
   {!checked?<p>ログイン状態を確認しています…</p>:!staff?<form onSubmit={login}>
    <StaffEntry code={code} onChange={value=>{setCode(value);setPassword('');}} disabled={busy}/>
@@ -95,10 +96,11 @@ export default function StudentTrial({entryCode=''}:{entryCode?:string}){
    </section>
    {hasActive&&!bookingOpen&&!confirm&&<button onClick={()=>setBookingOpen(true)} disabled={frozen}>別の日時で予約する</button>}
    {(!hasActive||bookingOpen||confirm)&&<div className={styles.steps} aria-label="予約の流れ"><span className={!confirm?styles.current:''}>① 日時・席</span><span className={confirm?styles.current:''}>② 内容確認</span><span>③ 承認待ち</span><span>④ 予約確定</span></div>}
-   {!confirm&&(!hasActive||bookingOpen)&&<>
+   {!confirm&&<>
     <label className={styles.field}>利用日<input type="date" min={getJapanDate()} value={date} disabled={frozen} onChange={e=>{setDate(e.target.value);setOptions(null);setSelected([]);setSeat(null);}}/></label>
     <button disabled={frozen||!date} onClick={()=>work(async()=>{await refresh();setNotice('最新の空席・申請状況に更新しました。');})}>空席・申請状況を更新</button>
-    {options&&<><ReservationPicker selected={selected} seat={seat} disabled={frozen} booked={options.booked} closedSlotIds={options.closedSlotIds} ownSlotIds={options.requests.filter(r=>r.reservation_date===date&&['pending','approved'].includes(r.status)).flatMap(r=>r.slot_ids)} onSelect={(selection,chosen)=>{setSelected(selection);setSeat(chosen);}}/>
+    {options&&<StudentAvailability date={date} booked={options.booked} closedSlotIds={options.closedSlotIds}/>}
+    {options&&(!hasActive||bookingOpen)&&<><ReservationPicker selected={selected} seat={seat} disabled={frozen} booked={options.booked} closedSlotIds={options.closedSlotIds} ownSlotIds={options.requests.filter(r=>r.reservation_date===date&&['pending','approved'].includes(r.status)).flatMap(r=>r.slot_ids)} onSelect={(selection,chosen)=>{setSelected(selection);setSeat(chosen);}}/>
     <button className={styles.primary} disabled={frozen||!valid} onClick={()=>setConfirm(true)}>申請内容を確認する</button></>}
    </>}
    {confirm&&<><h2>この内容で申請しますか？</h2><dl className={styles.summary} aria-label="予約内容">
