@@ -85,7 +85,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
     forbidden.push(url.pathname); await route.abort();
   });
   await page.goto("/staff/self-study-room");
-  await expect(page.getByRole("link", { name: "トップページへ" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "トップページへ", exact:true }).first()).toBeVisible();
   await page.getByRole('button',{name:'工藤さんの入口',exact:true}).click();
   await page.getByLabel("パスワード").fill("test-password-not-real");
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
@@ -96,11 +96,10 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
   return { operations, forbidden, intakes, visits, historyQueries, expireSession: () => { loggedIn = false; } };
 }
 
-test("login, explicit confirmation, approval refresh and logout remove student data", async ({ page }) => {
+test("login, one-click approval refresh and logout remove student data", async ({ page }) => {
   const state = await setup(page);
   await page.getByRole("button", { name: "承認して確定", exact: true }).click();
-  expect(state.operations).toHaveLength(0);
-  await page.getByRole("button", { name: "内容を確認して実行" }).click();
+  await expect(page.getByRole("button", { name: "内容を確認して実行" })).toHaveCount(0);
   await expect(page.getByRole("article").getByText("確定", { exact: true })).toBeVisible();
   expect(state.operations).toHaveLength(1);
   expect(state.operations[0].expectedVersion).toBe(1);
@@ -127,7 +126,6 @@ test('proxy evidence is labeled, escaped, uses Japan time and disappears at logo
 test("lost response retains operation key and freezes other operations until retry", async ({ page }) => {
   const state = await setup(page, { loseResponse: true });
   await page.getByRole("button", { name: "承認して確定", exact: true }).click();
-  await page.getByRole("button", { name: "内容を確認して実行" }).click();
   await expect(page.getByRole("button", { name: "結果を再確認" })).toBeVisible();
   await expect(page.getByRole("button", { name: "一覧を更新" })).toBeDisabled();
   await page.getByRole("button", { name: "結果を再確認" }).click();
@@ -171,7 +169,7 @@ test('staff proxy retries exactly the same request and protects concurrent confi
   const state=await setup(page,{loseIntake:true});
   const panel=await prepareIntake(page);
   expect(state.intakes).toHaveLength(0);
-  await page.getByRole('button',{name:'承認して確定',exact:true}).click();
+  await page.getByRole('button',{name:'却下',exact:true}).click();
   await panel.getByRole('button',{name:'承認待ちとして登録'}).click();
   await expect(panel.getByRole('button',{name:'同じ申請の結果を再確認'})).toBeVisible();
   await expect(page.getByRole('button',{name:'内容を確認して実行'})).toBeDisabled();
@@ -272,22 +270,13 @@ test('visit controls respect permission and expiry clears open editor',async({pa
   expect(state.visits).toHaveLength(0);
 });
 
-test('read-only staff compare visit history, page older records and expiry removes all details',async({page})=>{
+test('staff sees requested seat first without a history control',async({page})=>{
   const state=await setup(page,{readOnly:true});
-  await page.getByRole('button',{name:'来室・退室の履歴を確認'}).click();
-  const history=page.getByRole('region',{name:'来室・退室の変更履歴'});
-  await expect(history.getByRole('heading',{name:'第21版',exact:true})).toBeVisible();
-  await expect(history.getByText('移動先：授業へ移動',{exact:true})).toBeVisible();
-  await expect(history.getByText('移動先：帰宅',{exact:true})).toBeVisible();
-  await expect(history.getByText('記録日時：2030/01/01 17:00:00',{exact:true})).toBeVisible();
-  await expect(history.locator('script')).toHaveCount(0);
-  await history.getByRole('button',{name:'さらに古い20件を表示'}).click();
-  await expect(history.getByRole('heading',{name:'第1版',exact:true})).toBeVisible();
-  expect(state.historyQueries[1]).toContain('before=21');
-  await expect(history.getByRole('button',{name:'さらに古い20件を表示'})).toHaveCount(0);
-  state.expireSession();
-  await page.getByRole('button',{name:'来室・退室の履歴を確認'}).click();
-  await expect(page.getByRole('button',{name:/入口|選び直す/}).first()).toBeVisible();
-  await expect(history).toHaveCount(0);
-  expect(state.operations).toHaveLength(0);expect(state.visits).toHaveLength(0);expect(state.forbidden).toEqual([]);
+  await expect(page.getByRole('button',{name:'来室・退室の履歴を確認'})).toHaveCount(0);
+  await expect(page.locator('article').getByText('1番席',{exact:true})).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:'analysis_outputs/staff-pending-seat-20260911.png',fullPage:true});
+  expect(state.historyQueries).toHaveLength(0);
+  expect(state.operations).toHaveLength(0);
 });

@@ -12,6 +12,8 @@
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .screen .primary { background: var(--accent); color: white; border-color: var(--accent); }
 .status { display: inline-block; padding: 3px 10px; margin-bottom: 10px; border-radius: 20px; background: var(--background); font-weight: 600; }
+.requestSeat{display:flex;align-items:center;flex-wrap:wrap;gap:16px;margin:6px 0 18px;padding:16px;background:#eef6f1;border-radius:10px}.requestSeat>strong{font-size:32px;color:#185e35;white-space:nowrap}.requestSeat b{font-size:21px}.requestSeat p{margin:6px 0 0;font-size:14px}
+.pendingCard{border:2px solid #c79121;border-left:7px solid #c79121;background:#fffdf6}.pendingCard .status{background:#ffedb8;color:#704900;font-size:18px}.queueTitle{font-size:24px;margin:24px 0 12px}.pendingCard .primary{padding:14px 24px;font-size:18px}
 .confirm { border: 2px solid var(--accent); padding: 20px; border-radius: 8px; margin-top: 16px; }
 .evidence { margin-top:16px; border:1px solid var(--line); border-radius:8px; padding:12px; }
 .evidence summary { cursor:pointer; font-weight:600; }

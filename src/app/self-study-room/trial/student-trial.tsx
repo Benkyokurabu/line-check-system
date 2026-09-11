@@ -109,7 +109,6 @@ export default function StudentTrial({entryCode=''}:{entryCode?:string}){
     <button className={styles.primary} disabled={frozen||!valid} onClick={()=>apply({action:'submit',operationKey:crypto.randomUUID(),date,seat,slotIds:[...selected].sort()})}>この内容で申請する</button>
     <div className={styles.actions}><button disabled={frozen} onClick={()=>setConfirm(false)}>選び直す</button></div>
    </>}
-   <h2>これまでの申請</h2>{options&&(options.requests.length===0?<p>申請はありません。</p>:options.requests.filter(row=>row.reservation_date<getJapanDate()||!['pending','approved'].includes(row.status)).map(row=><article className={styles.summary} key={row.id}><strong>{labels[row.status]}</strong><p>{row.reservation_date} ／ {row.seat}番席<br/>{row.slot_ids.map(s=>s.replace('-','–')).join('、')}</p></article>))}
    {pending&&<button disabled={busy} onClick={()=>apply(pending)}>同じ操作の結果を再確認</button>}
   </>}
  </section></main>;

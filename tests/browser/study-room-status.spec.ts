@@ -3,6 +3,7 @@ import {test,expect} from '@playwright/test';
 test('staff sees each slot occupancy, closed slots, and refreshed vacancy',async({page})=>{
  let occupied=true;
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'test',staffCode:'KUDO',displayName:'検証職員',role:'admin'}}}));
+ await page.route('**/api/staff/study-room-trial/requests?**',route=>route.fulfill({json:{requests:[],hasMore:false,permissions:{}}}));
  await page.route('**/api/staff/study-room-trial/intake-options?**',route=>{
   const date=new URL(route.request().url()).searchParams.get('date');
   return route.fulfill({json:{date,slotIds:['16:45-18:15','18:35-20:05','20:25-21:55'],closedSlotIds:['20:25-21:55'],booked:occupied?[{seat:1,slotId:'16:45-18:15'}]:[]}});

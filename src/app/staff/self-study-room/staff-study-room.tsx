@@ -5,7 +5,6 @@ import { getJapanDate } from "@/lib/reservation-date.mjs";
 import styles from "./staff-study-room.module.css";
 import StaffIntake from "./staff-intake";
 import StaffVisit, {destinations,type Visit} from './staff-visit';
-import VisitHistory from './visit-history';
 import StaffEntry from './staff-entry';
 import TrialAvailability from './trial-availability';
 
@@ -28,8 +27,8 @@ function intakeTime(value:string) {
   }).format(date);
 }
 function rememberedStatus(staffId: string) {
-  try { const value = localStorage.getItem(preferenceKey(staffId)) ?? ""; return value in statusLabels ? value : ""; }
-  catch { return ""; }
+  try { const value = localStorage.getItem(preferenceKey(staffId)) ?? ""; return ['approved','rejected'].includes(value) ? value : 'pending'; }
+  catch { return "pending"; }
 }
 
 export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: boolean;entryCode?:string}) {
@@ -40,7 +39,7 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
   const [code, setCode] = useState(entryCode);
   const [password, setPassword] = useState("");
   const [date, setDate] = useState(getJapanDate());
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("pending");
   const [offset, setOffset] = useState(0);
   const [more, setMore] = useState(false);
   const [rows, setRows] = useState<Reservation[]>([]);
@@ -83,13 +82,20 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
         const response = await fetch("/api/staff/session", { cache: "no-store", credentials: "same-origin" });
         const data = await response.json();
         if (disposed) return;
-        if (response.ok) { setStaff(data.staff); setStatus(rememberedStatus(data.staff.staffId)); }
+        if (response.ok) { setStaff(data.staff); const initialStatus=rememberedStatus(data.staff.staffId);setStatus(initialStatus);
+          if(trial){
+            const response=await fetch(`/api/staff/study-room-trial/requests?date=${getJapanDate()}&status=${initialStatus}`,{cache:'no-store',credentials:'same-origin'});
+            const requests=await response.json();if(disposed)return;
+            if(response.ok){setRows(requests.requests);setMore(requests.hasMore);setPermissions(requests.permissions);}
+            else {if(response.status===401)setStaff(null);setMessage(requests.error??'申請を取得できません。');}
+          }
+        }
         else if (response.status !== 401) setMessage(data.error ?? "職員認証を利用できません。");
       } catch { if (!disposed) setMessage("接続できません。通信状態を確認してください。"); }
       finally { if (!disposed) setChecked(true); }
     })();
     return () => { disposed = true; };
-  }, []);
+  }, [trial]);
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -97,7 +103,7 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
       const secret = password; setPassword(""); setMessage("");
       const data = await request("/api/staff/session", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ staffCode: code, password: secret }) });
-      setStaff(data.staff); setStatus(rememberedStatus(data.staff.staffId)); setRows([]); setMessage("ログインしました。対象日を選び「一覧を更新」を押してください。");
+      setStaff(data.staff); const initialStatus=rememberedStatus(data.staff.staffId);setStatus(initialStatus);setRows([]);setMessage("");if(trial)await load(date,initialStatus,0);
     });
   }
   async function logout() {
@@ -154,21 +160,20 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
             try { localStorage.setItem(preferenceKey(staff.staffId), e.target.value); }
             catch { setMessage("この端末では表示条件を記憶できません。今回の選択はそのまま使えます。"); }
           }}>
-            <option value="">すべて</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            <option value="">すべて（取消済みを除く）</option>{Object.entries(statusLabels).filter(([value])=>value!=='cancelled').map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
           <button disabled={frozen || !date} onClick={() => work(async () => { setMessage(""); setSelected(null); setRows([]); await load(date, status, 0); })}>一覧を更新</button>
         </div>
-        {trial && <TrialAvailability key={date} date={date} revision={rows} />}
         {retry && <div className={styles.notice}><p>結果が未確認の操作があります。</p><button disabled={busy} onClick={() => apply(retry)}>結果を再確認</button></div>}
         {busy && <p role="status">処理中です…</p>}
-        <div className={styles.cards}>{rows.map(row => <article className={styles.card} key={row.id}>
+        <h2 className={styles.queueTitle}>{status==='pending'?'承認待ちの申請':'申請一覧'}</h2>
+        <div className={styles.cards}>{rows.filter(row=>row.status!=='cancelled').map(row => <article className={`${styles.card} ${row.status==='pending'?styles.pendingCard:''}`} key={row.id}>
           <span className={styles.status}>{statusLabels[row.status]}</span>
+          <div className={styles.requestSeat}><strong>{row.seat}番席</strong><div><b>{row.slot_ids.map(slot=>slot.replace('-','–')).join(' ／ ')}</b><p>{row.reservation_date} · 本校自習室</p></div></div>
+          <h2>{row.student_name} <small>（{row.grade}・{row.student_number}）</small></h2>
           <p>来室：{row.visit?.started_at ? intakeTime(row.visit.started_at) : '未確認'}</p>
           <p>退室：{row.visit?.ended_at ? intakeTime(row.visit.ended_at) : '未確認'}</p>
           {row.visit && <p>移動先：{row.visit.destination ? destinations[row.visit.destination] : '未記録'}<br/>最終確認：{intakeTime(row.visit.confirmed_at)} ／ {row.visit.staff_name}（現在の登録名）</p>}
-          <h2>{row.student_name} <small>（{row.grade}・{row.student_number}）</small></h2>
-          <VisitHistory requestId={row.id} busy={frozen} request={request} work={work}/>
-          <p>{row.reservation_date} ／ {row.seat}番席<br />{row.slot_ids.join("、")}</p>
           <p>{row.request_kind === "same_day" ? "当日申請" : "事前申請"} ／ {row.intake_channel === "line_screen" ? "LINE予約画面" : row.intake_channel === "line_message" ? "LINE個別連絡" : "職員代理入力"}</p>
           {row.staff_intake && <details className={styles.evidence}><summary>代理受付の経緯を確認</summary>
             <dl><div><dt>連絡方法</dt><dd>{contactLabels[row.staff_intake.contactChannel] ?? '確認が必要な連絡方法'}</dd></div>
@@ -181,7 +186,10 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
             {(["approve", "reject", "cancel"] as Action[]).filter(action => action === "cancel"
               ? ["pending", "approved"].includes(row.status) && permissions["study_room.cancel"]
               : row.status === "pending" && permissions["study_room.approve"]).map(action =>
-              <button key={action} className={action === "approve" ? styles.primary : undefined} disabled={frozen} onClick={() => { setSelected({ row, action }); setReason(""); }}>{actionLabels[action]}</button>)}
+              <button key={action} className={action === "approve" ? styles.primary : undefined} disabled={frozen} onClick={() => {
+                if(action==='approve'){void apply({operationKey:crypto.randomUUID(),requestId:row.id,expectedVersion:row.version,action,reason:''});return;}
+                setSelected({ row, action }); setReason("");
+              }}>{actionLabels[action]}</button>)}
           </div>
           {selected?.row.id === row.id && !retry && <form className={styles.confirm} onSubmit={e => { e.preventDefault(); if(!frozen) void apply({ operationKey: crypto.randomUUID(), requestId: row.id, expectedVersion: row.version, action: selected.action, reason }); }}>
             <p>{row.student_name} さんの上記の申請を「{actionLabels[selected.action]}」します。</p>
@@ -189,10 +197,11 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
             <div className={styles.actions}><button disabled={frozen} className={styles.primary}>内容を確認して実行</button><button type="button" disabled={frozen} onClick={() => setSelected(null)}>戻る</button></div>
           </form>}
         </article>)}</div>
-        {!busy && rows.length === 0 && <p>表示中の申請はありません。「一覧を更新」で最新の状態を確認できます。</p>}
+        {!busy && rows.filter(row=>row.status!=='cancelled').length === 0 && <p>{status==='pending'?'承認待ちの申請はありません。':'表示中の申請はありません。'}「一覧を更新」で最新の状態を確認できます。</p>}
         <div className={styles.actions}><button disabled={frozen || offset === 0} onClick={() => work(async () => { setSelected(null); await load(date, status, Math.max(0, offset - 50)); })}>前の50件</button>
           <button disabled={frozen || !more} onClick={() => work(async () => { setSelected(null); await load(date, status, offset + 50); })}>次の50件</button></div>
         <p>申請の追加・変更後は「一覧を更新」で先頭から確認してください。</p>
+        {trial && <TrialAvailability key={date} date={date} revision={rows} />}
       </>}
   </section></main>;
 }

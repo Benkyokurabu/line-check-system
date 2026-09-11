@@ -23,9 +23,14 @@ test('office trial uses actual staff components without reservation API writes',
   await page.getByLabel('パスワード').fill('only-a-test');
   await page.getByRole('button',{name:'ログイン',exact:true}).click();
   await expect(page.getByText('検証事務担当 さん ／ 事務部')).toBeVisible();
+  await expect(page.getByRole('combobox')).toHaveValue('pending');
+  await expect(page.getByRole('button',{name:'来室・退室の履歴を確認'})).toHaveCount(0);
+  await expect(page.getByRole('option',{name:'取消済み',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'一覧を更新',exact:true}).click();
   await page.getByRole('button',{name:'承認して確定',exact:true}).click();
-  await page.getByRole('button',{name:'内容を確認して実行',exact:true}).click();
+  await expect(page.getByText('承認待ちの申請はありません。',{exact:false})).toBeVisible();
+  await page.getByRole('combobox').selectOption('approved');
+  await page.getByRole('button',{name:'一覧を更新',exact:true}).click();
   await expect(page.locator('article').getByText('確定',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'来室・退室を記録',exact:true}).click();
   await page.getByRole('button',{name:'現在時刻を開始欄へ入れる'}).click();
@@ -78,6 +83,7 @@ test('student trial submits, sees approval from another screen, then cancels',as
   await expect(page.locator('article').getByText('予約確定',{exact:true})).toBeVisible();
   page.once('dialog',dialog=>dialog.accept());
   await page.getByRole('button',{name:'この申請を取り消す'}).click();
-  await expect(page.locator('article').getByText('取消済み',{exact:true})).toBeVisible();
+  await expect(page.getByText('取消を保存しました。',{exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'これまでの申請'})).toHaveCount(0);
   expect(forbidden).toEqual([]);
 });
