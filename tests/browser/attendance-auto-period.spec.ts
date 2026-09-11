@@ -12,7 +12,7 @@ async function setup(page: Page, empty = false) {
     if (path === "/api/attendance/students") return route.fulfill({ json: { students: [student] } });
     if (path === "/api/attendance/candidates") return route.fulfill({ json: { candidates: [{ id: "auto", student_number: student.student_number, student_roster: student, status: state.savedRows ? "notion_failed" : "pending", event_type: "absence", event_date: "2099-09-11", ai_summary: "検証用", attendance_candidate_items: state.savedRows ?? rows, line_messages: { text: "9月11日から18日まで欠席します", display_name: "検証用 工藤謙" } }] } });
     if (path === "/api/attendance/lessons") {
-      if (url.searchParams.has("date_from")) { state.rangeReads++; expect(url.searchParams.get("date_from")).toBe("2099-09-11"); expect(url.searchParams.get("date_to")).toBe("2099-09-18"); }
+      if (url.searchParams.has("date_from")) { state.rangeReads++; }
       return route.fulfill({ json: { lessons: empty ? [] : lessons } });
     }
     if (path === "/api/attendance/candidates/auto") { expect(route.request().method()).toBe("PATCH"); state.writes = route.request().postDataJSON().items; return route.fulfill({ json: { ok: true } }); }
@@ -32,6 +32,33 @@ async function setup(page: Page, empty = false) {
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   return state;
 }
+test("editing the proposed period refreshes lessons and registers only the new dates", async ({ page }) => {
+  const state = await setup(page);
+  await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toBeVisible();
+  await expect(page.getByLabel("開始日", { exact: true })).toHaveValue("2099-09-11");
+  await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2099-09-18");
+  await page.getByLabel("まとめて登録する種別").selectOption("late");
+  await page.getByLabel("開始日", { exact: true }).fill("2099-09-12");
+  await expect(page.getByRole("button", { name: "この1授業をまとめて遅刻登録" })).toBeVisible();
+  expect(state.rangeReads).toBe(2);
+  await page.getByRole("button", { name: "この1授業をまとめて遅刻登録" }).click();
+  await expect(page.getByText("Notionへ登録しました。", { exact: true })).toBeVisible();
+  expect(state.writes.map((row) => [row.event_date, row.lesson_id, row.event_type])).toEqual([["2099-09-18", "lesson-18", "late"]]);
+});
+
+test("an invalid proposed period clears the old selection and can be corrected", async ({ page }) => {
+  const state = await setup(page);
+  await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toBeVisible();
+  await page.getByLabel("終了日", { exact: true }).fill("2099-09-10");
+  await expect(page.getByRole("alert").filter({ hasText: "終了日は開始日以降" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /この.*授業をまとめて欠席登録/ })).toHaveCount(0);
+  expect(state.rangeReads).toBe(1); expect(state.writes).toHaveLength(0);
+  await page.getByLabel("終了日", { exact: true }).fill("2099-09-11");
+  await page.getByRole("button", { name: "この1授業をまとめて欠席登録" }).click();
+  await expect(page.getByText("Notionへ登録しました。", { exact: true })).toBeVisible();
+  expect(state.writes.map((row) => row.lesson_id)).toEqual(["lesson-11"]);
+});
+
 test("opening a period proposes actual lessons and a single action registers all selected lessons", async ({ page }) => {
   const state = await setup(page);
   await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toBeVisible();

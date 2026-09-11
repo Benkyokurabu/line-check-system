@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { lessonsForPeriodProposal } from "@/lib/attendance-period-proposal.mjs";
+import { attendanceRangeDates } from "@/lib/attendance-date-range.mjs";
 import type { PeriodLesson } from "./period-lesson-picker";
 
 export type PeriodProposal = { start: string; end: string; eventType: string; reason: string; subject: string; className: string; arrival: string };
@@ -18,27 +19,39 @@ export default function AutoPeriodReview({ studentNumber, studentName, proposal,
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [start, setStart] = useState(proposal.start);
+  const [end, setEnd] = useState(proposal.end);
+  function changePeriod(value: string, edge: "start" | "end") {
+    setLessons([]); setExcluded([]); setLoading(true); setError("");
+    if (edge === "start") setStart(value); else setEnd(value);
+  }
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
       try {
         setLoading(true); setError(""); setLessons([]); setExcluded([]);
-        const params = new URLSearchParams({ student_number: studentNumber, date_from: proposal.start, date_to: proposal.end });
+        attendanceRangeDates(start, end);
+        if (!studentNumber) throw new Error("先に生徒を選択してください。");
+        const params = new URLSearchParams({ student_number: studentNumber, date_from: start, date_to: end });
         const response = await fetch(`/api/attendance/lessons?${params}`, { signal: controller.signal });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error ?? "授業を取得できませんでした。");
-        if (!controller.signal.aborted) setLessons(lessonsForPeriodProposal(body.lessons ?? [], proposal));
+        if (!controller.signal.aborted) setLessons(lessonsForPeriodProposal(body.lessons ?? [], { ...proposal, start, end }));
       } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause)); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }
     void load();
     return () => controller.abort();
-  }, [studentNumber, proposal, reload]);
+  }, [studentNumber, proposal, reload, start, end]);
   const selected = lessons.filter((lesson) => !excluded.includes(lesson.id));
   const kind = eventType === "late" ? "遅刻" : "欠席";
   return <fieldset disabled={disabled} style={{ minWidth: 0, border: "1px solid var(--line)", borderRadius: 12, background: "var(--accent-soft)", padding: 16, display: "grid", gap: 12 }}>
     <legend style={{ fontWeight: 800 }}>期間の{kind}をまとめて登録</legend>
-    <strong>{studentName}：{proposal.start} 〜 {proposal.end}</strong>
+    <strong>{studentName}</strong>
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <label style={{ display: "grid", gap: 6 }}>開始日<input type="date" value={start} onChange={(event) => changePeriod(event.target.value, "start")} /></label>
+      <label style={{ display: "grid", gap: 6 }}>終了日<input type="date" min={start} value={end} onChange={(event) => changePeriod(event.target.value, "end")} /></label>
+    </div>
     <label style={{ display: "grid", gap: 6 }}>まとめて登録する種別
       <select value={eventType} onChange={(event) => {
         const next = event.target.value === "late" ? "late" : "absence";
