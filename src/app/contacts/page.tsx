@@ -456,18 +456,40 @@ export default function ContactsPage() {
       setContactDetail(detailBody as ContactDetail);
       const evidence = (detailBody as ContactDetail).identity_evidence;
       setSelectedEvidenceMessageId(evidence?.detected_message_id ?? "");
-      const initialRelation = evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "guardian";
+      const initialRelation = contact.group_name === "スタッフ" ? "staff" : evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "guardian";
       setSelectedRelation(initialRelation);
       setStudentQuery(evidence?.parsed_student_name ?? "");
       const normalizedEvidenceName = (evidence?.parsed_student_name ?? "").normalize("NFKC").replace(/[\s　]/g, "");
       const match = loadedStudents.find((student) => student.student_name.normalize("NFKC").replace(/[\s　]/g, "") === normalizedEvidenceName);
       setSelectedStudentNumber(match?.student_number ?? "");
-      setSelectedAliasName(match ? buildLineContactAlias(match, initialRelation) : "");
+      setSelectedAliasName(initialRelation === "staff" ? contact.alias_name ?? "" : match ? buildLineContactAlias(match, initialRelation) : "");
     } catch (error) {
       setVerificationMsg(error instanceof Error ? error.message : String(error));
     } finally {
       setDetailLoading(false);
     }
+  }
+
+  async function saveSelectedStaffContact() {
+    if (!selectedContact || verificationSaving || !selectedAliasName.trim()) return;
+    const aliasName = selectedAliasName.trim();
+    if (!window.confirm(`LINE名「${selectedContact.display_name ?? "未取得"}」を先生・スタッフとして登録します。\n登録名：${aliasName}\nグループ：スタッフ`)) return;
+    setVerificationSaving(true);
+    setVerificationMsg("先生・スタッフとして登録しています...");
+    try {
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(selectedContact.line_user_id)}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias_name: aliasName, group_name: "スタッフ" }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "先生・スタッフの登録に失敗しました");
+      await fetchContacts();
+      setContactTab("all");
+      setSelectedContact({ ...selectedContact, alias_name: aliasName, group_name: "スタッフ" });
+      setVerificationMsg(`${aliasName} を先生・スタッフとして登録しました。一覧の登録名とグループを更新しました。`);
+    } catch (error) {
+      setVerificationMsg(error instanceof Error ? error.message : String(error));
+    } finally { setVerificationSaving(false); }
   }
 
   async function verifySelectedContact() {
@@ -744,7 +766,7 @@ export default function ContactsPage() {
           {detailLoading ? <p style={{ color: "var(--muted)" }}>メッセージを読み込んでいます...</p> : contactDetail && (
             <>
               <div style={{ display: "grid", gap: 6 }}>
-                <strong style={{ color: "#155e75" }}>① 本人・生徒名・続柄をメッセージで確認</strong>
+                <strong style={{ color: "#155e75" }}>① 誰からのLINEかをメッセージで確認</strong>
                 <span style={{ color: "var(--muted)", fontSize: "0.76rem" }}>登録根拠にする受信メッセージを1つ選んでください。名前や続柄が判断できない場合は登録しません。</span>
                 <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gap: 7, padding: 2 }}>
                   {contactDetail.messages.map((message) => {
@@ -761,31 +783,17 @@ export default function ContactsPage() {
 
               {!selectedContact.system_verified && <div style={{ display: "grid", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
                 <strong>②〜④ 登録内容を選択</strong>
-                <div style={{ padding: "9px 11px", borderRadius: 7, background: "#eff6ff", color: "#1e3a8a", fontSize: "0.8rem", lineHeight: 1.6 }}>
-                  高校生・個別指導生も同じ名簿から登録できます。LINEメッセージの氏名と、学年・授業形態・校舎・学校・生徒番号を照合してください。
-                </div>
-                <label style={{ display: "grid", gap: 5 }}>② 生徒を検索
-                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="氏名・高3・個別ほか・学校名・生徒番号など" />
-                </label>
-                {matchingStudents.length > 0 && <div style={{ display: "grid", gap: 7 }}>
-                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); setSelectedAliasName(buildLineContactAlias(student, selectedRelation)); }} style={{ ...(selectedStudentNumber === student.student_number ? btnSave : btnEdit), padding: "9px 11px", textAlign: "left", lineHeight: 1.5 }}>{studentRegistrationLabel(student)}</button>)}
-                </div>}
-                {studentQuery && matchingStudents.length === 0 && !selectedStudent && <span style={{ color: "#b42318", fontSize: "0.8rem", lineHeight: 1.5 }}>該当する生徒が見つかりません。誤って別の生徒へ登録せず、Notion生徒情報DBの状態・氏名・学籍番号を確認して名簿同期してください。</span>}
-                {selectedStudent && <div style={{ padding: "10px 12px", border: "2px solid #16a34a", borderRadius: 7, background: "#f0fdf4", display: "grid", gap: 3 }}>
-                  <strong style={{ color: "#166534" }}>選択中：{selectedStudent.grade} {selectedStudent.student_name}</strong>
-                  <span style={{ fontSize: "0.78rem", color: "#365544" }}>{studentInstructionTypeLabel(selectedStudent.instruction_type)} / {selectedStudent.campus || "校舎未設定"} / {selectedStudent.school_name || "学校未設定"} / 生徒番号 {selectedStudent.student_number}</span>
-                  {!selectedStudent.instruction_type && <span style={{ color: "#b45309", fontSize: "0.75rem", fontWeight: 700 }}>授業形態が未設定です。本人確認はできますが、Notionで「集団・個別ほか・併用」を設定してください。</span>}
-                </div>}
                 <fieldset disabled={verificationSaving} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12 }}>
-                  <legend style={{ fontWeight: 700 }}>③ このLINEを誰の連絡先として登録しますか？</legend>
+                  <legend style={{ fontWeight: 700 }}>② このLINEを誰の連絡先として登録しますか？</legend>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
                     {[
                       { value: "student", label: "生徒本人", description: "生徒自身が使っているLINE" },
                       { value: "guardian", label: "保護者", description: "お子さまの連絡に使うLINE" },
+                      { value: "staff", label: "先生・スタッフ", description: "先生・スタッフが使うLINE" },
                       { value: "shared", label: "本人・保護者で共有", description: "親子で同じLINEを使っている" },
                     ].map((role) => {
                       const active = role.value === "guardian" ? ["mother", "father", "guardian", "family"].includes(selectedRelation) : selectedRelation === role.value;
-                      return <button key={role.value} type="button" aria-pressed={active} onClick={() => { setSelectedRelation(role.value); if (selectedStudent) setSelectedAliasName(buildLineContactAlias(selectedStudent, role.value)); }} style={{ ...(active ? btnSave : btnEdit), padding: 12, textAlign: "left" }}>
+                      return <button key={role.value} type="button" aria-pressed={active} onClick={() => { setSelectedRelation(role.value); setSelectedAliasName(role.value === "staff" ? (selectedContact.group_name === "スタッフ" ? selectedContact.alias_name ?? "" : "") : selectedStudent ? buildLineContactAlias(selectedStudent, role.value) : ""); setVerificationMsg(null); }} style={{ ...(active ? btnSave : btnEdit), padding: 12, textAlign: "left" }}>
                         <strong style={{ display: "block" }}>{role.label}</strong>
                         <span style={{ display: "block", fontSize: "0.76rem", marginTop: 5 }}>{role.description}</span>
                       </button>;
@@ -797,15 +805,36 @@ export default function ContactsPage() {
                     </select>
                   </label>}
                 </fieldset>
+                {selectedRelation !== "staff" && <>
+                <div style={{ padding: "9px 11px", borderRadius: 7, background: "#eff6ff", color: "#1e3a8a", fontSize: "0.8rem", lineHeight: 1.6 }}>
+                  高校生・個別指導生も同じ名簿から登録できます。LINEメッセージの氏名と、学年・授業形態・校舎・学校・生徒番号を照合してください。
+                </div>
+                <label style={{ display: "grid", gap: 5 }}>③ 生徒を検索
+                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="氏名・高3・個別ほか・学校名・生徒番号など" />
+                </label>
+                {matchingStudents.length > 0 && <div style={{ display: "grid", gap: 7 }}>
+                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); setSelectedAliasName(buildLineContactAlias(student, selectedRelation)); }} style={{ ...(selectedStudentNumber === student.student_number ? btnSave : btnEdit), padding: "9px 11px", textAlign: "left", lineHeight: 1.5 }}>{studentRegistrationLabel(student)}</button>)}
+                </div>}
+                {studentQuery && matchingStudents.length === 0 && !selectedStudent && <span style={{ color: "#b42318", fontSize: "0.8rem", lineHeight: 1.5 }}>該当する生徒が見つかりません。誤って別の生徒へ登録せず、Notion生徒情報DBの状態・氏名・学籍番号を確認して名簿同期してください。</span>}
+                {selectedStudent && <div style={{ padding: "10px 12px", border: "2px solid #16a34a", borderRadius: 7, background: "#f0fdf4", display: "grid", gap: 3 }}>
+                  <strong style={{ color: "#166534" }}>選択中：{selectedStudent.grade} {selectedStudent.student_name}</strong>
+                  <span style={{ fontSize: "0.78rem", color: "#365544" }}>{studentInstructionTypeLabel(selectedStudent.instruction_type)} / {selectedStudent.campus || "校舎未設定"} / {selectedStudent.school_name || "学校未設定"} / 生徒番号 {selectedStudent.student_number}</span>
+                  {!selectedStudent.instruction_type && <span style={{ color: "#b45309", fontSize: "0.75rem", fontWeight: 700 }}>授業形態が未設定です。本人確認はできますが、Notionで「集団・個別ほか・併用」を設定してください。</span>}
+                </div>}
+                </>}
+
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
                   <label style={{ display: "grid", gap: 5 }}>④ LINE連絡先の登録名（自由入力）
-                    <input style={{ ...inputStyle, fontWeight: 700 }} value={selectedAliasName} onChange={(event) => setSelectedAliasName(event.target.value)} disabled={!selectedStudent} placeholder={selectedStudent ? "例: 本　山田花子　母" : "先に生徒を選択してください"} />
+                    <input style={{ ...inputStyle, fontWeight: 700 }} value={selectedAliasName} onChange={(event) => setSelectedAliasName(event.target.value)} disabled={verificationSaving || (selectedRelation !== "staff" && !selectedStudent)} placeholder={selectedRelation === "staff" ? "例：吉川先生" : selectedStudent ? "例: 本　山田花子　母" : "先に生徒を選択してください"} />
                     <small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small>
                   </label>
                 </div>
-                <button type="button" onClick={() => void verifySelectedContact()} disabled={verificationSaving || !operatorName.trim() || !selectedStudent || !selectedEvidenceMessageId} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>
+                {selectedRelation === "staff" ? <>
+                  <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>先生・スタッフの名前で「スタッフ」グループへ登録します。職員ログインのアカウントや権限は作成しません。</span>
+                  <button type="button" onClick={() => void saveSelectedStaffContact()} disabled={verificationSaving || !selectedAliasName.trim()} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>{verificationSaving ? "登録中..." : "先生・スタッフとして登録して一覧を更新"}</button>
+                </> : <button type="button" onClick={() => void verifySelectedContact()} disabled={verificationSaving || !operatorName.trim() || !selectedStudent || !selectedEvidenceMessageId} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>
                   {verificationSaving ? "登録中..." : `${relationLabel(selectedRelation)}として確認済みに登録`}
-                </button>
+                </button>}
               </div>}
 
               {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
