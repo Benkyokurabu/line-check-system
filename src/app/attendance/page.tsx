@@ -1361,14 +1361,16 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" })));
   }
 
-  async function linkSenderToSelectedStudent() {
+  async function linkSenderToSelectedStudent(relation: "student" | "guardian") {
+    if (linkingSender) return;
     if (!senderLineUserId) { setCardMessage("このLINE連絡先のIDを取得できません。"); return; }
     if (!studentNumber) { setCardMessage("先に名前を選択してください。"); return; }
     const student = studentOptions.find((item) => item.student_number === studentNumber);
     if (!student) { setCardMessage("選択中の生徒を確認できません。"); return; }
     const aliasName = registrationName.trim();
     if (!aliasName) { setCardMessage("LINE連絡先の登録名を入力してください。"); return; }
-    if (!window.confirm(`${student.grade} ${student.student_name} に ${aliasName}（${senderDisplayName}）を保護者LINEとして登録します。よろしいですか？`)) return;
+    const relationLabel = relation === "student" ? "生徒本人" : "保護者";
+    if (!window.confirm(`${student.grade} ${student.student_name} に ${aliasName}（${senderDisplayName}）を${relationLabel}のLINEとして登録します。よろしいですか？`)) return;
     setLinkingSender(true);
     setCardMessage("LINE連絡先を登録しています...");
     try {
@@ -1377,15 +1379,15 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           line_user_id: senderLineUserId,
-          relation: "guardian",
+          relation,
           alias_name: aliasName,
           friend_display_name: senderDisplayName === "不明" ? null : senderDisplayName,
-          is_primary: false,
+          is_primary: relation === "student",
         }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "LINE連絡先の登録に失敗しました");
-      setCardMessage("選択中の生徒へ保護者LINEとして登録しました。");
+      setCardMessage(`選択中の生徒へ${relationLabel}のLINEとして登録しました。`);
       setMessage("LINE連絡先を登録しました。");
       await onChanged();
     } catch (error) {
@@ -1666,7 +1668,10 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed || busy || registering} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
       {!closed && <label style={fieldStyle}>LINE連絡先の登録名<input style={{ ...inputStyle, fontWeight: 700 }} value={registrationName} onChange={(event) => setRegistrationName(event.target.value)} placeholder="例: 本　山田花子　母" /><small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small></label>}
-      {!closed && <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={linkSenderToSelectedStudent}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>}
+      {!closed && <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={() => void linkSenderToSelectedStudent("student")}>{linkingSender ? "登録中..." : "このLINEを生徒本人として登録"}</button>
+        <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={() => void linkSenderToSelectedStudent("guardian")}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>
+      </div>}
     </div>
 
     {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} confirmedBy={confirmedBy} onConfirmedByChange={onConfirmedByChange} registrationMessage={cardMessage} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {
