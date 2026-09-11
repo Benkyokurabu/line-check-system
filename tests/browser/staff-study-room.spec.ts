@@ -7,7 +7,7 @@ const fixtureRow = { id: "00000000-0000-0000-0000-000000000001", student_number:
 test("reservation preview has the requested school title and cannot submit a reservation", async ({ page }) => {
   await page.route("**/*", async route => {
     const url = new URL(route.request().url());
-    if (url.origin !== "http://127.0.0.1:3197" || url.pathname.startsWith("/api/")) await route.abort();
+    if (url.origin !== new URL(String(test.info().project.use.baseURL)).origin || url.pathname.startsWith("/api/")) await route.abort();
     else await route.continue();
   });
   await page.goto("/self-study-room/menu-preview");
@@ -36,7 +36,7 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
   await page.context().route("**/*", async route => {
     const url = new URL(route.request().url());
     const method = route.request().method();
-    if (url.origin !== "http://127.0.0.1:3197") { forbidden.push(url.origin); await route.abort(); return; }
+    if (url.origin !== new URL(String(test.info().project.use.baseURL)).origin) { forbidden.push(url.origin); await route.abort(); return; }
     if (!url.pathname.startsWith("/api/")) { await route.continue(); return; }
     if (url.pathname === "/api/staff/session") {
       if (method === "POST") loggedIn = true;
@@ -140,14 +140,15 @@ test("read-only staff see no approval buttons and mobile layout stays within vie
   const state = await setup(page, { readOnly: true });
   await expect(page.getByRole("button", { name: "承認して確定", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "予約を取り消す", exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button',{name:'電話などの予約を生徒の代わりに申請',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'電話などで受けた予約の申請・取消',exact:true})).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/staff-study-room-mobile.png", fullPage: true });
   expect(state.forbidden).toEqual([]);
 });
 
 async function prepareIntake(page:Page) {
-  await page.getByRole('button',{name:'電話などの予約を生徒の代わりに申請',exact:true}).click();
+  await page.getByRole('button',{name:'電話などで受けた予約の申請・取消',exact:true}).click();
+  await page.getByRole('button',{name:'予約を申し込む',exact:false}).click();
   const panel=page.getByRole('region',{name:'職員代理受付'});
   await panel.getByLabel('代理申請の利用日').fill('2030-01-01');
   await panel.getByLabel('生徒名・学籍番号').fill('南');
