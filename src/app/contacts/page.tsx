@@ -117,7 +117,7 @@ export default function ContactsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [studentQuery, setStudentQuery] = useState("");
   const [selectedStudentNumber, setSelectedStudentNumber] = useState("");
-  const [selectedRelation, setSelectedRelation] = useState("mother");
+  const [selectedRelation, setSelectedRelation] = useState("guardian");
   const [selectedAliasName, setSelectedAliasName] = useState("");
   const [selectedEvidenceMessageId, setSelectedEvidenceMessageId] = useState("");
   const [operatorName, setOperatorName] = useState("");
@@ -456,7 +456,7 @@ export default function ContactsPage() {
       setContactDetail(detailBody as ContactDetail);
       const evidence = (detailBody as ContactDetail).identity_evidence;
       setSelectedEvidenceMessageId(evidence?.detected_message_id ?? "");
-      const initialRelation = evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "mother";
+      const initialRelation = evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "guardian";
       setSelectedRelation(initialRelation);
       setStudentQuery(evidence?.parsed_student_name ?? "");
       const normalizedEvidenceName = (evidence?.parsed_student_name ?? "").normalize("NFKC").replace(/[\s　]/g, "");
@@ -776,19 +776,35 @@ export default function ContactsPage() {
                   <span style={{ fontSize: "0.78rem", color: "#365544" }}>{studentInstructionTypeLabel(selectedStudent.instruction_type)} / {selectedStudent.campus || "校舎未設定"} / {selectedStudent.school_name || "学校未設定"} / 生徒番号 {selectedStudent.student_number}</span>
                   {!selectedStudent.instruction_type && <span style={{ color: "#b45309", fontSize: "0.75rem", fontWeight: 700 }}>授業形態が未設定です。本人確認はできますが、Notionで「集団・個別ほか・併用」を設定してください。</span>}
                 </div>}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
-                  <label style={{ display: "grid", gap: 5 }}>③ 生徒との続柄
+                <fieldset disabled={verificationSaving} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12 }}>
+                  <legend style={{ fontWeight: 700 }}>③ このLINEを誰の連絡先として登録しますか？</legend>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                    {[
+                      { value: "student", label: "生徒本人", description: "生徒自身が使っているLINE" },
+                      { value: "guardian", label: "保護者", description: "お子さまの連絡に使うLINE" },
+                      { value: "shared", label: "本人・保護者で共有", description: "親子で同じLINEを使っている" },
+                    ].map((role) => {
+                      const active = role.value === "guardian" ? ["mother", "father", "guardian", "family"].includes(selectedRelation) : selectedRelation === role.value;
+                      return <button key={role.value} type="button" aria-pressed={active} onClick={() => { setSelectedRelation(role.value); if (selectedStudent) setSelectedAliasName(buildLineContactAlias(selectedStudent, role.value)); }} style={{ ...(active ? btnSave : btnEdit), padding: 12, textAlign: "left" }}>
+                        <strong style={{ display: "block" }}>{role.label}</strong>
+                        <span style={{ display: "block", fontSize: "0.76rem", marginTop: 5 }}>{role.description}</span>
+                      </button>;
+                    })}
+                  </div>
+                  {["mother", "father", "guardian", "family"].includes(selectedRelation) && <label style={{ display: "grid", gap: 5, marginTop: 10 }}>保護者の続柄
                     <select style={inputStyle} value={selectedRelation} onChange={(event) => { const relation = event.target.value; setSelectedRelation(relation); if (selectedStudent) setSelectedAliasName(buildLineContactAlias(selectedStudent, relation)); }}>
-                      <option value="mother">母</option><option value="father">父</option><option value="student">本人</option><option value="guardian">保護者</option><option value="family">家族</option><option value="shared">生徒・保護者共有</option>
+                      <option value="guardian">保護者</option><option value="mother">母</option><option value="father">父</option><option value="family">家族</option>
                     </select>
-                  </label>
+                  </label>}
+                </fieldset>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
                   <label style={{ display: "grid", gap: 5 }}>④ LINE連絡先の登録名（自由入力）
                     <input style={{ ...inputStyle, fontWeight: 700 }} value={selectedAliasName} onChange={(event) => setSelectedAliasName(event.target.value)} disabled={!selectedStudent} placeholder={selectedStudent ? "例: 本　山田花子　母" : "先に生徒を選択してください"} />
                     <small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small>
                   </label>
                 </div>
                 <button type="button" onClick={() => void verifySelectedContact()} disabled={verificationSaving || !operatorName.trim() || !selectedStudent || !selectedEvidenceMessageId} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>
-                  {verificationSaving ? "登録中..." : "この内容で本人確認済みに登録"}
+                  {verificationSaving ? "登録中..." : `${relationLabel(selectedRelation)}として確認済みに登録`}
                 </button>
               </div>}
 
