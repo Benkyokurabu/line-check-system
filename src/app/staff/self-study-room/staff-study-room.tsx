@@ -7,6 +7,7 @@ import StaffIntake from "./staff-intake";
 import StaffVisit, {destinations,type Visit} from './staff-visit';
 import VisitHistory from './visit-history';
 import StaffEntry from './staff-entry';
+import TrialAvailability from './trial-availability';
 
 type Staff = { staffId: string; displayName: string; role?: string; staffCode?: string };
 type Status = "pending" | "approved" | "rejected" | "cancelled";
@@ -157,6 +158,7 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
           </select></label>
           <button disabled={frozen || !date} onClick={() => work(async () => { setMessage(""); setSelected(null); setRows([]); await load(date, status, 0); })}>一覧を更新</button>
         </div>
+        {trial && <TrialAvailability key={date} date={date} revision={rows} />}
         {retry && <div className={styles.notice}><p>結果が未確認の操作があります。</p><button disabled={busy} onClick={() => apply(retry)}>結果を再確認</button></div>}
         {busy && <p role="status">処理中です…</p>}
         <div className={styles.cards}>{rows.map(row => <article className={styles.card} key={row.id}>

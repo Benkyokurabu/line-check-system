@@ -5,6 +5,7 @@ import styles from '../menu-preview/reservation-demo.module.css';
 import ReservationPicker from './reservation-picker';
 import {STUDY_ROOM_TRIAL_SLOTS as slots} from '@/lib/study-room-trial-slots.mjs';
 import StaffEntry from '@/app/staff/self-study-room/staff-entry';
+import statusStyles from './student-status.module.css';
 type Staff={displayName:string;role:string;staffCode:string};
 type Row={id:string;reservation_date:string;seat:number;slot_ids:string[];status:string;version:number};
 type Options={studentName:string;requests:Row[];booked:{seat:number;slotId:string}[];closedSlotIds:string[]};
@@ -17,6 +18,31 @@ export default function StudentTrial({entryCode=''}:{entryCode?:string}){
  const [options,setOptions]=useState<Options|null>(null),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false);
  const [pending,setPending]=useState<Record<string,unknown>|null>(null);
  const running=useRef(false);
+ const [syncError,setSyncError]=useState('');
+ const [bookingOpen,setBookingOpen]=useState(false);
+ useEffect(()=>{
+   if(!staff||busy||pending||!date)return;
+   let disposed=false,inFlight=false;
+   const controller=new AbortController();
+   async function sync(){
+     if(inFlight||document.visibilityState==='hidden')return;
+     inFlight=true;
+     try{
+       const response=await fetch(`/api/staff/study-room-trial/student?date=${date}`,{cache:'no-store',credentials:'same-origin',signal:controller.signal});
+       if(disposed)return;
+       if(response.status===401){setStaff(null);setOptions(null);setSelected([]);setSeat(null);setConfirm(false);setNotice('もう一度ログインしてください。');return;}
+       if(!response.ok)throw new Error('sync');
+       const data=await response.json();
+       if(!disposed){setOptions(data);setSyncError('');}
+     }catch{if(!disposed)setSyncError('最新の状況を確認できません。通信が戻ると自動で再確認します。');}
+     finally{inFlight=false;}
+   }
+   void sync();
+   const timer=setInterval(()=>void sync(),5000);
+   const resume=()=>void sync();
+   window.addEventListener('focus',resume);document.addEventListener('visibilitychange',resume);
+   return()=>{disposed=true;controller.abort();clearInterval(timer);window.removeEventListener('focus',resume);document.removeEventListener('visibilitychange',resume);};
+ },[staff,busy,pending,date]);
  async function api(url:string,init?:RequestInit){
    const response=await fetch(url,{...init,cache:'no-store',credentials:'same-origin'});const data=await response.json();
    if(!response.ok){if(response.status===401){setStaff(null);setOptions(null);setSelected([]);setConfirm(false);setPending(null);}
@@ -37,11 +63,12 @@ export default function StudentTrial({entryCode=''}:{entryCode?:string}){
    setPending(operation);setNotice('');
    try{await api('/api/staff/study-room-trial/student',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(operation)});}
    catch(e){const status=(e as {status?:number}).status;if(status&&status<500){setPending(null);setConfirm(false);await refresh();throw e;}setNotice('結果を確認できません。同じ操作の結果を再確認してください。');return;}
-   setPending(null);setConfirm(false);setSelected([]);setSeat(null);setNotice(operation.action==='cancel'?'取消を保存しました。':'申請を受け付けました。職員が承認すると予約確定になります。');await refresh();
+   setPending(null);setConfirm(false);setSelected([]);setSeat(null);setBookingOpen(false);setNotice(operation.action==='cancel'?'取消を保存しました。':'');await refresh();
  });}
  const frozen=busy||!!pending;
  const blocked=(slot:string)=>options?.closedSlotIds.includes(slot)||options?.booked.some(b=>b.seat===seat&&b.slotId===slot)||options?.requests.some(r=>r.reservation_date===date&&['pending','approved'].includes(r.status)&&r.slot_ids.includes(slot));
  const valid=!!options&&seat!==null&&selected.length>0&&selected.every(s=>slots.includes(s))&&selected.every(s=>!blocked(s))&&date>=getJapanDate();
+ const hasActive=options?.requests.some(row=>row.reservation_date>=getJapanDate()&&['pending','approved'].includes(row.status));
  return <main className={styles.screen}><section className={styles.panel}>
   <span className={styles.badge}>操作確認用・実際の予約やLINE通知は行いません</span>
   <h1>勉強クラブ本校<br/>自習室予約</h1>
@@ -52,8 +79,23 @@ export default function StudentTrial({entryCode=''}:{entryCode?:string}){
    <button disabled={busy} className={styles.primary}>ログイン</button></>}
   </form>:<>
    <div className={styles.actions}><p>{staff.displayName} さんの予約</p><button disabled={frozen} onClick={()=>work(async()=>{await api('/api/staff/session',{method:'DELETE'});setStaff(null);setOptions(null);setSelected([]);setSeat(null);setConfirm(false);})}>ログアウト</button></div>
-   <div className={styles.steps} aria-label="予約の流れ"><span className={!confirm?styles.current:''}>① 日時・席</span><span className={confirm?styles.current:''}>② 内容確認</span><span>③ 承認待ち</span><span>④ 予約確定</span></div>
-   {!confirm&&<>
+   <section aria-label="申請・予約の状況" className={statusStyles.reservations}>
+    <h2>あなたの予約状況</h2>
+    <p className={statusStyles.hint}>承認状況は自動で更新されます。</p>
+    {syncError&&<p role="alert" className={styles.notice}>{syncError}</p>}
+    <div aria-live="polite" aria-atomic="true">
+    {options?.requests.filter(row=>row.reservation_date>=getJapanDate()&&['pending','approved'].includes(row.status)).map(row=><article key={row.id} className={`${statusStyles.card} ${row.status==='approved'?statusStyles.approved:statusStyles.waiting}`}>
+     <strong>{labels[row.status]}</strong>
+     <h2>{row.status==='approved'?'予約が確定しました':'申請を受け付けました'}</h2>
+     <p>{row.status==='approved'?'下の日時・座席でご利用ください。':'職員の承認をお待ちください。まだ席は確保されていません。'}</p>
+     <dl><div><dt>利用日</dt><dd>{row.reservation_date}</dd></div><div><dt>時間</dt><dd>{row.slot_ids.map(slot=><div key={slot}>{slot.replace('-','–')}</div>)}</dd></div><div><dt>場所・座席</dt><dd>本校自習室 · <b>{row.seat}番席</b></dd></div></dl>
+     <button disabled={frozen} onClick={()=>{if(window.confirm('この確認用申請を取り消しますか？'))void apply({action:'cancel',operationKey:crypto.randomUUID(),requestId:row.id,expectedVersion:row.version,date});}}>この申請を取り消す</button>
+    </article>)}
+    </div>
+   </section>
+   {hasActive&&!bookingOpen&&!confirm&&<button onClick={()=>setBookingOpen(true)} disabled={frozen}>別の日時で予約する</button>}
+   {(!hasActive||bookingOpen||confirm)&&<div className={styles.steps} aria-label="予約の流れ"><span className={!confirm?styles.current:''}>① 日時・席</span><span className={confirm?styles.current:''}>② 内容確認</span><span>③ 承認待ち</span><span>④ 予約確定</span></div>}
+   {!confirm&&(!hasActive||bookingOpen)&&<>
     <label className={styles.field}>利用日<input type="date" min={getJapanDate()} value={date} disabled={frozen} onChange={e=>{setDate(e.target.value);setOptions(null);setSelected([]);setSeat(null);}}/></label>
     <button disabled={frozen||!date} onClick={()=>work(async()=>{await refresh();setNotice('最新の空席・申請状況に更新しました。');})}>空席・申請状況を更新</button>
     {options&&<><ReservationPicker selected={selected} seat={seat} disabled={frozen} booked={options.booked} closedSlotIds={options.closedSlotIds} ownSlotIds={options.requests.filter(r=>r.reservation_date===date&&['pending','approved'].includes(r.status)).flatMap(r=>r.slot_ids)} onSelect={(selection,chosen)=>{setSelected(selection);setSeat(chosen);}}/>
@@ -67,7 +109,7 @@ export default function StudentTrial({entryCode=''}:{entryCode?:string}){
     <button className={styles.primary} disabled={frozen||!valid} onClick={()=>apply({action:'submit',operationKey:crypto.randomUUID(),date,seat,slotIds:[...selected].sort()})}>この内容で申請する</button>
     <div className={styles.actions}><button disabled={frozen} onClick={()=>setConfirm(false)}>選び直す</button></div>
    </>}
-   <h2>自分の確認用申請</h2>{options&&(options.requests.length===0?<p>申請はありません。</p>:options.requests.map(row=><article className={styles.summary} key={row.id}><strong>{labels[row.status]}</strong><p>{row.reservation_date} ／ {row.seat}番席<br/>{row.slot_ids.map(s=>s.replace('-','–')).join('、')}</p>{['pending','approved'].includes(row.status)&&<button disabled={frozen} onClick={()=>{if(window.confirm('この確認用申請を取り消しますか？'))void apply({action:'cancel',operationKey:crypto.randomUUID(),requestId:row.id,expectedVersion:row.version,date});}}>この申請を取り消す</button>}</article>))}
+   <h2>これまでの申請</h2>{options&&(options.requests.length===0?<p>申請はありません。</p>:options.requests.filter(row=>row.reservation_date<getJapanDate()||!['pending','approved'].includes(row.status)).map(row=><article className={styles.summary} key={row.id}><strong>{labels[row.status]}</strong><p>{row.reservation_date} ／ {row.seat}番席<br/>{row.slot_ids.map(s=>s.replace('-','–')).join('、')}</p></article>))}
    {pending&&<button disabled={busy} onClick={()=>apply(pending)}>同じ操作の結果を再確認</button>}
   </>}
  </section></main>;

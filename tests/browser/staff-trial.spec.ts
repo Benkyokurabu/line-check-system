@@ -74,7 +74,7 @@ test('student trial submits, sees approval from another screen, then cancels',as
   await expect(page.locator('article').getByText('承認待ち',{exact:true})).toBeVisible();
   const row=room.snapshot().rows[0];
   room.handle('/api/staff/study-room/transition',{method:'POST',body:JSON.stringify({operationKey:'office-approval',requestId:row.id,expectedVersion:1,action:'approve'})},{role:'office',staffCode:'OFFICE',displayName:'事務担当'});
-  await page.getByRole('button',{name:'空席・申請状況を更新'}).click();
+  await expect(page.getByRole('heading',{name:'予約が確定しました'})).toBeVisible({timeout:12000});
   await expect(page.locator('article').getByText('予約確定',{exact:true})).toBeVisible();
   page.once('dialog',dialog=>dialog.accept());
   await page.getByRole('button',{name:'この申請を取り消す'}).click();
