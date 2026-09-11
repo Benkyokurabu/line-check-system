@@ -191,7 +191,7 @@ export async function GET(request: Request) {
   const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? "5") || 5, 1), 14);
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const supabase = createSupabaseAdminClient();
-  const candidateSelect = "*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(text,received_at,display_name,line_user_id)";
+  const candidateSelect = "*,student_roster(student_name,grade,campus,homeroom_teacher),lessons(label,lesson_date,start_time,campus),attendance_candidate_items(*,lessons(label,lesson_date,start_time,campus,source_payload)),line_messages(id,text,received_at,display_name,line_user_id)";
   let openCandidateQuery = supabase
     .from("attendance_candidates")
     .select(candidateSelect)

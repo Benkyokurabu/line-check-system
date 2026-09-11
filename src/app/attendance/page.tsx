@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
+import { buildLineContactAlias, relationLabel } from "@/lib/line-contact-registration.mjs";
 import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
 import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
 import {
@@ -42,7 +43,7 @@ type Candidate = {
   student_selection_required?: boolean;
   student_selection_reason?: string | null;
   student_roster: { student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null } | null;
-  lessons: Lesson | null; line_messages: { text: string | null; received_at: string | null; display_name: string | null; line_user_id?: string | null } | null;
+  lessons: Lesson | null; line_messages: { id?: string; text: string | null; received_at: string | null; display_name: string | null; line_user_id?: string | null } | null;
 };
 type EditableItem = {
   client_id: string; id?: string; student_number: string; event_type: string; event_date: string; campus: string; lesson_id: string;
@@ -1253,7 +1254,6 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   const lineTagNames = candidate.sender_profile?.tag_names ?? [];
   const senderDisplayName = candidate.sender_profile?.display_name ?? candidate.line_messages?.display_name ?? "不明";
   const titleName = `${lineManagedName}（${senderDisplayName}）`;
-  const defaultRegistrationName = lineManagedName !== "未登録" ? lineManagedName : senderDisplayName === "不明" ? "" : senderDisplayName;
   const senderLineUserId = candidate.line_messages?.line_user_id ?? null;
   const receivedAtText = formatReceivedAt(candidate.line_messages?.received_at);
   const initialStudentNumber = candidate.student_number ?? (candidate.student_selection_required ? "" : candidate.student_suggestions?.[0]?.student_number ?? "");
@@ -1286,7 +1286,14 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
   const [additionalMessageMode, setAdditionalMessageMode] = useState(false);
   const [linkingSender, setLinkingSender] = useState(false);
-  const [registrationName, setRegistrationName] = useState(defaultRegistrationName);
+  const [registrationRelation, setRegistrationRelation] = useState<"student" | "guardian" | "shared" | "">("");
+  const [registrationNameOverride, setRegistrationNameOverride] = useState<string | null>(null);
+  const [lineRegistrationMessage, setLineRegistrationMessage] = useState("");
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+  const registrationRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (registrationOpen && expanded) registrationRef.current?.scrollIntoView({ block: "center" });
+  }, [registrationOpen, expanded]);
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
   const suggestionNumbers = useMemo(() => new Set(suggestions.map((student) => student.student_number)), [suggestions]);
   const studentOptions = useMemo(() => uniqueByNumber([
@@ -1303,6 +1310,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     } : null
   );
   const datesKey = useMemo(() => [...new Set(items.map((item) => item.event_date).filter(Boolean))].sort().join("|"), [items]);
+  const registrationName = registrationNameOverride ?? (selectedStudent && registrationRelation ? buildLineContactAlias(selectedStudent, registrationRelation) : "");
   const eventSummary = items.slice(0, 2).map((item) => [item.event_date || "日付未定", eventTypeLabel(item.event_type), item.ai_summary || fallbackReason(item.event_type)].join(" / ")).join("　｜　");
   const hasError = candidateHasError(candidate);
   const showAutoPeriod = Boolean(periodProposal && !manualPeriod && !closed && !registering);
@@ -1357,41 +1365,44 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   function selectStudent(value: string) {
     setPeriodOpen(false);
     setStudentNumber(value);
+    setRegistrationNameOverride(null);
+    setLineRegistrationMessage("");
     const student = studentOptions.find((option) => option.student_number === value);
     setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" })));
   }
 
-  async function linkSenderToSelectedStudent(relation: "student" | "guardian") {
+  async function linkSenderToSelectedStudent() {
     if (linkingSender) return;
+    const relation = registrationRelation;
+    if (!relation || !confirmedBy.trim() || !candidate.line_messages?.id) { setLineRegistrationMessage("生徒・続柄・確認者名と、確認に使うLINE本文を確認してください。"); return; }
     if (!senderLineUserId) { setCardMessage("このLINE連絡先のIDを取得できません。"); return; }
     if (!studentNumber) { setCardMessage("先に名前を選択してください。"); return; }
     const student = studentOptions.find((item) => item.student_number === studentNumber);
     if (!student) { setCardMessage("選択中の生徒を確認できません。"); return; }
     const aliasName = registrationName.trim();
     if (!aliasName) { setCardMessage("LINE連絡先の登録名を入力してください。"); return; }
-    const relationLabel = relation === "student" ? "生徒本人" : "保護者";
-    if (!window.confirm(`${student.grade} ${student.student_name} に ${aliasName}（${senderDisplayName}）を${relationLabel}のLINEとして登録します。よろしいですか？`)) return;
+    const roleLabel = relationLabel(relation);
+    if (!window.confirm(`表示中のLINE本文を確認し、${student.grade} ${student.student_name} の${roleLabel}として登録します。\n一覧の登録名：${aliasName}\n確認者：${confirmedBy.trim()}`)) return;
     setLinkingSender(true);
-    setCardMessage("LINE連絡先を登録しています...");
+    setLineRegistrationMessage("LINE連絡先を登録しています...");
     try {
-      const response = await fetch(`/api/students/${encodeURIComponent(studentNumber)}/link`, {
-        method: "PUT",
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(senderLineUserId)}/verify`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          line_user_id: senderLineUserId,
-          relation,
-          alias_name: aliasName,
+          targets: [{ student_number: studentNumber, relation, alias_name: aliasName, is_primary: relation === "student" }],
           friend_display_name: senderDisplayName === "不明" ? null : senderDisplayName,
-          is_primary: relation === "student",
+          evidence_message_id: candidate.line_messages.id,
+          verified_by: confirmedBy.trim(),
+          source: "attendance_review",
         }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "LINE連絡先の登録に失敗しました");
-      setCardMessage(`選択中の生徒へ${relationLabel}のLINEとして登録しました。`);
-      setMessage("LINE連絡先を登録しました。");
+      setLineRegistrationMessage(`${aliasName} として登録しました。一覧の登録名も更新しました。`);
       await onChanged();
     } catch (error) {
-      setCardMessage(error instanceof Error ? error.message : String(error));
+      setLineRegistrationMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setLinkingSender(false);
     }
@@ -1630,6 +1641,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
         <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{showAutoPeriod ? "期間の連絡" : `${items.length}行`} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
         <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
+        <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || linkingSender} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>生徒・保護者として登録</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
@@ -1645,6 +1657,27 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     <div style={{ color: "#666", fontSize: 13, fontWeight: 700, marginTop: 12 }}>受信日時: {receivedAtText}</div>
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <ReplyHistory replies={candidate.reply_messages ?? []} />
+    <div ref={registrationRef} style={{ border: "2px solid #0891b2", borderRadius: 8, padding: 14, margin: "12px 0", display: "grid", gap: 12 }}>
+      <strong>このLINEの生徒・続柄を登録</strong>
+      <p style={{ margin: 0, fontSize: 13 }}>上のLINE本文で氏名と続柄を確認し、生徒を選んでください。登録すると、この一覧や連絡先管理の登録名も更新されます。</p>
+      {candidate.student_selection_required && <p style={{ color: "#9a3412", margin: 0, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</p>}
+      <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={busy || registering || linkingSender} />
+      <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
+
+      <fieldset disabled={linkingSender} style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend style={{ fontWeight: 700, marginBottom: 8 }}>誰のLINEですか？</legend>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {(["student", "guardian", "shared"] as const).map((role) => <button key={role} type="button" aria-pressed={registrationRelation === role} style={registrationRelation === role ? buttonStyle : ghostButtonStyle} onClick={() => { setRegistrationRelation(role); setRegistrationNameOverride(null); setLineRegistrationMessage(""); }}>{role === "student" ? "生徒本人" : role === "guardian" ? "保護者" : "本人・保護者で共有"}</button>)}
+        </div>
+      </fieldset>
+      <label style={fieldStyle}>登録後に一覧へ表示する名前<input style={{ ...inputStyle, fontWeight: 700 }} disabled={linkingSender || !registrationRelation || !selectedStudent} value={registrationName} onChange={(event) => setRegistrationNameOverride(event.target.value)} placeholder="生徒と続柄を選ぶと名前が入ります" /></label>
+      <label style={fieldStyle}>LINE登録の確認者名<input style={inputStyle} disabled={linkingSender} value={confirmedBy} onChange={(event) => onConfirmedByChange(event.target.value)} placeholder="確認した職員の名前" /></label>
+      {!candidate.line_messages?.id && <p role="alert">確認に使うLINE本文が取得できません。画面を更新してください。</p>}
+      <button type="button" style={buttonStyle} disabled={linkingSender || busy || registering || !senderLineUserId || !studentNumber || !registrationRelation || !registrationName.trim() || !confirmedBy.trim() || !candidate.line_messages?.id} onClick={() => void linkSenderToSelectedStudent()}>{linkingSender ? "登録中..." : "この内容で登録して一覧の名前を更新"}</button>
+      {lineRegistrationMessage && <p role="status" style={{ margin: 0, fontWeight: 700 }}>{lineRegistrationMessage}</p>}
+    </div>
+
+
 
     <div style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(180px,260px)", gap: 12, alignItems: "start", marginBottom: 16 }}>
       <label style={{ display: "grid", gap: 6 }}><span>{additionalMessageMode ? "別のメッセージ" : "返信文"}</span><textarea disabled={replyLocked} style={{ ...inputStyle, minHeight: 96, resize: "vertical", lineHeight: 1.6, background: replyLocked ? "#f7f7f4" : "white" }} value={replyText} onChange={(event) => setReplyText(event.target.value)} /></label>
@@ -1661,17 +1694,6 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           {additionalMessageMode && <button type="button" style={ghostButtonStyle} disabled={sending} onClick={() => { setAdditionalMessageMode(false); setReplyText(replyTemplates[0] ?? defaultReplyTemplates[0]); setCardMessage(""); }}>やめる</button>}
         </div>}
       </div>
-    </div>
-
-    {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 6, padding: 10, marginBottom: 12, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</div>}
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,280px) minmax(0,1fr) minmax(220px,280px) auto", gap: 12, marginBottom: 12, alignItems: "end" }}>
-      <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={closed || busy || registering} />
-      <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
-      {!closed && <label style={fieldStyle}>LINE連絡先の登録名<input style={{ ...inputStyle, fontWeight: 700 }} value={registrationName} onChange={(event) => setRegistrationName(event.target.value)} placeholder="例: 本　山田花子　母" /><small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small></label>}
-      {!closed && <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={() => void linkSenderToSelectedStudent("student")}>{linkingSender ? "登録中..." : "このLINEを生徒本人として登録"}</button>
-        <button type="button" style={ghostButtonStyle} disabled={linkingSender || !senderLineUserId || !studentNumber} onClick={() => void linkSenderToSelectedStudent("guardian")}>{linkingSender ? "登録中..." : "このLINEを保護者として登録"}</button>
-      </div>}
     </div>
 
     {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} confirmedBy={confirmedBy} onConfirmedByChange={onConfirmedByChange} registrationMessage={cardMessage} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {

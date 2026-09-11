@@ -143,7 +143,8 @@ test("attendance review keeps past candidates out of the initial response", asyn
 test("LINE registration lets staff edit the LINE contact name before saving", async () => {
   const page = await readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8");
   assert.match(page, /LINE連絡先の登録名（登録前に編集できます）/);
-  assert.match(page, /const \[registrationName, setRegistrationName\] = useState/);
+  assert.match(page, /登録後に一覧へ表示する名前/);
+  assert.match(page, /setRegistrationNameOverride\(event.target.value\)/);
   assert.match(page, /alias_name: aliasName/);
 });
 
