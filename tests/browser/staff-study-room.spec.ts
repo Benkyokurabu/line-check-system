@@ -140,14 +140,14 @@ test("read-only staff see no approval buttons and mobile layout stays within vie
   const state = await setup(page, { readOnly: true });
   await expect(page.getByRole("button", { name: "承認して確定", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "予約を取り消す", exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button',{name:'職員による代理受付',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'電話などの予約を生徒の代わりに申請',exact:true})).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/staff-study-room-mobile.png", fullPage: true });
   expect(state.forbidden).toEqual([]);
 });
 
 async function prepareIntake(page:Page) {
-  await page.getByRole('button',{name:'職員による代理受付',exact:true}).click();
+  await page.getByRole('button',{name:'電話などの予約を生徒の代わりに申請',exact:true}).click();
   const panel=page.getByRole('region',{name:'職員代理受付'});
   await panel.getByLabel('代理申請の利用日').fill('2030-01-01');
   await panel.getByLabel('生徒名・学籍番号').fill('南');

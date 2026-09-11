@@ -50,7 +50,8 @@ export default function StaffIntake({busy,request,work,onPending,onDone}:Props) 
       await onDone(value.date);
     });
   }
-  return <section className={styles.card} aria-label="職員代理受付"><h2>職員による代理申請</h2>
+  return <section className={styles.card} aria-label="職員代理受付"><h2>電話などで受けた予約の代理申請</h2>
+    <p>電話やLINEで受けた予約を、職員が生徒の代わりに申請します。利用する生徒・日時・座席と、受け付けた連絡方法を登録してください。</p>
     <p>利用施設は本校自習室です。南教室の例外利用もこちらで受け付けます。連絡内容と利用生徒を確認してください。</p>
     {notice && <p role="status" className={styles.notice}>{notice}</p>}
     <div className={styles.toolbar}>

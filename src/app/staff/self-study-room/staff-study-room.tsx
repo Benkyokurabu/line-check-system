@@ -150,7 +150,7 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
         <div className={styles.toolbar}><p>{staff.displayName} さん{staff.role && ' ／ ' + (staff.role === 'admin' ? '管理者' : staff.role === 'office' ? '事務部' : '職員')}</p><button onClick={logout} disabled={busy}>ログアウト</button></div>
         {trial && <p><a href={`/self-study-room/trial?staff=${encodeURIComponent(staff.staffCode??'')}`}>生徒役の操作確認へ</a></p>}
         <p>共有端末では、離席する前にログアウトしてください。未到着を理由に自動取消・自動連絡は行いません。</p>
-        {permissions['study_room.submit'] && <div className={styles.actions}><button type="button" disabled={frozen} onClick={()=>{setSelected(null);setIntakeOpen(value=>!value);}}>{intakeOpen ? '代理受付を閉じる' : '職員による代理受付'}</button></div>}
+        {permissions['study_room.submit'] && <div className={styles.actions}><button type="button" disabled={frozen} onClick={()=>{setSelected(null);setIntakeOpen(value=>!value);}}>{intakeOpen ? '代理受付を閉じる' : '電話などの予約を生徒の代わりに申請'}</button><p>電話やLINEで予約を頼まれたときに、職員が生徒の代わりに申請します。</p></div>}
         {intakeOpen && <StaffIntake busy={busy || !!retry || !!visitRow} request={request} work={work} onPending={setIntakePending} onDone={async day=>{setDate(day);await load(day,status,0);}} />}
         {visitRow && <StaffVisit key={visitRow.id} row={visitRow} busy={busy} request={request} work={work} onClose={()=>setVisitRow(null)} onDone={async()=>{setVisitRow(null);setRows([]);await load(date,status,0);}}/>}
         <div className={styles.toolbar}>
