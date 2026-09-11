@@ -2,7 +2,7 @@
 
 // Notion registration settings are supplied by the Vercel production environment.
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
 import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
@@ -255,7 +255,8 @@ export default function AttendancePage() {
   const [reviewTab, setReviewTab] = useState<ReviewTab>("action");
   const [includePastPending, setIncludePastPending] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [statusBusy, setStatusBusy] = useState(false);
+
+  const latestRunning = useRef(false);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const [listUpdatedAt, setListUpdatedAt] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -281,7 +282,14 @@ export default function AttendancePage() {
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     const nextCandidates = (body.candidates ?? []) as Candidate[];
-    setCandidates(nextCandidates);
+    setCandidates((current) => nextCandidates.map((candidate) => {
+      const previous = current.find((row) => row.id === candidate.id);
+      if (previous && JSON.stringify(previous) === JSON.stringify(candidate)) return previous;
+      if (previous && JSON.stringify(previous.attendance_candidate_items) === JSON.stringify(candidate.attendance_candidate_items)) {
+        return { ...candidate, attendance_candidate_items: previous.attendance_candidate_items };
+      }
+      return candidate;
+    }));
     setListUpdatedAt(new Date().toISOString());
     setVisibleCandidateCount((currentCount) => visibleCandidateCountAfterReload({
       candidates: nextCandidates,
@@ -312,6 +320,21 @@ export default function AttendancePage() {
       alert_active: Boolean(body.alert_active),
       last_checked_at: body.last_checked_at ?? null,
     });
+    return Number(body.ready ?? 0);
+  }, []);
+  const refreshAutomatically = useEffectEvent(async () => {
+    if (document.visibilityState !== "visible" || busy || bulkBusy || latestRunning.current) return;
+    try {
+      const ready = await loadStatus();
+      if (ready > 0) await analyze();
+      else await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+  });
+  useEffect(() => {
+    const timer = window.setInterval(() => void refreshAutomatically(), 60000);
+    const onVisible = () => void refreshAutomatically();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
   useEffect(() => {
     async function initialize() {
@@ -327,6 +350,7 @@ export default function AttendancePage() {
         if (!templateResponse.ok) throw new Error(templateBody.error ?? "LINE返信文案を取得できませんでした");
         setStudents(studentBody.students ?? []);
         setReplyTemplates(templateBody.templates ?? defaultReplyTemplates);
+        await refreshAutomatically();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : String(error));
       }
@@ -345,18 +369,9 @@ export default function AttendancePage() {
     setReplyTemplates(body.templates ?? nextTemplates);
   }
 
-  async function refreshLatest() {
-    if (busy || statusBusy || bulkBusy) return;
-    setStatusBusy(true); setMessage("チェック済みの連絡を読み込んでいます…");
-    try {
-      await Promise.all([load(), loadStatus()]);
-      setMessage("チェック済みの一覧を更新しました。未チェックのLINEは自動チェック後に一覧へ反映できます。");
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setStatusBusy(false); }
-  }
-
   async function analyze() {
-    if (busy || statusBusy || bulkBusy) return;
+    if (busy || bulkBusy || latestRunning.current) return;
+    latestRunning.current = true;
     setBusy(true); setMessage("未チェックのLINEを最大10件確認しています。完了後に一覧を更新します…");
     try {
       const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
@@ -369,10 +384,10 @@ export default function AttendancePage() {
         await Promise.all([load(), loadStatus()]);
         setMessage(`${result} 一覧を更新しました。`);
       } catch {
-        setMessage(`${result} 一覧または処理状況の更新に失敗しました。「チェック済みの一覧を更新」を押してください。`);
+        setMessage(`${result} 一覧または処理状況の更新に失敗しました。「最新のLINEを確認して更新」を押してください。`);
       }
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+    finally { latestRunning.current = false; setBusy(false); }
   }
 
   const loadLineLinkCandidates = useCallback(async () => {
@@ -455,20 +470,14 @@ export default function AttendancePage() {
     <p>LINEの確認作業に近い流れで、返信文案とNotion登録内容を確認できます。</p>
     <section className="panel" aria-labelledby="attendance-check-heading" style={{ padding: 20, marginTop: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <h2 id="attendance-check-heading" style={{ margin: 0, fontSize: 18 }}>この一覧は、AIがチェック済みの遅刻・欠席連絡です</h2>
+        <h2 id="attendance-check-heading" style={{ margin: 0, fontSize: 18 }}>最新の遅刻・欠席連絡を確認</h2>
         <span style={{ background: "var(--accent-soft)", color: "var(--accent)", padding: "5px 10px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>自動チェック：1分ごと</span>
       </div>
-      <p style={{ margin: "10px 0 16px", color: "var(--muted)", fontSize: 14 }}>受信したLINEを自動で順番にチェックしています。先生による内容確認・返信・Notion登録は、この後に行います。</p>
+      <p style={{ margin: "10px 0 16px", color: "var(--muted)", fontSize: 14 }}>画面を開いたとき・戻ったとき・表示中の1分ごとに、未チェックのLINEを確認して一覧を更新します。先生による内容確認・返信・Notion登録は、この後に行います。</p>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
         <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, borderRadius: 12, background: "var(--accent-soft)" }}>
-          <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--accent)" }}>普段はこちら</p>
-          <button type="button" style={buttonStyle} disabled={statusBusy || busy || bulkBusy} onClick={refreshLatest}>{statusBusy ? "一覧を更新中…" : "チェック済みの一覧を更新"}</button>
-          <p style={{ margin: "10px 0", fontSize: 14 }}>自動チェックが終わった連絡を、この画面に読み込みます。</p>
-          <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>一覧の更新時刻：{listUpdatedAt ? formatDateTime(listUpdatedAt) : "未取得"}／画面は手動更新</p>
-        </div>
-        <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, border: "1px solid var(--line)", borderRadius: 12 }}>
-          <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--muted)" }}>届いたばかりの連絡を急いで確認したいとき</p>
-          <button type="button" style={ghostButtonStyle} disabled={busy || statusBusy || bulkBusy} onClick={analyze}>{busy ? "未チェックのLINEを確認中…" : "未チェックのLINEを今すぐ確認"}</button>
+          <button type="button" style={buttonStyle} disabled={busy || bulkBusy} onClick={analyze}>{busy ? "最新のLINEを確認中…" : "最新のLINEを確認して更新"}</button>
+          <p style={{ margin: "10px 0", fontSize: 13, color: "var(--muted)" }}>一覧の更新時刻：{listUpdatedAt ? formatDateTime(listUpdatedAt) : "未取得"}／表示中は自動更新</p>
           <p style={{ margin: "10px 0 0", fontSize: 14 }}>自動チェックを待たず、処理待ちのLINEを最大10件チェックして一覧を更新します。直近5分間に限らず、以前からの待機分も対象です。</p>
         </div>
       </div>
@@ -481,7 +490,7 @@ export default function AttendancePage() {
           <p>直近の処理正常終了（自動・手動共通）：{formatDateTime(analysisStatus.last_worker_succeeded_at)}／処理状況の取得：{formatDateTime(analysisStatus.last_checked_at)}</p>
           <p>すぐに処理可能 {analysisStatus.ready}件／直近1時間の処理 {analysisStatus.processed_last_hour}件{analysisStatus.oldest_queued_at ? `／最も古い待機 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? `／エラー：${analysisStatus.last_worker_error}` : ""}</p>
         </details>
-      </> : <p style={{ color: "var(--muted)", fontSize: 14 }}>処理状況はまだ取得できていません。未チェック件数は「チェック済みの一覧を更新」で確認できます。</p>}
+      </> : <p style={{ color: "var(--muted)", fontSize: 14 }}>処理状況を確認しています。取得できない場合は「最新のLINEを確認して更新」を押してください。</p>}
       {message && <p role="status" style={{ marginBottom: 0 }}>{message}</p>}
     </section>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
@@ -507,7 +516,7 @@ export default function AttendancePage() {
     {reviewTab === "action" && errorCount > 0 && <div role="alert" style={{ marginTop: 12, border: "1px solid #fecaca", background: "#fef2f2", color: "#b42318", borderRadius: 8, padding: "10px 12px", fontWeight: 800 }}>登録エラーが{errorCount}件あります。先頭に表示しています。</div>}
     {reviewTab === "action" && <section aria-label="連絡の一括操作" style={{ position: "sticky", top: 8, zIndex: 10, marginTop: 12, padding: 12, border: "1px solid var(--line)", borderRadius: 8, background: selectionMode ? "#f0f7ff" : "white", boxShadow: selectionMode ? "0 2px 8px #0002" : "none" }}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        {!selectionMode ? <button type="button" style={ghostButtonStyle} disabled={!displayedCandidates.length || statusBusy || busy} onClick={() => { setSelectionMode(true); setBulkMessage(""); }}>複数選択</button> : <>
+        {!selectionMode ? <button type="button" style={ghostButtonStyle} disabled={!displayedCandidates.length || busy} onClick={() => { setSelectionMode(true); setBulkMessage(""); }}>複数選択</button> : <>
           <strong>{selectedCandidates.length}件選択中</strong>
           <button type="button" style={ghostButtonStyle} disabled={bulkBusy || !displayedCandidates.length} onClick={() => setSelectedCandidateIds(displayedCandidates.map((candidate) => candidate.id))}>表示中の{displayedCandidates.length}件をすべて選択</button>
           <button type="button" style={ghostButtonStyle} disabled={bulkBusy || !selectedCandidates.length} onClick={() => setSelectedCandidateIds([])}>選択を解除</button>

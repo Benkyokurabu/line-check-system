@@ -27,28 +27,29 @@ async function setup(page: Page) {
   });
   await page.goto("/attendance");
   await expect(page.getByText(/未チェック 3件/)).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("2件をチェックしました");
   return state;
 }
 
-test("list refresh only reads completed results; immediate check processes queue then reloads", async ({ page }) => {
+test("opening and explicit refresh process pending LINE before reloading", async ({ page }) => {
   const state = await setup(page);
   await expect(page.getByText("自動チェック：1分ごと")).toBeVisible();
   await expect(page.getByText(/直近5分間に限らず/)).toBeVisible();
-  await page.getByRole("button", { name: "チェック済みの一覧を更新", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("チェック済みの一覧を更新しました");
-  expect(state.checks).toBe(0);
-  expect(state.reads).toBe(2);
-  await page.getByRole("button", { name: "未チェックのLINEを今すぐ確認", exact: true }).click();
+  await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("2件をチェックしました");
+  expect(state.checks).toBe(2);
+  expect(state.reads).toBeGreaterThanOrEqual(3);
+  await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("2件をチェックしました");
   await expect(page.getByRole("status")).toContainText("再試行待ち1件");
-  expect(state.checks).toBe(1);
-  expect(state.reads).toBe(3);
+  expect(state.checks).toBe(3);
+  expect(state.reads).toBeGreaterThanOrEqual(4);
   await page.getByText("自動チェックの仕組み・処理状況", { exact: true }).click();
   await expect(page.getByText(/直近の処理正常終了/)).toContainText("09/09");
   await expect(page.getByText(/直近の処理正常終了/)).toContainText("09/10");
   await page.screenshot({ path: "test-results/attendance-check-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "未チェックのLINEを今すぐ確認", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/attendance-check-mobile.png", fullPage: true });
 });
@@ -56,15 +57,27 @@ test("list refresh only reads completed results; immediate check processes queue
 test("zero processed never implies all messages checked and reload failure preserves processing outcome", async ({ page }) => {
   const state = await setup(page);
   state.processed = 0;
-  await page.getByRole("button", { name: "未チェックのLINEを今すぐ確認", exact: true }).click();
+  await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("今回すぐにチェックできるLINEはありませんでした");
   state.processed = 2;
   state.failRefresh = true;
-  await page.getByRole("button", { name: "未チェックのLINEを今すぐ確認", exact: true }).click();
+  await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("2件をチェックしました");
   await expect(page.getByRole("status")).toContainText("一覧または処理状況の更新に失敗");
   state.failCheck = true;
-  await page.getByRole("button", { name: "未チェックのLINEを今すぐ確認", exact: true }).click();
+  await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("チェックに失敗しました");
-  await expect(page.getByRole("button", { name: "チェック済みの一覧を更新", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true })).toBeEnabled();
+});
+
+test("visible page periodically checks latest LINE and returning to the page refreshes it", async ({ page }) => {
+  await page.clock.install();
+  const state = await setup(page);
+  expect(state.checks).toBe(1);
+  await expect(page.getByText("普段はこちら", { exact: true })).toHaveCount(0);
+  await page.clock.runFor(60000);
+  await expect.poll(() => state.checks).toBe(2);
+  await expect(page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true })).toBeEnabled();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(() => state.checks).toBe(3);
 });

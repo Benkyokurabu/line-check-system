@@ -70,6 +70,18 @@ test("opening a period proposes actual lessons and a single action registers all
   expect(state.writes.map((row) => [row.event_date, row.lesson_id, row.student_number])).toEqual([["2099-09-11", "lesson-11", "2018999"], ["2099-09-18", "lesson-18", "2018999"]]);
   expect(state.confirms).toBe(1);
 });
+
+test("automatic list refresh preserves period edits and excluded lessons", async ({ page }) => {
+  await page.clock.install();
+  const state = await setup(page);
+  await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toBeVisible();
+  await page.getByRole("group", { name: "期間の欠席をまとめて登録" }).getByRole("checkbox").first().uncheck();
+  await page.getByLabel("まとめて登録する理由").fill("入力中の理由");
+  await page.clock.runFor(60000);
+  await expect(page.getByRole("button", { name: "この1授業をまとめて欠席登録" })).toBeVisible();
+  await expect(page.getByLabel("まとめて登録する理由")).toHaveValue("入力中の理由");
+  expect(state.rangeReads).toBe(1);
+});
 test("unchecked lessons are excluded and zero selections cannot register", async ({ page }) => {
   const state = await setup(page);
   const checks = page.getByRole("group", { name: "期間の欠席をまとめて登録" }).getByRole("checkbox");
@@ -92,7 +104,7 @@ test("partial failure reloads saved row IDs and preserves the confirmed row on r
   const state = await setup(page);
   state.failed = true;
   await page.getByRole("button", { name: "この2授業をまとめて欠席登録" }).click();
-  await expect(page.getByText("一部のNotion登録に失敗しました", { exact: true })).toBeVisible();
+  await expect(page.getByText("一部のNotion登録に失敗しました", { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toHaveCount(0);
   state.failed = false;
   await page.getByRole("button", { name: "確認してNotionへ登録", exact: true }).click();
