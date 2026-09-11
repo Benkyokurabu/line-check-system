@@ -19,12 +19,13 @@ before(async () => {
     end; $$;`);
   await db.query("insert into staff_accounts(id) values($1),($2)", [owner, other]);
   await db.exec(await readFile(new URL("../supabase/feedback_20260910.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/feedback_sharing_20260911.sql", import.meta.url), "utf8"));
   await db.query("insert into bentan_feedback_reader(staff_id) values($1)", [owner]);
 });
 after(() => db.close());
 
 test("feedback validates bounded nonempty names, bodies and operation IDs", () => {
-  assert.deepEqual(validateFeedback({ id: owner, name: " 名前 ", message: " 改善案 " }), { id: owner, name: "名前", message: "改善案" });
+  assert.deepEqual(validateFeedback({ id: owner, name: " 名前 ", message: " 改善案 " }), { id: owner, name: "名前", message: "改善案",sharingPreference:'unspecified' });
   for (const patch of [{ id: "bad" }, { name: " " }, { message: " " }, { name: "x".repeat(101) }, { message: "x".repeat(2001) }]) {
     assert.throws(() => validateFeedback({ id: owner, name: "name", message: "text", ...patch }));
   }
@@ -58,4 +59,22 @@ test("feedback submission rate is bounded and a retry still succeeds at the limi
   for (const id of ids) await db.query("select submit_bentan_feedback($1,'名前','本文',$2)", [id, "b".repeat(64)]);
   await assert.rejects(db.query("select submit_bentan_feedback($1,'名前','本文',$2)", [randomUUID(), "b".repeat(64)]), /feedback_rate_limit/);
   assert.equal((await db.query("select submit_bentan_feedback($1,'名前','本文',$2) result", [ids[0], "b".repeat(64)])).rows[0].result.accepted, true);
+});
+
+test('sharing preference persists, conflicts cannot silently change it, and old entries stay unspecified',async()=>{
+ for(const preference of ['anonymous','named']){
+  const id=randomUUID();
+  assert.equal(validateFeedback({id,name:'名前',message:'提案',sharingPreference:preference}).sharingPreference,preference);
+  for(let i=0;i<2;i++)await db.query("select submit_bentan_feedback($1,'名前','提案',$2,$3)",[id,'c'.repeat(64),preference]);
+  assert.equal((await db.query('select sharing_preference from bentan_feedback where id=$1',[id])).rows[0].sharing_preference,preference);
+  await assert.rejects(db.query("select submit_bentan_feedback($1,'名前','提案',$2,$3)",[id,'c'.repeat(64),preference==='anonymous'?'named':'anonymous']),/feedback_conflict/);
+ }
+ for(const sharingPreference of [null,true,'invalid',{}])assert.throws(()=>validateFeedback({id:randomUUID(),name:'名前',message:'内容',sharingPreference}),/invalid_feedback/);
+ const legacy=randomUUID();await db.query("select submit_bentan_feedback($1,'以前の名前','以前の本文',$2)",[legacy,'d'.repeat(64)]);
+ await db.exec(await readFile(new URL('../supabase/feedback_sharing_20260911.sql',import.meta.url),'utf8'));
+ const result=(await db.query('select list_bentan_feedback($1,$2) result',[owner,session])).rows[0].result;
+ assert.equal(result.feedback.find(row=>row.id===legacy).sharing_preference,'unspecified');
+ assert.ok(result.feedback.some(row=>row.sharing_preference==='anonymous'));
+ assert.ok(result.feedback.every(row=>row.rate_key===undefined));
+ for(const role of ['anon','authenticated'])assert.equal((await db.query(`select has_function_privilege('${role}','submit_bentan_feedback(uuid,text,text,text,text)','execute') allowed`)).rows[0].allowed,false);
 });

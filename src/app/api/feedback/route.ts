@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
     const rateKey = createHmac("sha256", secret).update(ip.split(",")[0].trim()).digest("hex");
     const { data, error } = await createSupabaseAdminClient().rpc("submit_bentan_feedback", {
       p_id: input.id, p_name: input.name, p_message: input.message, p_rate_key: rateKey,
+      p_sharing_preference: input.sharingPreference,
     });
     if (error) {
       if (error.message === "feedback_rate_limit") return staffResponse({ error: "送信回数が多いため、10分ほど待ってから送信してください。" }, undefined, 429);

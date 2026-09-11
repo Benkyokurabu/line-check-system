@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
-type Feedback = { id: string; sender_name: string; message: string; created_at: string };
+type Feedback = { id: string; sender_name: string; message: string; created_at: string; sharing_preference?:'anonymous'|'named'|'unspecified' };
 const button = { padding: "10px 16px", border: "1px solid var(--line)", borderRadius: 6, background: "white", cursor: "pointer", fontWeight: 700 } as const;
 export default function FeedbackInbox() {
   const [rows, setRows] = useState<Feedback[]>([]);
@@ -64,6 +64,7 @@ export default function FeedbackInbox() {
       {!rows.length && <p>届いたご意見はまだありません。</p>}
       <div style={{ display: "grid", gap: 12, marginTop: 16 }}>{rows.map((row) => <article className="panel" key={row.id} style={{ padding: 20, overflowWrap: "anywhere" }}>
         <strong>{row.sender_name}</strong><p style={{ color: "var(--muted)", fontSize: 13 }}>{new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", dateStyle: "medium", timeStyle: "short" }).format(new Date(row.created_at))}</p>
+        <p style={{padding:'10px 12px',borderRadius:8,background:row.sharing_preference==='named'?'#e8f5ed':'#fff3d2',fontWeight:700}}>{row.sharing_preference==='anonymous'?'匿名希望：他の職員へ紹介するときは名前を出さない':row.sharing_preference==='named'?'名前を出して紹介してもよい':'紹介時の名前の扱い：未確認'}</p>
         <p style={{ whiteSpace: "pre-wrap" }}>{row.message}</p>
       </article>)}</div>
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={button} disabled={busy || offset === 0} onClick={() => void work(() => load(Math.max(0, offset - 50)))}>前の50件</button><button style={button} disabled={busy || !hasMore} onClick={() => void work(() => load(offset + 50))}>次の50件</button></div>
