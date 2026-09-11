@@ -1290,6 +1290,8 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   const [registrationNameOverride, setRegistrationNameOverride] = useState<string | null>(null);
   const [lineRegistrationMessage, setLineRegistrationMessage] = useState("");
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [registrationMode, setRegistrationMode] = useState<"student" | "staff">("student");
+  const [staffRegistrationName, setStaffRegistrationName] = useState("");
   const registrationRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (registrationOpen && expanded) registrationRef.current?.scrollIntoView({ block: "center" });
@@ -1400,6 +1402,28 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "LINE連絡先の登録に失敗しました");
       setLineRegistrationMessage(`${aliasName} として登録しました。一覧の登録名も更新しました。`);
+      await onChanged();
+    } catch (error) {
+      setLineRegistrationMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLinkingSender(false);
+    }
+  }
+  async function registerStaffContact() {
+    const aliasName = staffRegistrationName.trim();
+    if (linkingSender || !senderLineUserId || !aliasName) return;
+    if (!window.confirm(`LINE名「${senderDisplayName}」を先生・スタッフの連絡先として登録します。\n登録名：${aliasName}\nグループ：スタッフ`)) return;
+    setLinkingSender(true);
+    setLineRegistrationMessage("先生・スタッフとして登録しています...");
+    try {
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(senderLineUserId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias_name: aliasName, group_name: "スタッフ" }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "先生・スタッフの登録に失敗しました");
+      setLineRegistrationMessage(`${aliasName} を先生・スタッフとして登録しました。一覧の登録名とスタッフ表示を更新しました。`);
       await onChanged();
     } catch (error) {
       setLineRegistrationMessage(error instanceof Error ? error.message : String(error));
@@ -1641,7 +1665,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
         <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{showAutoPeriod ? "期間の連絡" : `${items.length}行`} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
         <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
-        <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || linkingSender} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>生徒・保護者として登録</button>
+        <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || linkingSender} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>LINEの登録（本人・保護者・先生）</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
@@ -1658,22 +1682,33 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <ReplyHistory replies={candidate.reply_messages ?? []} />
     <div ref={registrationRef} style={{ border: "2px solid #0891b2", borderRadius: 8, padding: 14, margin: "12px 0", display: "grid", gap: 12 }}>
+      <fieldset disabled={linkingSender} style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend style={{ fontWeight: 700, marginBottom: 8 }}>誰のLINEですか？</legend>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+          {(["student", "guardian", "staff", "shared"] as const).map((role) => {
+            const selected = role === "staff" ? registrationMode === "staff" : registrationMode === "student" && registrationRelation === role;
+            return <button key={role} type="button" aria-pressed={selected} style={selected ? buttonStyle : ghostButtonStyle} onClick={() => { setRegistrationMode(role === "staff" ? "staff" : "student"); if (role !== "staff") { setRegistrationRelation(role); setRegistrationNameOverride(null); } setLineRegistrationMessage(""); }}>{role === "student" ? "生徒本人" : role === "guardian" ? "保護者" : role === "staff" ? "先生・スタッフ" : "本人・保護者で共有"}</button>;
+          })}
+        </div>
+      </fieldset>
+      {registrationMode === "staff" ? <>
+        <strong>先生・スタッフの連絡先を登録</strong>
+        <p style={{ margin: 0, fontSize: 13 }}>このLINEを使っている先生・スタッフの名前を入力してください。「スタッフ」グループに登録し、一覧の名前を更新します。</p>
+        <label style={fieldStyle}>先生・スタッフの登録名<input style={inputStyle} value={staffRegistrationName} disabled={linkingSender} onChange={(event) => setStaffRegistrationName(event.target.value)} placeholder="例：吉川先生" /></label>
+        <small style={{ color: "var(--muted)" }}>職員ログイン用のアカウント作成・権限付与は行いません。</small>
+        <button type="button" style={buttonStyle} disabled={linkingSender || !senderLineUserId || !staffRegistrationName.trim()} onClick={() => void registerStaffContact()}>{linkingSender ? "登録中..." : "先生・スタッフとして保存して一覧を更新"}</button>
+      </> : <>
       <strong>このLINEの生徒・続柄を登録</strong>
       <p style={{ margin: 0, fontSize: 13 }}>上のLINE本文で氏名と続柄を確認し、生徒を選んでください。登録すると、この一覧や連絡先管理の登録名も更新されます。</p>
       {candidate.student_selection_required && <p style={{ color: "#9a3412", margin: 0, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</p>}
       <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={busy || registering || linkingSender} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
 
-      <fieldset disabled={linkingSender} style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ fontWeight: 700, marginBottom: 8 }}>誰のLINEですか？</legend>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {(["student", "guardian", "shared"] as const).map((role) => <button key={role} type="button" aria-pressed={registrationRelation === role} style={registrationRelation === role ? buttonStyle : ghostButtonStyle} onClick={() => { setRegistrationRelation(role); setRegistrationNameOverride(null); setLineRegistrationMessage(""); }}>{role === "student" ? "生徒本人" : role === "guardian" ? "保護者" : "本人・保護者で共有"}</button>)}
-        </div>
-      </fieldset>
       <label style={fieldStyle}>登録後に一覧へ表示する名前<input style={{ ...inputStyle, fontWeight: 700 }} disabled={linkingSender || !registrationRelation || !selectedStudent} value={registrationName} onChange={(event) => setRegistrationNameOverride(event.target.value)} placeholder="生徒と続柄を選ぶと名前が入ります" /></label>
       <label style={fieldStyle}>LINE登録の確認者名<input style={inputStyle} disabled={linkingSender} value={confirmedBy} onChange={(event) => onConfirmedByChange(event.target.value)} placeholder="確認した職員の名前" /></label>
       {!candidate.line_messages?.id && <p role="alert">確認に使うLINE本文が取得できません。画面を更新してください。</p>}
       <button type="button" style={buttonStyle} disabled={linkingSender || busy || registering || !senderLineUserId || !studentNumber || !registrationRelation || !registrationName.trim() || !confirmedBy.trim() || !candidate.line_messages?.id} onClick={() => void linkSenderToSelectedStudent()}>{linkingSender ? "登録中..." : "この内容で登録して一覧の名前を更新"}</button>
+      </>}
       {lineRegistrationMessage && <p role="status" style={{ margin: 0, fontWeight: 700 }}>{lineRegistrationMessage}</p>}
     </div>
 
