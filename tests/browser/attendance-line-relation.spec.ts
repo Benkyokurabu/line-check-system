@@ -31,13 +31,14 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
     return route.fulfill({ json: {} });
   });
   await page.goto("/attendance");
+  await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("変更前の職員");
   const registration = page.getByRole("button", { name: "生徒本人・保護者を登録", exact: true });
   await expect(registration).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await registration.click();
   await expect(page.getByText("生徒本人・保護者のLINE登録", { exact: true })).toBeVisible();
   await expect(page.getByText("2. 対象の生徒を選ぶ", { exact: true })).toBeVisible();
-  await expect(page.getByText("3. 表示名・確認者名を確認して登録", { exact: true })).toBeVisible();
+  await expect(page.getByText("3. 表示名を確認して登録", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
   await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "LINEへ送信", exact: true })).toBeVisible();
@@ -48,7 +49,8 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
   await expect(registration).toHaveAttribute("aria-expanded", "false");
   await registration.click();
   await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
-  await page.getByLabel("LINE登録の確認者名", { exact: true }).fill("試験職員");
+  await expect(page.getByLabel("LINE登録の確認者名", { exact: true })).toHaveCount(0);
+  await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("試験職員");
   return writes;
 }
 
@@ -58,6 +60,9 @@ for (const [label, relation, primary] of [["生徒本人", "student", true], ["�
     const alias = `本　続柄試験${relation === "student" ? "" : relation === "shared" ? "　生徒・保護者共有" : "　保護者"}`;
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect(page.getByLabel("登録後に一覧へ表示する名前")).toHaveValue(alias);
+    await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("");
+    await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
+    await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("試験職員");
     page.on("dialog", async (dialog) => { expect(dialog.message()).toContain(alias); await dialog.accept(); });
     await page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" }).click();
     await expect(page.getByText(`${alias} として登録しました。一覧の登録名も更新しました。`, { exact: true })).toBeVisible();

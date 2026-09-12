@@ -42,7 +42,10 @@ for (const entry of ['candidates', 'students']) test(`${entry} opens the same re
   await form.getByLabel('生徒を検索', { exact: true }).fill('試験二郎');
   await form.getByRole('button', { name: /UI-TWO/ }).click();
   await form.getByLabel('登録後に一覧へ表示する名前（試験一郎）', { exact: true }).fill('確認した管理名');
-  await form.getByLabel('LINE登録の確認者名').fill('確認職員');
+  if (entry === 'candidates') {
+    await expect(form.getByLabel('LINE登録の確認者名')).toHaveCount(0);
+    await page.getByRole('textbox', { name: '確認者名', exact: true }).fill('確認職員');
+  } else await form.getByLabel('LINE登録の確認者名').fill('確認職員');
   await form.getByRole('button', { name: '試験一郎と試験二郎の保護者です。', exact: true }).click();
   page.on('dialog', dialog => dialog.accept());
   await form.getByRole('button', { name: 'この内容で登録して一覧の名前を更新' }).click();

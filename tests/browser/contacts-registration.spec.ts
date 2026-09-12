@@ -45,7 +45,8 @@ for (const staff of [true, false]) test(`contact detail registers ${staff ? 'sta
     await choices.getByRole('button', { name: /^生徒本人$/ }).click();
     await page.getByLabel('生徒を検索').fill('試験生徒');
     await page.getByRole('button', { name: /TEST/ }).click();
-    await page.getByLabel('LINE登録の確認者名').fill('試験職員');
+    await expect(page.getByLabel('LINE登録の確認者名')).toHaveCount(0);
+    await page.getByLabel('操作するスタッフ名').fill('試験職員');
     await expect(page.getByRole('button', { name: 'この内容で登録して一覧の名前を更新', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: /担当の件/ }).click();
     await page.getByRole('button', { name: 'この内容で登録して一覧の名前を更新', exact: true }).click();

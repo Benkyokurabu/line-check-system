@@ -26,7 +26,8 @@ export function LineRegistrationForm(props: Props) {
   const [query, setQuery] = useState("");
   const [aliases, setAliases] = useState<Record<string, string>>({});
   const [staffName, setStaffName] = useState("");
-  const [operator, setOperator] = useState(props.confirmedBy ?? "");
+  const [localOperator, setLocalOperator] = useState("");
+  const operator = props.confirmedBy ?? localOperator;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -106,8 +107,8 @@ export function LineRegistrationForm(props: Props) {
         {selectedIds.filter(id => !students.some(s => s.student_number === id)).map(id => <button type="button" key={id} style={button} onClick={() => setSelectedIds(ids => ids.filter(value => value !== id))}>名簿にない選択候補を外す</button>)}
         {selected.map(s => <div key={s.student_number} style={{ padding: 10, background: "#eff8f3", borderRadius: 7, display: "grid", gap: 6 }}><strong>{studentRegistrationLabel(s)}</strong><button type="button" style={button} onClick={() => setSelectedIds(ids => ids.filter(id => id !== s.student_number))}>{s.student_name} を外す</button></div>)}
       </div>}
-      <div style={field}><strong>3. 表示名・確認者名を確認して登録</strong><small>登録すると、この一覧と連絡先管理の名前が更新されます。</small>
-        {!staff && <>{selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}<label style={field}>LINE登録の確認者名<input style={input} value={operator} onChange={e => { setOperator(e.target.value); props.onConfirmedByChange?.(e.target.value); }} /></label></>}
+      <div style={field}><strong>3. 表示名を確認して登録</strong><small>登録すると、この一覧と連絡先管理の名前が更新されます。</small>
+        {!staff && <>{selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}{props.confirmedBy === undefined ? <label style={field}>LINE登録の確認者名<input style={input} value={localOperator} onChange={e => setLocalOperator(e.target.value)} /></label> : !operator.trim() && <small>画面上部の確認者名・スタッフ名を入力してください。</small>}</>}
         <button type="button" style={primary} disabled={!canSave} onClick={() => void save()}>{saving ? "登録中..." : staff ? "先生・スタッフとして保存して一覧を更新" : "この内容で登録して一覧の名前を更新"}</button>
       </div>
     </fieldset>
