@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./home-dashboard.module.css";
 
 type Group = "all" | "student" | "lesson" | "communication" | "reservation" | "admin";
@@ -16,6 +16,7 @@ const groups: { id: Group; label: string; icon: string }[] = [
   { id: "admin", label: "設定・管理", icon: "sync" },
 ];
 const frequentLinks = ["/attendance", "/dashboard", "/students", "/karte"];
+const SURVEY_CONFIRMED_KEY = "bentan:2026-autumn-survey-confirmed";
 function Icon({ name }: { name: string }) {
   const paths: Record<string, React.ReactNode> = {
     home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v12h5v-7h4v7h5V9" /></>,
@@ -42,6 +43,24 @@ export default function HomeDashboard({
   const [group, setGroup] = useState<Group>("all");
   const [query, setQuery] = useState("");
   const [selectedSurveyTeacher, setSelectedSurveyTeacher] = useState<string | null>(null);
+  const [confirmedSurveys, setConfirmedSurveys] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(SURVEY_CONFIRMED_KEY) ?? "[]");
+      if (Array.isArray(saved) && saved.every(item => typeof item === "string")) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setConfirmedSurveys(saved);
+      }
+    } catch { /* Ignore invalid browser data and start with every item unconfirmed. */ }
+  }, []);
+  function confirmSurvey(notionUrl: string) {
+    setConfirmedSurveys(current => {
+      if (current.includes(notionUrl)) return current;
+      const next = [...current, notionUrl];
+      window.localStorage.setItem(SURVEY_CONFIRMED_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
   const normalized = query.normalize("NFKC").trim().toLocaleLowerCase("ja");
   const visible = items.filter(item => (group === "all" || item.group === group) &&
     (!normalized || `${item.title} ${item.description}`.normalize("NFKC").toLocaleLowerCase("ja").includes(normalized)));
@@ -90,20 +109,23 @@ export default function HomeDashboard({
               </div>
               {surveyError ? <p className={styles.surveyError} role="status">{surveyError}</p> : <>
                 <div className={styles.teacherButtons} aria-label="担任を選択">
-                  {surveyGroups.map(item => <button key={item.teacher} type="button" aria-pressed={selectedSurveyTeacher === item.teacher} onClick={() => setSelectedSurveyTeacher(item.teacher)}>
+                  {surveyGroups.map(item => <button key={item.teacher} type="button" aria-pressed={selectedSurveyTeacher === item.teacher} onClick={() => setSelectedSurveyTeacher(current => current === item.teacher ? null : item.teacher)}>
                     {item.teacher}先生 <span>{item.students.length}</span>
                   </button>)}
                 </div>
                 {selectedSurveyTeacher ? <div className={styles.surveyStudents}>
-                  <div className={styles.surveyListTitle}><strong>{selectedSurveyTeacher}先生の担当</strong><span>{surveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students.length ?? 0}名</span></div>
+                  <div className={styles.surveyListTitle}><strong>{selectedSurveyTeacher}先生の担当</strong><span>{surveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students.length ?? 0}名</span><button type="button" onClick={() => setSelectedSurveyTeacher(null)}>閉じる</button></div>
                   <ul>
-                    {(surveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students ?? []).map(student => <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
-                      <span className={styles.gradeBadge}>{student.grade}</span>
-                      <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>Notionで見る ↗</small></a>
-                      <button type="button" disabled title="現在は表示のみで、確認状態は保存されません">確認済み</button>
-                    </li>)}
+                    {(surveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students ?? []).map(student => {
+                      const confirmed = confirmedSurveys.includes(student.notionUrl);
+                      return <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
+                        <span className={styles.gradeBadge}>{student.grade}</span>
+                        <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>Notionで見る ↗</small></a>
+                        <button type="button" aria-pressed={confirmed} disabled={confirmed} onClick={() => confirmSurvey(student.notionUrl)}>{confirmed ? "確認済み" : "未確認"}</button>
+                      </li>;
+                    })}
                   </ul>
-                  <p className={styles.surveyNote}>「確認済み」は現在は表示のみです。クリックによる記録・Notion更新・通知はありません。</p>
+                  <p className={styles.surveyNote}>確認状態はこの端末のブラウザだけに保存されます。Notionの状態やほかの端末には反映されません。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶと、アンケートが届いている担当生徒を表示します。</p>}
               </>}
             </div>

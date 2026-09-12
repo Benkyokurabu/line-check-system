@@ -8,8 +8,21 @@ test("担任を選ぶと秋のアンケート対象生徒を表示する", async
   await page.getByRole("button", { name: "工藤先生 8" }).click();
   await expect(page.getByText("工藤先生の担当")).toBeVisible();
   await expect(page.getByRole("link", { name: /澤田青弥/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "確認済み" })).toHaveCount(8);
-  await expect(page.getByRole("button", { name: "確認済み" }).first()).toBeDisabled();
+  await expect(page.getByRole("button", { name: "未確認" })).toHaveCount(8);
+  await page.getByRole("button", { name: "未確認" }).first().click();
+  await expect(page.getByRole("button", { name: "確認済み" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "確認済み" })).toBeDisabled();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(page.getByText("工藤先生の担当")).not.toBeVisible();
+  await expect(page.getByText("先生を選ぶと、アンケートが届いている担当生徒を表示します。")).toBeVisible();
+
+  await page.getByRole("button", { name: "工藤先生 8" }).click();
+  await page.getByRole("button", { name: "工藤先生 8" }).click();
+  await expect(page.getByText("工藤先生の担当")).not.toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "工藤先生 8" }).click();
+  await expect(page.getByRole("button", { name: "確認済み" })).toHaveCount(1);
 });
 
 test("教室画面のヘッダーには勉たんを表示しない", async ({ page }) => {
