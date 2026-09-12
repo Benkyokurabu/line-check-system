@@ -97,7 +97,8 @@ async function service() {
 }
 try {
   const account=await rpc.initialize();
-  if(check) {console.log(JSON.stringify({...account,protocol:'stdio',ready:true}));}
+  const execution=await rpc.verifyExecution();
+  if(check) {console.log(JSON.stringify({...account,...execution,protocol:'stdio',ready:true}));}
   else {
     if(!fs.existsSync(path.join(cwd,'.git'))) throw new Error('Dedicated worktree missing');
     console.log('Bentan Codex worker started (private queue, no listening ports).');

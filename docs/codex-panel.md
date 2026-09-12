@@ -22,7 +22,8 @@ Codex自体の設定・利用枠・認証期限の影響を受ける。App Serve
 - SQL: `supabase/codex_panel_20260912.sql`
 - スキーマ検証（ロールバック）: `node scripts/apply-codex-panel-schema.mjs`
 - 本番適用: 同コマンドに `--apply`。既存工藤アカウントを所有者に設定する。
-- 認証疎通（回答生成なし）: `node scripts/codex-panel-worker.mjs --check`
+- 認証・実行疎通（回答生成なし）: `node scripts/codex-panel-worker.mjs --check`。Windowsサンドボックス内でNodeを起動してpackage.jsonを読み、対象リポジトリ名が一致することを確認する。workerはこの検証が成功するまでオンラインにしない。
+- Codex本体・Code Mode host・command runnerが揃った正式なインストールを使う。npm版の `vendor/.../bin/codex.exe` またはデスクトップ版のインストール先を検出する。`.codex/.sandbox-bin/codex.exe` は補助プログラムのないコピーのため使わない。
 - 実行用worktree: `.worktrees/codex-panel`。親リポジトリのmainから作成する。別リポジトリの `自習室予約システム/` は含まれない。そのリポジトリの修正はこの入口で自動対応できない。
 - 起動: `scripts/start-codex-panel.ps1`
 - 自動起動登録: `scripts/install-codex-panel-task.ps1`。Windowsタスク `BentanCodexPanel`、本人ログオン時・通常権限・非表示で起動。ログオン中のPCが必要。停止は同タスクの終了・無効化。

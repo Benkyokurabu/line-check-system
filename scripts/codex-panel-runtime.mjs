@@ -5,25 +5,48 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 
-export function codexExecutable() {
-  const candidates = [process.env.BENTAN_CODEX_BINARY,
-    path.join(os.homedir(), '.codex', '.sandbox-bin', 'codex.exe'),
-    path.join(process.env.APPDATA || '', 'npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/codex/codex.exe')];
-  return candidates.find(value => value && fs.existsSync(value)) || 'codex';
+export function isCompleteCodexInstallation(executable, exists = fs.existsSync) {
+  if (!executable || !exists(executable)) return false;
+  const bin=path.dirname(executable);
+  return exists(path.join(bin,'codex-code-mode-host.exe')) &&
+    (exists(path.join(bin,'codex-command-runner.exe')) || exists(path.join(bin,'..','codex-resources','codex-command-runner.exe')));
 }
-export function childEnvironment() {
+export function codexExecutable() {
+  const appData=process.env.APPDATA || path.join(os.homedir(),'AppData','Roaming');
+  const localData=process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local');
+  const candidates = [process.env.BENTAN_CODEX_BINARY,
+    path.join(appData,'npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe')];
+  const installations=path.join(localData,'OpenAI','Codex','bin');
+  if(fs.existsSync(installations)) {
+    const versions=fs.readdirSync(installations,{withFileTypes:true}).filter(entry=>entry.isDirectory())
+      .map(entry=>path.join(installations,entry.name)).sort((a,b)=>fs.statSync(b).mtimeMs-fs.statSync(a).mtimeMs);
+    candidates.push(...versions.map(dir=>path.join(dir,'codex.exe')));
+  }
+  // .sandbox-bin is a single-file execution copy, not an App Server installation.
+  const executable=candidates.find(value=>isCompleteCodexInstallation(value));
+  if(!executable) throw new Error('Complete Codex installation with code-mode host and command runner required');
+  return executable;
+}
+export function childEnvironment(executable) {
   const env = {};
   // Database credentials loaded by the worker must never be inherited by tools.
   for (const key of ['PATH','Path','PATHEXT','SystemRoot','SYSTEMROOT','WINDIR','COMSPEC','TEMP','TMP','USERPROFILE','HOME','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA','PROGRAMFILES','ProgramFiles','ProgramFiles(x86)','USERNAME','USERDOMAIN','PROCESSOR_ARCHITECTURE','NUMBER_OF_PROCESSORS']) {
     if (process.env[key]) env[key] = process.env[key];
   }
+  if(executable) {
+    const bin=path.dirname(executable);
+    const inherited=env.PATH || env.Path || '';
+    delete env.Path;
+    env.PATH=[bin,path.join(bin,'..','codex-path'),inherited].join(path.delimiter);
+  }
   return env;
 }
 export class CodexRPC extends EventEmitter {
   constructor(cwd) {
-    super(); this.sequence = 0; this.pending = new Map();
-    this.child = spawn(codexExecutable(), ['app-server','--listen','stdio://'], {
-      cwd, env: childEnvironment(), windowsHide: true, stdio: ['pipe','pipe','pipe'],
+    super(); this.sequence = 0; this.pending = new Map(); this.cwd=cwd;
+    const executable=codexExecutable();
+    this.child = spawn(executable, ['app-server','--listen','stdio://'], {
+      cwd, env: childEnvironment(executable), windowsHide: true, stdio: ['pipe','pipe','pipe'],
     });
     // Do not copy raw stderr (paths, tool output, and credentials) into application logs.
     this.child.stderr.resume();
@@ -56,6 +79,13 @@ export class CodexRPC extends EventEmitter {
     const account=await this.call('account/read',{refreshToken:false});
     if (!account.account || account.account.type!=='chatgpt') throw new Error('ChatGPT login required');
     return {authenticated:true,type:account.account.type};
+  }
+  async verifyExecution() {
+    const script="const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(p.name!=='line-check-system')throw Error('Wrong workspace');process.stdout.write('BENTAN_EXECUTION_OK');";
+    const result=await this.call('command/exec',{command:[process.execPath,'-e',script],cwd:this.cwd,
+      sandboxPolicy:{type:'workspaceWrite',writableRoots:[this.cwd],networkAccess:false},timeoutMs:15000});
+    if(result.exitCode!==0 || result.stdout!=='BENTAN_EXECUTION_OK') throw new Error('Codex command execution preflight failed');
+    return {executionReady:true};
   }
   close() {
     if(this.closed) return; this.closed=true;
