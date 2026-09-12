@@ -31,15 +31,20 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
     return route.fulfill({ json: {} });
   });
   await page.goto("/attendance");
-  const registration = page.getByRole("button", { name: "表示名がまだ確定していない場合（LINE登録）", exact: true });
+  const registration = page.getByRole("button", { name: "生徒本人・保護者を登録", exact: true });
   await expect(registration).toHaveAttribute("aria-expanded", "false");
-  await page.getByRole("button", { name: "対応する", exact: true }).click();
-  await expect(page.getByRole("group", { name: "LINEの利用者・続柄" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
+  await registration.click();
+  await expect(page.getByText("生徒本人・保護者のLINE登録", { exact: true })).toBeVisible();
+  await expect(page.getByText("2. 対象の生徒を選ぶ", { exact: true })).toBeVisible();
+  await expect(page.getByText("3. 表示名・確認者名を確認して登録", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
+  await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "LINEへ送信", exact: true })).toBeVisible();
   await registration.click();
   await expect(registration).toHaveAttribute("aria-expanded", "true");
   await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
-  await expect(page.getByRole("group", { name: "LINEの利用者・続柄" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await expect(registration).toHaveAttribute("aria-expanded", "false");
   await registration.click();
   await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
@@ -90,7 +95,7 @@ test("missing evidence cannot register even with student, role and operator", as
 
 test("staff is a peer choice and registers without a student, refreshing name and staff tag", async ({ page }) => {
   const writes = await setup(page, { staff: true });
-  const choices = page.getByRole("group", { name: "LINEの利用者・続柄" });
+  const choices = page.getByRole("group", { name: "1. LINEの利用者を選ぶ" });
   for (const role of ["生徒本人", "保護者", "先生・スタッフ", "本人・保護者で共有"]) await expect(choices.getByRole("button", { name: role, exact: true })).toBeVisible();
   await choices.getByRole("button", { name: "先生・スタッフ", exact: true }).click();
   await expect(page.getByRole("button", { name: "先生・スタッフとして保存して一覧を更新" })).toBeDisabled();

@@ -1664,9 +1664,12 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
         <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{showAutoPeriod ? "期間の連絡" : `${items.length}行`} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
         <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
-        <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || linkingSender} aria-expanded={expanded && registrationOpen} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>表示名がまだ確定していない場合（LINE登録）</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
+    </div>
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+      <button type="button" style={secondaryButtonStyle} disabled={!senderLineUserId || linkingSender} aria-expanded={expanded && registrationOpen} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>生徒本人・保護者を登録</button>
+      <small style={{ color: "var(--muted)" }}>LINEの表示名が未確定・登録内容を修正したいとき</small>
     </div>
     {cardMessage && !showAutoPeriod && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{showAutoPeriod && periodProposal ? `${periodProposal.start} 〜 ${periodProposal.end} / ${eventTypeLabel(periodProposal.eventType)}` : <>{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</>}</div>
@@ -1681,10 +1684,11 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <ReplyHistory replies={candidate.reply_messages ?? []} />
     {registrationOpen && <div ref={registrationRef} style={{ border: "2px solid #0891b2", borderRadius: 8, padding: 14, margin: "12px 0", display: "grid", gap: 12 }}>
+      <strong style={{ fontSize: 17 }}>生徒本人・保護者のLINE登録</strong>
       <p style={{ margin: 0, fontSize: 13 }}>表示名がまだ確定していない場合や、登録内容を修正したい場合のみ設定してください。毎回の確認・登録は不要です。</p>
       <button type="button" style={ghostButtonStyle} disabled={linkingSender} onClick={() => setRegistrationOpen(false)}>LINE登録を閉じる</button>
       <fieldset disabled={linkingSender} style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ fontWeight: 700, marginBottom: 8 }}>LINEの利用者・続柄</legend>
+        <legend style={{ fontWeight: 700, marginBottom: 8 }}>1. LINEの利用者を選ぶ</legend>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
           {(["student", "guardian", "staff", "shared"] as const).map((role) => {
             const selected = role === "staff" ? registrationMode === "staff" : registrationMode === "student" && registrationRelation === role;
@@ -1699,12 +1703,14 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         <small style={{ color: "var(--muted)" }}>職員ログイン用のアカウント作成・権限付与は行いません。</small>
         <button type="button" style={buttonStyle} disabled={linkingSender || !senderLineUserId || !staffRegistrationName.trim()} onClick={() => void registerStaffContact()}>{linkingSender ? "登録中..." : "先生・スタッフとして保存して一覧を更新"}</button>
       </> : <>
-      <strong>このLINEの生徒・続柄を登録</strong>
-      <p style={{ margin: 0, fontSize: 13 }}>上のLINE本文で氏名と続柄を確認し、生徒を選んでください。登録すると、この一覧や連絡先管理の登録名も更新されます。</p>
+      <strong>2. 対象の生徒を選ぶ</strong>
+      <p style={{ margin: 0, fontSize: 13 }}>上のLINE本文で氏名と続柄を確認してください。保護者のLINEの場合も、お子さまの名前を選びます。</p>
       {candidate.student_selection_required && <p style={{ color: "#9a3412", margin: 0, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</p>}
       <StudentPicker label="連絡した生徒" students={studentOptions} value={studentNumber} query={studentQuery} onQueryChange={setStudentQuery} onChange={selectStudent} candidates={suggestions} disabled={busy || registering || linkingSender} />
       <label style={fieldStyle}>担任<div style={readonlyStyle}>{selectedStudent?.homeroom_teacher ?? "未設定"}</div></label>
 
+      <strong>3. 表示名・確認者名を確認して登録</strong>
+      <p style={{ margin: 0, fontSize: 13 }}>登録すると、この一覧と連絡先管理の名前が更新されます。</p>
       <label style={fieldStyle}>登録後に一覧へ表示する名前<input style={{ ...inputStyle, fontWeight: 700 }} disabled={linkingSender || !registrationRelation || !selectedStudent} value={registrationName} onChange={(event) => setRegistrationNameOverride(event.target.value)} placeholder="生徒と続柄を選ぶと名前が入ります" /></label>
       <label style={fieldStyle}>LINE登録の確認者名<input style={inputStyle} disabled={linkingSender} value={confirmedBy} onChange={(event) => onConfirmedByChange(event.target.value)} placeholder="確認した職員の名前" /></label>
       {!candidate.line_messages?.id && <p role="alert">確認に使うLINE本文が取得できません。画面を更新してください。</p>}
