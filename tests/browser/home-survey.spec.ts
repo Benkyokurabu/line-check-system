@@ -30,6 +30,19 @@ test("確認状態の切替・行の非表示・提出日時の古い順表示�
   await page.reload();
   await page.getByRole("button", { name: "工藤先生 7" }).click();
   await expect(page.getByRole("list", { name: "工藤先生のアンケート回答" }).getByText("澤田青弥")).not.toBeVisible();
+
+  await page.getByRole("button", { name: "非表示一覧 1" }).click();
+  const hiddenList = page.getByRole("list", { name: "非表示にしたアンケート回答" });
+  const hiddenSawadaRow = hiddenList.getByRole("listitem").filter({ hasText: "澤田青弥" });
+  await expect(hiddenSawadaRow).toContainText("工藤先生");
+  await hiddenSawadaRow.getByRole("button", { name: "この行を戻す" }).click();
+  await expect(page.getByRole("button", { name: "工藤先生 8" })).toBeVisible();
+  await expect(page.getByText("表示中 31件")).toBeVisible();
+  await expect(page.getByRole("button", { name: /非表示一覧/ })).not.toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "工藤先生 8" }).click();
+  await expect(page.getByRole("list", { name: "工藤先生のアンケート回答" }).getByText("澤田青弥")).toBeVisible();
 });
 
 test("更新するボタンでNotionから受け取った一覧に差し替える", async ({ page }) => {

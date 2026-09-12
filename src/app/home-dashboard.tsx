@@ -58,6 +58,7 @@ export default function HomeDashboard({
   const [surveyGroups, setSurveyGroups] = useState(initialSurveyGroups);
   const [confirmedSurveys, setConfirmedSurveys] = useState<string[]>([]);
   const [hiddenSurveys, setHiddenSurveys] = useState<string[]>([]);
+  const [showHiddenSurveys, setShowHiddenSurveys] = useState(false);
   const [surveyRefreshing, setSurveyRefreshing] = useState(false);
   const [surveyRefreshMessage, setSurveyRefreshMessage] = useState<string | null>(null);
   useEffect(() => {
@@ -88,6 +89,17 @@ export default function HomeDashboard({
       return next;
     });
   }
+  function restoreSurvey(notionUrl: string) {
+    const next = hiddenSurveys.filter(item => item !== notionUrl);
+    setHiddenSurveys(next);
+    window.localStorage.setItem(SURVEY_HIDDEN_KEY, JSON.stringify(next));
+    if (next.length === 0) setShowHiddenSurveys(false);
+  }
+  function restoreAllSurveys() {
+    setHiddenSurveys([]);
+    window.localStorage.setItem(SURVEY_HIDDEN_KEY, "[]");
+    setShowHiddenSurveys(false);
+  }
   async function refreshSurveys() {
     setSurveyRefreshing(true);
     setSurveyRefreshMessage(null);
@@ -109,6 +121,10 @@ export default function HomeDashboard({
       .filter(student => !hiddenSurveys.includes(student.notionUrl))
       .sort((left, right) => left.submittedAt.localeCompare(right.submittedAt) || left.name.localeCompare(right.name, "ja")),
   }));
+  const hiddenSurveyRows = surveyGroups.flatMap(item => item.students
+    .filter(student => hiddenSurveys.includes(student.notionUrl))
+    .map(student => ({ ...student, teacher: item.teacher })))
+    .sort((left, right) => left.submittedAt.localeCompare(right.submittedAt) || left.name.localeCompare(right.name, "ja"));
   const normalized = query.normalize("NFKC").trim().toLocaleLowerCase("ja");
   const visible = items.filter(item => (group === "all" || item.group === group) &&
     (!normalized || `${item.title} ${item.description}`.normalize("NFKC").toLocaleLowerCase("ja").includes(normalized)));
@@ -157,13 +173,23 @@ export default function HomeDashboard({
               </div>
               {surveyError ? <p className={styles.surveyError} role="status">{surveyError}</p> : <>
                 <div className={styles.teacherButtons} aria-label="担任を選択">
-                  {visibleSurveyGroups.map(item => <button key={item.teacher} type="button" aria-pressed={selectedSurveyTeacher === item.teacher} onClick={() => setSelectedSurveyTeacher(current => current === item.teacher ? null : item.teacher)}>
+                  {visibleSurveyGroups.map(item => <button key={item.teacher} type="button" aria-pressed={!showHiddenSurveys && selectedSurveyTeacher === item.teacher} onClick={() => { setShowHiddenSurveys(false); setSelectedSurveyTeacher(current => current === item.teacher ? null : item.teacher); }}>
                     {item.teacher}先生 <span>{item.students.length}</span>
                   </button>)}
+                  {hiddenSurveyRows.length > 0 && <button className={styles.surveyHiddenListButton} type="button" aria-pressed={showHiddenSurveys} onClick={() => { setSelectedSurveyTeacher(null); setShowHiddenSurveys(current => !current); }}>非表示一覧 <span>{hiddenSurveyRows.length}</span></button>}
                   <button className={styles.surveyRefreshButton} type="button" disabled={surveyRefreshing} onClick={refreshSurveys}>{surveyRefreshing ? "更新中…" : "更新する"}</button>
                 </div>
                 {surveyRefreshMessage && <p className={styles.surveyRefreshMessage} role="status">{surveyRefreshMessage}</p>}
-                {selectedSurveyTeacher ? <div className={styles.surveyStudents}>
+                {showHiddenSurveys ? <div className={styles.surveyStudents}>
+                  <div className={styles.surveyListTitle}><strong>非表示にした回答</strong><span>{hiddenSurveyRows.length}名</span><button type="button" onClick={restoreAllSurveys}>すべて戻す</button><button type="button" onClick={() => setShowHiddenSurveys(false)}>閉じる</button></div>
+                  <ul aria-label="非表示にしたアンケート回答">
+                    {hiddenSurveyRows.map(student => <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
+                      <span className={styles.gradeBadge}>{student.grade}</span>
+                      <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>{student.teacher}先生・{formatSubmittedAt(student.submittedAt)}</small><small>Notionで見る ↗</small></a>
+                      <div className={styles.surveyActions}><button className={styles.surveyRestoreButton} type="button" onClick={() => restoreSurvey(student.notionUrl)}>この行を戻す</button></div>
+                    </li>)}
+                  </ul>
+                </div> : selectedSurveyTeacher ? <div className={styles.surveyStudents}>
                   <div className={styles.surveyListTitle}><strong>{selectedSurveyTeacher}先生の担当</strong><span>{visibleSurveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students.length ?? 0}名</span><button type="button" onClick={() => setSelectedSurveyTeacher(null)}>閉じる</button></div>
                   <ul aria-label={`${selectedSurveyTeacher}先生のアンケート回答`}>
                     {(visibleSurveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students ?? []).map(student => {

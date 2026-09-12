@@ -120,6 +120,8 @@
 .teacherButtons button[aria-pressed="true"] { border-color: var(--home-accent); background: var(--home-accent); color: #fff; }
 .teacherButtons button span { display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-left: 5px; padding: 0 5px; border-radius: 10px; background: #e3eaf0; color: #334b62; font-size: 11px; }
 .teacherButtons button[aria-pressed="true"] span { background: #fff; color: var(--home-accent); }
+.teacherButtons .surveyHiddenListButton { border-color: #c8a76d; background: #fff9ed; color: #72531f; }
+.teacherButtons .surveyHiddenListButton:hover { border-color: #a97c30; background: #fff3d7; }
 .teacherButtons .surveyRefreshButton { margin-left: auto; border-color: #9eb4c6; background: #fff; color: #334b62; }
 .teacherButtons .surveyRefreshButton:hover { border-color: var(--home-accent); color: var(--home-accent); background: #eef7f4; }
 .teacherButtons .surveyRefreshButton:disabled { cursor: wait; opacity: .65; }
@@ -145,6 +147,8 @@
 .surveyStatusButton[aria-pressed="true"] { border-color: #8fc7b4; background: #e6f4ef; color: #125f58; }
 .surveyHideButton { border: 1px solid #d5dde5; background: #fff; color: #52677a; }
 .surveyHideButton:hover { border-color: #99a9b8; background: #f1f4f7; color: #263e54; }
+.surveyRestoreButton { border: 1px solid #8fc7b4; background: #e6f4ef; color: #125f58; }
+.surveyRestoreButton:hover { border-color: #569c84; background: #d8eee5; }
 .surveyNote { margin: 10px 0 0; color: var(--home-muted); font-size: 11px; line-height: 1.7; }
 .quickLinks a { display: flex; align-items: center; gap: 10px; padding: 18px 14px; border: 1px solid #c8e1d8; border-radius: 10px; background: #e6f4ef; color: #125f58; font-size: 13px; font-weight: 600; }
 .quickLinks a span:last-child { margin-left: auto; }
