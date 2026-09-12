@@ -1,4 +1,5 @@
 "use client";
+import { LineRegistrationForm } from "@/app/LineRegistrationForm";
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
@@ -6,12 +7,9 @@ import styles from "./contacts.module.css";
 
 import { parseLineAliasCsv } from "@/lib/line-alias-import.mjs";
 import {
-  buildLineContactAlias,
   classifyLineContact,
   relationLabel,
   studentInstructionTypeLabel,
-  studentRegistrationLabel,
-  studentRegistrationSearchText,
 } from "@/lib/line-contact-registration.mjs";
 
 type RosterImportFile = { file: string; status?: string };
@@ -55,15 +53,6 @@ type ContactDetail = {
   identity_evidence: { detected_message_id: string | null; evidence_text: string; evidence_at: string | null; parsed_student_name: string | null; relation: string; review_status: string } | null;
   registration_history: { id: string; student_number: string | null; action: string; relation: string | null; alias_name: string | null; performed_by: string; source: string; created_at: string; evidence_message_id: string | null }[];
 };
-type Student = {
-  student_number: string;
-  student_name: string;
-  grade: string;
-  campus: string | null;
-  homeroom_teacher: string | null;
-  school_name: string | null;
-  instruction_type: string | null;
-};
 type ContactTab = "pending" | "system_registered" | "other" | "all";
 
 type AliasImportStatus = "insert" | "same_existing" | "different_existing" | "conflict" | "unmatched";
@@ -99,7 +88,6 @@ export default function ContactsPage() {
   const [editValue, setEditValue] = useState("");
   const [staffRegistrationMode, setStaffRegistrationMode] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [staffRegistrationId, setStaffRegistrationId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupValue, setEditGroupValue] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
@@ -114,14 +102,7 @@ export default function ContactsPage() {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [studentQuery, setStudentQuery] = useState("");
-  const [selectedStudentNumber, setSelectedStudentNumber] = useState("");
-  const [selectedRelation, setSelectedRelation] = useState("guardian");
-  const [selectedAliasName, setSelectedAliasName] = useState("");
-  const [selectedEvidenceMessageId, setSelectedEvidenceMessageId] = useState("");
   const [operatorName, setOperatorName] = useState("");
-  const [verificationSaving, setVerificationSaving] = useState(false);
   const [verificationMsg, setVerificationMsg] = useState<string | null>(null);
   const [helperSyncing, setHelperSyncing] = useState(false);
 
@@ -176,44 +157,37 @@ export default function ContactsPage() {
   function startEdit(c: Contact) {
     setEditingId(c.line_user_id);
     setEditValue(c.alias_name ?? c.display_name ?? "");
-    setStaffRegistrationId(null);
   }
 
   function startStaffRegistration(c: Contact) {
-    setSaveError(null);
-    setEditingId(c.line_user_id);
-    setEditValue(c.alias_name ?? c.display_name ?? "");
-    setStaffRegistrationId(c.line_user_id);
+    void openContactDetail({ ...c, group_name: "スタッフ" });
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditValue("");
-    setStaffRegistrationId(null);
   }
 
   async function saveAlias(userId: string) {
     const trimmed = editValue.trim();
     if (!trimmed || saving === userId) return;
     setSaveError(null);
-    const registerAsStaff = staffRegistrationId === userId;
     setSaving(userId);
     try {
       const response = await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(registerAsStaff ? { alias_name: trimmed, group_name: "スタッフ" } : { alias_name: trimmed }),
+        body: JSON.stringify({ alias_name: trimmed }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? "登録名を保存できませんでした");
       setContacts((prev) =>
         prev.map((c) =>
-          c.line_user_id === userId ? { ...c, alias_name: trimmed, group_name: registerAsStaff ? "スタッフ" : c.group_name } : c,
+          c.line_user_id === userId ? { ...c, alias_name: trimmed } : c,
         ),
       );
       setEditingId(null);
-      setStaffRegistrationId(null);
-    } catch (error) {
+      } catch (error) {
       setSaveError(error instanceof Error ? error.message : "登録名を保存できませんでした");
     } finally {
       setSaving(null);
@@ -437,95 +411,14 @@ export default function ContactsPage() {
   }
 
   async function openContactDetail(contact: Contact) {
-    setSelectedContact(contact);
-    setContactDetail(null);
-    setVerificationMsg(null);
-    setDetailLoading(true);
+    setSelectedContact(contact); setContactDetail(null); setDetailLoading(true); setVerificationMsg(null);
     try {
-      const [detailResponse, studentsResponse] = await Promise.all([
-        fetch(`/api/admin/contacts/${encodeURIComponent(contact.line_user_id)}/messages?limit=40`),
-        students.length > 0 ? Promise.resolve(null) : fetch("/api/attendance/students"),
-      ]);
-      const detailBody = await detailResponse.json().catch(() => ({}));
-      if (!detailResponse.ok) throw new Error(detailBody.error ?? "LINEメッセージを取得できませんでした");
-      const loadedStudents = studentsResponse
-        ? ((await studentsResponse.json().catch(() => ({}))).students ?? []) as Student[]
-        : students;
-      if (studentsResponse && !studentsResponse.ok) throw new Error("生徒一覧を取得できませんでした");
-      if (studentsResponse) setStudents(loadedStudents);
-      setContactDetail(detailBody as ContactDetail);
-      const evidence = (detailBody as ContactDetail).identity_evidence;
-      setSelectedEvidenceMessageId(evidence?.detected_message_id ?? "");
-      const initialRelation = contact.group_name === "スタッフ" ? "staff" : evidence?.relation && evidence.relation !== "unknown" ? evidence.relation : "guardian";
-      setSelectedRelation(initialRelation);
-      setStudentQuery(evidence?.parsed_student_name ?? "");
-      const normalizedEvidenceName = (evidence?.parsed_student_name ?? "").normalize("NFKC").replace(/[\s　]/g, "");
-      const match = loadedStudents.find((student) => student.student_name.normalize("NFKC").replace(/[\s　]/g, "") === normalizedEvidenceName);
-      setSelectedStudentNumber(match?.student_number ?? "");
-      setSelectedAliasName(initialRelation === "staff" ? contact.alias_name ?? "" : match ? buildLineContactAlias(match, initialRelation) : "");
-    } catch (error) {
-      setVerificationMsg(error instanceof Error ? error.message : String(error));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-
-  async function saveSelectedStaffContact() {
-    if (!selectedContact || verificationSaving || !selectedAliasName.trim()) return;
-    const aliasName = selectedAliasName.trim();
-    if (!window.confirm(`LINE名「${selectedContact.display_name ?? "未取得"}」を先生・スタッフとして登録します。\n登録名：${aliasName}\nグループ：スタッフ`)) return;
-    setVerificationSaving(true);
-    setVerificationMsg("先生・スタッフとして登録しています...");
-    try {
-      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(selectedContact.line_user_id)}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alias_name: aliasName, group_name: "スタッフ" }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "先生・スタッフの登録に失敗しました");
-      await fetchContacts();
-      setContactTab("all");
-      setSelectedContact({ ...selectedContact, alias_name: aliasName, group_name: "スタッフ" });
-      setVerificationMsg(`${aliasName} を先生・スタッフとして登録しました。一覧の登録名とグループを更新しました。`);
-    } catch (error) {
-      setVerificationMsg(error instanceof Error ? error.message : String(error));
-    } finally { setVerificationSaving(false); }
-  }
-
-  async function verifySelectedContact() {
-    if (!selectedContact || !contactDetail) return;
-    const student = students.find((row) => row.student_number === selectedStudentNumber);
-    if (!operatorName.trim()) { setVerificationMsg("確認者名を入力してください。"); return; }
-    if (!student) { setVerificationMsg("登録する生徒を選択してください。"); return; }
-    if (!selectedEvidenceMessageId) { setVerificationMsg("確認に使ったLINEメッセージを選択してください。"); return; }
-    const aliasName = selectedAliasName.trim();
-    if (!aliasName) { setVerificationMsg("LINE連絡先の登録名を入力してください。"); return; }
-    if (!window.confirm(`LINEメッセージを確認済みとして、\n${studentRegistrationLabel(student)}\n続柄：${relationLabel(selectedRelation)}\n登録名「${aliasName}」で登録します。\n\n確認者: ${operatorName.trim()}`)) return;
-    setVerificationSaving(true);
-    setVerificationMsg("登録しています...");
-    try {
-      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(selectedContact.line_user_id)}/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targets: [{ student_number: student.student_number, relation: selectedRelation, alias_name: aliasName, is_primary: selectedRelation === "student" }],
-          friend_display_name: selectedContact.display_name,
-          verified_by: operatorName.trim(),
-          evidence_message_id: selectedEvidenceMessageId,
-          source: "contacts_review",
-        }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "登録に失敗しました");
-      await fetchContacts();
-      setContactTab("system_registered");
-      await openContactDetail({ ...selectedContact, alias_name: aliasName, system_verified: true, registration_state: "system_registered" });
-      setVerificationMsg(`${aliasName}として本人確認済みに登録しました。`);
-    } catch (error) {
-      setVerificationMsg(error instanceof Error ? error.message : String(error));
-    } finally {
-      setVerificationSaving(false);
-    }
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(contact.line_user_id)}/messages`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "メッセージを取得できませんでした。");
+      setContactDetail(data);
+    } catch (error) { setVerificationMsg(error instanceof Error ? error.message : "読み込みに失敗しました。"); }
+    finally { setDetailLoading(false); }
   }
 
   const tabCounts = contacts.reduce((counts, contact) => {
@@ -545,13 +438,6 @@ export default function ContactsPage() {
       c.line_user_id.toLowerCase().includes(q)
     );
   });
-  const selectedStudent = students.find((student) => student.student_number === selectedStudentNumber) ?? null;
-  const normalizedStudentQuery = studentQuery.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
-  const matchingStudents = students.filter((student) => {
-    if (!normalizedStudentQuery) return false;
-    const haystack = studentRegistrationSearchText(student);
-    return haystack.includes(normalizedStudentQuery);
-  }).slice(0, 8);
   return (
     <div className={`shell ${styles.page}`} style={{ maxWidth: 1280 }}>
       <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -765,77 +651,7 @@ export default function ContactsPage() {
           </div>
           {detailLoading ? <p style={{ color: "var(--muted)" }}>メッセージを読み込んでいます...</p> : contactDetail && (
             <>
-              <div style={{ display: "grid", gap: 6 }}>
-                <strong style={{ color: "#155e75" }}>① 誰からのLINEかをメッセージで確認</strong>
-                <span style={{ color: "var(--muted)", fontSize: "0.76rem" }}>登録根拠にする受信メッセージを1つ選んでください。名前や続柄が判断できない場合は登録しません。</span>
-                <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gap: 7, padding: 2 }}>
-                  {contactDetail.messages.map((message) => {
-                    const selectable = message.direction === "inbound" && message.message_type === "text" && Boolean(message.text?.trim());
-                    const selected = selectedEvidenceMessageId === message.id;
-                    return <button key={message.id} type="button" disabled={!selectable} onClick={() => selectable && setSelectedEvidenceMessageId(message.id)} style={{ border: selected ? "3px solid #0891b2" : "1px solid var(--line)", borderRadius: 7, padding: 10, textAlign: "left", background: message.direction === "inbound" ? (selected ? "#ecfeff" : "white") : "#f7f7f4", cursor: selectable ? "pointer" : "default", opacity: selectable ? 1 : 0.72 }}>
-                      <span style={{ display: "block", color: "var(--muted)", fontSize: "0.7rem", marginBottom: 4 }}>{message.direction === "inbound" ? "相手から受信" : `教室から送信${message.sent_by ? `（${message.sent_by}）` : ""}`} / {formatDateTime(message.received_at ?? message.created_at)}{selected ? " / 登録根拠に選択中" : ""}</span>
-                      <span style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{message.text ?? `（${message.message_type}）`}</span>
-                    </button>;
-                  })}
-                  {contactDetail.messages.length === 0 && <div style={{ padding: 12, color: "#b42318" }}>確認できるLINEメッセージがありません。この連絡先は本人確認済みにできません。</div>}
-                </div>
-              </div>
-
-              {!selectedContact.system_verified && <div style={{ display: "grid", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-                <strong>②〜④ 登録内容を選択</strong>
-                <fieldset disabled={verificationSaving} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12 }}>
-                  <legend style={{ fontWeight: 700 }}>② このLINEを誰の連絡先として登録しますか？</legend>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                    {[
-                      { value: "student", label: "生徒本人", description: "生徒自身が使っているLINE" },
-                      { value: "guardian", label: "保護者", description: "お子さまの連絡に使うLINE" },
-                      { value: "staff", label: "先生・スタッフ", description: "先生・スタッフが使うLINE" },
-                      { value: "shared", label: "本人・保護者で共有", description: "親子で同じLINEを使っている" },
-                    ].map((role) => {
-                      const active = role.value === "guardian" ? ["mother", "father", "guardian", "family"].includes(selectedRelation) : selectedRelation === role.value;
-                      return <button key={role.value} type="button" aria-pressed={active} onClick={() => { setSelectedRelation(role.value); setSelectedAliasName(role.value === "staff" ? (selectedContact.group_name === "スタッフ" ? selectedContact.alias_name ?? "" : "") : selectedStudent ? buildLineContactAlias(selectedStudent, role.value) : ""); setVerificationMsg(null); }} style={{ ...(active ? btnSave : btnEdit), padding: 12, textAlign: "left" }}>
-                        <strong style={{ display: "block" }}>{role.label}</strong>
-                        <span style={{ display: "block", fontSize: "0.76rem", marginTop: 5 }}>{role.description}</span>
-                      </button>;
-                    })}
-                  </div>
-                  {["mother", "father", "guardian", "family"].includes(selectedRelation) && <label style={{ display: "grid", gap: 5, marginTop: 10 }}>保護者の続柄
-                    <select style={inputStyle} value={selectedRelation} onChange={(event) => { const relation = event.target.value; setSelectedRelation(relation); if (selectedStudent) setSelectedAliasName(buildLineContactAlias(selectedStudent, relation)); }}>
-                      <option value="guardian">保護者</option><option value="mother">母</option><option value="father">父</option><option value="family">家族</option>
-                    </select>
-                  </label>}
-                </fieldset>
-                {selectedRelation !== "staff" && <>
-                <div style={{ padding: "9px 11px", borderRadius: 7, background: "#eff6ff", color: "#1e3a8a", fontSize: "0.8rem", lineHeight: 1.6 }}>
-                  高校生・個別指導生も同じ名簿から登録できます。LINEメッセージの氏名と、学年・授業形態・校舎・学校・生徒番号を照合してください。
-                </div>
-                <label style={{ display: "grid", gap: 5 }}>③ 生徒を検索
-                  <input style={inputStyle} value={studentQuery} onChange={(event) => { setStudentQuery(event.target.value); setSelectedStudentNumber(""); }} placeholder="氏名・高3・個別ほか・学校名・生徒番号など" />
-                </label>
-                {matchingStudents.length > 0 && <div style={{ display: "grid", gap: 7 }}>
-                  {matchingStudents.map((student) => <button key={student.student_number} type="button" onClick={() => { setSelectedStudentNumber(student.student_number); setStudentQuery(student.student_name); setSelectedAliasName(buildLineContactAlias(student, selectedRelation)); }} style={{ ...(selectedStudentNumber === student.student_number ? btnSave : btnEdit), padding: "9px 11px", textAlign: "left", lineHeight: 1.5 }}>{studentRegistrationLabel(student)}</button>)}
-                </div>}
-                {studentQuery && matchingStudents.length === 0 && !selectedStudent && <span style={{ color: "#b42318", fontSize: "0.8rem", lineHeight: 1.5 }}>該当する生徒が見つかりません。誤って別の生徒へ登録せず、Notion生徒情報DBの状態・氏名・学籍番号を確認して名簿同期してください。</span>}
-                {selectedStudent && <div style={{ padding: "10px 12px", border: "2px solid #16a34a", borderRadius: 7, background: "#f0fdf4", display: "grid", gap: 3 }}>
-                  <strong style={{ color: "#166534" }}>選択中：{selectedStudent.grade} {selectedStudent.student_name}</strong>
-                  <span style={{ fontSize: "0.78rem", color: "#365544" }}>{studentInstructionTypeLabel(selectedStudent.instruction_type)} / {selectedStudent.campus || "校舎未設定"} / {selectedStudent.school_name || "学校未設定"} / 生徒番号 {selectedStudent.student_number}</span>
-                  {!selectedStudent.instruction_type && <span style={{ color: "#b45309", fontSize: "0.75rem", fontWeight: 700 }}>授業形態が未設定です。本人確認はできますが、Notionで「集団・個別ほか・併用」を設定してください。</span>}
-                </div>}
-                </>}
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
-                  <label style={{ display: "grid", gap: 5 }}>④ LINE連絡先の登録名（自由入力）
-                    <input style={{ ...inputStyle, fontWeight: 700 }} value={selectedAliasName} onChange={(event) => setSelectedAliasName(event.target.value)} disabled={verificationSaving || (selectedRelation !== "staff" && !selectedStudent)} placeholder={selectedRelation === "staff" ? "例：吉川先生" : selectedStudent ? "例: 本　山田花子　母" : "先に生徒を選択してください"} />
-                    <small style={{ color: "var(--muted)", fontWeight: 400 }}>誰からのLINEかを識別するための管理用の名前です。教室の欠席・遅刻一覧には生徒名が表示されます。</small>
-                  </label>
-                </div>
-                {selectedRelation === "staff" ? <>
-                  <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>先生・スタッフの名前で「スタッフ」グループへ登録します。職員ログインのアカウントや権限は作成しません。</span>
-                  <button type="button" onClick={() => void saveSelectedStaffContact()} disabled={verificationSaving || !selectedAliasName.trim()} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>{verificationSaving ? "登録中..." : "先生・スタッフとして登録して一覧を更新"}</button>
-                </> : <button type="button" onClick={() => void verifySelectedContact()} disabled={verificationSaving || !operatorName.trim() || !selectedStudent || !selectedEvidenceMessageId} style={{ ...btnSave, padding: "11px 16px", justifySelf: "start" }}>
-                  {verificationSaving ? "登録中..." : `${relationLabel(selectedRelation)}として確認済みに登録`}
-                </button>}
-              </div>}
+              <LineRegistrationForm key={selectedContact.line_user_id} userId={selectedContact.line_user_id} displayName={selectedContact.display_name} initialRelation={selectedContact.group_name === "スタッフ" ? "staff" : ""} confirmedBy={operatorName} onConfirmedByChange={updateOperatorName} source="contacts_review" onClose={() => { setSelectedContact(null); setContactDetail(null); }} onSaved={async (result) => { await fetchContacts(); setSelectedContact(current => current ? { ...current, alias_name: result.alias } : null); const response = await fetch(`/api/admin/contacts/${encodeURIComponent(selectedContact.line_user_id)}/messages`); if (!response.ok) throw new Error("登録履歴の更新に失敗しました"); setContactDetail(await response.json()); }} />
 
               {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
                 <strong>現在の生徒紐付け</strong>
@@ -970,7 +786,7 @@ export default function ContactsPage() {
                   <td data-label="操作" style={td}>
                     <div className={styles.actions}>
                       <button onClick={() => void openContactDetail(c)} disabled={detailLoading && selectedContact?.line_user_id === c.line_user_id} style={classifyLineContact(c) === "pending" ? btnSave : btnEdit}>
-                        {classifyLineContact(c) === "pending" ? "メッセージを確認して登録" : "メッセージ・履歴"}
+                        {classifyLineContact(c) === "pending" ? "生徒本人・保護者を登録" : "メッセージ・履歴"}
                       </button>
                       {editingId === c.line_user_id ? (
                         <>
@@ -979,7 +795,7 @@ export default function ContactsPage() {
                             disabled={saving === c.line_user_id || !editValue.trim()}
                             style={btnSave}
                           >
-                            {staffRegistrationId === c.line_user_id ? "先生・スタッフとして保存" : "保存"}
+                            保存
                           </button>
                           <button onClick={cancelEdit} style={btnCancel}>
                             キャンセル

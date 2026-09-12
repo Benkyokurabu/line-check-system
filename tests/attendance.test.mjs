@@ -140,24 +140,11 @@ test("attendance review keeps past candidates out of the initial response", asyn
   assert.match(route, /if \(!includePastPending\) \{\s*visibleClosedCandidateQuery = visibleClosedCandidateQuery\.gte\("event_date", today\);\s*\}/);
 });
 
-test("LINE registration lets staff edit the LINE contact name before saving", async () => {
-  const page = await readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /LINE連絡先の登録名（登録前に編集できます）/);
-  assert.match(page, /登録後に一覧へ表示する名前/);
-  assert.match(page, /setRegistrationNameOverride\(event.target.value\)/);
-  assert.match(page, /alias_name: aliasName/);
-});
-
-test("staff LINE contacts can be named without a student link", async () => {
-  const contacts = await readFile(new URL("../src/app/contacts/page.tsx", import.meta.url), "utf8");
-  assert.match(contacts, /スタッフとして登録/);
-  assert.match(contacts, /group_name: "スタッフ"/);
-});
-
-test("guardian contact registration accepts an operator-entered display name", async () => {
-  const contacts = await readFile(new URL("../src/app/contacts/page.tsx", import.meta.url), "utf8");
-  assert.match(contacts, /LINE連絡先の登録名（自由入力）/);
-  assert.match(contacts, /const aliasName = selectedAliasName\.trim\(\)/);
+test("all LINE registration entry points use the shared form", async () => {
+  for (const file of ["attendance/page.tsx", "contacts/page.tsx", "students/page.tsx"]) {
+    const page = await readFile(new URL(`../src/app/${file}`, import.meta.url), "utf8");
+    assert.match(page, /<LineRegistrationForm/);
+  }
 });
 
 test("all attendance write APIs enforce campus consistency", async () => {
@@ -406,13 +393,13 @@ test("manual edit and cancellation require an actor and cancellation is recorded
 
 test("sibling LINE verification is atomic and requires a message evidence", async () => {
   const [page, verifyRoute, candidatesRoute, migration] = await Promise.all([
-    readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/LineRegistrationForm.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/api/admin/contacts/[userId]/verify/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/app/api/attendance/line-link-candidates/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/line_contact_verification_20260829.sql", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /targets: targets\.map/);
-  assert.match(page, /evidence_message_id: candidate\.evidence_message_id/);
+  assert.match(page, /targets: selected\.map/);
+  assert.match(page, /evidence_message_id: evidenceId/);
   assert.match(verifyRoute, /if \(!evidenceMessageId\)/);
   assert.match(verifyRoute, /\.rpc\("verify_line_contact"/);
   assert.match(migration, /create or replace function public\.verify_line_contact/);

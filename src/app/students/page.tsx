@@ -1,4 +1,5 @@
 "use client";
+import { LineRegistrationForm } from "@/app/LineRegistrationForm";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -89,8 +90,8 @@ export default function StudentsPage() {
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [registrationContact, setRegistrationContact] = useState<Contact | null>(null);
   const [registrationRelation, setRegistrationRelation] = useState("guardian");
-  const [linking, setLinking] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [senderName, setSenderName] = useState("");
   const [sending, setSending] = useState(false);
@@ -165,6 +166,7 @@ export default function StudentsPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedNumber(null);
+    setRegistrationContact(null);
     setSelectedAccountId(null);
     setHistory(null);
     setReplyText("");
@@ -210,6 +212,7 @@ export default function StudentsPage() {
     : classes.find((item) => item.id === selectedClassId)?.label ?? "クラス未選択";
 
   async function openHistory(student: Student, account: LineAccount | null = studentAccount(student)) {
+    setRegistrationContact(null);
     const accountId = account?.line_user_id ?? null;
     setRegistrationRelation(account?.relation ?? "student");
     setSelectedNumber(student.student_number);
@@ -263,33 +266,8 @@ export default function StudentsPage() {
     setStudents(data.students ?? []);
   }
 
-  async function linkContact(contact: Contact, relation = registrationRelation) {
-    if (!history?.student.student_number) return;
-    setLinking(contact.line_user_id);
-    try {
-      const isPrimary = relation === "student";
-      const res = await fetch(`/api/students/${encodeURIComponent(history.student.student_number)}/link`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          line_user_id: contact.line_user_id,
-          relation,
-          alias_name: contact.alias_name ?? contact.display_name,
-          is_primary: isPrimary,
-        }),
-      });
-      if (!res.ok) {
-        setSendMsg("連絡先の登録に失敗しました");
-        return;
-      }
-      if (isPrimary) setSelectedContact(contact);
-      setSendMsg(`${relationLabel(relation)}として登録しました`);
-      const student = students.find((item) => item.student_number === history.student.student_number);
-      if (student) await openHistory(student, contactToLineAccount(contact, relation));
-      await refreshStudents();
-    } finally {
-      setLinking(null);
-    }
+  function linkContact(contact: Contact) {
+    setRegistrationContact(contact);
   }
 
   async function sendToSelectedStudent() {
@@ -477,31 +455,17 @@ export default function StudentsPage() {
           <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--line)", background: "var(--background)" }}>
             <h2 style={{ fontSize: "1rem", fontWeight: 700 }}>LINE履歴・送信</h2>
           </div>
+          {registrationContact && history && <LineRegistrationForm key={registrationContact.line_user_id + history.student.student_number} userId={registrationContact.line_user_id} displayName={registrationContact.display_name} initialStudentNumber={history.student.student_number} source="students_review" onClose={() => setRegistrationContact(null)} onSaved={async (result) => { await refreshStudents(); const student = students.find(s => s.student_number === result.studentNumbers[0]); if (student && result.relation !== "staff") await openHistory(student, contactToLineAccount({ ...registrationContact, alias_name: result.alias }, result.relation)); setSendMsg(`${result.alias} として登録しました。`); }} />}
           {historyLoading ? (
             <p style={{ padding: 20, color: "var(--muted)" }}>読み込み中...</p>
           ) : !history ? (
             <p style={{ padding: 20, color: "var(--muted)" }}>左の一覧から生徒を選択してください。</p>
-          ) : history.link_status !== "linked" && registrationRelation === "student" ? (
-            <div style={{ padding: 20 }}>
-              <h3 style={{ fontSize: "0.95rem", marginBottom: 8 }}>{history.student.student_name}</h3>
-              <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>履歴はありません。</p>
-            </div>
           ) : history.link_status !== "linked" ? (
             <div style={{ padding: 20 }}>
               <h3 style={{ fontSize: "0.95rem", marginBottom: 8 }}>{history.student.student_name}</h3>
               <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: 12 }}>
-                選択中の登録種別にはまだLINE連絡先がありません。登録種別を確認し、LINE表示名や登録名で検索して紐づけてください。
+                LINE連絡先を検索して選ぶと、共通の「生徒本人・保護者のLINE登録」が開きます。
               </p>
-                    <div style={registrationRow}>
-                      <span style={registrationLabel}>登録種別</span>
-                      <select value={registrationRelation} onChange={(e) => setRegistrationRelation(e.target.value)} style={inputStyle}>
-                        <option value="guardian">保護者</option>
-                        <option value="mother">母</option>
-                        <option value="father">父</option>
-                        <option value="student">本人</option>
-                        <option value="family">家族</option>
-                      </select>
-                    </div>
               <input
                 value={contactSearch}
                 onFocus={ensureContactsLoaded}
@@ -521,7 +485,7 @@ export default function StudentsPage() {
                       <button
                         key={contact.line_user_id}
                         onClick={() => linkContact(contact)}
-                        disabled={linking === contact.line_user_id}
+                        disabled={!!registrationContact}
                         style={contactButton}
                       >
                         <span style={{ fontWeight: 700 }}>{contact.alias_name ?? contact.display_name ?? "名前未設定"}</span>
@@ -570,18 +534,8 @@ export default function StudentsPage() {
                 ) : (
                   <div style={{ padding: 10, border: "1px solid #f59e0b", borderRadius: 8, background: "#fffbeb" }}>
                     <p style={{ color: "#92400e", fontSize: "0.82rem", marginBottom: 8 }}>
-                      登録種別を選び、LINE連絡先を検索して送信先として登録します。
+                      LINE連絡先を検索して選び、「生徒本人・保護者のLINE登録」へ進みます。
                     </p>
-                    <div style={registrationRow}>
-                      <span style={registrationLabel}>登録種別</span>
-                      <select value={registrationRelation} onChange={(e) => setRegistrationRelation(e.target.value)} style={inputStyle}>
-                        <option value="guardian">保護者</option>
-                        <option value="mother">母</option>
-                        <option value="father">父</option>
-                        <option value="student">本人</option>
-                        <option value="family">家族</option>
-                      </select>
-                    </div>
                     <input
                       value={contactSearch}
                       onFocus={ensureContactsLoaded}
@@ -598,7 +552,7 @@ export default function StudentsPage() {
                           key={contact.line_user_id}
                           type="button"
                           onClick={() => linkContact(contact)}
-                          disabled={linking === contact.line_user_id}
+                          disabled={!!registrationContact}
                           style={contactButton}
                         >
                           <span style={{ fontWeight: 700 }}>{contact.alias_name ?? contact.display_name ?? "名前未設定"}</span>
@@ -854,19 +808,7 @@ const btnSend: React.CSSProperties = {
   fontWeight: 700,
 };
 
-const registrationRow: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "4.5em minmax(0, 1fr)",
-  alignItems: "center",
-  gap: 8,
-  marginBottom: 8,
-};
 
-const registrationLabel: React.CSSProperties = {
-  color: "var(--muted)",
-  fontSize: "0.8rem",
-  fontWeight: 700,
-};
 const contactButton: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
