@@ -1665,7 +1665,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
         <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{showAutoPeriod ? "期間の連絡" : `${items.length}行`} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
         <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
-        <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || linkingSender} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>LINEの登録（本人・保護者・先生）</button>
+        <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || linkingSender} aria-expanded={expanded && registrationOpen} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>表示名がまだ確定していない場合（LINE登録）</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
@@ -1681,9 +1681,11 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     <div style={{ color: "#666", fontSize: 13, fontWeight: 700, marginTop: 12 }}>受信日時: {receivedAtText}</div>
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <ReplyHistory replies={candidate.reply_messages ?? []} />
-    <div ref={registrationRef} style={{ border: "2px solid #0891b2", borderRadius: 8, padding: 14, margin: "12px 0", display: "grid", gap: 12 }}>
+    {registrationOpen && <div ref={registrationRef} style={{ border: "2px solid #0891b2", borderRadius: 8, padding: 14, margin: "12px 0", display: "grid", gap: 12 }}>
+      <p style={{ margin: 0, fontSize: 13 }}>表示名がまだ確定していない場合や、登録内容を修正したい場合のみ設定してください。毎回の確認・登録は不要です。</p>
+      <button type="button" style={ghostButtonStyle} disabled={linkingSender} onClick={() => setRegistrationOpen(false)}>LINE登録を閉じる</button>
       <fieldset disabled={linkingSender} style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ fontWeight: 700, marginBottom: 8 }}>誰のLINEですか？</legend>
+        <legend style={{ fontWeight: 700, marginBottom: 8 }}>LINEの利用者・続柄</legend>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
           {(["student", "guardian", "staff", "shared"] as const).map((role) => {
             const selected = role === "staff" ? registrationMode === "staff" : registrationMode === "student" && registrationRelation === role;
@@ -1710,7 +1712,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <button type="button" style={buttonStyle} disabled={linkingSender || busy || registering || !senderLineUserId || !studentNumber || !registrationRelation || !registrationName.trim() || !confirmedBy.trim() || !candidate.line_messages?.id} onClick={() => void linkSenderToSelectedStudent()}>{linkingSender ? "登録中..." : "この内容で登録して一覧の名前を更新"}</button>
       </>}
       {lineRegistrationMessage && <p role="status" style={{ margin: 0, fontWeight: 700 }}>{lineRegistrationMessage}</p>}
-    </div>
+    </div>}
 
 
 
