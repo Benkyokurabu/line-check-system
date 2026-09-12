@@ -34,7 +34,10 @@ async function setup(page: Page) {
 test("opening and explicit refresh process pending LINE before reloading", async ({ page }) => {
   const state = await setup(page);
   await expect(page.getByText("自動チェック：1分ごと")).toBeVisible();
-  await expect(page.getByText(/直近5分間に限らず/)).toBeVisible();
+  await expect(page.getByText(/直近5分間に限らず/)).toBeHidden();
+  await expect(page.getByText(/一覧の更新時刻：/)).toBeHidden();
+  await expect(page.getByText(/画面を開いたとき・戻ったとき・表示中の1分ごとに、/)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "最新の遅刻・欠席連絡を確認" }).getByRole("textbox", { name: "確認者名", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("2件をチェックしました");
   expect(state.checks).toBe(2);
@@ -45,6 +48,8 @@ test("opening and explicit refresh process pending LINE before reloading", async
   expect(state.checks).toBe(3);
   expect(state.reads).toBeGreaterThanOrEqual(4);
   await page.getByText("自動チェックの仕組み・処理状況", { exact: true }).click();
+  await expect(page.getByText(/直近5分間に限らず/)).toBeVisible();
+  await expect(page.getByText(/一覧の更新時刻：/)).toBeVisible();
   await expect(page.getByText(/直近の処理正常終了/)).toContainText("09/09");
   await expect(page.getByText(/直近の処理正常終了/)).toContainText("09/10");
   await page.screenshot({ path: "test-results/attendance-check-desktop.png", fullPage: true });

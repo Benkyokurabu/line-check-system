@@ -474,12 +474,10 @@ export default function AttendancePage() {
         <h2 id="attendance-check-heading" style={{ margin: 0, fontSize: 18 }}>最新の遅刻・欠席連絡を確認</h2>
         <span style={{ background: "var(--accent-soft)", color: "var(--accent)", padding: "5px 10px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>自動チェック：1分ごと</span>
       </div>
-      <p style={{ margin: "10px 0 16px", color: "var(--muted)", fontSize: 14 }}>画面を開いたとき・戻ったとき・表示中の1分ごとに、未チェックのLINEを確認して一覧を更新します。先生による内容確認・返信・Notion登録は、この後に行います。</p>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-        <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, borderRadius: 12, background: "var(--accent-soft)" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 16 }}>
+        <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, borderRadius: 12, background: "var(--accent-soft)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end" }}>
+          <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
           <button type="button" style={buttonStyle} disabled={busy || bulkBusy} onClick={analyze}>{busy ? "最新のLINEを確認中…" : "最新のLINEを確認して更新"}</button>
-          <p style={{ margin: "10px 0", fontSize: 13, color: "var(--muted)" }}>一覧の更新時刻：{listUpdatedAt ? formatDateTime(listUpdatedAt) : "未取得"}／表示中は自動更新</p>
-          <p style={{ margin: "10px 0 0", fontSize: 14 }}>自動チェックを待たず、処理待ちのLINEを最大10件チェックして一覧を更新します。直近5分間に限らず、以前からの待機分も対象です。</p>
         </div>
       </div>
       {analysisStatus ? <>
@@ -487,6 +485,8 @@ export default function AttendancePage() {
         {(analysisStatus.alert_active || analysisStatus.dead > 0) && <p role="alert" style={{ color: "#b42318", fontWeight: 700 }}>自動チェックに遅延または失敗があります。一覧にまだ反映されていない連絡があります。お急ぎの場合はLINEの原文も確認してください。</p>}
         <details style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
           <summary style={{ cursor: "pointer" }}>自動チェックの仕組み・処理状況</summary>
+          <p style={{ margin: "10px 0", fontSize: 13, color: "var(--muted)" }}>一覧の更新時刻：{listUpdatedAt ? formatDateTime(listUpdatedAt) : "未取得"}／表示中は自動更新</p>
+          <p style={{ margin: "10px 0 0", fontSize: 14 }}>自動チェックを待たず、処理待ちのLINEを最大10件チェックして一覧を更新します。直近5分間に限らず、以前からの待機分も対象です。</p>
           <p>LINEのチェック処理は1分ごと、処理の停滞・エラーの監視は5分ごとです。混雑時や再試行中は反映まで時間がかかります。</p>
           <p>直近の処理正常終了（自動・手動共通）：{formatDateTime(analysisStatus.last_worker_succeeded_at)}／処理状況の取得：{formatDateTime(analysisStatus.last_checked_at)}</p>
           <p>すぐに処理可能 {analysisStatus.ready}件／直近1時間の処理 {analysisStatus.processed_last_hour}件{analysisStatus.oldest_queued_at ? `／最も古い待機 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? `／エラー：${analysisStatus.last_worker_error}` : ""}</p>
@@ -495,7 +495,6 @@ export default function AttendancePage() {
       {message && <p role="status" style={{ marginBottom: 0 }}>{message}</p>}
     </section>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
-      <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} disabled={bulkBusy} onClick={() => { clearSelection(); setIncludePastPending((value) => !value); }}>{includePastPending ? "過去の連絡を非表示" : "過去の連絡も表示"}</button>
       <button type="button" style={ghostButtonStyle} disabled={linkCandidatesLoading} onClick={() => void toggleLineLinkReview()}>{linkReviewOpen ? "LINE登録候補を閉じる" : "LINE登録候補を表示"}</button>
       <button type="button" style={secondaryButtonStyle} disabled={manualSaving} onClick={() => setManualOpen((value) => !value)}>{manualOpen ? "手入力を閉じる" : "電話・口頭連絡を手入力"}</button>
