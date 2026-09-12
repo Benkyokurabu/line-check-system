@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppFrame } from "./AppFrame";
 import { PwaRegistration } from "./PwaRegistration";
+import { CodexPanel } from "./CodexPanel";
 
 export const metadata: Metadata = {
   title: "勉たん（仮） -勉強クラブ総合アシスたんトさん-",
@@ -36,7 +37,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body><PwaRegistration /><AppFrame>{children}</AppFrame></body>
+      <body><PwaRegistration /><AppFrame>{children}</AppFrame><CodexPanel /></body>
     </html>
   );
 }

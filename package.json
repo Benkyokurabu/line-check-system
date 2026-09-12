@@ -31,7 +31,8 @@
     "test:reservation-db": "node --test tests/study-room-workflow.test.mjs",
     "test:staff": "node --test tests/staff-auth-core.test.mjs tests/staff-auth-db.test.mjs tests/staff-study-room-visits.test.mjs tests/staff-study-room-trial.test.mjs",
     "test:browser": "playwright test",
-    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule && npm run test:feedback",
+    "test:codex": "node --test tests/codex-panel.test.mjs",
+    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule && npm run test:feedback && npm run test:codex",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"
   },
