@@ -18,6 +18,18 @@ const groups: { id: Group; label: string; icon: string }[] = [
 const frequentLinks = ["/attendance", "/dashboard", "/students", "/karte"];
 const SURVEY_CONFIRMED_KEY = "bentan:2026-autumn-survey-confirmed";
 const SURVEY_HIDDEN_KEY = "bentan:2026-autumn-survey-hidden";
+const SURVEY_DATA_KEY = "bentan:2026-autumn-survey-data";
+function isSurveyGroups(value: unknown): value is InterviewSurveyTeacherGroup[] {
+  return Array.isArray(value) && value.every(group =>
+    typeof group === "object" && group !== null &&
+    "teacher" in group && typeof group.teacher === "string" &&
+    "students" in group && Array.isArray(group.students) && group.students.every((student: unknown) =>
+      typeof student === "object" && student !== null &&
+      "grade" in student && typeof student.grade === "string" &&
+      "name" in student && typeof student.name === "string" &&
+      "notionUrl" in student && typeof student.notionUrl === "string" &&
+      "submittedAt" in student && typeof student.submittedAt === "string"));
+}
 const submittedAtFormatter = new Intl.DateTimeFormat("ja-JP", {
   month: "numeric",
   day: "numeric",
@@ -65,12 +77,16 @@ export default function HomeDashboard({
     try {
       const savedConfirmed = JSON.parse(window.localStorage.getItem(SURVEY_CONFIRMED_KEY) ?? "[]");
       const savedHidden = JSON.parse(window.localStorage.getItem(SURVEY_HIDDEN_KEY) ?? "[]");
+      const savedSurveyGroups = JSON.parse(window.localStorage.getItem(SURVEY_DATA_KEY) ?? "null");
       if (Array.isArray(savedConfirmed) && savedConfirmed.every(item => typeof item === "string")) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setConfirmedSurveys(savedConfirmed);
       }
       if (Array.isArray(savedHidden) && savedHidden.every(item => typeof item === "string")) {
         setHiddenSurveys(savedHidden);
+      }
+      if (isSurveyGroups(savedSurveyGroups)) {
+        setSurveyGroups(savedSurveyGroups);
       }
     } catch { /* Ignore invalid browser data and start with every item unconfirmed. */ }
   }, []);
@@ -105,9 +121,11 @@ export default function HomeDashboard({
     setSurveyRefreshMessage(null);
     try {
       const response = await fetch("/api/interview-surveys", { cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok || !Array.isArray(body.groups)) throw new Error();
-      setSurveyGroups(body.groups);
+      const body: unknown = await response.json();
+      const refreshedGroups = typeof body === "object" && body !== null && "groups" in body ? body.groups : null;
+      if (!response.ok || !isSurveyGroups(refreshedGroups)) throw new Error();
+      setSurveyGroups(refreshedGroups);
+      window.localStorage.setItem(SURVEY_DATA_KEY, JSON.stringify(refreshedGroups));
       setSurveyRefreshMessage("Notionから最新の回答を更新しました。");
     } catch {
       setSurveyRefreshMessage("Notionから更新できませんでした。連携権限を確認してください。");

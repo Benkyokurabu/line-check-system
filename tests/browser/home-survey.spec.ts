@@ -69,6 +69,12 @@ test("更新するボタンでNotionから受け取った一覧に差し替え�
   await expect(page.getByRole("status")).toContainText("Notionから最新の回答を更新しました。");
   await page.getByRole("button", { name: "工藤先生 1" }).click();
   await expect(page.getByRole("link", { name: /更新確認生徒/ })).toContainText("提出 9/12 18:30");
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "工藤先生 1" })).toBeVisible();
+  await expect(page.getByText("表示中 1件")).toBeVisible();
+  await page.getByRole("button", { name: "工藤先生 1" }).click();
+  await expect(page.getByRole("link", { name: /更新確認生徒/ })).toBeVisible();
 });
 
 test("教室画面のヘッダーには勉たんを表示しない", async ({ page }) => {
