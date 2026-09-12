@@ -35,3 +35,42 @@ test('unauthenticated users cannot see the panel',async({page})=>{
   await page.goto('/feedback');
   await expect(page.getByRole('button',{name:'✦ Codexに修正を依頼'})).toHaveCount(0);
 });
+
+for (const width of [1280, 390]) {
+  test(`chat keeps reading position during refresh and follows updates only at bottom (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    let response = Array.from({ length: 80 }, (_, i) => `確認用の文章 ${i}`).join('\n');
+    let reads = 0;
+    await page.route('**/api/codex*', async route => {
+      expect(route.request().method()).toBe('GET');
+      reads++;
+      await route.fulfill({ json: { authorized: true, online: true, requests: [{
+        id: 'scroll-test', message: 'スクロール確認', status: 'running', response, progress: '作業中',
+        page_context: { path: '/feedback', title: '', selection: '', element: '' },
+      }] } });
+    });
+    await page.goto('/feedback');
+    await page.getByRole('button', { name: '✦ Codexに修正を依頼' }).click();
+    const history = page.getByLabel('会話履歴', { exact: true });
+    const bottomGap = () => history.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight);
+    await expect.poll(bottomGap).toBeLessThan(2);
+    await history.evaluate(el => { el.scrollTop = 120; el.dispatchEvent(new Event('scroll')); });
+    const position = await history.evaluate(el => el.scrollTop);
+    const refresh = async () => {
+      const before = reads;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await expect.poll(() => reads).toBeGreaterThan(before);
+    };
+    await refresh();
+    await expect.poll(() => history.evaluate(el => el.scrollTop)).toBe(position);
+    response += '\n途中の新着回答';
+    await refresh();
+    await expect(history).toContainText('途中の新着回答');
+    expect(await history.evaluate(el => el.scrollTop)).toBe(position);
+    await history.evaluate(el => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+    response += '\n末尾の新着回答\n追加の文章\nさらに追加';
+    await refresh();
+    await expect(history).toContainText('末尾の新着回答');
+    await expect.poll(bottomGap).toBeLessThan(2);
+  });
+}

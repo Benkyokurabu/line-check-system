@@ -26,7 +26,8 @@ export function CodexPanel() {
   const retry = useRef<{ action: string; id: string; conversationId: string; message: string; context: PageContext } | null>(null);
   const panel = useRef<HTMLElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
-  const end = useRef<HTMLDivElement>(null);
+  const history = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const load = useCallback(async (id: string, signal?: AbortSignal) => {
     const epoch = generation.current;
     const response = await fetch(`/api/codex${id ? `?conversationId=${id}` : ''}`, { cache:'no-store', signal });
@@ -69,7 +70,10 @@ export function CodexPanel() {
     window.addEventListener('focus', refresh);
     return () => { controller.abort(); clearInterval(timer); window.removeEventListener('focus',refresh); };
   }, [load, open, conversationId, pathname]);
-  useEffect(() => { end.current?.scrollIntoView({ block:'nearest' }); }, [jobs]);
+  useEffect(() => {
+    const container = history.current;
+    if (container && followLatest.current) container.scrollTop = container.scrollHeight;
+  }, [jobs, open, picking]);
   useEffect(() => { if (open && !picking) input.current?.focus(); }, [open,picking]);
   useEffect(() => {
     if (!picking) return;
@@ -112,7 +116,7 @@ export function CodexPanel() {
     finally { serial.current=false; setBusy(false); }
   }
   function switchConversation(id: string) {
-    generation.current++; retry.current=null; setRetryPending(false); setJobs([]); setConversationId(id); setError(''); setSelection(null); setMessage('');
+    followLatest.current=true; generation.current++; retry.current=null; setRetryPending(false); setJobs([]); setConversationId(id); setError(''); setSelection(null); setMessage('');
     const ids=[id,...older.filter((value) => value!==id)].slice(0,20); setOlder(ids);
     try { localStorage.setItem('bentan-codex-conversations',JSON.stringify(ids)); } catch {}
   }
@@ -125,13 +129,15 @@ export function CodexPanel() {
       <header className={styles.header}><div><strong>✦ Codexに修正を依頼</strong><small>{online ? 'PCに接続中' : 'PCの接続待ち・依頼は保存できます'}</small></div><button aria-label="チャットを閉じる" onClick={() => setOpen(false)}>×</button></header>
       <div className={styles.toolbar}><button disabled={busy || retryPending} onClick={() => switchConversation(crypto.randomUUID())}>新しい会話</button>
         <select aria-label="会話を切り替え" value={conversationId} disabled={busy || retryPending} onChange={(e) => switchConversation(e.target.value)}>{[...new Set([conversationId,...older])].filter(Boolean).map((id,i) => <option key={id} value={id}>会話 {id.slice(0,6)}{i===0?'（最新）':''}</option>)}</select></div>
-      <div className={styles.history} aria-live="polite" aria-relevant="additions text">
+      <div ref={history} className={styles.history} aria-label="会話履歴" aria-live="polite" aria-relevant="additions text" onScroll={(event) => {
+        const container = event.currentTarget;
+        followLatest.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 48;
+      }}>
         {!jobs.length && <p className={styles.empty}>見ているページの修正を依頼できます。<br/>「場所を選ぶ」で対象を指定し、変更したい内容を送ってください。</p>}
         {jobs.map((job) => <article className={styles.exchange} key={job.id}><div className={styles.user}><small>{job.page_context.path}</small><p>{job.message}</p>{job.page_context.selection && <blockquote>{job.page_context.selection}</blockquote>}</div>
           <div className={styles.answer}><small>{labels[job.status] || job.status}</small><p>{job.response || job.progress}</p>{job.response && active(job) && <small>{job.progress}</small>}
           {job.status==='awaiting_approval' && job.approval && <div className={styles.approval}><p>{job.approval.message}</p><button disabled={busy || job.cancel_requested} onClick={() => void mutate({action:'approve',conversationId,id:job.id,approvalId:job.approval!.id,decision:'accept'})}>この操作を許可</button><button disabled={busy || job.cancel_requested} onClick={() => void mutate({action:'approve',conversationId,id:job.id,approvalId:job.approval!.id,decision:'decline'})}>許可しない</button></div>}
           {active(job) && <button disabled={busy || job.cancel_requested} onClick={() => void mutate({action:'cancel',conversationId,id:job.id})}>{job.cancel_requested?'停止を依頼しました':'作業を停止'}</button>}</div></article>)}
-        <div ref={end}/>
       </div>
       <form className={styles.composer} onSubmit={(event) => {
         event.preventDefault(); if (!message.trim() || current || busy) return;
