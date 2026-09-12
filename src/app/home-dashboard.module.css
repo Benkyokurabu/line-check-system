@@ -120,8 +120,12 @@
 .teacherButtons button[aria-pressed="true"] { border-color: var(--home-accent); background: var(--home-accent); color: #fff; }
 .teacherButtons button span { display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-left: 5px; padding: 0 5px; border-radius: 10px; background: #e3eaf0; color: #334b62; font-size: 11px; }
 .teacherButtons button[aria-pressed="true"] span { background: #fff; color: var(--home-accent); }
+.teacherButtons .surveyRefreshButton { margin-left: auto; border-color: #9eb4c6; background: #fff; color: #334b62; }
+.teacherButtons .surveyRefreshButton:hover { border-color: var(--home-accent); color: var(--home-accent); background: #eef7f4; }
+.teacherButtons .surveyRefreshButton:disabled { cursor: wait; opacity: .65; }
 .surveyPrompt, .surveyError { margin: 16px 0 0; padding: 12px 14px; border-radius: 8px; background: #f4f7fa; color: var(--home-muted); font-size: 13px; }
 .surveyError { background: #fff3f1; color: #9a392e; }
+.surveyRefreshMessage { margin: 9px 0 0; color: var(--home-muted); font-size: 12px; }
 .surveyStudents { margin-top: 16px; border-top: 1px solid var(--home-line); padding-top: 15px; }
 .surveyListTitle { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; font-size: 14px; }
 .surveyListTitle span { color: var(--home-muted); font-size: 12px; }
@@ -133,14 +137,19 @@
 .surveyStudents a { display: flex; align-items: baseline; gap: 10px; min-width: 0; color: var(--home-ink); font-size: 14px; font-weight: 650; }
 .surveyStudents a:hover { color: var(--home-accent); }
 .surveyStudents a small { color: var(--home-accent); font-size: 11px; font-weight: 500; }
-.surveyStudents li > button { min-width: 70px; padding: 7px 11px; border: 1px solid #d7b36f; border-radius: 7px; background: #fff8e8; color: #77531d; font-size: 12px; font-weight: 700; cursor: pointer; }
-.surveyStudents li > button:hover { border-color: #bb8523; background: #fff1cf; }
-.surveyStudents li > button[aria-pressed="true"] { border-color: #8fc7b4; background: #e6f4ef; color: #125f58; opacity: 1; cursor: default; }
+.surveyStudents a small:first-of-type { color: var(--home-muted); }
+.surveyActions { display: flex; align-items: center; gap: 7px; }
+.surveyActions button { padding: 7px 10px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.surveyStatusButton { min-width: 70px; border: 1px solid #d7b36f; background: #fff8e8; color: #77531d; }
+.surveyStatusButton:hover { border-color: #bb8523; background: #fff1cf; }
+.surveyStatusButton[aria-pressed="true"] { border-color: #8fc7b4; background: #e6f4ef; color: #125f58; }
+.surveyHideButton { border: 1px solid #d5dde5; background: #fff; color: #52677a; }
+.surveyHideButton:hover { border-color: #99a9b8; background: #f1f4f7; color: #263e54; }
 .surveyNote { margin: 10px 0 0; color: var(--home-muted); font-size: 11px; line-height: 1.7; }
 .quickLinks a { display: flex; align-items: center; gap: 10px; padding: 18px 14px; border: 1px solid #c8e1d8; border-radius: 10px; background: #e6f4ef; color: #125f58; font-size: 13px; font-weight: 600; }
 .quickLinks a span:last-child { margin-left: auto; }
 .quickLinks a:hover { background: #d8eee5; }
 @media (max-width: 1050px) { .quickLinks { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .hero h1 { font-size: 30px; } .navigation { grid-template-columns: repeat(3,minmax(0,1fr)); } .navigation button { gap: 6px; padding: 10px 8px; } }
-@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } }
+@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyStudents li { grid-template-columns: auto minmax(0,1fr); } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; } }
 @media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }
