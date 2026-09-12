@@ -109,9 +109,34 @@
 .cardShell .card { flex: 1; border: 0; border-radius: 0; }
 .badge { display: inline-block; margin-bottom: 6px; padding: 2px 7px; background: #fff3d9; color: #77531d; border-radius: 4px; font-size: 11px; }
 .quickLinks { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.surveyPanel { margin-bottom: 16px; padding: 20px; border: 1px solid #c8e1d8; border-radius: 12px; background: #fff; }
+.surveyHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.surveyHeading h3 { margin: 2px 0 0; font-size: 17px; line-height: 1.55; }
+.surveyEyebrow { margin: 0; color: var(--home-accent); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.surveyTotal { flex-shrink: 0; padding: 6px 10px; border-radius: 999px; background: #e6f4ef; color: #125f58; font-size: 12px; font-weight: 700; }
+.teacherButtons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.teacherButtons button { padding: 9px 13px; border: 1px solid #b7c8d5; border-radius: 8px; background: #f7f9fb; color: var(--home-ink); font-size: 13px; font-weight: 650; }
+.teacherButtons button:hover { border-color: var(--home-accent); background: #eef7f4; }
+.teacherButtons button[aria-pressed="true"] { border-color: var(--home-accent); background: var(--home-accent); color: #fff; }
+.teacherButtons button span { display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-left: 5px; padding: 0 5px; border-radius: 10px; background: #e3eaf0; color: #334b62; font-size: 11px; }
+.teacherButtons button[aria-pressed="true"] span { background: #fff; color: var(--home-accent); }
+.surveyPrompt, .surveyError { margin: 16px 0 0; padding: 12px 14px; border-radius: 8px; background: #f4f7fa; color: var(--home-muted); font-size: 13px; }
+.surveyError { background: #fff3f1; color: #9a392e; }
+.surveyStudents { margin-top: 16px; border-top: 1px solid var(--home-line); padding-top: 15px; }
+.surveyListTitle { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; font-size: 14px; }
+.surveyListTitle span { color: var(--home-muted); font-size: 12px; }
+.surveyStudents ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.surveyStudents li { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 10px 11px; border: 1px solid var(--home-line); border-radius: 9px; background: #fbfcfd; }
+.gradeBadge { min-width: 34px; padding: 4px 7px; border-radius: 6px; background: #e7eef5; color: #344b62; font-size: 11px; font-weight: 700; text-align: center; }
+.surveyStudents a { display: flex; align-items: baseline; gap: 10px; min-width: 0; color: var(--home-ink); font-size: 14px; font-weight: 650; }
+.surveyStudents a:hover { color: var(--home-accent); }
+.surveyStudents a small { color: var(--home-accent); font-size: 11px; font-weight: 500; }
+.surveyStudents li > button { padding: 7px 11px; border: 1px solid #c8d2dc; border-radius: 7px; background: #eef2f5; color: #6c7d8d; font-size: 12px; font-weight: 650; opacity: 1; cursor: default; }
+.surveyNote { margin: 10px 0 0; color: var(--home-muted); font-size: 11px; line-height: 1.7; }
 .quickLinks a { display: flex; align-items: center; gap: 10px; padding: 18px 14px; border: 1px solid #c8e1d8; border-radius: 10px; background: #e6f4ef; color: #125f58; font-size: 13px; font-weight: 600; }
 .quickLinks a span:last-child { margin-left: auto; }
 .quickLinks a:hover { background: #d8eee5; }
 @media (max-width: 1050px) { .quickLinks { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .hero h1 { font-size: 30px; } .navigation { grid-template-columns: repeat(3,minmax(0,1fr)); } .navigation button { gap: 6px; padding: 10px 8px; } }
+@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } }
 @media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }

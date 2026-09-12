@@ -6,6 +6,7 @@ import styles from "./home-dashboard.module.css";
 
 type Group = "all" | "student" | "lesson" | "communication" | "reservation" | "admin";
 type MenuItem = { href: string; title: string; description: string; group: Exclude<Group, "all">; icon: string; trial?: boolean };
+type InterviewSurveyTeacherGroup = { teacher: string; students: Array<{ grade: string; name: string; notionUrl: string }> };
 const groups: { id: Group; label: string; icon: string }[] = [
   { id: "all", label: "ホーム", icon: "home" },
   { id: "student", label: "生徒", icon: "users" },
@@ -29,9 +30,18 @@ function Icon({ name }: { name: string }) {
   };
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.file}</svg>;
 }
-export default function HomeDashboard({ items }: { items: MenuItem[] }) {
+export default function HomeDashboard({
+  items,
+  surveyGroups,
+  surveyError,
+}: {
+  items: MenuItem[];
+  surveyGroups: InterviewSurveyTeacherGroup[];
+  surveyError?: string;
+}) {
   const [group, setGroup] = useState<Group>("all");
   const [query, setQuery] = useState("");
+  const [selectedSurveyTeacher, setSelectedSurveyTeacher] = useState<string | null>(null);
   const normalized = query.normalize("NFKC").trim().toLocaleLowerCase("ja");
   const visible = items.filter(item => (group === "all" || item.group === group) &&
     (!normalized || `${item.title} ${item.description}`.normalize("NFKC").toLocaleLowerCase("ja").includes(normalized)));
@@ -73,6 +83,30 @@ export default function HomeDashboard({ items }: { items: MenuItem[] }) {
         {home && <>
           <section className={styles.section} aria-labelledby="check-title">
             <h2 id="check-title">連絡・確認</h2>
+            <div className={styles.surveyPanel}>
+              <div className={styles.surveyHeading}>
+                <div><p className={styles.surveyEyebrow}>2026年 秋のアンケート</p><h3>担当生徒の回答を確認してください</h3></div>
+                {!surveyError && <span className={styles.surveyTotal}>回答 {surveyGroups.reduce((sum, item) => sum + item.students.length, 0)}件</span>}
+              </div>
+              {surveyError ? <p className={styles.surveyError} role="status">{surveyError}</p> : <>
+                <div className={styles.teacherButtons} aria-label="担任を選択">
+                  {surveyGroups.map(item => <button key={item.teacher} type="button" aria-pressed={selectedSurveyTeacher === item.teacher} onClick={() => setSelectedSurveyTeacher(item.teacher)}>
+                    {item.teacher}先生 <span>{item.students.length}</span>
+                  </button>)}
+                </div>
+                {selectedSurveyTeacher ? <div className={styles.surveyStudents}>
+                  <div className={styles.surveyListTitle}><strong>{selectedSurveyTeacher}先生の担当</strong><span>{surveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students.length ?? 0}名</span></div>
+                  <ul>
+                    {(surveyGroups.find(item => item.teacher === selectedSurveyTeacher)?.students ?? []).map(student => <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
+                      <span className={styles.gradeBadge}>{student.grade}</span>
+                      <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>Notionで見る ↗</small></a>
+                      <button type="button" disabled title="現在は表示のみで、確認状態は保存されません">確認済み</button>
+                    </li>)}
+                  </ul>
+                  <p className={styles.surveyNote}>「確認済み」は現在は表示のみです。クリックによる記録・Notion更新・通知はありません。</p>
+                </div> : <p className={styles.surveyPrompt}>先生を選ぶと、アンケートが届いている担当生徒を表示します。</p>}
+              </>}
+            </div>
             <div className={styles.quickLinks}>
               <Link href="/attendance" prefetch={false}><Icon name="calendar" /><span>欠席連絡を確認する</span><span>→</span></Link>
               <Link href="/dashboard" prefetch={false}><Icon name="message" /><span>未対応メッセージを確認する</span><span>→</span></Link>

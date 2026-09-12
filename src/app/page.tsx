@@ -1,4 +1,5 @@
 import HomeDashboard from "./home-dashboard";
+import { interviewSurveyGroups } from "@/lib/interview-surveys";
 
 const menuItems = [
   {
@@ -97,5 +98,5 @@ const menuItems = [
 ];
 
 export default function Home() {
-  return <HomeDashboard items={menuItems} />;
+  return <HomeDashboard items={menuItems} surveyGroups={interviewSurveyGroups} />;
 }
