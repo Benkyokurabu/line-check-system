@@ -1,3 +1,6 @@
 import InterviewWorkspace from './workspace';
 export const dynamic='force-dynamic';
-export default function Page(){return <InterviewWorkspace/>;}
+export default async function Page({searchParams}:{searchParams:Promise<{staff?:string}>}){
+ const {staff}=await searchParams;
+ return <InterviewWorkspace entryCode={staff&&['KUDO','KINJO'].includes(staff)?staff:''}/>;
+}

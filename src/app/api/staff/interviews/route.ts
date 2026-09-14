@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import {assertInterviewAccess} from '@/lib/interview-access.mjs';
 import { createHash } from 'node:crypto';
 import {syncInterview} from '@/lib/interview-sync';
 import { staffContext,staffResponse,staffErrorResponse,staffJsonBody,assertStaffMutationOrigin } from '@/lib/staff-auth-http';
@@ -15,6 +16,7 @@ export async function GET(request:NextRequest){
  let context;
  try{
   context=await staffContext(request);
+  assertInterviewAccess(context.staff);
   return staffResponse(publicState(await loadInterviewState(context.dataClient),context.staff),context);
  }catch(error){return failure(error,context);}
 }
@@ -22,6 +24,7 @@ export async function POST(request:NextRequest){
  let context;
  try{
   assertStaffMutationOrigin(request);context=await staffContext(request);
+  assertInterviewAccess(context.staff);
   if(!['admin','office','employee'].includes(context.staff.role))throw new InterviewError('予定の登録・承認は事務部・正社員・管理者が行えます。',403);
   const body=await staffJsonBody(request,65536);
   const requestHash=createHash('sha256').update(JSON.stringify(body)).digest('hex');

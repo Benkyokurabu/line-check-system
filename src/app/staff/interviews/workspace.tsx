@@ -6,8 +6,9 @@ import StaffEntry from '../self-study-room/staff-entry';
 import styles from './workspace.module.css';
 import {makeRecordDraft,validateRecord} from '@/lib/interview-record.mjs';
 import {RecordFields,RecordDetails,type RecordDraft} from './record-fields';
+import {canAccessInterviews} from '@/lib/interview-access.mjs';
 
-type Staff={staffId:string;displayName:string;role:string};
+type Staff={staffId:string;staffCode:string;displayName:string;role:string};
 type Student={id:string|null;student_number:string;student_name:string;grade:string;campus:string;homeroom_teacher:string};
 type Appointment={studentId:string;teacher:string;date:string;start:string;end?:string;campus:string;method:string;purpose:string;participants:string;channel:string;note:string;room:string;studentName?:string;studentNumber?:string;grade?:string;busyStart?:string;busyEnd?:string;record?:Partial<RecordDraft>&{content:string;state:string}};
 type Booking={id:string;data:Appointment;status:string;version:number;notion_page_id:string|null;notion_synced_version:number;sync_error:string|null};
@@ -15,9 +16,9 @@ type State={snapshot:string;students:Student[];teachers:string[];lessons:Record<
 type Operation={operationKey:string;snapshot:string;action:string;id?:string;version?:number;data?:unknown;reason?:string;manualReviewed?:boolean;externalReviewed?:boolean};
 const labels:Record<string,string>={pending:'承認待ち',confirmed:'確定',completed:'実施済み',cancelled:'取消済み',rejected:'見送り'};
 const empty=():Appointment=>({studentId:'',teacher:'',date:getJapanDate(),start:'13:00',campus:'本校',method:'対面',purpose:'学習相談',participants:'保護者',channel:'職員入力',note:'',room:''});
-export default function InterviewWorkspace(){
+export default function InterviewWorkspace({entryCode=''}:{entryCode?:string}){
  const [staff,setStaff]=useState<Staff|null>(null),[state,setState]=useState<State|null>(null),[ready,setReady]=useState(false);
- const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[code,setCode]=useState(''),[password,setPassword]=useState('');
+ const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[code,setCode]=useState(entryCode),[password,setPassword]=useState('');
  const [date,setDate]=useState(getJapanDate()),[teacher,setTeacher]=useState(''),[campus,setCampus]=useState('本校');
  const [form,setForm]=useState<Appointment|null>(null),[editing,setEditing]=useState<Booking|null>(null),[search,setSearch]=useState('');
  const [reason,setReason]=useState(''),[manualReviewed,setManualReviewed]=useState(false),[externalReviewed,setExternalReviewed]=useState(false);
@@ -31,7 +32,7 @@ export default function InterviewWorkspace(){
  }
  async function work(task:()=>Promise<void>){if(running.current)return;running.current=true;setBusy(true);setMessage('');try{await task();}catch(e){setMessage(e instanceof Error?e.message:'処理に失敗しました。');}finally{running.current=false;setBusy(false);}}
  async function reload(){const data=await request('/api/staff/interviews');setState(data);setTeacher(old=>old||data.teachers[0]||'');}
- useEffect(()=>{let active=true;void(async()=>{try{const r=await fetch('/api/staff/session',{cache:'no-store'});const b=await r.json();if(!active)return;if(r.ok){setStaff(b.staff);const q=await fetch('/api/staff/interviews',{cache:'no-store'});const data=await q.json();if(!active)return;if(q.ok){setState(data);setTeacher(data.teachers[0]||'');}else setMessage(data.error);}else if(r.status!==401)setMessage(b.error);}catch{if(active)setMessage('接続できませんでした。');}finally{if(active)setReady(true);}})();return()=>{active=false;};},[]);
+ useEffect(()=>{let active=true;void(async()=>{try{const r=await fetch('/api/staff/session',{cache:'no-store'});const b=await r.json();if(!active)return;if(r.ok){if(!canAccessInterviews(b.staff)){setMessage('面談画面は現在、工藤さん・金城さんだけが利用できます。');return;}setStaff(b.staff);const q=await fetch('/api/staff/interviews',{cache:'no-store'});const data=await q.json();if(!active)return;if(q.ok){setState(data);setTeacher(data.teachers[0]||'');}else setMessage(data.error);}else if(r.status!==401)setMessage(b.error);}catch{if(active)setMessage('接続できませんでした。');}finally{if(active)setReady(true);}})();return()=>{active=false;};},[]);
  async function login(e:FormEvent){e.preventDefault();await work(async()=>{const secret=password;setPassword('');const b=await request('/api/staff/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({staffCode:code,password:secret})});setStaff(b.staff);await reload();});}
  async function execute(op:Operation){await work(async()=>{
   setPending(null);setRetry(op);

@@ -1,10 +1,18 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {canAccessInterviews,assertInterviewAccess} from '../src/lib/interview-access.mjs';
 import {makeRecordDraft,validateRecord} from '../src/lib/interview-record.mjs';
 import {defaults,validateSettings,validateAppointment,generateSlots,conflicts} from '../src/lib/interview-core.mjs';
 const date='2026-11-02';
 const lesson={lesson_date:date,start_time:'16:45～18:15',teacher_name:'髙山',campus:'本校',classroom:'1'};
 const base={studentId:'00000000-0000-4000-8000-000000000001',teacher:'髙山',date,start:'13:00',campus:'本校',method:'対面',purpose:'進路相談',participants:'本人、母',channel:'電話',room:''};
+
+test('面談の利用者を認証済みの工藤・金城に限定し、管理者権限や表示名だけでは許可しない',()=>{
+ for(const staffCode of ['KUDO','KINJO'])assert.doesNotThrow(()=>assertInterviewAccess({staffId:'verified',staffCode}));
+ for(const profile of [null,{}, {staffCode:'KUDO'}, {staffId:'other',staffCode:'OTHER',role:'admin',displayName:'工藤'}, {staffId:'other',staffCode:'kudo'}]){
+  assert.equal(canAccessInterviews(profile),false);assert.throws(()=>assertInterviewAccess(profile),e=>e.status===403);
+ }
+});
 
 test('予定から記録を補完し、実際の時刻・参加者を独立して保存する',()=>{
  const appointment={...base,date:'2026-01-01',end:'13:45'};
