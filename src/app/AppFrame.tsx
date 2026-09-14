@@ -14,7 +14,8 @@ const navigation = [
 export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   if (pathname === "/") return children;
-  const studentView = pathname === "/self-study-room" || pathname.startsWith("/self-study-room/");
+  const reservationMenu = pathname.startsWith("/reservations/trial");
+  const studentView = reservationMenu || pathname === "/self-study-room" || pathname.startsWith("/self-study-room/");
   const compact = studentView || pathname === "/classroom" || pathname === "/private-feedback";
   const title = navigation.flatMap((group) => group.links).find(([href]) => href === pathname)?.[1]
     ?? (studentView ? "自習室予約" : pathname === "/classroom" ? "教室の出欠確認" : pathname === "/private-feedback" ? "ご意見の確認" : "勉たん");
@@ -31,7 +32,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
     <div className="app-workspace">
       <header className="app-topbar">
         {studentView
-          ? <span>勉強クラブ 自習室予約</span>
+          ? <span>勉強クラブ {reservationMenu?'予約メニュー':'自習室予約'}</span>
           : pathname === "/classroom"
             ? <span>{title}</span>
             : <><span className="app-topbar-brand">勉<span>たん</span></span><span className="app-location">{title}</span></>}
