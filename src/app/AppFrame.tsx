@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import {pageTitles} from '@/lib/page-titles';
 
 const navigation = [
   { label: "面談", links: [["/staff/interviews", "面談の予定・入力"]] },
@@ -17,7 +18,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const reservationMenu = pathname.startsWith("/reservations/trial");
   const studentView = reservationMenu || pathname === "/self-study-room" || pathname.startsWith("/self-study-room/");
   const compact = studentView || pathname === "/classroom" || pathname === "/private-feedback";
-  const title = navigation.flatMap((group) => group.links).find(([href]) => href === pathname)?.[1]
+  const title = pageTitles[pathname] ?? navigation.flatMap((group) => group.links).find(([href]) => href === pathname)?.[1]
     ?? (studentView ? "自習室予約" : pathname === "/classroom" ? "教室の出欠確認" : pathname === "/private-feedback" ? "ご意見の確認" : "勉たん");
   return <div className={`app-frame${compact ? " app-frame-compact" : ""}`}>
     <a className="app-skip" href="#app-content">本文へ移動</a>
@@ -30,14 +31,14 @@ export function AppFrame({ children }: { children: ReactNode }) {
       <p className="app-sidebar-footer">勉強クラブ<small>Integrated Assistant</small></p>
     </aside>}
     <div className="app-workspace">
-      <header className="app-topbar">
+      {!reservationMenu&&<header className="app-topbar">
         {studentView
-          ? <span>勉強クラブ {reservationMenu?'予約メニュー':'自習室予約'}</span>
+          ? <span>{title}</span>
           : pathname === "/classroom"
             ? <span>{title}</span>
             : <><span className="app-topbar-brand">勉<span>たん</span></span><span className="app-location">{title}</span></>}
         {!studentView && pathname!=="/classroom" && <Link href="/" className="app-topbar-home" prefetch={false}>トップページへ <span aria-hidden="true">↗</span></Link>}
-      </header>
+      </header>}
       <div id="app-content" className="app-content" tabIndex={-1}>{children}</div>
     </div>
   </div>;

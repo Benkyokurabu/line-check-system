@@ -3,17 +3,12 @@ import "./globals.css";
 import { AppFrame } from "./AppFrame";
 import { PwaRegistration } from "./PwaRegistration";
 import { CodexPanel } from "./CodexPanel";
+import {pageMetadata} from '@/lib/page-titles';
 
 export const metadata: Metadata = {
-  title: "勉たん（仮） -勉強クラブ総合アシスたんトさん-",
+  ...pageMetadata('勉たん'),
   description: "LINE official account message intake MVP for cram schools.",
-  applicationName: "遅刻・欠席確認",
   manifest: "/manifest.webmanifest",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "遅刻・欠席確認",
-  },
   icons: {
     icon: [
       { url: "/bentan-icon-32.png", sizes: "32x32", type: "image/png" },
