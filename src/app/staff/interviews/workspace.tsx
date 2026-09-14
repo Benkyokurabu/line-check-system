@@ -7,6 +7,7 @@ import styles from './workspace.module.css';
 import {makeRecordDraft,validateRecord} from '@/lib/interview-record.mjs';
 import {RecordFields,RecordDetails,type RecordDraft} from './record-fields';
 import {canAccessInterviews} from '@/lib/interview-access.mjs';
+import BensukePanel from './bensuke-panel';
 
 type Staff={staffId:string;staffCode:string;displayName:string;role:string};
 type Student={id:string|null;student_number:string;student_name:string;grade:string;campus:string;homeroom_teacher:string};
@@ -53,6 +54,7 @@ export default function InterviewWorkspace({entryCode=''}:{entryCode?:string}){
  {retry&&<section className={styles.notice}><p>保存結果を確認できていません。同じ操作番号で再確認できます。</p><button disabled={busy} onClick={()=>void execute(retry)}>保存結果を確認・再試行</button></section>}
  {state&&<><p className={styles.note}>自動作成枠は職員のみの表示です。保護者への予約公開・LINE送信は行いません。</p><p className={styles.notice}>Notion連携：{state.settings.notion_status}。確定前に既存予定を確認してください。</p>
  <section className="panel"><h2>予約可</h2><div className={styles.filters}><label>日付<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label><label>担当講師<select value={teacher} onChange={e=>setTeacher(e.target.value)}>{state.teachers.map(t=><option key={t}>{t}</option>)}</select></label><label>校舎<select value={campus} onChange={e=>setCampus(e.target.value)}><option>本校</option><option>南教室</option></select></label></div>
+ <BensukePanel key={date} date={date}/>
  <p>面談{state.settings.data.duration}分。18:35～20:05の時間帯は、開始時刻を選んで1件だけ受け付けます。</p>
  {slotError?<p role="alert">{slotError}</p>:slots.length===0?<p>自動作成できる枠がありません。この校舎で担当授業がない日などは、勤務・開校状況を確認して「面談を登録」から入力できます。</p>:<div className={styles.slots}>{slots.map(slot=>{const hidden=state.slots.some(s=>s.key===slot.key&&s.data.hidden);return <div className={hidden?styles.hiddenSlot:styles.slot} key={slot.key}><strong>{slot.start}～{slot.end}</strong><span>{hidden?'非公開':'予約可'}</span>{state.canEdit&&<><button disabled={busy||hidden||!!retry} onClick={()=>openForm(undefined,slot.start)}>この時刻で入力</button><button disabled={busy||!!retry} onClick={()=>propose('slot',{key:slot.key,hidden:!hidden})}>{hidden?'予約可に戻す':'非公開にする'}</button></>}</div>;})}</div>}
  </section>
