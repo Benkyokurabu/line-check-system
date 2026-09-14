@@ -13,6 +13,7 @@ before(async()=>{
  await db.query('insert into staff_accounts values($1,\'admin\')',[actor]);
  await db.query("insert into student_registry(student_number,student_name,grade) values ('test','架空の生徒','中1')");
  await db.exec(await readFile(new URL('../supabase/interviews_20260914.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/interview_student_identity_20260914.sql',import.meta.url),'utf8'));
  student=(await db.query('select id from interview_students')).rows[0].id;
 });
 after(()=>db.close());
@@ -77,4 +78,41 @@ test('同期中の変更を拒否し、通信結果不明の新規カードを�
  assert.equal((await db.query('select interview_sync_claim($1) b',[a.id])).rows[0].b,null);
  await db.query("update interview_bookings set sync_lease_until=now()-interval '1 minute' where id=$1",[a.id]);
  const next=(await db.query('select interview_sync_claim($1) b',[a.id])).rows[0].b;assert.equal(next.sync_error,'create_uncertain');
+});
+
+test('台帳への新規追加と既存形式のupsertが同じ不変IDに自動追従',async()=>{
+ await db.query("insert into student_registry(student_number,student_name,grade) values('new','追加生徒','中2')");
+ const a=(await db.query("select * from interview_students where student_number='new'")).rows[0];assert.ok(a.id);
+ await db.query("insert into student_registry(student_number,student_name,grade) values('new','追加生徒（修正）','中3') on conflict(student_number) do update set student_name=excluded.student_name,grade=excluded.grade");
+ const b=await save('create',{studentId:a.id});assert.equal(b.data.studentName,'追加生徒（修正）');assert.equal(b.student_id,a.id);
+});
+
+test('学籍番号とNotionページ変更後も同じ履歴を維持し、旧画面の保存は拒否',async()=>{
+ const a=await save('create',{studentId:student}),old=await snapshot(),notion=randomUUID();
+ await db.query("update student_registry set student_number='renumbered',notion_page_id=$1 where student_number='test'",[notion]);
+ await assert.rejects(()=>save('create',{studentId:student},null,0,'',old),/version_conflict/);
+ const b=await save('create',{studentId:student});assert.equal(b.student_id,a.student_id);assert.equal(b.data.studentNumber,'renumbered');
+ const identity=(await db.query('select * from interview_students where id=$1',[student])).rows[0];assert.equal(identity.notion_page_id,notion);
+ assert.equal((await db.query('select data from interview_bookings where id=$1',[a.id])).rows[0].data.studentNumber,'test');
+});
+
+test('台帳削除後の番号再利用は別人のIDになり、過去の面談を引き継がない',async()=>{
+ const oldStudent=(await db.query("select id from interview_students where student_number='new'")).rows[0].id;
+ const booking=await save('create',{studentId:oldStudent});
+ await db.query("delete from student_registry where student_number='new'");
+ await db.query("insert into student_registry(student_number,student_name,grade) values('new','別の生徒','中1')");
+ const newStudent=(await db.query("select id from interview_students where student_number='new'")).rows[0].id;
+ assert.notEqual(oldStudent,newStudent);
+ await assert.rejects(()=>save('create',{studentId:oldStudent}),/student_missing/);
+ const oldIdentity=(await db.query('select * from interview_students where id=$1',[oldStudent])).rows[0];
+ assert.ok(oldIdentity.retired_at);assert.equal(oldIdentity.last_student_number,'new');
+ assert.equal((await db.query('select student_id from interview_bookings where id=$1',[booking.id])).rows[0].student_id,oldStudent);
+});
+
+test('不変IDの差し替えと退役IDの再利用を拒否し、再適用でIDが変わらない',async()=>{
+ await assert.rejects(()=>db.query("update student_registry set interview_student_id=$1 where student_number='new'",[randomUUID()]),/student_identity_immutable/);
+ const retired=(await db.query('select id from interview_students where retired_at is not null')).rows[0].id;
+ await assert.rejects(()=>db.query("insert into student_registry(student_number,interview_student_id) values('forged',$1)",[retired]),/student_identity_already_used/);
+ await db.exec(await readFile(new URL('../supabase/interview_student_identity_20260914.sql',import.meta.url),'utf8'));
+ assert.equal((await db.query("select interview_student_id from student_registry where student_number='renumbered'")).rows[0].interview_student_id,student);
 });

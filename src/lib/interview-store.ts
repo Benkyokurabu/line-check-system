@@ -23,8 +23,8 @@ export async function loadInterviewState(db: SupabaseClient) {
   if(settings.error)throw new InterviewError('予約枠の設定を取得できません。',503);
   const after=await db.rpc('interview_snapshot');
   if(after.error||before.data!==after.data)throw new InterviewError('予定が更新されました。もう一度読み込んでください。',409);
-  const byNumber=new Map(identities.map(r=>[r.student_number,r]));
-  const roster:Row[]=students.map(row=>({...row,id:byNumber.get(row.student_number)?.id??null}));
+  const byId=new Map(identities.filter(r=>!r.retired_at).map(r=>[r.id,r]));
+  const roster:Row[]=students.map(row=>({...row,id:byId.get(row.interview_student_id)?.id??null}));
   return {snapshot:after.data as string,settings:settings.data,students:roster,lessons,bookings,slots};
 }
 export type InterviewState = Awaited<ReturnType<typeof loadInterviewState>>;

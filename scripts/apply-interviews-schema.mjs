@@ -14,15 +14,18 @@ for(const host of [`db.${project}.supabase.co`,'aws-0-ap-northeast-1.pooler.supa
 }
 if(!db)throw Error('保存先へ接続できませんでした。');
 try{
- const tables=['interview_settings','interview_students','interview_bookings','interview_slot_overrides','interview_events'];
+ const tables=['student_registry','interview_settings','interview_students','interview_bookings','interview_slot_overrides','interview_events'];
  const backup={createdAt:new Date().toISOString(),tables:{},functions:[]};
  for(const table of tables){const exists=(await db.query('select to_regclass($1) present',[`public.${table}`])).rows[0].present;backup.tables[table]=exists?(await db.query(`select * from public.${table}`)).rows:null;}
  backup.functions=(await db.query("select pg_get_functiondef(p.oid) definition from pg_proc p join pg_namespace n on p.pronamespace=n.oid where n.nspname='public' and p.proname like 'interview_%'")).rows;
+ backup.registryColumns=(await db.query("select * from information_schema.columns where table_schema='public' and table_name='student_registry'")).rows;
+ backup.registryTriggers=(await db.query("select pg_get_triggerdef(oid) definition from pg_trigger where tgrelid='public.student_registry'::regclass and not tgisinternal")).rows;
  const dir=path.resolve('analysis_outputs/interview-deployment');fs.mkdirSync(dir,{recursive:true});
  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
  fs.writeFileSync(path.join(dir,`database.before_interviews_${stamp}.json`),JSON.stringify(backup,null,2));
  if(process.argv.includes('--apply')){
-  await db.query(fs.readFileSync(new URL('../supabase/interviews_20260914.sql',import.meta.url),'utf8'));
+  if(!process.argv.includes('--identity-only'))await db.query(fs.readFileSync(new URL('../supabase/interviews_20260914.sql',import.meta.url),'utf8'));
+  await db.query(fs.readFileSync(new URL('../supabase/interview_student_identity_20260914.sql',import.meta.url),'utf8'));
   console.log(JSON.stringify({applied:true,backup:path.join(dir,`database.before_interviews_${stamp}.json`),students:(await db.query('select count(*)::int n from interview_students')).rows[0].n}));
  }else console.log(JSON.stringify({applied:false,existing:Object.fromEntries(Object.entries(backup.tables).map(([k,v])=>[k,v?.length??null]))}));
 }finally{await db.end();}
