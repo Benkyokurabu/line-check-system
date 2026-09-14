@@ -3,6 +3,13 @@ import { interviewSurveyGroups } from "@/lib/interview-surveys";
 
 const menuItems = [
   {
+    href: "/staff/interviews",
+    group: "reservation" as const,
+    icon: "calendar",
+    title: "面談の予定・入力",
+    description: "授業の空き時間を確認し、面談予定の登録・承認・変更と実施内容を入力します。",
+  },
+  {
     href: "/attendance",
     group: "lesson" as const,
     icon: "message",
