@@ -19,7 +19,7 @@ export function assertStaffMutationOrigin(request: NextRequest) {
   }
 }
 
-export async function staffJsonBody(request: NextRequest): Promise<Record<string, unknown>> {
+export async function staffJsonBody(request: NextRequest, maxBytes = 8192): Promise<Record<string, unknown>> {
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
     throw new StaffAuthError("invalid_request", 400);
   }
@@ -32,7 +32,7 @@ export async function staffJsonBody(request: NextRequest): Promise<Record<string
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 8192) {
+      if (size > maxBytes) {
         await reader.cancel();
         throw new StaffAuthError("invalid_request", 413);
       }

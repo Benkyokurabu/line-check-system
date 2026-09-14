@@ -1,4 +1,5 @@
 import 'server-only';
+import {validateRecord} from './interview-record.mjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { InterviewError, conflicts, validateAppointment, validateSettings, normalizeTeacher, generateSlots } from './interview-core.mjs';
 
@@ -69,10 +70,7 @@ export function validateSave(body: Row,state: InterviewState) {
     data={...data,manualReviewed:body.manualReviewed===true,externalReviewed:body.externalReviewed===true};
   }
   if(['complete','record'].includes(action)){
-    const record=body.data as Row;
-    if(!record||typeof record.content!=='string'||!record.content.trim()||record.content.length>5000)throw new InterviewError('面談内容を入力してください。');
-    if(action==='record'&&!['draft','final'].includes(String(record.state)))throw new InterviewError('記録の保存方法を選択してください。');
-    return {content:record.content.trim(),state:action==='complete'?'draft':record.state};
+    return validateRecord(body.data,data,action);
   }
   if(!['create','update','confirm','cancel','reject'].includes(action))throw new InterviewError('操作を確認してください。');
   return data;

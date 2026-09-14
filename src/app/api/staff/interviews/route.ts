@@ -23,7 +23,7 @@ export async function POST(request:NextRequest){
  try{
   assertStaffMutationOrigin(request);context=await staffContext(request);
   if(!['admin','office','employee'].includes(context.staff.role))throw new InterviewError('予定の登録・承認は事務部・正社員・管理者が行えます。',403);
-  const body=await staffJsonBody(request);
+  const body=await staffJsonBody(request,65536);
   const requestHash=createHash('sha256').update(JSON.stringify(body)).digest('hex');
   // Return the committed result after a lost response, even if the snapshot advanced.
   const {data:prior,error:priorError}=await context.dataClient.from('interview_events').select('actor,request,request_hash,after_value').eq('operation_key',body.operationKey).maybeSingle();

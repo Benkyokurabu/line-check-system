@@ -1,9 +1,29 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {makeRecordDraft,validateRecord} from '../src/lib/interview-record.mjs';
 import {defaults,validateSettings,validateAppointment,generateSlots,conflicts} from '../src/lib/interview-core.mjs';
 const date='2026-11-02';
 const lesson={lesson_date:date,start_time:'16:45～18:15',teacher_name:'髙山',campus:'本校',classroom:'1'};
 const base={studentId:'00000000-0000-4000-8000-000000000001',teacher:'髙山',date,start:'13:00',campus:'本校',method:'対面',purpose:'進路相談',participants:'本人、母',channel:'電話',room:''};
+
+test('予定から記録を補完し、実際の時刻・参加者を独立して保存する',()=>{
+ const appointment={...base,date:'2026-01-01',end:'13:45'};
+ const draft=makeRecordDraft(appointment);assert.equal(draft.actualParticipants,'本人、母');assert.equal(draft.actualStart,'13:00');
+ const saved=validateRecord({...draft,actualStart:'13:05',actualEnd:'13:50',actualParticipants:'母',content:'面談内容',decisions:'宿題の見直し',staffTasks:'教材を準備',familyRequests:'毎日の記録',nextReviewDate:'2026-02-01',memo:'補足',state:'final'},appointment,'record','2026-01-02');
+ assert.equal(saved.actualStart,'13:05');assert.equal(saved.decisions,'宿題の見直し');assert.equal(saved.schemaVersion,1);assert.equal(appointment.start,'13:00');
+ assert.deepEqual(makeRecordDraft({...appointment,record:saved}),saved);
+});
+
+test('空の下書きは保存でき、確定時は内容と実績を必須にする',()=>{
+ const appointment={...base,date:'2026-01-01',end:'13:45'};
+ const draft=makeRecordDraft(appointment);assert.equal(validateRecord(draft,appointment,'complete','2026-01-02').state,'draft');
+ assert.throws(()=>validateRecord({...draft,state:'final'},appointment,'record','2026-01-02'),/確定するには/);
+ assert.throws(()=>validateRecord({...draft,actualEnd:'12:00'},appointment,'record','2026-01-02'),/時刻/);
+ assert.throws(()=>validateRecord({...draft,actualDate:'2027-01-01'},appointment,'record','2026-01-02'),/実施日/);
+ assert.throws(()=>validateRecord({...draft,nextReviewDate:'2026-02-30'},appointment,'record','2026-01-02'),/次回確認日/);
+ const long=validateRecord({...draft,content:'あ'.repeat(5000),state:'final'},appointment,'record','2026-01-02');assert.equal(long.content.length,5000);
+ assert.throws(()=>validateRecord({...draft,content:'あ'.repeat(5001)},appointment,'record','2026-01-02'),/文字数/);
+});
 test('既決の45分・予備15分と13時以降を守り、授業と重なる枠を除く',()=>{
  const rows=generateSlots({date,teacher:'高山',campus:'本校',lessons:[lesson]});
  assert.ok(rows.some(r=>r.start==='13:00'&&r.end==='13:45'));
