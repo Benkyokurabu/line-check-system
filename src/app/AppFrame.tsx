@@ -14,7 +14,7 @@ const navigation = [
 
 export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  if (pathname === "/" || pathname === "/interviews") return children;
+  if (pathname === "/" || pathname.startsWith("/interviews")) return children;
   const reservationMenu = pathname.startsWith("/reservations/trial");
   const studentView = reservationMenu || pathname === "/self-study-room" || pathname.startsWith("/self-study-room/");
   const compact = studentView || pathname === "/classroom" || pathname === "/private-feedback";

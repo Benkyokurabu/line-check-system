@@ -15,7 +15,7 @@ export async function loginStaffEntry({identityClient,dataClient,key}){
  return completeStaffLogin({identityClient,dataClient,session:data.session,authUserId:target.authUserId,staffCode:target.staffCode});
 }
 export function staffEntryDestination(value,code){
- const destinations={interviews:'/staff/interviews',study:'/self-study-room/trial',reservations:'/reservations/trial',interviewTrial:'/reservations/trial'};
+ const destinations={studentPreview:'/interviews/trial',interviews:'/staff/interviews',study:'/self-study-room/trial',reservations:'/reservations/trial',interviewTrial:'/reservations/trial'};
  const target=Object.hasOwn(destinations,value)?value:'interviews';
  return `${destinations[target]}?staff=${encodeURIComponent(code)}${target==='interviewTrial'?'&kind=interview':''}`;
 }

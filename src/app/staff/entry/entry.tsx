@@ -13,7 +13,7 @@ export default function Entry(){
     const response=await fetch('/api/staff/entry',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',cache:'no-store',body:JSON.stringify({key,destination})});
     const body=await response.json();
     if(!response.ok){setError(response.status===429?'少し時間を置いて、LINEのメニューから開き直してください。':'専用入口を確認できませんでした。LINEのメニューから開き直してください。');return;}
-    if(typeof body.destination!=='string'||!/^\/(staff\/interviews|self-study-room\/trial|reservations\/trial)\?staff=(KUDO|KINJO)(&kind=interview)?$/.test(body.destination))throw Error();
+    if(typeof body.destination!=='string'||!/^\/(staff\/interviews|self-study-room\/trial|reservations\/trial|interviews\/trial)\?staff=(KUDO|KINJO)(&kind=interview)?$/.test(body.destination))throw Error();
     location.replace(body.destination);
    }catch{setError('接続できませんでした。LINEのメニューから開き直してください。');}
   })();
