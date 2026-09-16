@@ -90,7 +90,8 @@ export async function readBensukeDay({request,sourceId,date}){
    if(row.archived||row.in_trash)continue;
    const values=Object.values(row.properties??{}),get=definition=>values.find(v=>v.id===definition.id);
    if(!uuid.test(row.id))throw new InterviewError('ベンスケの予定を確認できませんでした。',503);
-   rows.push({id:row.id,title:display(get(p.title)),date:get(p.date)?.date??null,url:`https://www.notion.so/${row.id.replaceAll('-','')}`,fields:p.fields.map(field=>({name:field.name,value:display(get(field))})),editedAt:row.last_edited_time,availability:bensukeAvailability(row)});
+   const teacher=p.fields.find(field=>field.name==='担当者');
+   rows.push({id:row.id,title:display(get(p.title)),date:get(p.date)?.date??null,url:`https://www.notion.so/${row.id.replaceAll('-','')}`,fields:p.fields.map(field=>({name:field.name,value:display(get(field))})),teacherIds:teacher?(get(teacher)?.relation??[]).map(r=>r.id):[],editedAt:row.last_edited_time,availability:bensukeAvailability(row)});
   }
   if(page.has_more&&(!page.next_cursor||cursors.has(page.next_cursor)))throw new InterviewError('予定の取得が途中で停止しました。再取得してください。',503);
   cursor=page.has_more?page.next_cursor:null;if(cursor)cursors.add(cursor);

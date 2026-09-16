@@ -54,6 +54,7 @@ export function validateSave(body: Row,state: InterviewState) {
     const teachers=[...state.students.map(s=>normalizeTeacher(s.homeroom_teacher)),...state.lessons.map(s=>normalizeTeacher(s.teacher_name))];
     if(!teachers.includes(normalizeTeacher(data.teacher)))throw new InterviewError('登録済みの講師を選択してください。');
     data.teacher=normalizeTeacher(data.teacher);
+    if(existing?.data&&(existing.data as Row).bensuke)data.bensuke=(existing.data as Row).bensuke;
   } else if(existing) data=existing.data as Row;
   else throw new InterviewError('対象の面談を再読込してください。',409);
   if(['create','update','confirm'].includes(action)){

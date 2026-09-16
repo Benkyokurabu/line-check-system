@@ -13,9 +13,10 @@ test('スマホで既存予定を読み、日付変更や通信失敗で古い�
  await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();
  await expect(page.getByRole('link',{name:'Notionの既存予定'})).toBeVisible();expect(reads).toBe(1);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
- await page.getByRole('button',{name:'日時・校舎・教室を面談入力に使う'}).click();
+ await page.getByRole('button',{name:'この予約可から面談を登録'}).click();
  const dialog=page.getByRole('dialog',{name:'面談予定の入力'});
  await expect(dialog.getByLabel('開始時刻')).toHaveValue('13:00');
+ await expect(dialog.getByLabel('開始時刻')).toBeDisabled();
  await expect(dialog.getByLabel('校舎')).toHaveValue('南教室');
  await expect(dialog.getByLabel('教室（未割当可）')).toHaveValue('3');
  await expect(dialog.getByRole('combobox',{name:/^担当講師/})).toHaveValue('');
@@ -29,4 +30,5 @@ test('スマホで既存予定を読み、日付変更や通信失敗で古い�
 test('未認証のベンスケAPIは取得を許可しない',async({request})=>{
  const response=await request.get('/api/staff/interviews/bensuke?date=2026-09-14');
  expect(response.status()).toBe(401);
+ expect((await request.get('/api/staff/interviews/bensuke-review?id=11111111-1111-4111-8111-111111111111')).status()).toBe(401);
 });
