@@ -148,7 +148,7 @@ export default function StaffStudyRoom({trial = false,entryCode = ''}: {trial?: 
         <button className={styles.primary} disabled={busy}>ログイン</button></>}
       </form> : <>
         <div className={styles.toolbar}><p>{staff.displayName} さん{staff.role && ' ／ ' + (staff.role === 'admin' ? '管理者' : staff.role === 'office' ? '事務部' : '職員')}</p><button onClick={logout} disabled={busy}>ログアウト</button></div>
-        {trial && <p><a href={`/self-study-room/trial?staff=${encodeURIComponent(staff.staffCode??'')}`}>生徒役の操作確認へ</a></p>}
+        {trial && <p><a href={`/self-study-room/trial?staff=${encodeURIComponent(staff.staffCode??'')}&from=staff`}>生徒役の操作確認へ</a></p>}
         <p>共有端末では、離席する前にログアウトしてください。未到着を理由に自動取消・自動連絡は行いません。</p>
         {(permissions['study_room.submit']||permissions['study_room.cancel']) && <div className={styles.actions}><button type="button" disabled={frozen} onClick={()=>{setSelected(null);setIntakeOpen(value=>!value);}}>{intakeOpen ? '代理受付を閉じる' : '電話などで受けた予約の申請・取消'}</button><p>電話やLINEで頼まれた予約の申請・取消を、職員が生徒の代わりに行います。</p></div>}
         {intakeOpen && <StaffProxyReception canSubmit={!!permissions['study_room.submit']} canCancel={!!permissions['study_room.cancel']} busy={busy || !!retry || !!visitRow} request={request} work={work} onPending={setIntakePending} onDone={async day=>{setDate(day);await load(day,status,0);}} />}

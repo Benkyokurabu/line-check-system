@@ -8,7 +8,8 @@ async function setup(page:Page,{loseResponse=false,forbid=false,conflict=false}=
  const target={id:'target',student_name:'取消対象の生徒',student_number:'CANCEL001',grade:'中1',reservation_date:date,seat:3,slot_ids:['16:45-18:15','18:35-20:05'],status:'approved',version:2,intake_channel:'line_screen'};
  const other={...target,id:'other',student_name:'別の生徒',student_number:'OTHER001',seat:4};
  await page.route('**/api/**',async route=>{
-  const url=new URL(route.request().url());calls.push(url.pathname+url.search);
+  const url=new URL(route.request().url());
+    if(url.pathname==='/api/codex')return route.fulfill({status:403,json:{error:'この検証ではCodex窓口を利用しません。'}});calls.push(url.pathname+url.search);
   if(url.pathname==='/api/staff/session')return route.fulfill({status:loggedIn?200:401,json:loggedIn?{staff:{staffId:'proxy-test',staffCode:'KUDO',displayName:'検証職員',role:'admin'}}:{error:'ログインしてください。'}});
   if(!loggedIn)return route.fulfill({status:401,json:{error:'ログインしてください。'}});
   if(url.pathname.endsWith('/intake-options'))return route.fulfill({json:{date,slotIds:['16:45-18:15','18:35-20:05','20:25-21:55'],booked:[],closedSlotIds:[]}});

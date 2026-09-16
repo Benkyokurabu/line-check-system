@@ -1,0 +1,5 @@
+.overlay{position:fixed;inset:0;z-index:110;background:#13253499;display:grid;place-items:center;padding:12px}
+.dialog{width:min(750px,100%);max-height:calc(100dvh - 24px);overflow:auto;overscroll-behavior:contain;background:#fff;color:#18303d;border-radius:14px;box-shadow:0 12px 50px #0004;outline:none}
+.header{position:sticky;top:0;z-index:2;background:#fff;border-bottom:1px solid #dde6e1;padding:12px 18px;display:flex;align-items:center;gap:14px;font-size:14px;font-weight:600}
+.header button{flex-shrink:0;min-height:44px}.body{padding:4px 22px 22px}.notice{padding:12px 22px;background:#fff4d8}.notice p{margin:0 0 8px}
+@media(max-width:600px){.overlay{padding:8px}.dialog{max-height:calc(100dvh - 16px)}.header{padding:10px 14px}.body{padding:4px 16px 18px}}

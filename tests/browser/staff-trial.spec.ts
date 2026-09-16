@@ -7,6 +7,7 @@ test('office trial uses actual staff components without reservation API writes',
   const forbidden:string[]=[];
   await page.route('**/api/**',async route=>{
     const url=new URL(route.request().url());
+    if(url.pathname==='/api/codex')return route.fulfill({status:403,json:{error:'この検証ではCodex窓口を利用しません。'}});
     if(url.pathname.startsWith('/api/staff/study-room-trial/')){
       try{const json=room.handle(url.pathname.replace('/study-room-trial/','/study-room/')+url.search,{method:route.request().method(),body:route.request().postData()},{role:'office',staffCode:'TEST',displayName:'検証事務担当'});await route.fulfill({json});}
       catch(error){await route.fulfill({status:(error as {status:number}).status,json:{error:(error as Error).message}});}
@@ -58,6 +59,7 @@ test('student trial submits, sees approval from another screen, then cancels',as
   const forbidden:string[]=[];
   await page.route('**/api/**',async route=>{
     const url=new URL(route.request().url());
+    if(url.pathname==='/api/codex')return route.fulfill({status:403,json:{error:'この検証ではCodex窓口を利用しません。'}});
     if(url.pathname==='/api/staff/session'){await route.fulfill({json:{staff}});return;}
     if(url.pathname!=='/api/staff/study-room-trial/student'){forbidden.push(url.pathname);await route.abort();return;}
     if(route.request().method()==='GET'){await route.fulfill({json:{studentName:'工藤',requests:room.snapshot().rows,booked:[],closedSlotIds:['20:25-21:55']}});return;}

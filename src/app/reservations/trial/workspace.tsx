@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import FlowDialog from '@/components/flow-dialog';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import StaffEntry from '@/app/staff/self-study-room/staff-entry';
 import {canAccessInterviews} from '@/lib/interview-access.mjs';
@@ -53,11 +54,12 @@ export default function ReservationTrial({entryCode='',view}:{entryCode?:string;
    <StaffEntry code={code} onChange={setCode} disabled={busy}/>{code&&<><label>パスワード<input required type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><button disabled={busy}>ログイン</button></>}
   </form>:<>
    <div className={styles.actions}><span>{staff.displayName} さん{view==='staff'?'（職員役）':'（生徒役）'}</span>
-    <button disabled={busy} onClick={()=>void(async()=>{try{await api('/api/staff/session',{method:'DELETE'});setStaff(null);setState(null);}catch(e){setMessage((e as Error).message);}})()}>ログアウト</button>
-    {view==='student'&&<Link href={`/reservations/trial?staff=${codeQuery}`} prefetch={false}>予約メニューへ</Link>}
+    <button disabled={busy||!!retry} onClick={()=>void(async()=>{try{await api('/api/staff/session',{method:'DELETE'});setStaff(null);setState(null);}catch(e){setMessage((e as Error).message);}})()}>ログアウト</button>
+    {view==='staff'&&<Link href={`/staff/interviews?staff=${codeQuery}`} prefetch={false}>← 面談の予定に戻る</Link>}
+    {view==='student'&&!retry&&<Link href={`/reservations/trial?staff=${codeQuery}`} prefetch={false}>← 予約メニューに戻る</Link>}
    </div>
    {view==='menu'?<div className={styles.cards}>
-    <Link className={styles.card} href={`/self-study-room/trial?staff=${codeQuery}`} prefetch={false}><span>座席・時間帯を選ぶ</span><strong>自習室予約</strong><p>申請と予約状況を確認する →</p></Link>
+    <Link className={styles.card} href={`/self-study-room/trial?staff=${codeQuery}&from=menu`} prefetch={false}><span>座席・時間帯を選ぶ</span><strong>自習室予約</strong><p>申請と予約状況を確認する →</p></Link>
     <Link className={styles.card} href={`/reservations/trial?staff=${codeQuery}&kind=interview`} prefetch={false}><span>希望日時を伝える</span><strong>面談予約</strong><p>第1〜第3希望を申し込む →</p></Link>
    </div>:<>
     {retry&&<section className={styles.notice}><p>保存結果を確認できていません。</p><button disabled={busy} onClick={()=>void save(retry)}>同じ操作の結果を確認・再試行</button></section>}
@@ -85,7 +87,7 @@ export default function ReservationTrial({entryCode='',view}:{entryCode?:string;
       </article>)}
      </section>
      {view==='student'&&<form id="interview-request-form" className={styles.panel} onSubmit={submit}>
-      <h2>{editing?'希望日時の変更':'面談を申し込む'}</h2><p>担当は担任です。面談は45分、希望日時は最大3件選べます。Webからの申請は面談日の2日前までです。</p>
+      <fieldset disabled={busy||!!retry} style={{border:0,padding:0,margin:0,minWidth:0}}><h2>{editing?'希望日時の変更':'面談を申し込む'}</h2><p>担当は担任です。面談は45分、希望日時は最大3件選べます。Webからの申請は面談日の2日前までです。</p>
       <p className={styles.hint}>表示日時は操作確認用の架空の枠です。実際の講師の空き時間ではありません。</p>
       <label>校舎<select value={campus} onChange={e=>{setCampus(e.target.value);setChoices(['','','']);}}><option>本校</option><option>南教室</option></select></label>
       <div className={styles.ranks}>{[0,1,2].map(i=><div key={i} className={styles.rank}><strong>第{i+1}希望{i===0?'（必須）':'（任意）'}</strong>
@@ -97,14 +99,14 @@ export default function ReservationTrial({entryCode='',view}:{entryCode?:string;
       <label>参加予定者<input required maxLength={500} value={details.participants} onChange={e=>setDetails({...details,participants:e.target.value})}/></label>
       <label>相談内容・連絡事項<textarea maxLength={1500} value={details.note} onChange={e=>setDetails({...details,note:e.target.value})}/></label>
       <div className={styles.actions}><button disabled={busy||!!retry}>申請内容を確認</button>{editing&&<button type="button" onClick={()=>setEditing(null)}>変更の入力をやめる</button>}</div>
-     </form>}
+     </fieldset></form>}
     </>}
    </>}
   </>}
-  {confirmation&&<section className={styles.overlay} role="dialog" aria-modal="true" aria-label="操作内容の確認"><div className={styles.dialog}>
+  {confirmation&&<FlowDialog label="操作内容の確認" onBack={()=>setConfirmation(null)} blocked={busy||!!retry}>
    <h2>この内容で進めますか</h2><p>{{submit:'面談希望を申請します。職員の承認後に確定します。',change:'日時の変更を申請します。承認までは現在の予約を残します。',cancel:'取消を申請します。確定済みの場合は承認まで予約を残します。',withdraw:'変更・取消申請を撤回します。',approve:'選択した希望日時で確定します。',reject:'この申請を見送ります。',approve_cancel:'取消を承認して予約枠を空けます。',reject_cancel:'取消申請を見送り、元の予約を残します。'}[confirmation.action]}</p>
    {Array.isArray(confirmation.choices)&&<ul>{confirmation.choices.map((id,i)=>{const s=state?.slots.find(v=>v.id===id);return <li key={String(id)}>第{i+1}希望：{s?describe(s):String(id)}</li>;})}</ul>}
-   <div className={styles.actions}><button disabled={busy} onClick={()=>void save(confirmation)}>この内容で進める</button><button onClick={()=>setConfirmation(null)}>戻る</button></div>
-  </div></section>}
+   <div className={styles.actions}><button disabled={busy} onClick={()=>void save(confirmation)}>この内容で進める</button></div>
+  </FlowDialog>}
  </main>;
 }

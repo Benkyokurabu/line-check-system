@@ -18,12 +18,12 @@ export default function ReservationPicker({selected,seat,disabled,booked,closedS
  function update(next:string[]){setMessage('');const busy=occupied(next);onSelect(next,!next.length||seat!==null&&busy.has(seat)?null:seat);}
  function toggle(index:number){const next=toggleReservationSlot(selected.map(s=>slots.indexOf(s)),index,blocked,slots.length);if(next.blocked){setMessage('間に利用できない時間帯があるため、選択を広げられません。現在の選択は残しています。');return;}update(next.selection.map(i=>slots[i]));}
  return <>
-  <h2>時間帯を選ぶ</h2><p>選択済みの時間帯は、もう一度タップするとそのコマだけ解除できます。離れた時間帯へ広げると間も追加されますが、解除した間のコマはそのままです。飛び飛びでも選べます。</p>
+  <h2 id="study-time-selection" tabIndex={-1}>時間帯を選ぶ</h2><p>もう一度タップすると選択を解除できます。</p><details><summary>複数の時間帯を選ぶ方法</summary><p>離れた時間帯まで広げると間のコマも選びます。不要なコマはタップして解除できます。</p></details>
   <div className={styles.actions}><button disabled={disabled||blocked.length===slots.length} onClick={()=>update(slots.filter((_,i)=>!blocked.includes(i)))}>空きのある時間帯をまとめて選ぶ</button><button disabled={disabled||selected.length===0} onClick={()=>update([])}>選択をクリア</button></div>
   <div className={styles.slots}>{slots.map((slot,index)=><button key={slot} className={`${styles.slot} ${selected.includes(slot)?styles.selected:''}`} aria-pressed={selected.includes(slot)} disabled={disabled||blocked.includes(index)} onClick={()=>toggle(index)}><span>{slot.replace('-','–')}</span><small>{ownSlotIds.includes(slot)?'申請済み':blocked.includes(index)?'選択不可':'空きあり'}</small></button>)}</div>
   <p aria-live="polite">{selected.length?`${selected.length}コマ選択中：${selected.map(s=>s.replace('-','–')).join(' ／ ')}`:'時間帯を選んでください。'}</p>
   {message&&<p role="status" className={styles.notice}>{message}</p>}
-  <h2>配置図から席を選ぶ</h2><p>選んだ全時間帯で空いている席を選べます。灰色の席は、いずれかの時間帯が予約済みです。</p>
+  <button type="button" disabled={disabled} onClick={()=>{const heading=document.getElementById("study-time-selection");heading?.focus({preventScroll:true});heading?.scrollIntoView({behavior:"smooth",block:"start"});}}>↑ 時間帯の選択に戻る</button><h2>配置図から席を選ぶ</h2><p>選んだ全時間帯で空いている席を選べます。灰色の席は、いずれかの時間帯が予約済みです。</p>
   <p className={styles.small}>満席の時間帯は選べません。時間帯を広げたとき、選択中の席が使えなくなる場合は席を選び直します。</p>
   <div className={styles.map} role="group" aria-label="本校自習室の配置図から座席選択">
    <Image src="/main-study-room-seat-map.png" alt="本校自習室の配置図。左側に下から1〜6番席、右上に7・8番席と9・10番席。出入口は右側、本棚は右下。" width={1086} height={1448} className={styles.mapImage} priority unoptimized/>

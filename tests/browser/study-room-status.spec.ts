@@ -48,7 +48,7 @@ test('student sees occupied seats separately for every slot and chosen day',asyn
   return route.fulfill({json:{studentName:'検証生徒',requests:[],closedSlotIds:['20:25-21:55'],booked:released||nextDay?[]:[{seat:1,slotId:'16:45-18:15'},{seat:2,slotId:'18:35-20:05'}]}});
  });
  await page.goto('/self-study-room/trial?staff=KUDO');
- await expect(page).toHaveTitle('勉強クラブ 自習室予約');
+ await expect(page).toHaveTitle('自習室予約');
  await expect(page.getByText('勉たん',{exact:false})).toHaveCount(0);
  const overview=page.getByRole('region',{name:'時間帯別の座席状況'});
  await expect(overview.getByRole('cell',{name:'1番席 16:45–18:15 予約済み',exact:true})).toBeVisible();
