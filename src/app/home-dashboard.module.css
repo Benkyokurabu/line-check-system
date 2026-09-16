@@ -109,7 +109,14 @@
 .cardShell .card { flex: 1; border: 0; border-radius: 0; }
 .badge { display: inline-block; margin-bottom: 6px; padding: 2px 7px; background: #fff3d9; color: #77531d; border-radius: 4px; font-size: 11px; }
 .quickLinks { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
-.surveyPanel { margin-bottom: 16px; padding: 20px; border: 1px solid #c8e1d8; border-radius: 12px; background: #fff; }
+.surveyPanel { margin-bottom: 16px; padding: 24px; border: 1px solid #d5e4df; border-radius: 16px; background: #fff; }
+.surveyTools { display:flex; align-items:center; gap:8px; margin:20px 0 12px; flex-wrap:wrap; }
+.surveySearch { flex:1 1 200px; min-width:0; display:flex; align-items:center; gap:8px; padding:0 12px; border:1px solid #cbdad6; border-radius:9px; background:#f7faf9; }
+.surveySearch svg { width:18px; height:18px; flex-shrink:0; color:#627c75; }
+.surveySearch input { width:100%; min-width:0; padding:12px 0; border:0; background:transparent; color:var(--home-ink); font:inherit; font-size:14px; outline-offset:2px; }
+.surveyTools button { min-height:44px; padding:9px 12px; border:1px solid #cfddd8; border-radius:9px; background:#fff; color:#36564b; font-size:13px; cursor:pointer; }
+.surveyTools button[aria-pressed="true"] { background:#e6f4ef; color:#125f58; border-color:#69a78d; }
+.surveyTools button:disabled { opacity:.6; cursor:wait; }
 .surveyHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .surveyHeading h3 { margin: 2px 0 0; font-size: 17px; line-height: 1.55; }
 .surveyEyebrow { margin: 0; color: var(--home-accent); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
@@ -136,7 +143,7 @@
 .surveyStudents ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .surveyStudents li { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 10px 11px; border: 1px solid var(--home-line); border-radius: 9px; background: #fbfcfd; }
 .gradeBadge { min-width: 34px; padding: 4px 7px; border-radius: 6px; background: #e7eef5; color: #344b62; font-size: 11px; font-weight: 700; text-align: center; }
-.surveyStudents a { display: flex; align-items: baseline; gap: 10px; min-width: 0; color: var(--home-ink); font-size: 14px; font-weight: 650; }
+.surveyStudents a { display: flex; flex-wrap:wrap; align-items: baseline; gap: 6px 10px; min-width: 0; color: var(--home-ink); font-size: 14px; font-weight: 650; }
 .surveyStudents a:hover { color: var(--home-accent); }
 .surveyStudents a small { color: var(--home-accent); font-size: 11px; font-weight: 500; }
 .surveyStudents a small:first-of-type { color: var(--home-muted); }

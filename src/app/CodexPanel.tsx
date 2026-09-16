@@ -126,16 +126,16 @@ export function CodexPanel() {
     {picking ? <div className={styles.pickNotice}>直したい場所をクリックしてください <button onClick={() => {setPicking(false);setOpen(true);}}>選択をやめる</button></div>
       : !open ? <button className={styles.launcher} onClick={() => {setOpen(true); if (!older.length) switchConversation(conversationId);}}>✦ Codexに修正を依頼</button> : null}
     {open && !picking && <aside ref={panel} className={styles.panel} aria-label="Codexに修正を依頼">
-      <header className={styles.header}><div><strong>✦ Codexに修正を依頼</strong><small>{online ? 'PCに接続中' : 'PCの接続待ち・依頼は保存できます'}</small></div><button aria-label="チャットを閉じる" onClick={() => setOpen(false)}>×</button></header>
+      <header className={styles.header}><div><strong>✦ Codexに修正を依頼</strong><small className={styles.connection} data-online={online}>{online ? '接続中・依頼できます' : '接続待ち・依頼は保存できます'}</small></div><button aria-label="チャットを閉じる" onClick={() => setOpen(false)}>×</button></header>
       <div className={styles.toolbar}><button disabled={busy || retryPending} onClick={() => switchConversation(crypto.randomUUID())}>新しい会話</button>
-        <select aria-label="会話を切り替え" value={conversationId} disabled={busy || retryPending} onChange={(e) => switchConversation(e.target.value)}>{[...new Set([conversationId,...older])].filter(Boolean).map((id,i) => <option key={id} value={id}>会話 {id.slice(0,6)}{i===0?'（最新）':''}</option>)}</select></div>
+        <select aria-label="会話を切り替え" value={conversationId} disabled={busy || retryPending} onChange={(e) => switchConversation(e.target.value)}>{[...new Set([conversationId,...older])].filter(Boolean).map((id,i) => <option key={id} value={id}>{i===0?'表示中の会話':`以前の会話 ${i}`}</option>)}</select></div>
       <div ref={history} className={styles.history} aria-label="会話履歴" aria-live="polite" aria-relevant="additions text" onScroll={(event) => {
         const container = event.currentTarget;
         followLatest.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 48;
       }}>
-        {!jobs.length && <p className={styles.empty}>見ているページの修正を依頼できます。<br/>「場所を選ぶ」で対象を指定し、変更したい内容を送ってください。</p>}
+        {!jobs.length && <div className={styles.empty}><span className={styles.emptyIcon} aria-hidden="true">✦</span><h2>気になることを、そのまま</h2><p>不具合の報告も、使いやすくする相談も。<br/>このページを見ながら依頼できます。</p><p className={styles.hint}>場所を指定したいときは「場所を選ぶ」</p></div>}
         {jobs.map((job) => <article className={styles.exchange} key={job.id}><div className={styles.user}><small>{job.page_context.path}</small><p>{job.message}</p>{job.page_context.selection && <blockquote>{job.page_context.selection}</blockquote>}</div>
-          <div className={styles.answer}><small>{labels[job.status] || job.status}</small><p>{job.response || job.progress}</p>{job.response && active(job) && <small>{job.progress}</small>}
+          <div className={styles.answer}><small className={styles.status} data-status={job.status}>{labels[job.status] || job.status}</small><p>{job.response || job.progress}</p>{job.response && active(job) && <small>{job.progress}</small>}
           {job.status==='awaiting_approval' && job.approval && <div className={styles.approval}><p>{job.approval.message}</p><button disabled={busy || job.cancel_requested} onClick={() => void mutate({action:'approve',conversationId,id:job.id,approvalId:job.approval!.id,decision:'accept'})}>この操作を許可</button><button disabled={busy || job.cancel_requested} onClick={() => void mutate({action:'approve',conversationId,id:job.id,approvalId:job.approval!.id,decision:'decline'})}>許可しない</button></div>}
           {active(job) && <button disabled={busy || job.cancel_requested} onClick={() => void mutate({action:'cancel',conversationId,id:job.id})}>{job.cancel_requested?'停止を依頼しました':'作業を停止'}</button>}</div></article>)}
       </div>
@@ -146,7 +146,7 @@ export function CodexPanel() {
         try { localStorage.setItem('bentan-codex-conversations',JSON.stringify([conversationId,...older.filter(id=>id!==conversationId)].slice(0,20))); } catch {}
         setRetryPending(true); void mutate(retry.current);
       }}>
-        <div className={styles.context}><button type="button" disabled={busy || retryPending} onClick={() => setPicking(true)}>⌖ 場所を選ぶ</button><span>{selection ? `選択済み：${selection.path}` : pathname}</span></div>
+        <div className={styles.context}><button type="button" disabled={busy || retryPending} onClick={() => setPicking(true)}>⌖ 場所を選ぶ</button><span>{selection ? '選択した場所を共有します' : '今のページを共有します'}</span></div>
         {selection && <div className={styles.selected}><span>{selection.selection || selection.element}</span><button type="button" disabled={retryPending} onClick={() => setSelection(null)}>解除</button></div>}
         <label className={styles.inputLabel} htmlFor="codex-instruction">修正したい内容・質問</label>
         <textarea ref={input} id="codex-instruction" rows={3} maxLength={2000} value={message} readOnly={retryPending} onChange={(event) => setMessage(event.target.value)} placeholder="このボタンを大きくしてほしい"/>

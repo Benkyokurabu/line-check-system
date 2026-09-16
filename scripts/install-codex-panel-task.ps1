@@ -12,5 +12,5 @@ $action = New-ScheduledTaskAction -Execute $shellExecutable -Argument $arguments
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $taskUser
 $principal = New-ScheduledTaskPrincipal -UserId $taskUser -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description '勉たん内の工藤専用Codexチャット接続。外部待受ポートなし。' -Force | Select-Object TaskName,State
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Bentan private Codex queue for Kudo. No listening ports.' -Force | Select-Object TaskName,State
 Start-ScheduledTask -TaskName $taskName

@@ -1,5 +1,25 @@
 import { expect, test } from "@playwright/test";
 
+test('スマホで生徒検索・未確認の絞り込みができる',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[{teacher:'工藤',students:[
+  {grade:'中3',name:'架空　花子',notionUrl:'https://app.notion.com/p/ui-a',submittedAt:'2026-09-16T00:00:00Z'},
+  {grade:'中1',name:'架空　太郎',notionUrl:'https://app.notion.com/p/ui-b',submittedAt:'2026-09-16T01:00:00Z'},
+ ]}]}}));
+ await page.goto('/');await expect(page.getByRole('button',{name:'工藤先生 2'})).toBeVisible();
+ await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空花子');
+ await expect(page.getByRole('link',{name:/架空\s*花子/})).toBeVisible();
+ await expect(page.getByRole('link',{name:/架空\s*太郎/})).toHaveCount(0);
+ await page.getByRole('button',{name:'未確認',exact:true}).click();
+ await page.getByRole('button',{name:'未確認だけ'}).click();
+ await expect(page.getByText('条件に合う回答はありません。')).toBeVisible();
+ await page.getByRole('button',{name:'未確認だけ'}).click();
+ const box=await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).boundingBox();
+ expect(box!.x+box!.width).toBeLessThanOrEqual(390);
+ await page.getByRole('heading',{name:'担当生徒の回答を確認してください'}).scrollIntoViewIfNeeded();
+ await page.screenshot({path:'analysis_outputs/survey-mobile-ui.png',fullPage:false});
+});
+
 test('古い担任未特定のキャッシュを自動更新し確認状態は保持する',async({page})=>{
  const student={grade:'中3',name:'照合確認生徒',notionUrl:'https://app.notion.com/p/fake-student',submittedAt:'2026-09-16T00:00:00Z'};
  await page.addInitScript(s=>{
