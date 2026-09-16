@@ -11,12 +11,14 @@ test('LINE個別入口から生徒役になり、第3希望の保存・取り下
    else {expect(op.action).toBe('cancel');row={...row,status:'cancelled',version:2};}
    return route.fulfill({json:{saved:true}});
   }
-  return route.fulfill({json:{studentName:'工藤（確認用生徒）',slots,requests:row?[row]:[]}});
+  return route.fulfill({json:{studentName:'工藤（確認用生徒）',slots,requests:[{id:'earlier',status:'pending',version:1,choices:[slots[0]],details:{note:''},confirmed:null},...(row?[row]:[])]}});
  });
  await page.setViewportSize({width:390,height:844});
  await page.goto('/staff/entry#key='+'x'.repeat(43)+'&to=studentPreview');
  await expect(page).toHaveURL(/\/interviews\/trial\?staff=KUDO$/);
  await expect(page.getByText(/生徒役の検証用です/)).toBeVisible();
+ await expect(page.locator('body')).not.toContainText('勉たん');
+ await expect(page.getByText('承認待ち',{exact:true})).not.toBeVisible();
  await expect(page.getByRole('navigation')).toHaveCount(0);await expect(page.getByText('Codexに依頼')).toHaveCount(0);
  await expect(page.getByRole('combobox')).toHaveCount(0);await expect(page.getByLabel('パスワード')).toHaveCount(0);
  for(let i=0;i<3;i++)await page.locator('button[aria-pressed]').nth(i).click();
@@ -26,14 +28,25 @@ test('LINE個別入口から生徒役になり、第3希望の保存・取り下
  await page.screenshot({path:'analysis_outputs/parent-interviews/student-preview.png',fullPage:true});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.getByRole('button',{name:'選んだ日程を確認する'}).click();await page.getByRole('button',{name:'予約希望を送信する',exact:true}).click();
- await expect(page.getByText('承認待ち',{exact:true})).toBeVisible();
+ await expect(page.getByText('承認待ち',{exact:true}).last()).toBeVisible();
  expect(writes[0].method).toBe('Zoom');expect(writes[0].choices).toEqual(slots.slice(0,3).map(s=>s.id));expect(writes[0]).not.toHaveProperty('studentId');
- await page.getByRole('button',{name:'申請を取り下げる'}).click();await page.getByRole('button',{name:'取り下げる',exact:true}).click();
- await expect(page.getByText('申請を取り下げました。')).toBeVisible();expect(writes).toHaveLength(2);
+ await page.getByRole('button',{name:'申請を取り下げる'}).last().click();await page.getByRole('button',{name:'取り下げる',exact:true}).click();
+ await expect(page.getByText('申請を取り下げました。')).toBeVisible();expect(writes).toHaveLength(2);expect(writes[1].id).toBe('row');
  expect(unexpected.filter(url=>!url.includes('/api/app-version'))).toEqual([]);
 });
 test('生徒役セッションがなければ個別LINEメニューへ案内する',async({page})=>{
  await page.route('**/api/staff/interview-trial/student',r=>r.fulfill({status:401,json:{error:'ログインしてください'}}));
  await page.goto('/interviews/trial');await expect(page.getByText('LINEの個別メニューから開き直してください。')).toBeVisible();
  await expect(page.getByRole('link',{name:'LINEで続ける'})).toHaveCount(0);await expect(page.getByLabel('パスワード')).toHaveCount(0);
+});
+
+test('生徒・保護者の入口と予約画面には内部のアプリ名を表示しない',async({page})=>{
+ await page.route('**/api/**',r=>r.fulfill({status:401,json:{error:'ログインしてください',loginAvailable:false}}));
+ for(const path of ['/staff/entry','/interviews','/interviews/trial','/self-study-room/trial','/reservations/trial']){
+  await page.goto(path);
+  await expect(page.locator('body')).not.toContainText('勉たん');
+  expect(await page.title()).not.toContain('勉たん');
+  await expect(page.locator('meta[name="application-name"]')).not.toHaveAttribute('content',/勉たん/);
+  await expect(page.getByRole('navigation',{name:'業務ナビゲーション'})).toHaveCount(0);
+ }
 });

@@ -57,7 +57,7 @@ export function CodexPanel() {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
-    if ((pathname.startsWith('/interviews') || pathname.startsWith('/reservations/trial') || pathname.startsWith('/self-study-room/'))) return;
+    if ((pathname === '/staff/entry' || pathname.startsWith('/interviews') || pathname.startsWith('/reservations/trial') || pathname.startsWith('/self-study-room/'))) return;
     let pending = false;
     const refresh = async () => {
       if (pending || document.visibilityState === 'hidden') return;
@@ -121,7 +121,7 @@ export function CodexPanel() {
     const ids=[id,...older.filter((value) => value!==id)].slice(0,20); setOlder(ids);
     try { localStorage.setItem('bentan-codex-conversations',JSON.stringify(ids)); } catch {}
   }
-  if (!authorized || (pathname.startsWith('/interviews') || pathname.startsWith('/reservations/trial') || pathname.startsWith('/self-study-room/'))) return null;
+  if (!authorized || (pathname === '/staff/entry' || pathname.startsWith('/interviews') || pathname.startsWith('/reservations/trial') || pathname.startsWith('/self-study-room/'))) return null;
   const current = jobs.find(active);
   return <div data-codex-panel>
     {picking ? <div className={styles.pickNotice}>直したい場所をクリックしてください <button onClick={() => {setPicking(false);setOpen(true);}}>選択をやめる</button></div>
