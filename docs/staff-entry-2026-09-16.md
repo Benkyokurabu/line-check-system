@@ -8,4 +8,6 @@ DBにはSHA256ハッシュのみ保存。キーは180日で期限切れ、有効
 
 個別メニューの「面談予約」は `/staff/interviews`、「自習室予約」は既存 `/self-study-room/trial` へ。共通メニューは変更しない。一般向け公開・LINEメッセージ・メール送信なし。
 
+本番の初回スマホ確認で、Service Workerのcontrollerchangeによる自動再読み込みがキー消去後の認証を中断する問題を検出。PwaRegistrationのreloadOnceは専用入口パスでは再読み込みを行わない。localhostで認証応答を待たせてcontrollerchangeを発火する回帰試験を追加し、新入口ブラウザ4件・再ビルド成功。
+
 検証: 職員関連52件成功、面談ブラウザ9件成功、新入口ブラウザ3件成功、変更箇所lint・型検査・本番ビルド成功。通常.nextはOneDriveのEPERMのため既存のBENTAN_ISOLATED_BUILD=true設定でビルド。ブラウザ試験はWindowsのサーバー終了待ちを手動停止。実Supabaseで二人の認証・権限照合・試験セッションのログアウトを確認。

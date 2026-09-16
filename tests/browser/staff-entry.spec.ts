@@ -1,4 +1,14 @@
 import {test,expect} from '@playwright/test';
+test('アプリ更新の再読み込みが専用入口の認証を中断しない',async({page})=>{
+ let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});let calls=0;
+ await page.route('**/api/staff/entry',async r=>{calls++;await gate;await r.fulfill({json:{destination:'/staff/interviews?staff=KUDO'}});});
+ await page.route('**/api/staff/session',r=>r.fulfill({status:401,json:{error:'ログインしてください'}}));
+ await page.goto('http://localhost:3197/staff/entry#key='+ 'x'.repeat(43));
+ await expect.poll(()=>calls).toBe(1);
+ await page.evaluate(()=>navigator.serviceWorker.dispatchEvent(new Event('controllerchange')));
+ release();
+ await expect(page).toHaveURL(/\/staff\/interviews\?staff=KUDO$/);expect(calls).toBe(1);
+});
 test('専用入口はパスワードを求めず、キーをURLから除去して内部画面へ進む',async({page})=>{
  const key='x'.repeat(43);let calls=0;
  await page.route('**/api/staff/entry',async r=>{calls++;expect(r.request().postDataJSON()).toEqual({key,destination:'interviews'});expect(page.url()).not.toContain(key);await r.fulfill({json:{destination:'/staff/interviews?staff=KUDO'}});});
