@@ -52,6 +52,12 @@ test("retired pages collect no pupil identifiers and never fetch reservation API
   const apiRequests: string[] = [];
   await page.context().route("**/*", async route => {
     const url = new URL(route.request().url());
+    // The global support panel checks authorization without pupil data.
+    if (url.pathname === '/api/codex' && route.request().method() === 'GET') {
+      expect(url.search).toBe('');
+      expect(route.request().postData()).toBeNull();
+      return route.fulfill({status:401,json:{error:'Unauthorized'}});
+    }
     if (url.pathname.startsWith("/api/")) {
       apiRequests.push(url.pathname);
       await route.abort();

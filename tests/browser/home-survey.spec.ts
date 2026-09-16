@@ -115,6 +115,6 @@ test("教室画面のヘッダーには勉たんを表示しない", async ({ pa
   await page.goto("/classroom");
 
   const topbar = page.locator(".app-topbar");
-  await expect(topbar).toContainText("教室の出欠確認");
+  await expect(topbar).toContainText("遅刻・欠席確認");
   await expect(topbar).not.toContainText("勉たん");
 });

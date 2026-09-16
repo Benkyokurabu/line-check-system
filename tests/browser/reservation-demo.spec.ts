@@ -1,9 +1,13 @@
 import { expect,test } from '@playwright/test';
 
-test('student demo covers unavailable seats, request, staff approval and cancellation without any API',async ({page})=>{
+test('student demo covers unavailable seats, request, staff approval and cancellation without reservation APIs',async ({page})=>{
   const apiCalls:string[]=[];
   await page.context().route('**/*',async route=>{
     const url=new URL(route.request().url());
+    if(url.pathname==='/api/codex'&&route.request().method()==='GET'){
+      expect(url.search).toBe('');expect(route.request().postData()).toBeNull();
+      return route.fulfill({status:401,json:{error:'Unauthorized'}});
+    }
     if(url.pathname.startsWith('/api/')) {apiCalls.push(url.pathname);await route.abort();}
     else if(url.origin!=='http://127.0.0.1:3197') await route.abort();
     else await route.continue();
