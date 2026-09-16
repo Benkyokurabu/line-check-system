@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
+test.beforeEach(async({page})=>{await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({json:{states:[]}}));});
 
 test('スマホで生徒検索・未確認の絞り込みができる',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[{teacher:'工藤',students:[
-  {grade:'中3',name:'架空　花子',notionUrl:'https://app.notion.com/p/ui-a',submittedAt:'2026-09-16T00:00:00Z'},
-  {grade:'中1',name:'架空　太郎',notionUrl:'https://app.notion.com/p/ui-b',submittedAt:'2026-09-16T01:00:00Z'},
+  {grade:'中3',name:'架空　花子',notionUrl:'https://app.notion.com/p/11111111111141118111111111111111',submittedAt:'2026-09-16T00:00:00Z'},
+  {grade:'中1',name:'架空　太郎',notionUrl:'https://app.notion.com/p/22222222222242228222222222222222',submittedAt:'2026-09-16T01:00:00Z'},
  ]}]}}));
  await page.goto('/');await expect(page.getByRole('button',{name:'工藤先生 2'})).toBeVisible();
  await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空花子');
@@ -21,7 +22,7 @@ test('スマホで生徒検索・未確認の絞り込みができる',async({pa
 });
 
 test('古い担任未特定のキャッシュを自動更新し確認状態は保持する',async({page})=>{
- const student={grade:'中3',name:'照合確認生徒',notionUrl:'https://app.notion.com/p/fake-student',submittedAt:'2026-09-16T00:00:00Z'};
+ const student={grade:'中3',name:'照合確認生徒',notionUrl:'https://app.notion.com/p/33333333333343338333333333333333',submittedAt:'2026-09-16T00:00:00Z'};
  await page.addInitScript(s=>{
   localStorage.setItem('bentan:2026-autumn-survey-data',JSON.stringify([{teacher:'担任未特定',students:[s]}]));
   localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([s.notionUrl]));
@@ -99,7 +100,7 @@ test("更新するボタンでNotionから受け取った一覧に差し替え�
   await page.goto("/");
 
   await page.getByRole("button", { name: "更新する" }).click();
-  await expect(page.getByRole("status")).toContainText("Notionから最新の回答を更新しました。");
+  await expect(page.getByText("Notionから最新の回答を更新しました。",{exact:true})).toBeVisible();
   await page.getByRole("button", { name: "工藤先生 1" }).click();
   await expect(page.getByRole("link", { name: /更新確認生徒/ })).toContainText("提出 9/12 18:30");
 

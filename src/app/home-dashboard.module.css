@@ -117,6 +117,7 @@
 .surveyTools button { min-height:44px; padding:9px 12px; border:1px solid #cfddd8; border-radius:9px; background:#fff; color:#36564b; font-size:13px; cursor:pointer; }
 .surveyTools button[aria-pressed="true"] { background:#e6f4ef; color:#125f58; border-color:#69a78d; }
 .surveyTools button:disabled { opacity:.6; cursor:wait; }
+.surveyTools .surveySave { background:#176b58; color:#fff; border-color:#176b58; font-weight:700; }
 .surveyHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .surveyHeading h3 { margin: 2px 0 0; font-size: 17px; line-height: 1.55; }
 .surveyEyebrow { margin: 0; color: var(--home-accent); font-size: 11px; font-weight: 700; letter-spacing: .08em; }

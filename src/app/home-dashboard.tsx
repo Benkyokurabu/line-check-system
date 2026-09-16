@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import styles from "./home-dashboard.module.css";
+import {useSurveyConfirmations} from './use-survey-confirmations';
 
 type Group = "all" | "student" | "lesson" | "communication" | "reservation" | "admin";
 type MenuItem = { href: string; title: string; description: string; group: Exclude<Group, "all">; icon: string; trial?: boolean };
@@ -16,7 +17,6 @@ const groups: { id: Group; label: string; icon: string }[] = [
   { id: "admin", label: "設定・管理", icon: "sync" },
 ];
 const frequentLinks = ["/attendance", "/dashboard", "/students", "/karte"];
-const SURVEY_CONFIRMED_KEY = "bentan:2026-autumn-survey-confirmed";
 const SURVEY_HIDDEN_KEY = "bentan:2026-autumn-survey-hidden";
 const SURVEY_DATA_KEY = "bentan:2026-autumn-survey-data";
 function isSurveyGroups(value: unknown): value is InterviewSurveyTeacherGroup[] {
@@ -68,7 +68,7 @@ export default function HomeDashboard({
   const [query, setQuery] = useState("");
   const [selectedSurveyTeacher, setSelectedSurveyTeacher] = useState<string | null>(null);
   const [surveyGroups, setSurveyGroups] = useState(initialSurveyGroups);
-  const [confirmedSurveys, setConfirmedSurveys] = useState<string[]>([]);
+  const confirmation = useSurveyConfirmations();
   const [hiddenSurveys, setHiddenSurveys] = useState<string[]>([]);
   const [showHiddenSurveys, setShowHiddenSurveys] = useState(false);
   const [surveyRefreshing, setSurveyRefreshing] = useState(false);
@@ -77,14 +77,10 @@ export default function HomeDashboard({
   const [onlyUnconfirmed, setOnlyUnconfirmed] = useState(false);
   useEffect(() => {
     try {
-      const savedConfirmed = JSON.parse(window.localStorage.getItem(SURVEY_CONFIRMED_KEY) ?? "[]");
       const savedHidden = JSON.parse(window.localStorage.getItem(SURVEY_HIDDEN_KEY) ?? "[]");
       const savedSurveyGroups = JSON.parse(window.localStorage.getItem(SURVEY_DATA_KEY) ?? "null");
-      if (Array.isArray(savedConfirmed) && savedConfirmed.every(item => typeof item === "string")) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setConfirmedSurveys(savedConfirmed);
-      }
       if (Array.isArray(savedHidden) && savedHidden.every(item => typeof item === "string")) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setHiddenSurveys(savedHidden);
       }
       if (isSurveyGroups(savedSurveyGroups)) {
@@ -94,13 +90,6 @@ export default function HomeDashboard({
     // Cached answers are a fallback, never the permanent source of teacher names.
     void refreshSurveys();
   }, []);
-  function toggleSurveyConfirmation(notionUrl: string) {
-    setConfirmedSurveys(current => {
-      const next = current.includes(notionUrl) ? current.filter(item => item !== notionUrl) : [...current, notionUrl];
-      window.localStorage.setItem(SURVEY_CONFIRMED_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
   function hideSurvey(notionUrl: string) {
     setHiddenSurveys(current => {
       if (current.includes(notionUrl)) return current;
@@ -151,7 +140,7 @@ export default function HomeDashboard({
   const surveyName = surveyQuery.normalize("NFKC").replace(/\s/g, "");
   const surveyRows = visibleSurveyGroups.filter(item => !selectedSurveyTeacher || item.teacher === selectedSurveyTeacher)
     .flatMap(item => item.students.map(student => ({ ...student, teacher: item.teacher })))
-    .filter(student => (!surveyName || student.name.normalize("NFKC").replace(/\s/g, "").includes(surveyName)) && (!onlyUnconfirmed || !confirmedSurveys.includes(student.notionUrl)))
+    .filter(student => (!surveyName || student.name.normalize("NFKC").replace(/\s/g, "").includes(surveyName)) && (!onlyUnconfirmed || !confirmation.isConfirmed(student.notionUrl)))
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
   const visible = items.filter(item => (group === "all" || item.group === group) &&
     (!normalized || `${item.title} ${item.description}`.normalize("NFKC").toLocaleLowerCase("ja").includes(normalized)));
@@ -203,7 +192,9 @@ export default function HomeDashboard({
                   <label className={styles.surveySearch}><Icon name="search" /><input type="search" aria-label="アンケートの生徒を検索" placeholder="生徒名で探す" value={surveyQuery} onChange={e=>{setSurveyQuery(e.target.value);setShowHiddenSurveys(false);}} /></label>
                   <button type="button" aria-pressed={onlyUnconfirmed} onClick={()=>{setOnlyUnconfirmed(v=>!v);setShowHiddenSurveys(false);}}>未確認だけ</button>
                   <button type="button" disabled={surveyRefreshing} onClick={refreshSurveys}>{surveyRefreshing ? "更新中…" : "更新する"}</button>
+                  <button className={styles.surveySave} type="button" disabled={!confirmation.ready||confirmation.saving||!confirmation.pending} onClick={()=>void confirmation.save()}>{confirmation.saving?'保存中…':'確認状態を保存'}</button>
                 </div>
+                <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.pending ? `未保存の変更 ${confirmation.pending}件` : confirmation.ready ? '確認状態は先生間で共有されます。' : '共有の確認状態を読み込み中…')}{confirmation.loginNeeded&&<> <Link href="/staff/self-study-room">職員ログイン</Link></>}</p>
                 <div className={styles.teacherButtons} aria-label="担任を選択">
                   {visibleSurveyGroups.map(item => <button key={item.teacher} type="button" aria-pressed={!showHiddenSurveys && selectedSurveyTeacher === item.teacher} onClick={() => { setShowHiddenSurveys(false); setSelectedSurveyTeacher(current => current === item.teacher ? null : item.teacher); }}>
                     {item.teacher === '担任未特定' ? '担任を確認' : `${item.teacher}先生`} <span>{item.students.length}</span>
@@ -225,18 +216,18 @@ export default function HomeDashboard({
                   {surveyRows.length===0 && <p className={styles.surveyPrompt}>条件に合う回答はありません。</p>}
                   <ul aria-label={selectedSurveyTeacher ? `${selectedSurveyTeacher}先生のアンケート回答` : '検索したアンケート回答'}>
                     {surveyRows.map(student => {
-                      const confirmed = confirmedSurveys.includes(student.notionUrl);
+                      const confirmed = confirmation.isConfirmed(student.notionUrl);
                       return <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
                         <span className={styles.gradeBadge}>{student.grade}</span>
                         <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>{!selectedSurveyTeacher && `${student.teacher}先生・`}{formatSubmittedAt(student.submittedAt)}</small><small>回答を開く ↗</small></a>
                         <div className={styles.surveyActions}>
-                          <button className={styles.surveyStatusButton} type="button" aria-pressed={confirmed} onClick={() => toggleSurveyConfirmation(student.notionUrl)}>{confirmed ? "確認済み" : "未確認"}</button>
+                          <button className={styles.surveyStatusButton} type="button" disabled={!confirmation.ready||confirmation.saving} aria-pressed={confirmed} onClick={() => confirmation.toggle(student.notionUrl)}>{confirmed ? "確認済み" : "未確認"}</button>
                           <button className={styles.surveyHideButton} type="button" aria-label="確認したのでこの行を削除する" title="この端末の一覧から非表示にします" onClick={() => hideSurvey(student.notionUrl)}>非表示</button>
                         </div>
                       </li>;
                     })}
                   </ul>
-                  <p className={styles.surveyNote}>確認・非表示の状態はこの端末のブラウザだけに保存されます。Notionのデータは削除・更新されず、ほかの端末にも反映されません。</p>
+                  <p className={styles.surveyNote}>確認済み・未確認を変更したら「確認状態を保存」を押してください。保存後は他の先生にも共有されます。「非表示」はこの端末だけに反映されます。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶか、生徒名で検索してください。</p>}
               </>}
             </div>
