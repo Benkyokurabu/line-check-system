@@ -14,7 +14,7 @@ async function interviews(page:Page,onWrite?:(body:Record<string,unknown>)=>bool
  });
  await page.route('**/api/staff/interviews/history?*',route=>route.fulfill({json:{events:[]}}));
  await page.route('**/api/staff/interviews/bensuke-review?*',route=>route.fulfill({json:{id:'booking',version:1,local:appointment,remote:{title:'確認用',date:{start:today+'T13:00',end:today+'T13:45'},campuses:['本校'],room:'',tags:[]},teacherNames:['架空講師'],editedAt:'test',canAdopt:true,changed:true,issue:''}}));
- await page.goto('/staff/interviews');
+ await page.goto('/staff/interviews/manage');
 }
 test('面談：確認から一つ戻っても入力・チェックが残り、保存は発生しない',async({page})=>{
  let writes=0;await interviews(page,()=>{writes++;return false;});await page.setViewportSize({width:390,height:844});

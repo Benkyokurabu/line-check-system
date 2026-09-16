@@ -18,7 +18,7 @@ export function PwaRegistration() {
     const reloadOnce = () => {
       // Entry consumes a one-time in-memory copy of the private URL fragment.
       // A service-worker/version reload here would interrupt authentication.
-      if (window.location.pathname === "/staff/entry") return;
+      if (window.location.pathname === "/staff/entry" || window.location.pathname === "/interviews" || window.location.pathname.startsWith('/staff/interviews')) return;
       if (refreshing || cancelled) return;
       refreshing = true;
       window.location.reload();

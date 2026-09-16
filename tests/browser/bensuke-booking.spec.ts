@@ -9,7 +9,7 @@ test('予約可から登録し、生徒の校舎で枠を上書きせずカー�
  const operations:Record<string,unknown>[]=[];
  await page.route('**/api/staff/interviews',r=>{if(r.request().method()==='POST'){operations.push(r.request().postDataJSON());return r.fulfill({json:{saved:{}}});}return r.fulfill({json:fixture()});});
  await page.route('**/api/staff/interviews/bensuke?*',r=>r.fulfill({json:{date:today,checkedAt:new Date().toISOString(),rows:[{id:pageId,editedAt:'2026-09-16T00:00:00Z',title:'予約可',url:'https://www.notion.so/'+pageId,date:{start:today+'T13:00:00+09:00',end:today+'T13:45:00+09:00'},fields:[],availability:{usable:true,date:today,start:'13:00',end:'13:45',campus:'南教室',room:'1',teacher:'工藤'}}]}}));
- await page.goto('/staff/interviews');await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();await page.getByRole('button',{name:'この予約可から面談を登録'}).click();
+ await page.goto('/staff/interviews/manage');await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();await page.getByRole('button',{name:'この予約可から面談を登録'}).click();
  const dialog=page.getByRole('dialog',{name:'面談予定の入力'});
  await dialog.getByRole('combobox',{name:/^生徒/}).selectOption(studentId);
  await expect(dialog.getByLabel('校舎')).toHaveValue('南教室');await expect(dialog.getByLabel('校舎')).toBeDisabled();
@@ -28,7 +28,7 @@ test('差分を表示し、確認後だけNotionの変更を取り込む',async(
  await page.route('**/api/staff/session',r=>r.fulfill({json:{staff:{staffCode:'KINJO',staffId:'staff',role:'admin',displayName:'検証職員'}}}));
  await page.route('**/api/staff/interviews',r=>{if(r.request().method()==='POST'){operations.push(r.request().postDataJSON());return r.fulfill({json:{saved:{}}});}return r.fulfill({json:{...fixture(),bookings:[booking]}});});
  await page.route('**/api/staff/interviews/bensuke-review?*',r=>r.fulfill({json:{id:pageId,version:2,local:data,remote:{title:'面談：架空生徒（対面）',date:{start:today+'T14:00:00+09:00',end:today+'T14:45:00+09:00'},campuses:['本校'],room:'本①',tags:['面談(対面)']},teacherNames:['工藤先生'],editedAt:'new',canAdopt:true,issue:'',changed:true}}));
- await page.goto('/staff/interviews');await page.getByRole('button',{name:'Notionとの差分を確認'}).click();
+ await page.goto('/staff/interviews/manage');await page.getByRole('button',{name:'Notionとの差分を確認'}).click();
  const dialog=page.getByRole('dialog',{name:'Notionとの差分',exact:true});await expect(dialog).toContainText('14:00');
  await expect(dialog.getByRole('button',{name:'Notionの変更を取り込む'})).toBeDisabled();
  await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'Notionの変更を取り込む'}).click();expect(operations).toHaveLength(0);

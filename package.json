@@ -32,7 +32,7 @@
     "test:staff": "node --test tests/staff-auth-core.test.mjs tests/staff-auth-db.test.mjs tests/staff-study-room-visits.test.mjs tests/staff-study-room-trial.test.mjs tests/staff-entry.test.mjs tests/staff-entry-db.test.mjs",
     "test:browser": "playwright test",
     "test:codex": "node --test tests/codex-panel.test.mjs",
-    "test:interviews": "node --test tests/interview-core.test.mjs tests/interview-db.test.mjs tests/interview-notion.test.mjs tests/interview-trial.test.mjs tests/bensuke-reader.test.mjs tests/bensuke-booking.test.mjs tests/bensuke-db.test.mjs tests/survey-student-match.test.mjs tests/survey-confirmations.test.mjs",
+    "test:interviews": "node --test tests/interview-core.test.mjs tests/interview-db.test.mjs tests/interview-notion.test.mjs tests/interview-trial.test.mjs tests/bensuke-reader.test.mjs tests/bensuke-booking.test.mjs tests/bensuke-db.test.mjs tests/survey-student-match.test.mjs tests/survey-confirmations.test.mjs tests/interview-requests.test.mjs tests/parent-line-login.test.mjs",
     "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule && npm run test:feedback && npm run test:codex && npm run test:interviews",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"

@@ -6,7 +6,7 @@ test('生徒を選ぶと担任・校舎を補完し、確認後だけ保存す�
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'staff',staffCode:'KUDO',displayName:'架空職員',role:'admin'}}}));
  const operations:Record<string,unknown>[]=[];
  await page.route('**/api/staff/interviews',async route=>{if(route.request().method()==='POST'){operations.push(route.request().postDataJSON());await route.fulfill({json:{saved:{}}});}else await route.fulfill({json:fixture()});});
- await page.goto('/staff/interviews');
+ await page.goto('/staff/interviews/manage');
  await expect(page.getByRole('heading',{name:'予約可',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'この時刻で入力'}).first().click();
  const dialog=page.getByRole('dialog',{name:'面談予定の入力'});
@@ -18,18 +18,18 @@ test('生徒を選ぶと担任・校舎を補完し、確認後だけ保存す�
 });
 test('ログインしていない状態で生徒情報を表示しない',async({page})=>{
  await page.route('**/api/staff/session',route=>route.fulfill({status:401,json:{error:'ログインしてください。'}}));
- await page.goto('/staff/interviews');await expect(page.getByRole('heading',{name:'職員ログイン'})).toBeVisible();await expect(page.getByText('架空生徒')).toHaveCount(0);
+ await page.goto('/staff/interviews/manage');await expect(page.getByLabel('パスワード')).toBeVisible();await expect(page.getByText('架空生徒')).toHaveCount(0);
 });
 test('一般講師には承認・設定変更の操作を表示しない',async({page})=>{
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'staff',staffCode:'KUDO',displayName:'架空講師',role:'teacher'}}}));
  await page.route('**/api/staff/interviews',route=>route.fulfill({json:{...fixture(),canEdit:false}}));
- await page.goto('/staff/interviews');await expect(page.getByRole('heading',{name:'予約可',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'面談を登録',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'予約枠の設定'})).toHaveCount(0);
+ await page.goto('/staff/interviews/manage');await expect(page.getByRole('heading',{name:'予約可',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'面談を登録',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'予約枠の設定'})).toHaveCount(0);
 });
 test('スマートフォンの入力画面は横にはみ出さない',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'staff',staffCode:'KUDO',displayName:'架空職員',role:'admin'}}}));
  await page.route('**/api/staff/interviews',route=>route.fulfill({json:fixture()}));
- await page.goto('/staff/interviews');await page.getByRole('button',{name:'面談を登録',exact:true}).click();
+ await page.goto('/staff/interviews/manage');await page.getByRole('button',{name:'面談を登録',exact:true}).click();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  await expect(page.getByRole('dialog',{name:'面談予定の入力'})).toBeVisible();
 });
@@ -41,7 +41,7 @@ test('面談記録に予定を補完し、実績と決定事項を保存・再�
   if(route.request().method()==='POST'){const op=route.request().postDataJSON();booking.data.record=op.data;booking.status='completed';booking.version++;await route.fulfill({json:{saved:booking}});}
   else await route.fulfill({json:{...fixture(),bookings:[booking]}});
  });
- await page.goto('/staff/interviews');await page.getByRole('button',{name:'実施済み・記録入力'}).click();
+ await page.goto('/staff/interviews/manage');await page.getByRole('button',{name:'実施済み・記録入力'}).click();
  const dialog=page.getByRole('dialog',{name:'面談記録',exact:true});
  await expect(dialog.getByLabel('実際の参加者')).toHaveValue('本人、母');
  await expect(dialog.getByLabel('実際の終了時刻')).toHaveValue('13:45');
@@ -66,7 +66,7 @@ test('工藤・金城以外は管理者でも面談データを読み込まな�
  let reads=0;await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'other',staffCode:'OTHER',displayName:'別職員',role:'admin'}}}));
  await page.route('**/api/staff/interviews',route=>{reads++;return route.fulfill({json:fixture()});});
  await page.goto('/staff/interviews?staff=KUDO');
- await expect(page.getByRole('status')).toContainText('工藤さん・金城さんだけ');
+ await expect(page.getByRole('status')).toContainText('工藤さん・金城さん');
  await expect(page.getByRole('heading',{name:'予約可',exact:true})).toHaveCount(0);expect(reads).toBe(0);
 });
 

@@ -57,6 +57,7 @@ export function CodexPanel() {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
+    if (pathname === '/interviews') return;
     let pending = false;
     const refresh = async () => {
       if (pending || document.visibilityState === 'hidden') return;
@@ -120,7 +121,7 @@ export function CodexPanel() {
     const ids=[id,...older.filter((value) => value!==id)].slice(0,20); setOlder(ids);
     try { localStorage.setItem('bentan-codex-conversations',JSON.stringify(ids)); } catch {}
   }
-  if (!authorized) return null;
+  if (!authorized || pathname === '/interviews') return null;
   const current = jobs.find(active);
   return <div data-codex-panel>
     {picking ? <div className={styles.pickNotice}>直したい場所をクリックしてください <button onClick={() => {setPicking(false);setOpen(true);}}>選択をやめる</button></div>
