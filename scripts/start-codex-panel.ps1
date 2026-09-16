@@ -6,6 +6,12 @@ New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 $workerScript = Join-Path $PSScriptRoot 'codex-panel-worker.mjs'
 $nodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
 while ($true) {
-  & $nodeExecutable $workerScript 2>&1 | Out-File -LiteralPath (Join-Path $logDirectory 'worker.log') -Append -Encoding utf8
+  try {
+    # Native stderr must not terminate the supervisor under ErrorAction Stop.
+    $ErrorActionPreference = 'Continue'
+    & $nodeExecutable $workerScript 2>&1 | Out-File -LiteralPath (Join-Path $logDirectory 'worker.log') -Append -Encoding utf8
+  } finally {
+    $ErrorActionPreference = 'Stop'
+  }
   Start-Sleep -Seconds 15
 }

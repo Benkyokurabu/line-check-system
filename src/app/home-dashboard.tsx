@@ -89,6 +89,8 @@ export default function HomeDashboard({
         setSurveyGroups(savedSurveyGroups);
       }
     } catch { /* Ignore invalid browser data and start with every item unconfirmed. */ }
+    // Cached answers are a fallback, never the permanent source of teacher names.
+    void refreshSurveys();
   }, []);
   function toggleSurveyConfirmation(notionUrl: string) {
     setConfirmedSurveys(current => {

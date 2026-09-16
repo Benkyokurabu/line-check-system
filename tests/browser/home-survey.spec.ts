@@ -1,5 +1,18 @@
 import { expect, test } from "@playwright/test";
 
+test('古い担任未特定のキャッシュを自動更新し確認状態は保持する',async({page})=>{
+ const student={grade:'中3',name:'照合確認生徒',notionUrl:'https://app.notion.com/p/fake-student',submittedAt:'2026-09-16T00:00:00Z'};
+ await page.addInitScript(s=>{
+  localStorage.setItem('bentan:2026-autumn-survey-data',JSON.stringify([{teacher:'担任未特定',students:[s]}]));
+  localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([s.notionUrl]));
+ },student);
+ await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[{teacher:'工藤',students:[student]}]}}));
+ await page.goto('/');
+ await page.getByRole('button',{name:'工藤先生 1'}).click();
+ await expect(page.getByRole('button',{name:'担任未特定先生 1'})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
+});
+
 test("確認状態の切替・行の非表示・提出日時の古い順表示ができる", async ({ page }) => {
   await page.goto("/");
 

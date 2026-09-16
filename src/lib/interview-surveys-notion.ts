@@ -2,6 +2,7 @@ import "server-only";
 
 import { notionRequest } from "@/lib/notion";
 import { canonicalTeacherName } from "@/lib/teacher-names";
+import { matchSurveyStudent } from "@/lib/survey-student-match.mjs";
 import type { InterviewSurveyTeacherGroup } from "@/lib/interview-surveys";
 
 type Property = {
@@ -10,6 +11,8 @@ type Property = {
   rich_text?: Array<{ plain_text?: string }>;
   rollup?: { type?: string; array?: Array<{ select?: { name?: string } | null }> };
   select?: { name?: string } | null;
+  number?: number | null;
+  formula?: { string?: string | null };
 };
 type Page = { id: string; url?: string; created_time?: string; properties?: Record<string, Property> };
 type QueryResult = { results?: Page[]; has_more?: boolean; next_cursor?: string | null };
@@ -23,6 +26,8 @@ const SOURCES = [
 ] as const;
 const TEACHER_ORDER = ["工藤", "金子", "鈴木", "金城", "髙山"];
 function propertyText(property?: Property) {
+  if (property?.type === "number") return property.number == null ? "" : String(property.number);
+  if (property?.type === "formula") return property.formula?.string ?? "";
   if (property?.type === "title") return (property.title ?? []).map(item => item.plain_text ?? "").join("").trim();
   if (property?.type === "rich_text") return (property.rich_text ?? []).map(item => item.plain_text ?? "").join("").trim();
   return "";
@@ -49,26 +54,21 @@ async function queryAll(dataSourceId: string, filter: Record<string, unknown>) {
   return pages;
 }
 
-async function lookupTeacher(studentNumber: string, studentName: string) {
-  const number = Number(studentNumber);
-  if (Number.isSafeInteger(number)) {
-    const pages = await queryAll(STUDENT_DATA_SOURCE_ID, { property: "学籍番号", number: { equals: number } });
-    const teacher = propertyTeacher(pages[0]?.properties?.["担任"]);
-    if (teacher) return teacher;
-  }
-  const pages = await queryAll(STUDENT_DATA_SOURCE_ID, { property: "生徒氏名", title: { equals: studentName } });
-  return propertyTeacher(pages[0]?.properties?.["担任"]);
-}
-
 export async function loadInterviewSurveyGroups(): Promise<InterviewSurveyTeacherGroup[]> {
   const results = await Promise.all(SOURCES.map(async ([grade, id]) => ({
     grade,
     pages: await queryAll(id, { timestamp: "created_time", created_time: { on_or_after: SURVEY_STARTED_ON } }),
   })));
-  const rows = await Promise.all(results.flatMap(({ grade, pages }) => pages.map(async page => {
+  // One roster fetch replaces per-answer requests, including whitespace variants.
+  const needsRoster = results.some(({pages})=>pages.some(page=>!propertyTeacher(page.properties?.["担任"])));
+  const roster = needsRoster ? (await queryAll(STUDENT_DATA_SOURCE_ID, {property:"状態",select:{equals:"在塾"}})).map(page=>({
+    name:propertyText(page.properties?.["生徒氏名"]),number:propertyText(page.properties?.["学籍番号"]),
+    grade:propertyText(page.properties?.["学年"]),teacher:propertyTeacher(page.properties?.["担任"]),
+  })) : [];
+  const rows = results.flatMap(({ grade, pages }) => pages.map(page => {
     const properties = page.properties ?? {};
     const name = propertyText(Object.values(properties).find(property => property.type === "title")) || "氏名未登録";
-    const teacher = propertyTeacher(properties["担任"]) || await lookupTeacher(propertyText(properties["学籍番号"]), name);
+    const teacher = propertyTeacher(properties["担任"]) || matchSurveyStudent({number:propertyText(properties["学籍番号"]),name,grade},roster)?.teacher;
     return {
       grade,
       name,
@@ -76,7 +76,7 @@ export async function loadInterviewSurveyGroups(): Promise<InterviewSurveyTeache
       notionUrl: page.url ?? `https://app.notion.com/p/${page.id.replaceAll("-", "")}`,
       submittedAt: page.created_time ?? "",
     };
-  })));
+  }));
   const groups = new Map<string, InterviewSurveyTeacherGroup["students"]>();
   for (const row of rows) groups.set(row.teacher, [...(groups.get(row.teacher) ?? []), {
     grade: row.grade,
