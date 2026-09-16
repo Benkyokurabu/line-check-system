@@ -5,6 +5,36 @@ const uuid = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$
 const nameOf = schema => text(schema.title);
 const normalize = name => name.normalize('NFKC').replace(/[\s　]/g,'').replace(/DB$/i,'');
 
+// Only unambiguous, timed availability can be reused as input. Never infer a
+// teacher from a title, creator, or mention, or turn another event into a slot.
+export function bensukeAvailability(page){
+ const props=page.properties??{},tags=props['内容']?.multi_select?.map(x=>x.name)??[];
+ const availability=tags.filter(x=>['本：予約可','南：予約可'].includes(x));
+ if(!availability.length)return null;
+ const reject=reason=>({usable:false,reason});
+ if(page.archived||page.in_trash)return reject('削除された予定です。');
+ if(availability.length!==1||tags.length!==1)return reject('別の用途も設定されています。Notionで内容を確認してください。');
+ const campuses=props['校舎']?.multi_select?.map(x=>x.name)??[];
+ const campus=availability[0]==='本：予約可'?'本校':'南教室';
+ if(campuses.length!==1||campuses[0]!==campus)return reject('校舎の設定を確認してください。');
+ const date=props['日時']?.date;
+ if(!date?.start?.includes('T')||!date.end?.includes('T'))return reject('開始・終了時刻の確認が必要です。');
+ const startTime=new Date(date.start),endTime=new Date(date.end);
+ if(!Number.isFinite(+startTime)||!Number.isFinite(+endTime)||+endTime-+startTime!==45*60000)return reject('面談45分の枠ではありません。日時を確認してください。');
+ const japan=value=>new Date(+value+9*3600000).toISOString();
+ const start=japan(startTime),end=japan(endTime);
+ if(start.slice(0,10)!==end.slice(0,10))return reject('日をまたぐ枠は個別に確認してください。');
+ const notionRoom=props['教室']?.select?.name??'';
+ let room='';
+ if(notionRoom){
+  const prefix=campus==='本校'?'本':'南';
+  const number='①②③④⑤⑥⑦⑧⑨'.indexOf(notionRoom.slice(1));
+  if(notionRoom.length!==2||notionRoom[0]!==prefix||number<0)return reject('教室の割り当てを個別に確認してください。');
+  room=String(number+1);
+ }
+ return {usable:true,date:start.slice(0,10),start:start.slice(11,16),end:end.slice(11,16),campus,room};
+}
+
 // Read existing cards without requiring Bentan-specific properties or changing Notion.
 export function bensukeSchema(schema){
  const properties=Object.entries(schema.properties??{}).map(([name,p])=>({...p,name:p.name??name}));
@@ -60,7 +90,7 @@ export async function readBensukeDay({request,sourceId,date}){
    if(row.archived||row.in_trash)continue;
    const values=Object.values(row.properties??{}),get=definition=>values.find(v=>v.id===definition.id);
    if(!uuid.test(row.id))throw new InterviewError('ベンスケの予定を確認できませんでした。',503);
-   rows.push({id:row.id,title:display(get(p.title)),date:get(p.date)?.date??null,url:`https://www.notion.so/${row.id.replaceAll('-','')}`,fields:p.fields.map(field=>({name:field.name,value:display(get(field))})),editedAt:row.last_edited_time});
+   rows.push({id:row.id,title:display(get(p.title)),date:get(p.date)?.date??null,url:`https://www.notion.so/${row.id.replaceAll('-','')}`,fields:p.fields.map(field=>({name:field.name,value:display(get(field))})),editedAt:row.last_edited_time,availability:bensukeAvailability(row)});
   }
   if(page.has_more&&(!page.next_cursor||cursors.has(page.next_cursor)))throw new InterviewError('予定の取得が途中で停止しました。再取得してください。',503);
   cursor=page.has_more?page.next_cursor:null;if(cursor)cursors.add(cursor);

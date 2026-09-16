@@ -7,12 +7,19 @@ test('スマホで既存予定を読み、日付変更や通信失敗で古い�
  let failure=false;let reads=0;
  await page.route('**/api/staff/interviews/bensuke?*',route=>{
   reads++;const date=new URL(route.request().url()).searchParams.get('date');
-  return route.fulfill(failure?{status:503,json:{error:'ベンスケを読み取れません。'}}:{json:{date,checkedAt:new Date().toISOString(),rows:[{id:'one',title:'Notionの既存予定',url:'https://www.notion.so/11111111111111111111111111111111',date:{start:`${date}T13:00:00+09:00`,end:null},fields:[{name:'担当者',value:'講師A'}]}]}});
+  return route.fulfill(failure?{status:503,json:{error:'ベンスケを読み取れません。'}}:{json:{date,checkedAt:new Date().toISOString(),rows:[{id:'one',title:'Notionの既存予定',url:'https://www.notion.so/11111111111111111111111111111111',date:{start:`${date}T13:00:00+09:00`,end:`${date}T13:45:00+09:00`},fields:[{name:'担当者',value:'講師A'}],availability:{usable:true,date,start:'13:00',end:'13:45',campus:'南教室',room:'3'}}]}});
  });
  await page.goto('/staff/interviews');
  await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();
  await expect(page.getByRole('link',{name:'Notionの既存予定'})).toBeVisible();expect(reads).toBe(1);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ await page.getByRole('button',{name:'日時・校舎・教室を面談入力に使う'}).click();
+ const dialog=page.getByRole('dialog',{name:'面談予定の入力'});
+ await expect(dialog.getByLabel('開始時刻')).toHaveValue('13:00');
+ await expect(dialog.getByLabel('校舎')).toHaveValue('南教室');
+ await expect(dialog.getByLabel('教室（未割当可）')).toHaveValue('3');
+ await expect(dialog.getByRole('combobox',{name:/^担当講師/})).toHaveValue('');
+ await dialog.getByRole('button',{name:'閉じる',exact:true}).click();
  await page.getByLabel('日付',{exact:true}).fill('2026-12-01');
  await expect(page.getByRole('link',{name:'Notionの既存予定'})).toHaveCount(0);
  failure=true;await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();
