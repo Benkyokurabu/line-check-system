@@ -89,6 +89,14 @@ export async function loginStaff({ identityClient, dataClient, staffCode, passwo
   return { staff, identity, session: data.session };
 }
 
+export async function completeStaffLogin({identityClient,dataClient,session,authUserId,staffCode}) {
+  const identity=await verifiedIdentity(identityClient,session.access_token);
+  if(identity.authUserId!==authUserId)throw new StaffAuthError('invalid_session');
+  const staff=await authorize(dataClient,identity,true);
+  if(staff.staffCode!==staffCode)throw new StaffAuthError('invalid_session');
+  return {staff,identity,session};
+}
+
 export async function requireStaff({ identityClient, dataClient, accessToken, refreshToken }) {
   let identity;
   let session = null;

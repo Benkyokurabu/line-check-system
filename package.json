@@ -29,7 +29,7 @@
     "test:roster": "node --test tests/roster-import-logic.test.mjs tests/student-registry.test.mjs",
     "test:reservation": "node --test tests/reservation-date.test.mjs tests/reservation-access.test.mjs tests/reservation-slot-selection.test.mjs tests/study-room-workflow.test.mjs",
     "test:reservation-db": "node --test tests/study-room-workflow.test.mjs",
-    "test:staff": "node --test tests/staff-auth-core.test.mjs tests/staff-auth-db.test.mjs tests/staff-study-room-visits.test.mjs tests/staff-study-room-trial.test.mjs",
+    "test:staff": "node --test tests/staff-auth-core.test.mjs tests/staff-auth-db.test.mjs tests/staff-study-room-visits.test.mjs tests/staff-study-room-trial.test.mjs tests/staff-entry.test.mjs tests/staff-entry-db.test.mjs",
     "test:browser": "playwright test",
     "test:codex": "node --test tests/codex-panel.test.mjs",
     "test:interviews": "node --test tests/interview-core.test.mjs tests/interview-db.test.mjs tests/interview-notion.test.mjs tests/interview-trial.test.mjs tests/bensuke-reader.test.mjs tests/bensuke-booking.test.mjs tests/bensuke-db.test.mjs",
