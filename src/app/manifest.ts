@@ -13,19 +13,19 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "portrait",
     icons: [
       {
-        src: "/bentan-icon-192.png",
+        src: "/bentan-icon-192-v2.png",
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/bentan-icon-512.png",
+        src: "/bentan-icon-512-v2.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/bentan-icon-maskable-512.png",
+        src: "/bentan-icon-maskable-512-v2.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
@@ -39,7 +39,7 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/classroom",
         icons: [
           {
-            src: "/bentan-icon-192.png",
+            src: "/bentan-icon-192-v2.png",
             sizes: "192x192",
             type: "image/png",
           },
