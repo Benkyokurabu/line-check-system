@@ -32,12 +32,13 @@ test('LINE未設定・未紐づけでは個人情報や日程申請を表示し�
  await page.route('**/api/parent/interviews',r=>r.fulfill({status:401,json:{loginRequired:true,loginAvailable:false}}));await page.goto('/interviews');await expect(page.getByText(/受付は準備中/)).toBeVisible();await expect(page.getByRole('link',{name:'LINEで続ける'})).toHaveCount(0);
  await page.route('**/api/parent/interviews',r=>r.fulfill({json:{students:[],slots:[],requests:[]}}));await page.reload();await expect(page.getByText(/お子さまとの登録を確認できませんでした/)).toBeVisible();await expect(page.getByRole('button',{name:'選んだ日程を確認する'})).toHaveCount(0);
 });
-test('先生は第2希望を選び、確認から戻ってから承認しNotion結果を見る',async({page})=>{
- let approved=false;const operations:Record<string,unknown>[]=[];
+test('先生は承認後の予約をチェックなしの簡単な画面から取り消せる',async({page})=>{
+ let approved=false,cancelled=false;const operations:Record<string,unknown>[]=[],cancellations:Record<string,unknown>[]=[];
  await page.route('**/api/staff/session',r=>r.fulfill({json:{staff:{staffId:'staff',staffCode:'KUDO',displayName:'確認用講師',role:'admin'}}}));
+ await page.route('**/api/staff/interviews',route=>{cancellations.push(route.request().postDataJSON());cancelled=true;return route.fulfill({json:{saved:{},sync:{status:'synced',message:'予約を取り消し、Notionを予約可へ戻しました。'}}});});
  await page.route('**/api/staff/interview-requests',route=>{
   if(route.request().method()==='POST'){operations.push(route.request().postDataJSON());approved=true;return route.fulfill({json:{saved:{},sync:{status:'synced',message:'Notionに反映しました。'}}});}
-  return route.fulfill({json:{requests:approved?[]:[{id:'request',studentName:'確認用生徒',status:'pending',version:1,note:'学習の相談',choices:slots.slice(0,3).map(s=>({slotId:s.id,data:{...s,teacher:'確認用講師'},available:true}))}],bookings:approved?[{id:'booking',status:'confirmed',version:2,notion_synced_version:2,notion_page_id:'test',data:{...slots[1],teacher:'確認用講師',studentName:'確認用生徒',method:'Zoom'}}]:[],slots:[],loginReady:true}});
+  return route.fulfill({json:{snapshot:'snapshot',requests:approved?[]:[{id:'request',studentName:'確認用生徒',status:'pending',version:1,note:'学習の相談',choices:slots.slice(0,3).map(s=>({slotId:s.id,data:{...s,teacher:'確認用講師'},available:true}))}],bookings:approved&&!cancelled?[{id:'booking',status:'confirmed',version:2,notion_synced_version:2,notion_page_id:'test',data:{...slots[1],teacher:'確認用講師',studentName:'確認用生徒',method:'Zoom'}}]:[],slots:[],loginReady:true}});
  });
  await page.setViewportSize({width:390,height:844});await page.goto('/staff/interviews');
  const manage=page.getByRole('link',{name:'面談記録・取消・詳細管理'});
@@ -46,7 +47,10 @@ test('先生は第2希望を選び、確認から戻ってから承認しNotion�
  await dialog.getByRole('button',{name:'← 戻る'}).click();await expect(page.getByRole('radio').nth(1)).toBeChecked();expect(operations).toHaveLength(0);
  await page.getByRole('button',{name:'選んだ日程で承認'}).click();dialog=page.getByRole('dialog',{name:'日程を承認'});await dialog.getByRole('button',{name:'承認する',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('Notionに反映しました');expect(operations[0].slotId).toBe(slots[1].id);await page.getByRole('button',{name:'確定予定',exact:true}).click();
- await expect(page.getByText('Notion反映済み')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'analysis_outputs/parent-interviews/teacher-confirmed.png',fullPage:true});
+ await expect(page.getByText('Notion反映済み')).toBeVisible();await page.getByRole('button',{name:'予約を取り消す',exact:true}).click();dialog=page.getByRole('dialog',{name:'予約の取消'});
+ await expect(dialog.getByRole('checkbox')).toHaveCount(0);await expect(dialog).not.toContainText('Notionに反映しました');await expect(dialog).toContainText('保護者は新しい予約を申請できます');await dialog.getByLabel('取消理由').fill('日程変更のため');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'analysis_outputs/parent-interviews/teacher-cancel.png',fullPage:true});await dialog.getByRole('button',{name:'予約を取り消す',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('Notionを予約可へ戻しました');await expect(page.getByText('確定した面談はありません。')).toBeVisible();expect(cancellations).toHaveLength(1);expect(cancellations[0]).toMatchObject({action:'cancel',snapshot:'snapshot',id:'booking',version:2,reason:'日程変更のため'});
 });
 test('保護者APIは未認証・別originの変更を拒否する',async({request})=>{
  const read=await request.get('/api/parent/interviews');expect(read.status()).toBe(401);expect(await read.json()).toEqual({loginRequired:true,loginAvailable:false});

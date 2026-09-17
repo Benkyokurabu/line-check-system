@@ -50,20 +50,20 @@ test('面談：通信結果不明でも再試行が画面内にあり、同じ�
  await expect(page.getByRole('dialog')).toHaveCount(0);expect(writes).toHaveLength(2);expect(writes[1].operationKey).toBe(writes[0].operationKey);
 });
 for(const [button,label,confirm] of [
- ['変更','面談予定の入力','内容を確認'],
- ['取消・状態の変更','面談の状態変更','予約を取り消す'],
+ ['予定を変更','面談予定の入力','内容を確認'],
+ ['予約を取り消す','予約の取消','予約を取り消す'],
  ['実施済み・記録入力','面談記録','下書き保存'],
  ['予約枠の設定','予約枠の設定','設定を保存'],
  ['Notionとの差分を確認','Notionとの差分','Notionの変更を取り込む'],
  ['変更履歴','変更履歴',''],
 ] as const)test(`面談：${label}の往復`,async({page})=>{
- let writes=0;await interviews(page,()=>{writes++;return false;});await page.getByRole('button',{name:button,exact:true}).click();
+ let writes=0;await interviews(page,()=>{writes++;return false;});if(['予定を変更','Notionとの差分を確認','変更履歴'].includes(button))await page.getByText('その他の操作',{exact:true}).click();await page.getByRole('button',{name:button,exact:true}).click();
  const dialog=page.getByRole('dialog',{name:label,exact:true});await expect(dialog).toBeVisible();
  if(label==='面談予定の入力'){
   await dialog.getByLabel('変更理由',{exact:true}).fill('変更の確認');
   await dialog.getByLabel('変更後の日時についてNotionの既存予定・担当講師の対応可否を確認しました').check();
  }
- if(label==='面談の状態変更')await dialog.getByLabel('変更・取消・見送りの理由').fill('取消の確認');
+ if(label==='予約の取消'){await expect(dialog.getByRole('checkbox')).toHaveCount(0);await dialog.getByLabel('取消理由').fill('取消の確認');}
  if(label==='面談記録')await dialog.getByLabel('面談内容',{exact:true}).fill('記録が残る');
  if(label==='Notionとの差分')await dialog.getByRole('checkbox').check();
  if(confirm){await dialog.getByRole('button',{name:confirm,exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(1);await page.getByRole('dialog',{name:'保存前の確認'}).getByRole('button',{name:'← 戻る',exact:true}).click();await expect(dialog).toBeVisible();}

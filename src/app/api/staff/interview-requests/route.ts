@@ -18,7 +18,7 @@ export async function GET(request:NextRequest){
   const state=await loadInterviewState(context.dataClient),slots=await readAll(context.dataClient,'interview_public_slots') as Slot[];
   const requests=await context.dataClient.from('interview_parent_requests').select('*').order('created_at',{ascending:false}).limit(500);
   if(requests.error)throw new InterviewError('申請を読み込めませんでした。',503);
-  return staffResponse({slots,bookings:state.bookings,loginReady:!!loginConfig(),requests:requests.data.map(r=>({...r,line_user_id:undefined,studentName:state.students.find(s=>s.id===r.student_id)?.student_name??'台帳を確認してください',choices:r.choices.map((choice:{slotId:string;version:number;data:Record<string,string>})=>{const slot=slots.find(s=>s.id===choice.slotId),student=state.students.find(s=>s.id===r.student_id);return {...choice,available:!!student&&!!slot&&slot.version===choice.version&&available(slot,state,student.homeroom_teacher)};})}))},context);
+  return staffResponse({snapshot:state.snapshot,slots,bookings:state.bookings,loginReady:!!loginConfig(),requests:requests.data.map(r=>({...r,line_user_id:undefined,studentName:state.students.find(s=>s.id===r.student_id)?.student_name??'台帳を確認してください',choices:r.choices.map((choice:{slotId:string;version:number;data:Record<string,string>})=>{const slot=slots.find(s=>s.id===choice.slotId),student=state.students.find(s=>s.id===r.student_id);return {...choice,available:!!student&&!!slot&&slot.version===choice.version&&available(slot,state,student.homeroom_teacher)};})}))},context);
  }catch(e){return e instanceof InterviewError?staffResponse({error:e.message},context,e.status):staffErrorResponse(e,context);}
 }
 export async function POST(request:NextRequest){
