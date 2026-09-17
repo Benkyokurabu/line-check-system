@@ -4,9 +4,10 @@ test('LINE個別入口から本番確認用の申請を送り、通常申請と�
  let row:Record<string,unknown>|null=null;const writes:Record<string,unknown>[]=[];const unexpected:string[]=[];
  await page.route('**/api/**',route=>{unexpected.push(route.request().url());return route.abort();});
  await page.route('**/api/staff/entry',route=>{expect(route.request().postDataJSON().destination).toBe('studentPreview');return route.fulfill({json:{destination:'/interviews/trial?staff=KUDO'}});});
- await page.route('**/api/staff/interview-live-preview',route=>{
+ await page.route('**/api/staff/interview-live-preview',async route=>{
   if(route.request().method()==='POST'){
    const op=route.request().postDataJSON();writes.push(op);
+   await new Promise(resolve=>setTimeout(resolve,150));
    if(op.action==='submit')row={id:'row',studentId:'preview',status:'pending',version:1,choices:op.choices.map((id:string)=>({slotId:id,...slots.find(s=>s.id===id)})),confirmed:null,note:op.note,reason:''};
    else {expect(op.action).toBe('withdraw');row={...row,status:'cancelled',version:2};}
    return route.fulfill({json:{saved:true}});
@@ -27,6 +28,7 @@ test('LINE個別入口から本番確認用の申請を送り、通常申請と�
  await page.screenshot({path:'analysis_outputs/parent-interviews/student-preview.png',fullPage:true});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.getByRole('button',{name:'選んだ日程を確認する'}).click();await page.getByRole('button',{name:'予約希望を送信する',exact:true}).click();
+ await expect(page.getByRole('button',{name:'送信中…',exact:true})).toBeVisible();
  await expect(page.getByText('承認待ち',{exact:true}).last()).toBeVisible();
  expect(writes[0].choices).toEqual(slots.slice(0,3).map(s=>s.id));expect(writes[0].studentId).toBe('preview');
  await page.getByRole('button',{name:'申請を取り下げる'}).last().click();await page.getByRole('button',{name:'取り下げる',exact:true}).click();
