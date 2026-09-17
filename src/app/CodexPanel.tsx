@@ -9,6 +9,7 @@ const active = (job: Job) => ['queued','running','awaiting_approval'].includes(j
 const labels: Record<string,string> = { queued:'受付済み',running:'作業中',awaiting_approval:'確認待ち',completed:'回答済み',failed:'中断・要確認',cancelled:'停止済み' };
 export function CodexPanel() {
   const pathname = usePathname();
+  const hidden = pathname === '/staff/entry' || pathname.startsWith('/interviews') || pathname.startsWith('/reservations/trial') || pathname === '/self-study-room' || pathname.startsWith('/self-study-room/');
   const [authorized, setAuthorized] = useState(false);
   const [open, setOpen] = useState(false);
   const [online, setOnline] = useState(false);
@@ -57,7 +58,7 @@ export function CodexPanel() {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
-    if ((pathname === '/staff/entry' || pathname.startsWith('/interviews') || pathname.startsWith('/reservations/trial') || pathname.startsWith('/self-study-room/'))) return;
+    if (hidden) return;
     let pending = false;
     const refresh = async () => {
       if (pending || document.visibilityState === 'hidden') return;
@@ -70,7 +71,7 @@ export function CodexPanel() {
     const timer = setInterval(refresh, open ? 2500 : 15000);
     window.addEventListener('focus', refresh);
     return () => { controller.abort(); clearInterval(timer); window.removeEventListener('focus',refresh); };
-  }, [load, open, conversationId, pathname]);
+  }, [load, open, conversationId, pathname, hidden]);
   useEffect(() => {
     const container = history.current;
     if (container && followLatest.current) container.scrollTop = container.scrollHeight;
@@ -121,7 +122,7 @@ export function CodexPanel() {
     const ids=[id,...older.filter((value) => value!==id)].slice(0,20); setOlder(ids);
     try { localStorage.setItem('bentan-codex-conversations',JSON.stringify(ids)); } catch {}
   }
-  if (!authorized || (pathname === '/staff/entry' || pathname.startsWith('/interviews') || pathname.startsWith('/reservations/trial') || pathname.startsWith('/self-study-room/'))) return null;
+  if (!authorized || hidden) return null;
   const current = jobs.find(active);
   return <div data-codex-panel>
     {picking ? <div className={styles.pickNotice}>直したい場所をクリックしてください <button onClick={() => {setPicking(false);setOpen(true);}}>選択をやめる</button></div>

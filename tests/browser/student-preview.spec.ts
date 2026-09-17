@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 const slots=Array.from({length:6},(_,n)=>({id:`preview-${n}`,date:`2030-01-0${2+Math.floor(n/2)}`,start:n%2?'14:00':'13:00',end:n%2?'14:45':'13:45',campus:'本校',available:true}));
 test('LINE個別入口から生徒役になり、第3希望の保存・取り下げを検証データだけで行う',async({page})=>{
  let row:Record<string,unknown>|null=null;const writes:Record<string,unknown>[]=[];const unexpected:string[]=[];
- await page.route('**/api/**',route=>{if(new URL(route.request().url()).pathname==='/api/codex'&&!page.url().includes('/interviews/trial'))return route.fulfill({status:401,json:{error:'Unauthorized'}});unexpected.push(route.request().url());return route.abort();});
+ await page.route('**/api/**',route=>{unexpected.push(route.request().url());return route.abort();});
  await page.route('**/api/staff/entry',route=>{expect(route.request().postDataJSON().destination).toBe('studentPreview');return route.fulfill({json:{destination:'/interviews/trial?staff=KUDO'}});});
  await page.route('**/api/staff/interview-trial/student',route=>{
   if(route.request().method()==='POST'){

@@ -33,5 +33,6 @@ test('生成先ユーザーの不一致と偽装セッションを拒否する',
 test('戻り先は固定の内部ページだけ、職員コードは認証結果で決める',()=>{
  assert.equal(staffEntryDestination('//evil.invalid','KUDO'),'/staff/interviews?staff=KUDO');
  assert.equal(staffEntryDestination('study','KINJO'),'/self-study-room/trial?staff=KINJO');
+ assert.equal(staffEntryDestination('studentPreview','KUDO'),'/interviews/trial?staff=KUDO');
  assert.equal(staffEntryDestination('interviewTrial','KUDO'),'/reservations/trial?staff=KUDO&kind=interview');
 });
