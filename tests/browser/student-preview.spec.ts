@@ -30,7 +30,9 @@ test('LINE個別入口から本番確認用の申請を送り、通常申請と�
  await page.getByRole('button',{name:'選んだ日程を確認する'}).click();await page.getByRole('button',{name:'予約希望を送信する',exact:true}).click();
  await expect(page.getByRole('button',{name:'送信中…',exact:true})).toBeVisible();
  await expect(page.getByText('承認待ち',{exact:true}).last()).toBeVisible();
+ await expect.poll(()=>page.evaluate(()=>scrollY)).toBe(0);
  expect(writes[0].choices).toEqual(slots.slice(0,3).map(s=>s.id));expect(writes[0].studentId).toBe('preview');
+ await page.getByRole('button',{name:'状況を更新する'}).click();await expect(page.getByText('最新の状況に更新しました。')).toBeVisible();
  await page.getByRole('button',{name:'申請を取り下げる'}).last().click();await page.getByRole('button',{name:'取り下げる',exact:true}).click();
  await expect(page.getByText('申請を取り下げました。')).toBeVisible();expect(writes).toHaveLength(2);expect(writes[1].id).toBe('row');
  expect(unexpected.filter(url=>!url.includes('/api/app-version'))).toEqual([]);
