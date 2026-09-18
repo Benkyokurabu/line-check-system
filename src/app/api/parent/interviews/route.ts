@@ -5,6 +5,7 @@ import {loadInterviewState,readAll} from '@/lib/interview-store';
 import {assertStaffMutationOrigin,staffJsonBody} from '@/lib/staff-auth-http';
 import {InterviewError} from '@/lib/interview-core.mjs';
 import {loginConfig,parentCookie} from '@/lib/parent-line-login.mjs';
+import {syncInterview} from '@/lib/interview-sync';
 export const dynamic='force-dynamic';
 export const maxDuration=60;
 const uuid=(v:unknown)=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -21,7 +22,10 @@ export async function POST(request:NextRequest){
   if(!uuid(body.operationKey))throw new InterviewError('操作をやり直してください。');
   if(body.action==='withdraw'){
    if(!uuid(body.id)||!Number.isInteger(body.version))throw new InterviewError('申請を選び直してください。');
-   const saved=await c.db.rpc('interview_parent_withdraw',{p_hash:c.hash,p_operation:body.operationKey,p_id:body.id,p_version:body.version});requestDbError(saved.error);return parentResponse({saved:true});
+   const saved=await c.db.rpc('interview_parent_withdraw',{p_hash:c.hash,p_operation:body.operationKey,p_id:body.id,p_version:body.version});requestDbError(saved.error);
+   const bookingId=saved.data?.booking?.id;let sync;
+   if(bookingId){try{sync=await syncInterview(c.db,bookingId);}catch{sync={status:'error',message:'予約は取り消しました。Notionの反映は教室で確認します。'};}}
+   return parentResponse({saved:true,sync});
   }
   if(body.action!=='submit'||!uuid(body.studentId)||!Array.isArray(body.choices)||body.choices.length<1||body.choices.length>3||!body.choices.every(uuid)||new Set(body.choices).size!==body.choices.length||typeof body.note!=='string'||body.note.length>1500)throw new InterviewError('日程を重複なく1〜3つ選んでください。');
   // Recheck the relationship before reading any student details, even for a retry.

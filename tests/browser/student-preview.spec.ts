@@ -33,10 +33,21 @@ test('LINE個別入口から本番確認用の申請を送り、通常申請と�
  await expect.poll(()=>page.evaluate(()=>scrollY)).toBe(0);
  expect(writes[0].choices).toEqual(slots.slice(0,3).map(s=>s.id));expect(writes[0].studentId).toBe('preview');
  await page.getByRole('button',{name:'状況を更新する'}).click();await expect(page.getByText('最新の状況に更新しました。')).toBeVisible();
- await page.getByRole('button',{name:'申請を取り下げる'}).last().click();await page.getByRole('button',{name:'取り下げる',exact:true}).click();
- await expect(page.getByText('申請を取り下げました。')).toBeVisible();expect(writes).toHaveLength(2);expect(writes[1].id).toBe('row');
+ page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'予約を取り消す'}).last().click();
+ await expect(page.getByText('予約を取り消しました。')).toBeVisible();expect(writes).toHaveLength(2);expect(writes[1].id).toBe('row');
  expect(unexpected.filter(url=>!url.includes('/api/app-version'))).toEqual([]);
 });
+test('予約確定後も同じ1ボタンで取り消せる',async({page})=>{
+ let cancelled=false;const writes:Record<string,unknown>[]=[];
+ await page.route('**/api/staff/interview-live-preview',route=>{
+  if(route.request().method()==='POST'){writes.push(route.request().postDataJSON());cancelled=true;return route.fulfill({json:{saved:true}});}
+  return route.fulfill({json:{students:[{id:'preview',name:'工藤（確認用生徒）'}],slots:[],requests:cancelled?[]:[{id:'approved',studentId:'preview',status:'approved',version:2,choices:[],confirmed:{date:'2030-01-02',start:'13:00',end:'13:45',status:'confirmed'},note:'',reason:''}]}});
+ });
+ await page.goto('/interviews/trial');await expect(page.getByText('予約確定',{exact:true})).toBeVisible();
+ page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'予約を取り消す'}).click();
+ await expect(page.getByText('予約を取り消しました。')).toBeVisible();expect(writes).toHaveLength(1);expect(writes[0]).toMatchObject({action:'withdraw',id:'approved',version:2});
+});
+
 test('生徒役セッションがなければ個別LINEメニューへ案内する',async({page})=>{
  await page.route('**/api/staff/interview-live-preview',r=>r.fulfill({status:401,json:{error:'ログインしてください'}}));
  await page.goto('/interviews/trial');await expect(page.getByText('LINEの個別メニューから開き直してください。')).toBeVisible();

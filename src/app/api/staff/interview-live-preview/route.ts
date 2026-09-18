@@ -5,6 +5,7 @@ import {InterviewError} from '@/lib/interview-core.mjs';
 import {parentView,bindingForSlot,type Slot} from '@/lib/interview-requests';
 import {loadInterviewState,readAll} from '@/lib/interview-store';
 import {requestDbError} from '@/lib/parent-interview-http';
+import {syncInterview} from '@/lib/interview-sync';
 
 export const dynamic='force-dynamic';
 export const maxDuration=60;
@@ -42,7 +43,9 @@ export async function POST(request:NextRequest){
   if(body.action==='withdraw'){
    if(!uuid(body.id)||!Number.isInteger(body.version))throw new InterviewError('申請を選び直してください。');
    const saved=await context.dataClient.rpc('interview_parent_withdraw',{p_hash:hash,p_operation:body.operationKey,p_id:body.id,p_version:body.version});
-   requestDbError(saved.error);return staffResponse({saved:true},context);
+   requestDbError(saved.error);const bookingId=saved.data?.booking?.id;let sync;
+   if(bookingId){try{sync=await syncInterview(context.dataClient,bookingId);}catch{sync={status:'error',message:'予約は取り消しました。Notionの反映は教室で確認します。'};}}
+   return staffResponse({saved:true,sync},context);
   }
   if(body.action!=='submit'||!Array.isArray(body.choices)||body.choices.length<1||body.choices.length>3||!body.choices.every(uuid)||new Set(body.choices).size!==body.choices.length||typeof body.note!=='string')throw new InterviewError('日程を重複なく1〜3つ選んでください。');
   const note=`${notePrefix}${body.note.trim()?` ${body.note.trim()}`:''}`;

@@ -15,7 +15,7 @@ before(async()=>{
  create function staff_authorize(uuid,uuid,text,boolean) returns jsonb language sql as $$select jsonb_build_object('staffId',id,'role',role,'staffCode',staff_code) from staff_accounts limit 1$$;`);
  await db.query("insert into staff_accounts values($1,'admin','KUDO')",[actor]);
  await db.exec("insert into student_registry(student_number,student_name,grade,homeroom_teacher) values('one','架空生徒','中1','工藤'),('two','別の生徒','中2','工藤')");
- for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
+ for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916','interview_parent_cancel_20260918'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
  student=await value("select id v from interview_students where student_number='one'");other=await value("select id v from interview_students where student_number='two'");
  await db.query("insert into student_line_accounts values('one',$1,'mother','confirmed')",[line]);
  await db.query("insert into interview_parent_sessions(token_hash,line_user_id,expires_at) values($1,$2,now()+interval '1 hour')",[hash,line]);
@@ -63,7 +63,9 @@ test('第2希望を承認し、予約・履歴を一組作成。再送で重複�
  assert.equal(await value('select count(*)::int v from interview_bookings where id=$1',[booking.id]),1);
  assert.equal(await value('select interview_slot_available($1,$2) v',[first.id,'工藤']),true);
  assert.equal(await value('select interview_slot_available($1,$2) v',[first.id,'金城']),false);
- await db.query("update interview_bookings set status='completed' where id=$1",[booking.id]);
+ const cancelled=await withdraw(approved);assert.equal(cancelled.booking.status,'cancelled');
+ assert.equal(await value('select status v from interview_bookings where id=$1',[booking.id]),'cancelled');
+ assert.equal(await value('select count(*)::int v from interview_events where booking_id=$1 and action=\'cancel\'',[booking.id]),1);
 });
 test('公開停止・変更後の古い希望・同枠の二重承認を拒否する',async()=>{
  const s=await publish(9),r=await submit([s.id]);
