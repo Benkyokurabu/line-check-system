@@ -1,7 +1,7 @@
 import 'server-only';
 import {validateRecord} from './interview-record.mjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { InterviewError, conflicts, validateAppointment, validateSettings, normalizeTeacher, generateSlots } from './interview-core.mjs';
+import { InterviewError, assertFutureAppointment, conflicts, validateAppointment, validateSettings, normalizeTeacher, generateSlots } from './interview-core.mjs';
 
 type Row = Record<string, unknown>;
 export async function readAll(db: SupabaseClient, table: string) {
@@ -58,10 +58,11 @@ export function validateSave(body: Row,state: InterviewState) {
   } else if(existing) data=existing.data as Row;
   else throw new InterviewError('対象の面談を再読込してください。',409);
   if(['create','update','confirm'].includes(action)){
+    assertFutureAppointment(data);
     const reasons=conflicts({...data,id:existing?.id},state.lessons,state.bookings);
     if(reasons.length)throw new InterviewError(reasons.join('。'),409);
     const day=String(data.date);
-    if(new Date(`${day}T${data.start}:00+09:00`).getTime()<=Date.now())throw new InterviewError('過去の時刻には予約を登録できません。');
+
     const hidden=state.slots.some(s=>s.key===[day,normalizeTeacher(data.teacher),data.campus,data.start].join('|')&&(s.data as Row)?.hidden);
     if(hidden)throw new InterviewError('非公開にした予約枠です。枠を戻してから登録してください。');
     // Allow explicitly reviewed manual bookings on non-teaching days; never infer a working day.

@@ -14,6 +14,23 @@ export function minutes(value) {
   return Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
 }
 export const clock = n => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+export function japanDate(value = Date.now()) {
+  return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo'}).format(new Date(value));
+}
+export function appointmentStartMs(value) {
+  if (!isValidReservationDate(value?.date)) throw new InterviewError('日付を確認してください。');
+  minutes(value?.start);
+  const result=Date.parse(`${value.date}T${value.start}:00+09:00`);
+  if (!Number.isFinite(result)) throw new InterviewError('日時を確認してください。');
+  return result;
+}
+export function assertFutureAppointment(value, now = Date.now()) {
+  const start=appointmentStartMs(value);
+  if(start>now)return start;
+  const selected=String(value.date);
+  if(selected<japanDate(now))throw new InterviewError(`選択した日付（${selected}）は過去です。日付を選び直してください。`);
+  throw new InterviewError(`選択した開始時刻（${value.start}）は現在時刻を過ぎています。時刻を選び直してください。`);
+}
 export const overlaps = (a, b, c, d) => a < d && c < b;
 export function lessonInterval(lesson) {
   const times = String(lesson.start_time).normalize('NFKC').match(/(\d{1,2}:[0-5]\d)\s*[～〜~\-–－]\s*(\d{1,2}:[0-5]\d)/);

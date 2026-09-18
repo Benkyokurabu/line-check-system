@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {canAccessInterviews,assertInterviewAccess} from '../src/lib/interview-access.mjs';
 import {makeRecordDraft,validateRecord} from '../src/lib/interview-record.mjs';
-import {defaults,validateSettings,validateAppointment,generateSlots,conflicts} from '../src/lib/interview-core.mjs';
+import {defaults,validateSettings,validateAppointment,generateSlots,conflicts,appointmentStartMs,assertFutureAppointment,japanDate} from '../src/lib/interview-core.mjs';
 const date='2026-11-02';
 const lesson={lesson_date:date,start_time:'16:45～18:15',teacher_name:'髙山',campus:'本校',classroom:'1'};
 const base={studentId:'00000000-0000-4000-8000-000000000001',teacher:'髙山',date,start:'13:00',campus:'本校',method:'対面',purpose:'進路相談',participants:'本人、母',channel:'電話',room:''};
@@ -46,6 +46,14 @@ test('18:35〜20:05は5分刻み、19:20が最後で1件が時間帯全体を占
  assert.ok(!slots.some(s=>s.start>='18:35'&&s.start<'20:05'));
  assert.throws(()=>validateAppointment({...base,start:'19:25'}));
  assert.throws(()=>validateAppointment({...base,start:'18:36'}));
+});
+test('日本時間で未来日時を判定し、未来日を過去時刻と誤表示しない',()=>{
+ const now=Date.parse('2026-09-18T23:10:00+09:00');
+ assert.equal(japanDate(now),'2026-09-18');
+ assert.equal(appointmentStartMs({date:'2026-09-20',start:'13:00'}),Date.parse('2026-09-20T13:00:00+09:00'));
+ assert.doesNotThrow(()=>assertFutureAppointment({date:'2026-09-20',start:'13:00'},now));
+ assert.throws(()=>assertFutureAppointment({date:'2026-09-17',start:'21:30'},now),/2026-09-17.*過去/);
+ assert.throws(()=>assertFutureAppointment({date:'2026-09-18',start:'22:30'},now),/22:30.*現在時刻/);
 });
 test('日付・教室・時刻・必須項目を検査し、夜中へ持ち越さない',()=>{
  for(const patch of [{date:'2026-02-30'},{start:'24:00'},{start:'23:30'},{participants:''},{campus:'不明'},{room:'x'}])assert.throws(()=>validateAppointment({...base,...patch}));
