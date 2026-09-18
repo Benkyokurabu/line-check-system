@@ -19,7 +19,19 @@ import {
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
 type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean; enrollment_campus?: string | null };
 type StudentSuggestion = Student & { score: number; reason: string };
-type SenderProfile = { display_name: string | null; alias_names: string[]; account_names: string[]; tag_names?: string[] };
+type SenderProfile = {
+  display_name: string | null;
+  alias_names: string[];
+  account_names: string[];
+  tag_names?: string[];
+  student_accounts?: Array<{
+    student_number: string;
+    relation: string;
+    alias_name: string | null;
+    friend_display_name: string | null;
+    is_primary: boolean;
+  }>;
+};
 type ReplyMessage = { id: string; text: string | null; received_at: string | null; sent_by: string | null };
 type CandidateItem = {
   id: string; student_number: string | null; event_type: string; event_date: string | null; lesson_id: string | null;
@@ -1130,6 +1142,9 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
   const [additionalMessageMode, setAdditionalMessageMode] = useState(false);
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [lineNameOpen, setLineNameOpen] = useState(false);
+  const [lineNameValue, setLineNameValue] = useState("");
+  const [lineNameSaving, setLineNameSaving] = useState(false);
   const registrationRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (registrationOpen && expanded) registrationRef.current?.scrollIntoView({ block: "center" });
@@ -1149,6 +1164,9 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       homeroom_teacher: candidate.student_roster.homeroom_teacher,
     } : null
   );
+  const lineStudentAccount = candidate.sender_profile?.student_accounts?.find((account) =>
+    account.student_number === studentNumber && account.relation === "student",
+  ) ?? null;
   const datesKey = useMemo(() => [...new Set(items.map((item) => item.event_date).filter(Boolean))].sort().join("|"), [items]);
   const eventSummary = items.slice(0, 2).map((item) => [item.event_date || "日付未定", eventTypeLabel(item.event_type), item.ai_summary || fallbackReason(item.event_type)].join(" / ")).join("　｜　");
   const hasError = candidateHasError(candidate);
@@ -1203,9 +1221,51 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
 
   function selectStudent(value: string) {
     setPeriodOpen(false);
+    setLineNameOpen(false);
     setStudentNumber(value);
     const student = studentOptions.find((option) => option.student_number === value);
     setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" })));
+  }
+
+  function openLineNameEdit() {
+    if (!lineStudentAccount) return;
+    setRegistrationOpen(false);
+    setLineNameValue(lineStudentAccount.alias_name ?? lineStudentAccount.friend_display_name ?? selectedStudent?.student_name ?? "");
+    setLineNameOpen(true);
+    setCardMessage("");
+  }
+
+  async function saveLineName() {
+    if (!lineStudentAccount || !senderLineUserId || lineNameSaving) return;
+    if (!lineNameValue.trim()) { setCardMessage("新しい生徒名を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("変更した先生・スタッフ名を入力してください。"); return; }
+    setLineNameSaving(true);
+    setCardMessage("LINEの生徒名を保存しています...");
+    try {
+      const response = await fetch(`/api/students/${encodeURIComponent(studentNumber)}/line-name`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          line_user_id: senderLineUserId,
+          alias_name: lineNameValue.trim(),
+          performed_by: confirmedBy.trim(),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "LINEの生徒名を保存できませんでした");
+      setCardMessage(`${lineNameValue.trim()} に変更しました。欠席確認と生徒一覧の表示へ反映されます。`);
+      setMessage("LINEの生徒名を変更しました。");
+      setLineNameOpen(false);
+      try {
+        await onChanged();
+      } catch {
+        setCardMessage(`${lineNameValue.trim()} に変更しました。一覧の再読込に失敗したため、「最新状態に更新」で確認してください。`);
+      }
+    } catch (error) {
+      setCardMessage(error instanceof Error ? error.message : "LINEの生徒名を保存できませんでした");
+    } finally {
+      setLineNameSaving(false);
+    }
   }
 
   function addItem() {
@@ -1445,11 +1505,25 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
-    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-      <button type="button" style={secondaryButtonStyle} disabled={!senderLineUserId} aria-expanded={expanded && registrationOpen} onClick={() => { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>生徒本人・保護者を登録</button>
-      <small style={{ color: "var(--muted)" }}>LINEの表示名が未確定・登録内容を修正したいとき</small>
+    <div style={{ display: "grid", gap: 9, marginTop: 12, padding: 11, border: "1px solid #bae6fd", borderRadius: 8, background: "#f0f9ff" }}>
+      <strong style={{ color: "#0c4a6e", fontSize: 14 }}>LINEの名前・登録先を直す</strong>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        {lineStudentAccount && <button type="button" style={{ ...buttonStyle, background: "#0369a1" }} aria-expanded={lineNameOpen} onClick={openLineNameEdit}>LINEの生徒名を直す</button>}
+        <button type="button" style={secondaryButtonStyle} disabled={!senderLineUserId} aria-expanded={expanded && registrationOpen} onClick={() => { setLineNameOpen(false); setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>生徒・保護者の紐づけを確認・変更</button>
+      </div>
+      <small style={{ color: "#075985" }}>{lineStudentAccount ? "名前だけなら左のボタン、本人・保護者や対象生徒を直すなら右のボタンを使います。" : "このLINEは生徒本人として確認済みではありません。対象生徒や続柄は「紐づけを確認・変更」から直せます。"}</small>
     </div>
-    {cardMessage && !showAutoPeriod && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
+    {lineNameOpen && lineStudentAccount && <section aria-label="LINEの生徒名を直す" style={{ marginTop: 10, padding: 14, display: "grid", gap: 12, border: "2px solid #0284c7", borderRadius: 9, background: "white" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "start" }}>
+        <div><strong>LINEの生徒名を直す</strong><div style={{ color: "var(--muted)", fontSize: 13, marginTop: 3 }}>{selectedStudent?.student_name ?? studentNumber} / 現在：{lineStudentAccount.alias_name ?? "登録名なし"}</div></div>
+        <button type="button" style={ghostButtonStyle} disabled={lineNameSaving} onClick={() => setLineNameOpen(false)}>閉じる</button>
+      </div>
+      <label style={fieldStyle}>欠席確認・生徒一覧に表示する名前<input autoFocus style={inputStyle} maxLength={200} value={lineNameValue} onChange={(event) => setLineNameValue(event.target.value)} /></label>
+      <label style={fieldStyle}>変更した先生・スタッフ名<input style={inputStyle} maxLength={100} value={confirmedBy} onChange={(event) => onConfirmedByChange(event.target.value)} placeholder="例：工藤" /></label>
+      <small style={{ color: "var(--muted)" }}>勉たん内の登録名だけを変更します。相手のLINEアプリの名前は変わりません。変更履歴は保存されます。</small>
+      <button type="button" style={buttonStyle} disabled={lineNameSaving || !lineNameValue.trim() || !confirmedBy.trim()} onClick={() => void saveLineName()}>{lineNameSaving ? "保存中..." : "この名前で保存"}</button>
+    </section>}
+    {cardMessage && !showAutoPeriod && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("変更しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{showAutoPeriod && periodProposal ? `${periodProposal.start} 〜 ${periodProposal.end} / ${eventTypeLabel(periodProposal.eventType)}` : <>{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</>}</div>
     {!expanded && <div style={{ marginTop: 6, color: "#555", fontSize: 14, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>}
 

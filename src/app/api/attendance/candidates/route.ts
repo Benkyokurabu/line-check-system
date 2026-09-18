@@ -37,12 +37,20 @@ type LineAccountRow = {
   alias_name: string | null;
   friend_display_name: string | null;
   is_primary: boolean;
+  verification_status: string | null;
 };
 
 type SenderProfile = {
   display_name: string | null;
   alias_names: string[];
   account_names: string[];
+  student_accounts: Array<{
+    student_number: string;
+    relation: string;
+    alias_name: string | null;
+    friend_display_name: string | null;
+    is_primary: boolean;
+  }>;
 };
 
 type AttendanceReplyRow = {
@@ -179,6 +187,15 @@ function buildSenderProfile(input: {
       ...input.accounts.map((account) => account.alias_name),
     ]),
     account_names: uniqueFilled(input.accounts.flatMap((account) => [account.alias_name, account.friend_display_name])),
+    student_accounts: input.accounts
+      .filter((account) => account.verification_status === "confirmed")
+      .map((account) => ({
+        student_number: account.student_number,
+        relation: account.relation,
+        alias_name: account.alias_name,
+        friend_display_name: account.friend_display_name,
+        is_primary: account.is_primary,
+      })),
   };
 }
 
@@ -246,7 +263,7 @@ export async function GET(request: Request) {
   const [{ data, error }, { data: roster }, accountsResult, { data: links }, { data: aliases }] = await Promise.all([
     candidateQuery,
     supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher"),
-    supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary"),
+    supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary,verification_status"),
     supabase.from("student_line_links").select("student_number,line_user_id"),
     supabase.from("line_user_aliases").select("line_user_id,alias_name,group_name"),
   ]);

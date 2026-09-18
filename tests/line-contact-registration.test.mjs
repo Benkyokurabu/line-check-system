@@ -91,3 +91,10 @@ test("student LINE name edit only updates a confirmed student account through th
   assert.match(route, /p_source: "students_name_edit"/);
   assert.match(route, /p_verified_by: performedBy/);
 });
+
+test("attendance candidates expose only confirmed account relations for the name-edit decision", async () => {
+  const route = await readFile(new URL("../src/app/api/attendance/candidates/route.ts", import.meta.url), "utf8");
+  assert.match(route, /is_primary,verification_status/);
+  assert.match(route, /account\.verification_status === "confirmed"/);
+  assert.match(route, /student_accounts:/);
+});

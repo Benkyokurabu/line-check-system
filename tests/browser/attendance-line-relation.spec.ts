@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function setup(page: Page, options: { evidence?: boolean; reject?: boolean; staff?: boolean } = {}) {
+async function setup(page: Page, options: { evidence?: boolean; reject?: boolean; staff?: boolean; guardian?: boolean } = {}) {
   const writes: Record<string, unknown>[] = [];
   let savedAlias = "";
   let staffGroup = false;
@@ -11,9 +11,16 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
     if (path === "/api/attendance/candidates") return route.fulfill({ json: { candidates: [{
       id: "relation-candidate", student_number: options.staff ? null : student.student_number, student_roster: options.staff ? null : student,
       status: "pending", event_type: "absence", event_date: "2099-09-11", ai_summary: "欠席",
-      sender_profile: { display_name: "sample-line", alias_names: [savedAlias || "sample-line"], account_names: [], tag_names: staffGroup ? ["スタッフ"] : [] },
+      sender_profile: { display_name: "sample-line", alias_names: [savedAlias || "sample-line"], account_names: [], tag_names: staffGroup ? ["スタッフ"] : [], student_accounts: options.staff ? [] : [{ student_number: student.student_number, relation: options.guardian ? "guardian" : "student", alias_name: savedAlias || "sample-line", friend_display_name: "sample-line", is_primary: !options.guardian }] },
       line_messages: { id: options.evidence === false ? undefined : "test-evidence", line_user_id: "test-line-user", display_name: "sample-line", text: "続柄試験です。欠席します" },
     }] } });
+    if (path === "/api/students/relation-test/line-name") {
+      expect(route.request().method()).toBe("PUT");
+      const body = route.request().postDataJSON(); writes.push(body);
+      if (options.reject) return route.fulfill({ status: 409, json: { error: "名前を保存できませんでした" } });
+      savedAlias = body.alias_name;
+      return route.fulfill({ json: { ok: true, alias_name: savedAlias } });
+    }
     if (path === "/api/admin/contacts/test-line-user") {
       expect(route.request().method()).toBe("PUT");
       const body = route.request().postDataJSON(); writes.push(body);
@@ -32,7 +39,7 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
   });
   await page.goto("/attendance");
   await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("変更前の職員");
-  const registration = page.getByRole("button", { name: "生徒本人・保護者を登録", exact: true });
+  const registration = page.getByRole("button", { name: "生徒・保護者の紐づけを確認・変更", exact: true });
   await expect(registration).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await registration.click();
@@ -53,6 +60,26 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
   await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("試験職員");
   return writes;
 }
+
+test("confirmed student LINE name can be corrected directly from the attendance card", async ({ page }) => {
+  const writes = await setup(page);
+  await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
+  await page.getByRole("button", { name: "LINEの生徒名を直す", exact: true }).click();
+  const form = page.getByRole("region", { name: "LINEの生徒名を直す", exact: true });
+  await expect(form).toBeVisible();
+  await expect(form.getByText(/現在：sample-line/)).toBeVisible();
+  await form.getByLabel("欠席確認・生徒一覧に表示する名前").fill("本　続柄試験（修正）");
+  await form.getByLabel("変更した先生・スタッフ名").fill("修正職員");
+  await form.getByRole("button", { name: "この名前で保存", exact: true }).click();
+  await expect(page.getByText("本　続柄試験（修正）（sample-line）", { exact: true })).toBeVisible();
+  expect(writes).toEqual([{ line_user_id: "test-line-user", alias_name: "本　続柄試験（修正）", performed_by: "修正職員" }]);
+});
+
+test("guardian LINE does not show the direct student-name edit action", async ({ page }) => {
+  await setup(page, { guardian: true });
+  await expect(page.getByRole("button", { name: "LINEの生徒名を直す", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/生徒本人として確認済みではありません/)).toBeVisible();
+});
 
 for (const [label, relation, primary] of [["生徒本人", "student", true], ["保護者", "guardian", false], ["本人・保護者で共有", "shared", false]] as const) {
   test(`${label} registration uses the chosen relation and primary setting`, async ({ page }) => {
