@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LINE生徒名の修正導線</title>
+  <style>
+    :root{font-family:"Noto Sans JP",system-ui,sans-serif;color:#172033;background:#eef4f7}*{box-sizing:border-box}body{margin:0;padding:28px}.wrap{max-width:980px;margin:auto}.flow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 22px}.step{background:#fff;border:1px solid #b9cbd3;border-radius:999px;padding:8px 12px;font-weight:700}.arrow{color:#59727e}.app{background:#fff;border:1px solid #cad8df;border-radius:16px;box-shadow:0 14px 40px #193b4d1c;overflow:hidden}.head{padding:18px 20px;border-bottom:1px solid #d9e3e8}.guide{margin:16px;padding:14px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;color:#0c4a6e}.row{display:grid;grid-template-columns:110px 1fr 190px;gap:12px;align-items:center;padding:14px 18px;border-top:1px solid #e2e8ec}.small{font-size:13px;color:#637580}.name{font-weight:800}.edit{border:1px solid #0284c7;background:#f0f9ff;color:#0369a1;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer}.backdrop{position:fixed;inset:0;background:#0f172a8c;display:none;place-items:center;padding:16px}.backdrop.open{display:grid}.dialog{width:min(100%,480px);background:#fff;border-radius:14px;padding:20px;display:grid;gap:14px}.dialog h2{margin:0;font-size:20px}.current{padding:12px;background:#f8fafc;border-radius:8px;display:grid;gap:4px}label{display:grid;gap:6px;font-weight:700}input{width:100%;padding:10px;border:1px solid #b8c7cf;border-radius:8px;font:inherit}.actions{display:flex;gap:8px}.save{flex:1;border:0;background:#146471;color:#fff;border-radius:8px;padding:11px;font-weight:800}.close{border:1px solid #b8c7cf;background:#fff;border-radius:8px;padding:10px 14px}.note{font-size:13px;color:#637580}.done{display:none;color:#15803d;font-weight:800}.done.show{display:block}@media(max-width:600px){body{padding:12px}.row{grid-template-columns:78px 1fr}.line{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center}.arrow{display:none}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>LINE生徒名の修正導線</h1>
+    <p>先生が迷わず、生徒本人のLINE登録名だけを安全に直せる画面案です。</p>
+    <div class="flow" aria-label="画面遷移"><span class="step">1 生徒一覧</span><span class="arrow">→</span><span class="step">2 名前を直す</span><span class="arrow">→</span><span class="step">3 確認者名を入れて保存</span><span class="arrow">→</span><span class="step">4 一覧・履歴へ反映</span></div>
+    <section class="app">
+      <div class="head"><strong>生徒一覧</strong></div>
+      <div class="guide"><strong>LINEの生徒名を直すとき</strong><br><span class="small">下の生徒一覧で「名前を直す」を押してください。</span></div>
+      <div class="row"><span class="small">2026001</span><span class="name">試験 一郎</span><span class="line"><span>本　試験一郎</span><button class="edit" type="button">名前を直す</button></span></div>
+      <div class="row"><span class="small">2026002</span><span class="name">試験 花子</span><span class="line"><span>LINE未紐づけ</span></span></div>
+    </section>
+  </main>
+  <div class="backdrop" id="backdrop">
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="title">
+      <h2 id="title">試験 一郎さんの名前を直す</h2>
+      <div class="current"><span>現在の登録名：<strong>本　試験一郎</strong></span><span class="small">LINEアプリ側の表示名：いちろう</span></div>
+      <label>生徒一覧に表示する名前<input id="newName" value="本　試験一郎"></label>
+      <label>変更した先生・スタッフ名<input placeholder="例：工藤"></label>
+      <p class="note">勉たん内の登録名だけを変更します。相手のLINEアプリの名前は変わりません。変更履歴は保存されます。</p>
+      <div class="actions"><button class="close" type="button">閉じる</button><button class="save" type="button">この名前で保存</button></div>
+      <p class="done" role="status">変更しました。一覧とLINE履歴へ反映されます。</p>
+    </section>
+  </div>
+  <script>
+    const backdrop=document.querySelector('#backdrop');
+    document.querySelector('.edit').addEventListener('click',()=>backdrop.classList.add('open'));
+    document.querySelector('.close').addEventListener('click',()=>backdrop.classList.remove('open'));
+    document.querySelector('.save').addEventListener('click',()=>document.querySelector('.done').classList.add('show'));
+    backdrop.addEventListener('click',e=>{if(e.target===backdrop)backdrop.classList.remove('open')});
+  </script>
+</body>
+</html>

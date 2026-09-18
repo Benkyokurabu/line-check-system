@@ -82,3 +82,12 @@ test("contacts screen includes all existing attendance LINE-link candidates in t
   assert.match(page, /candidateIds\.has\(contact\.line_user_id\)/);
   assert.match(page, /registration_state: "pending" as const/);
 });
+
+test("student LINE name edit only updates a confirmed student account through the audited RPC", async () => {
+  const route = await readFile(new URL("../src/app/api/students/[studentNumber]/line-name/route.ts", import.meta.url), "utf8");
+  assert.match(route, /\.eq\("relation", "student"\)/);
+  assert.match(route, /\.eq\("verification_status", "confirmed"\)/);
+  assert.match(route, /\.rpc\("verify_line_contact"/);
+  assert.match(route, /p_source: "students_name_edit"/);
+  assert.match(route, /p_verified_by: performedBy/);
+});
