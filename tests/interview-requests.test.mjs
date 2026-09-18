@@ -62,6 +62,7 @@ test('第2希望を承認し、予約・履歴を一組作成。再送で重複�
  const again=await approve(r,second,key);assert.deepEqual(again,approved);
  assert.equal(await value('select count(*)::int v from interview_bookings where id=$1',[booking.id]),1);
  assert.equal(await value('select interview_slot_available($1,$2) v',[first.id,'工藤']),true);
+ assert.equal(await value('select interview_slot_available($1,$2) v',[first.id,'金城']),false);
  await db.query("update interview_bookings set status='completed' where id=$1",[booking.id]);
 });
 test('公開停止・変更後の古い希望・同枠の二重承認を拒否する',async()=>{
