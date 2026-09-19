@@ -201,6 +201,23 @@ async function main() {
     .upsert(rows, { onConflict: "student_number" });
   if (syncError) throw new Error(syncError.message);
 
+  const profileSyncedAt = new Date().toISOString();
+  const profileRows = notionResult.students.filter((student) => student.notion_page_id).map((student) => ({
+    notion_page_id: student.notion_page_id,
+    student_number: student.student_number,
+    student_name: student.student_name,
+    status: "在塾",
+    campus: student.campus ?? null,
+    teacher_name: student.homeroom_teacher ?? null,
+    school_name: student.school_name ?? null,
+    synced_at: profileSyncedAt,
+    updated_at: profileSyncedAt,
+  }));
+  if (profileRows.length) {
+    const { error: profileError } = await supabase.from("notion_student_profiles").upsert(profileRows, { onConflict: "notion_page_id" });
+    if (profileError) throw new Error(`Notion生徒対応表の更新に失敗しました: ${profileError.message}`);
+  }
+
   console.log(JSON.stringify({
     ok: true,
     active_students: notionResult.students.length,

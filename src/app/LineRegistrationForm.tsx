@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buildLineContactAlias, studentRegistrationLabel, studentRegistrationSearchText } from "@/lib/line-contact-registration.mjs";
 
-type Student = { student_number: string; student_name: string; grade?: string | null; campus?: string | null; instruction_type?: string | null; school_name?: string | null };
+type Student = { student_number: string; student_name: string; grade?: string | null; campus?: string | null; instruction_type?: string | null; school_name?: string | null; record_origin?: "official_roster" | "notion_only"; merged_record_count?: number; merged_student_numbers?: string[] };
 type Evidence = { id: string; text: string; direction?: string; message_type?: string };
 export type LineRegistrationResult = { relation: string; alias: string; studentNumbers: string[] };
 type Props = {
@@ -49,7 +49,11 @@ export function LineRegistrationForm(props: Props) {
           config.evidence !== undefined ? Promise.resolve(null) : get(`/api/admin/contacts/${encodeURIComponent(config.userId)}/messages`),
         ]);
         if (controller.signal.aborted) return;
-        if (roster) setStudents(roster.students ?? []);
+        if (roster) {
+          const loaded = (roster.students ?? []) as Student[];
+          setStudents(loaded);
+          setSelectedIds(ids => ids.map(id => loaded.find(student => student.student_number === id || student.merged_student_numbers?.includes(id))?.student_number ?? id).filter((id, index, values) => values.indexOf(id) === index));
+        }
         if (detail) setMessages((detail.messages ?? []).filter((m: Evidence) => m.direction === "inbound" && m.message_type === "text" && m.text?.trim()));
       } catch (error) { if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : "読み込みに失敗しました。"); }
       finally { if (!controller.signal.aborted) setLoading(false); }
@@ -101,11 +105,11 @@ export function LineRegistrationForm(props: Props) {
       {staff ? <div style={field}><strong>2. 先生・スタッフの名前を入力</strong><label style={field}>先生・スタッフの登録名<input style={input} maxLength={200} value={staffName} onChange={e => setStaffName(e.target.value)} /></label><small>「スタッフ」グループに登録します。</small></div> : <div style={field}>
         <strong>2. 対象の生徒を選ぶ</strong><small>保護者のLINEの場合も、お子さまの名前を選びます。兄弟も同じLINEなら追加できます。</small>
         <label style={field}>生徒を検索<input style={input} value={query} onChange={e => setQuery(e.target.value)} placeholder="氏名・学年・校舎・学校・生徒番号で検索" /></label>
-        {matches.map(s => <button type="button" key={s.student_number} disabled={selectedIds.length >= 10} style={{ ...button, textAlign: "left" }} onClick={() => { setSelectedIds(ids => [...ids, s.student_number]); setQuery(""); }}>{studentRegistrationLabel(s)}</button>)}
+        {matches.map(s => <button type="button" key={s.student_number} disabled={selectedIds.length >= 10} style={{ ...button, textAlign: "left", display: "grid", gap: 3 }} onClick={() => { setSelectedIds(ids => [...ids, s.student_number]); setQuery(""); }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12, color: "#52636a" }}>生徒番号 {s.student_number} / {s.record_origin === "notion_only" ? "Notionのみ（正式名簿未確認）" : "正式なクラス名簿"}</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412", fontWeight: 700 }}>以前のNotion重複 {s.merged_record_count}件を同じ生徒として整理して表示</span>}</button>)}
         {normalized && !matches.length && <small>該当する未選択の生徒が見つかりません。</small>}
         {selectedIds.length >= 10 && <small>一度に登録できる生徒は10名までです。</small>}
         {selectedIds.filter(id => !students.some(s => s.student_number === id)).map(id => <button type="button" key={id} style={button} onClick={() => setSelectedIds(ids => ids.filter(value => value !== id))}>名簿にない選択候補を外す</button>)}
-        {selected.map(s => <div key={s.student_number} style={{ padding: 10, background: "#eff8f3", borderRadius: 7, display: "grid", gap: 6 }}><strong>{studentRegistrationLabel(s)}</strong><button type="button" style={button} onClick={() => setSelectedIds(ids => ids.filter(id => id !== s.student_number))}>{s.student_name} を外す</button></div>)}
+        {selected.map(s => <div key={s.student_number} style={{ padding: 10, background: "#eff8f3", borderRadius: 7, display: "grid", gap: 6 }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12 }}>選択先：生徒番号 {s.student_number}（{s.record_origin === "notion_only" ? "Notionのみ" : "正式なクラス名簿"}）</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412" }}>同じ生徒の古いNotion重複 {s.merged_record_count}件は候補から除外済みです。</span>}<button type="button" style={button} onClick={() => setSelectedIds(ids => ids.filter(id => id !== s.student_number))}>{s.student_name} を外す</button></div>)}
       </div>}
       <div style={field}><strong>3. 表示名を確認して登録</strong><small>登録すると、この一覧と連絡先管理の名前が更新されます。</small>
         {!staff && <>{selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}{props.confirmedBy === undefined ? <label style={field}>LINE登録の確認者名<input style={input} value={localOperator} onChange={e => setLocalOperator(e.target.value)} /></label> : !operator.trim() && <small>画面上部の確認者名・スタッフ名を入力してください。</small>}</>}

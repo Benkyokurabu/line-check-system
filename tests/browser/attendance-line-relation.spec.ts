@@ -39,10 +39,10 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
   });
   await page.goto("/attendance");
   await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("変更前の職員");
-  const registration = page.getByRole("button", { name: "生徒・保護者の紐づけを確認・変更", exact: true });
-  await expect(registration).toHaveAttribute("aria-expanded", "false");
+  const registration = page.getByRole("button", { name: "勉たんの名前を直す", exact: true });
   await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await registration.click();
+  if (!options.guardian && !options.staff) await page.getByRole("button", { name: "紐付ける生徒・続柄も直す", exact: true }).click();
   await expect(page.getByText("生徒本人・保護者のLINE登録", { exact: true })).toBeVisible();
   await expect(page.getByText("2. 対象の生徒を選ぶ", { exact: true })).toBeVisible();
   await expect(page.getByText("3. 表示名を確認して登録", { exact: true })).toBeVisible();
@@ -50,11 +50,13 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
   await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "LINEへ送信", exact: true })).toBeVisible();
   await registration.click();
-  await expect(registration).toHaveAttribute("aria-expanded", "true");
+  if (!options.guardian && !options.staff) await page.getByRole("button", { name: "紐付ける生徒・続柄も直す", exact: true }).click();
+  await expect(page.getByText("生徒本人・保護者のLINE登録", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
   await expect(page.getByRole("group", { name: "1. LINEの利用者を選ぶ" })).toHaveCount(0);
   await expect(registration).toHaveAttribute("aria-expanded", "false");
   await registration.click();
+  if (!options.guardian && !options.staff) await page.getByRole("button", { name: "紐付ける生徒・続柄も直す", exact: true }).click();
   await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
   await expect(page.getByLabel("LINE登録の確認者名", { exact: true })).toHaveCount(0);
   await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("試験職員");
@@ -64,7 +66,7 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
 test("confirmed student LINE name can be corrected directly from the attendance card", async ({ page }) => {
   const writes = await setup(page);
   await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
-  await page.getByRole("button", { name: "LINEの生徒名を直す", exact: true }).click();
+  await page.getByRole("button", { name: "勉たんの名前を直す", exact: true }).click();
   const form = page.getByRole("region", { name: "LINEの生徒名を直す", exact: true });
   await expect(form).toBeVisible();
   await expect(form.getByText(/現在：sample-line/)).toBeVisible();
@@ -75,10 +77,12 @@ test("confirmed student LINE name can be corrected directly from the attendance 
   expect(writes).toEqual([{ line_user_id: "test-line-user", alias_name: "本　続柄試験（修正）", performed_by: "修正職員" }]);
 });
 
-test("guardian LINE does not show the direct student-name edit action", async ({ page }) => {
+test("guardian LINE uses the compact name button for student/relation correction", async ({ page }) => {
   await setup(page, { guardian: true });
-  await expect(page.getByRole("button", { name: "LINEの生徒名を直す", exact: true })).toHaveCount(0);
-  await expect(page.getByText(/生徒本人として確認済みではありません/)).toBeVisible();
+  await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
+  await expect(page.getByRole("button", { name: "勉たんの名前を直す", exact: true })).toHaveCount(1);
+  await page.getByRole("button", { name: "勉たんの名前を直す", exact: true }).click();
+  await expect(page.getByText("生徒本人・保護者のLINE登録", { exact: true })).toBeVisible();
 });
 
 for (const [label, relation, primary] of [["生徒本人", "student", true], ["保護者", "guardian", false], ["本人・保護者で共有", "shared", false]] as const) {

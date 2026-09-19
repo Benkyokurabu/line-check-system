@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LINE名・Notion紐付け UI改善</title>
+  <style>
+    :root{font-family:"Yu Gothic UI",sans-serif;color:#172033;background:#f5f7fb}body{max-width:920px;margin:0 auto;padding:40px 22px 72px}h1{font-size:28px;margin:0 0 8px}h2{font-size:19px;margin:30px 0 12px}.lead{color:#526071;margin:0}.card{background:#fff;border:1px solid #dbe2ea;border-radius:14px;padding:20px;box-shadow:0 6px 24px #1e293b0d}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.button{border:1px solid #b8c3d1;border-radius:8px;padding:9px 13px;background:#fff;font-weight:700}.button.primary{color:#fff;background:#0369a1;border-color:#0369a1}.panel{margin-top:14px;border:2px solid #0284c7;border-radius:10px;padding:16px}.muted{font-size:13px;color:#64748b}.flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:10px;align-items:center}.step{height:100%;box-sizing:border-box;border-radius:10px;background:#eaf5fb;padding:14px}.arrow{font-size:22px;color:#64748b}.result{border:1px solid #cbd5e1;border-radius:9px;padding:12px;margin-top:10px}.ok{color:#166534;font-weight:700}.before{color:#9f1239;text-decoration:line-through}.note{background:#fff7ed;border-left:4px solid #f97316;padding:12px 14px;margin-top:16px}@media(max-width:720px){.flow{grid-template-columns:1fr}.arrow{transform:rotate(90deg);text-align:center}}
+  </style>
+</head>
+<body>
+  <h1>LINE名・Notion紐付け UI改善</h1>
+  <p class="lead">2026年9月19日 — 人が迷わず名前と紐付けを直せる画面へ整理</p>
+
+  <h2>欠席連絡カード</h2>
+  <div class="card">
+    <strong>対象生徒の連絡</strong>
+    <div class="actions">
+      <span class="button">表示に戻す</span>
+      <span class="button primary">勉たんの名前を直す</span>
+      <span class="button">内容を見る</span>
+    </div>
+    <p class="muted before">大きな「LINEの名前・登録先を直す」領域を常時表示</p>
+    <div class="panel">
+      <strong>勉たんの名前を直す</strong>
+      <p class="muted">一覧に表示する名前だけを、ここですぐ変更できます。</p>
+      <div class="actions">
+        <span class="button primary">この名前で保存</span>
+        <span class="button">紐付ける生徒・続柄も直す</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>操作の分岐</h2>
+  <div class="flow">
+    <div class="step"><strong>1. 名前を直す</strong><br><span class="muted">カード横の小型ボタン</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><strong>2. 名前を保存</strong><br><span class="muted">通常はここで完了</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><strong>必要時のみ</strong><br><span class="muted">生徒・続柄の紐付けを変更</span></div>
+  </div>
+
+  <h2>生徒検索結果</h2>
+  <div class="card">
+    <div class="result"><strong>対象生徒</strong><br><span class="muted">生徒番号 20XXXXX ／ 正式なクラス名簿</span></div>
+    <p class="ok">同じ生徒の正式名簿行と古いNotion仮行は、1件に統合して表示します。</p>
+    <div class="note"><strong>「登録先」の意味を明確化</strong><br>曖昧な「登録先」ではなく、「紐付ける生徒・続柄」と表示します。これは、そのLINEアカウントを誰のものとして扱うか（生徒本人・保護者・共有など）を表します。</div>
+  </div>
+</body>
+</html>

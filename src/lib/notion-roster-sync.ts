@@ -307,6 +307,23 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
     skipped,
   };
 }
+async function syncNotionProfileMappings(supabase: SupabaseClient, students: SyncStudent[]) {
+  const syncedAt = new Date().toISOString();
+  const rows = students.filter((student) => student.notion_page_id).map((student) => ({
+    notion_page_id: student.notion_page_id,
+    student_number: student.student_number,
+    student_name: student.student_name,
+    status: "在塾",
+    campus: student.campus ?? null,
+    teacher_name: student.homeroom_teacher ?? null,
+    school_name: student.school_name ?? null,
+    synced_at: syncedAt,
+    updated_at: syncedAt,
+  }));
+  if (!rows.length) return;
+  const { error } = await supabase.from("notion_student_profiles").upsert(rows, { onConflict: "notion_page_id" });
+  if (error) throw new Error(`Notion生徒対応表の更新に失敗しました: ${error.message}`);
+}
 
 function targetRosterRow(excel: ExcelStudentRow | undefined) {
   if (!excel) return null;
@@ -583,6 +600,7 @@ export async function syncActiveNotionStudents({ supabase }: { supabase: Supabas
     .from("student_roster")
     .upsert(rows, { onConflict: "student_number" });
   if (syncError) throw new Error(syncError.message);
+  await syncNotionProfileMappings(supabase, notionResult.students);
 
   return {
     ok: true,
@@ -625,6 +643,7 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
     .from("student_roster")
     .upsert(rosterRows, { onConflict: "student_number" });
   if (rosterError) throw new Error(rosterError.message);
+  await syncNotionProfileMappings(supabase, notionResult.students);
 
   const selectedWithExcelRoster = rosterRows
     .map((row) => row.student_number)

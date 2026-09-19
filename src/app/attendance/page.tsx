@@ -1502,25 +1502,22 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
         <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{showAutoPeriod ? "期間の連絡" : `${items.length}行`} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
         <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
+        <button type="button" style={secondaryButtonStyle} disabled={!senderLineUserId} aria-expanded={lineNameOpen || registrationOpen} onClick={() => {
+          if (lineStudentAccount) openLineNameEdit();
+          else { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }
+        }}>勉たんの名前を直す</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
-    <div style={{ display: "grid", gap: 9, marginTop: 12, padding: 11, border: "1px solid #bae6fd", borderRadius: 8, background: "#f0f9ff" }}>
-      <strong style={{ color: "#0c4a6e", fontSize: 14 }}>LINEの名前・登録先を直す</strong>
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        {lineStudentAccount && <button type="button" style={{ ...buttonStyle, background: "#0369a1" }} aria-expanded={lineNameOpen} onClick={openLineNameEdit}>LINEの生徒名を直す</button>}
-        <button type="button" style={secondaryButtonStyle} disabled={!senderLineUserId} aria-expanded={expanded && registrationOpen} onClick={() => { setLineNameOpen(false); setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }}>生徒・保護者の紐づけを確認・変更</button>
-      </div>
-      <small style={{ color: "#075985" }}>{lineStudentAccount ? "名前だけなら左のボタン、本人・保護者や対象生徒を直すなら右のボタンを使います。" : "このLINEは生徒本人として確認済みではありません。対象生徒や続柄は「紐づけを確認・変更」から直せます。"}</small>
-    </div>
     {lineNameOpen && lineStudentAccount && <section aria-label="LINEの生徒名を直す" style={{ marginTop: 10, padding: 14, display: "grid", gap: 12, border: "2px solid #0284c7", borderRadius: 9, background: "white" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "start" }}>
-        <div><strong>LINEの生徒名を直す</strong><div style={{ color: "var(--muted)", fontSize: 13, marginTop: 3 }}>{selectedStudent?.student_name ?? studentNumber} / 現在：{lineStudentAccount.alias_name ?? "登録名なし"}</div></div>
+        <div><strong>勉たんの名前を直す</strong><div style={{ color: "var(--muted)", fontSize: 13, marginTop: 3 }}>{selectedStudent?.student_name ?? studentNumber} / 現在：{lineStudentAccount.alias_name ?? "登録名なし"}</div></div>
         <button type="button" style={ghostButtonStyle} disabled={lineNameSaving} onClick={() => setLineNameOpen(false)}>閉じる</button>
       </div>
       <label style={fieldStyle}>欠席確認・生徒一覧に表示する名前<input autoFocus style={inputStyle} maxLength={200} value={lineNameValue} onChange={(event) => setLineNameValue(event.target.value)} /></label>
       <label style={fieldStyle}>変更した先生・スタッフ名<input style={inputStyle} maxLength={100} value={confirmedBy} onChange={(event) => onConfirmedByChange(event.target.value)} placeholder="例：工藤" /></label>
       <small style={{ color: "var(--muted)" }}>勉たん内の登録名だけを変更します。相手のLINEアプリの名前は変わりません。変更履歴は保存されます。</small>
+      <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || lineNameSaving} onClick={() => { setLineNameOpen(false); setExpanded(true); setRegistrationOpen(true); }}>紐付ける生徒・続柄も直す</button>
       <button type="button" style={buttonStyle} disabled={lineNameSaving || !lineNameValue.trim() || !confirmedBy.trim()} onClick={() => void saveLineName()}>{lineNameSaving ? "保存中..." : "この名前で保存"}</button>
     </section>}
     {cardMessage && !showAutoPeriod && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("変更しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
