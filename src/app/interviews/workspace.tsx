@@ -6,7 +6,7 @@ import styles from './interviews.module.css';
 type Time={date:string;start:string;end:string};
 type Slot=Time&{id:string;studentId:string};
 type RequestRow={id:string;studentId:string;status:string;version:number;choices:(Time&{slotId:string})[];note:string;reason:string;confirmed:(Time&{status:string})|null};
-type State={students:{id:string;name:string;teacher?:string}[];slots:Slot[];requests:RequestRow[];invitationOnly?:boolean;invitations?:{id:string;studentId:string;expiresAt:string;version:number}[]};
+type State={students:{id:string;name:string;teacher?:string}[];slots:Slot[];requests:RequestRow[];slotsPending?:boolean;invitationOnly?:boolean;invitations?:{id:string;studentId:string;expiresAt:string;version:number}[]};
 type Operation={operationKey:string;action:string;[key:string]:unknown};
 export function describe(d:Time){return `${new Intl.DateTimeFormat('ja-JP',{month:'long',day:'numeric',weekday:'short',timeZone:'Asia/Tokyo'}).format(new Date(d.date+'T12:00:00+09:00'))} ${d.start}〜${d.end}`;}
 export default function ParentInterviews({trial=false,livePreview=false}:{trial?:boolean;livePreview?:boolean}){
@@ -14,10 +14,32 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  const [state,setState]=useState<State|null>(null),[ready,setReady]=useState(false),[login,setLogin]=useState<boolean|null>(null),[message,setMessage]=useState('');
  const [studentId,setStudentId]=useState(''),[choices,setChoices]=useState<Slot[]>([]),[note,setNote]=useState(''),[review,setReview]=useState(false);
  const [busy,setBusy]=useState(false),[retry,setRetry]=useState<Operation|null>(null);const lock=useRef(false);
- const read=useCallback(async()=>{const r=await fetch(endpoint,{cache:'no-store'});const raw=await r.json();if(r.status===401){setLogin(raw.loginAvailable===true);setState(null);return;}if(!r.ok)throw Error(raw.error??'読み込めませんでした。');const b=trial?studentPreviewState(raw):raw;setState(b);setLogin(null);setStudentId(old=>b.students.some((s:{id:string})=>s.id===old)?old:b.students[0]?.id??'');},[endpoint,trial]);
+ const [slotsLoading,setSlotsLoading]=useState(false),[slotsError,setSlotsError]=useState('');
+ const readEpoch=useRef(0),readAbort=useRef<AbortController|null>(null);
+ const invalidateRead=useCallback(()=>{readEpoch.current++;readAbort.current?.abort();},[]);
+ const stopRead=useCallback(()=>{invalidateRead();setSlotsLoading(false);},[invalidateRead]);
+ const read=useCallback(async()=>{
+  stopRead();const epoch=readEpoch.current,controller=new AbortController();readAbort.current=controller;setSlotsError('');setState(old=>old?{...old,slots:[]}:old);
+  const current=()=>readEpoch.current===epoch&&!controller.signal.aborted;
+  const invitation=new URLSearchParams(location.search).get('invitation'),readUrl=invitation?endpoint+'?invitation='+encodeURIComponent(invitation):endpoint;
+  try{
+   const r=await fetch(readUrl,{cache:'no-store',signal:controller.signal}),raw=await r.json();if(!current())return;
+   if(r.status===401){setLogin(raw.loginAvailable===true);setState(null);return;}if(!r.ok)throw Error(raw.error??'読み込めませんでした。');
+   const b:State=trial?studentPreviewState(raw):raw;setState(b);setLogin(null);setStudentId(old=>b.students.some(s=>s.id===old)?old:b.students[0]?.id??'');
+   if(b.slotsPending){
+    setSlotsLoading(true);
+    void(async()=>{try{
+     const response=await fetch(readUrl+(invitation?'&':'?')+'availability=1',{cache:'no-store',signal:controller.signal}),full=await response.json();if(!current())return;
+     if(response.status===401){setState(null);setChoices([]);setNote('');setReview(false);setLogin(full.loginAvailable===true);return;}
+     if(!response.ok)throw Error('日程を読み込めませんでした。もう一度お試しください。');
+     setState(full);setStudentId(old=>full.students.some((s:{id:string})=>s.id===old)?old:full.students[0]?.id??'');setChoices(old=>old.filter(c=>full.slots.some((s:Slot)=>s.id===c.id&&s.studentId===c.studentId)));
+    }catch(e){if(current())setSlotsError((e as Error).message);}finally{if(current())setSlotsLoading(false);}})();
+   }
+  }catch(e){if(current())throw e;}
+ },[endpoint,trial,stopRead]);
  const showStatus=()=>requestAnimationFrame(()=>window.scrollTo({top:0,behavior:'auto'}));
- useEffect(()=>{let active=true;void(async()=>{try{await read();if(active&&new URLSearchParams(location.search).get('login')==='failed')setMessage('LINEでの確認を完了できませんでした。もう一度お試しください。');}catch(e){if(active)setMessage((e as Error).message);}finally{if(active)setReady(true);}})();return()=>{active=false;};},[read]);
- async function send(op:Operation){if(lock.current)return;lock.current=true;setBusy(true);setRetry(op);setMessage('');
+ useEffect(()=>{let active=true;void(async()=>{try{await read();if(active&&new URLSearchParams(location.search).get('login')==='failed')setMessage('LINEでの確認を完了できませんでした。もう一度お試しください。');}catch(e){if(active)setMessage((e as Error).message);}finally{if(active)setReady(true);}})();return()=>{active=false;invalidateRead();};},[read,invalidateRead]);
+ async function send(op:Operation){if(lock.current)return;stopRead();lock.current=true;setBusy(true);setRetry(op);setMessage('');
   try{const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(trial?studentPreviewOperation(op):op)});const b=await r.json();if(!r.ok){if(r.status<500){setRetry(null);if(r.status===401){setState(null);setLogin(true);setReview(false);}if(r.status===409){setReview(false);await read();}}throw Error(b.error??'送信結果を確認できませんでした。');}
    setRetry(null);setReview(false);setChoices([]);setNote('');
    const success=op.action==='decline'?'日程が合わないことを教室へ伝えました。再案内をお待ちください。':op.action==='withdraw'?'予約を取り消しました。':trial?'検証用の予約希望を保存しました。':livePreview?'本番確認用の予約希望を送信しました。勉たんの「申請」に表示されます。':'予約希望を送信しました。先生の確認をお待ちください。';
@@ -34,7 +56,7 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  const invitation=state?.invitations?.find(i=>i.studentId===studentId);
  const active=!trial&&own.some(r=>r.status==='pending'||r.status==='approved'&&r.confirmed&&!['cancelled','rejected','completed'].includes(r.confirmed.status)&&r.confirmed.date>=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo'}).format(new Date()));
  const slots=state?.slots.filter(s=>s.studentId===studentId)??[];
- const valid=choices.length>0&&choices.every(c=>slots.some(s=>s.id===c.id));
+ const valid=!slotsLoading&&!slotsError&&choices.length>0&&choices.every(c=>slots.some(s=>s.id===c.id));
  const requestCards=own.filter(r=>r.status!=='cancelled').map(r=>{const cancellable=r.status==='pending'||r.status==='approved'&&r.confirmed?.status==='confirmed';return <article key={r.id} className={styles.selected}><strong>{r.status==='pending'?'承認待ち':r.status==='rejected'?'日程の再選択をお願いします':r.confirmed?.status==='cancelled'?'取消済み':r.confirmed?.status==='completed'?'実施済み':'予約確定'}</strong>{r.confirmed?<p>{describe(r.confirmed)}</p>:<ol>{r.choices.map(c=><li key={c.slotId}>{describe(c)}</li>)}</ol>}{r.reason&&<p>{r.reason}</p>}{cancellable&&<button className={styles.danger} disabled={frozen} onClick={()=>{if(window.confirm('この予約を取り消しますか？'))void send({operationKey:crypto.randomUUID(),action:'withdraw',id:r.id,version:r.version});}}>予約を取り消す</button>}</article>;});
  const notice=<>{message&&<p role="status">{message}</p>}{retry&&<><p>送信結果を確認できていません。</p><button disabled={busy} onClick={()=>void send(retry)}>送信結果を再確認する</button></>}</>;
  return <main className={styles.screen}><h1>面談予約</h1><p>オンライン・45分</p>{trial&&<p className={styles.notice}>生徒役の検証用です。架空の日程で申請を試せます。実予約・Notion登録・LINE通知は行いません。</p>}{livePreview&&<p className={styles.notice}>本番と同じ申請・先生承認・Notion登録を確認する画面です。確認用生徒の予約として登録され、実際の面談ではありません。</p>}
@@ -46,14 +68,14 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  {trial?<details open={!!message}><summary>これまでの検証申請（{own.filter(r=>r.status!=='cancelled').length}件）</summary>{requestCards}</details>:requestCards}
  <button disabled={frozen} onClick={()=>void refresh()}>{busy?'更新中…':'状況を更新する'}</button>
  <><h2>{active?'担任の空き日程':'希望の日程を選ぶ'}</h2><p>{active?'新しい希望を送る場合は、現在の申請・予約を取り消してから選んでください。':'第1希望から順に、最大3つ選んでください。1つでも申し込めます。'}</p>
- {slots.length===0?<p className={styles.empty}>現在、受付中の日程はありません。</p>:<div className={styles.slots}>{slots.map(slot=>{const rank=choices.findIndex(c=>c.id===slot.id);return <button key={slot.id} className={styles.slot} disabled={active||frozen||rank<0&&choices.length===3} aria-pressed={rank>=0} onClick={()=>setChoices(old=>rank>=0?old.filter(c=>c.id!==slot.id):[...old,slot])}><span>{describe(slot)}</span>{rank>=0&&<span className={styles.rank}>第{rank+1}希望</span>}</button>;})}</div>}
+ {slotsLoading?<p aria-live="polite">日程を読み込んでいます…</p>:slotsError?<div className={styles.notice}><p role="alert">{slotsError}</p><button disabled={frozen} onClick={()=>void refresh()}>日程をもう一度読み込む</button></div>:slots.length===0?<p className={styles.empty}>現在、受付中の日程はありません。</p>:<div className={styles.slots}>{slots.map(slot=>{const rank=choices.findIndex(c=>c.id===slot.id);return <button key={slot.id} className={styles.slot} disabled={active||frozen||rank<0&&choices.length===3} aria-pressed={rank>=0} onClick={()=>setChoices(old=>rank>=0?old.filter(c=>c.id!==slot.id):[...old,slot])}><span>{describe(slot)}</span>{rank>=0&&<span className={styles.rank}>第{rank+1}希望</span>}</button>;})}</div>}
  {!active&&<>
  {choices.length>0&&<div className={styles.selected} aria-label="選択した希望日程"><ol>{choices.map((c,i)=><li key={c.id}>{describe(c)}<div>{i>0&&<button disabled={frozen} onClick={()=>setChoices(old=>{const next=[...old];[next[i-1],next[i]]=[next[i],next[i-1]];return next;})}>優先順を上げる</button>}<button disabled={frozen} onClick={()=>setChoices(old=>old.filter(s=>s.id!==c.id))}>外す</button></div></li>)}</ol></div>}
  {livePreview&&invitation&&<button disabled={frozen} onClick={()=>{if(window.confirm('案内された日程は都合が合わないと教室へ伝えますか？'))void send({operationKey:crypto.randomUUID(),action:'decline',id:invitation.id,version:invitation.version});}}>どの日程も都合が合わない</button>}
  <details><summary>相談したいことを記入する（任意）</summary><label>相談内容<textarea maxLength={1500} disabled={frozen} value={note} onChange={e=>setNote(e.target.value)}/></label></details>
  <div className={styles.actions}><button className={styles.primary} disabled={frozen||!valid} onClick={()=>setReview(true)}>選んだ日程を確認する</button></div><small>先生が確認し、希望の中から1つの日程を確定します。</small></>}</>
  {retry&&!review&&<div className={styles.notice}>{notice}</div>}
- </section><footer className={styles.footer}><button disabled={frozen} onClick={()=>void(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{const r=await fetch(trial||livePreview?'/api/staff/session':'/api/parent/interviews',{method:'DELETE'});if(!r.ok&&r.status!==401)throw Error('終了できませんでした。もう一度お試しください。');setState(null);setChoices([]);setNote('');setStudentId('');setLogin(true);setMessage('');}catch(e){setMessage((e as Error).message);}finally{lock.current=false;setBusy(false);}})()}>終了する</button></footer></>}
+ </section><footer className={styles.footer}><button disabled={frozen} onClick={()=>void(async()=>{if(lock.current)return;stopRead();lock.current=true;setBusy(true);try{const r=await fetch(trial||livePreview?'/api/staff/session':'/api/parent/interviews',{method:'DELETE'});if(!r.ok&&r.status!==401)throw Error('終了できませんでした。もう一度お試しください。');setState(null);setChoices([]);setNote('');setStudentId('');setLogin(true);setMessage('');}catch(e){setMessage((e as Error).message);}finally{lock.current=false;setBusy(false);}})()}>終了する</button></footer></>}
  {review&&state&&<FlowDialog label="予約希望の確認" onBack={()=>setReview(false)} blocked={frozen} notice={notice}><h2>この希望日程で送信しますか？</h2><p>{state.students.find(s=>s.id===studentId)?.name}さん ／ オンライン・45分</p><ol>{choices.map(c=><li key={c.id}>{describe(c)}</li>)}</ol>{note&&<p>{note}</p>}<p>送信後は承認待ちになります。</p><button className={styles.primary} disabled={frozen||!valid} aria-live="polite" onClick={()=>void send({operationKey:crypto.randomUUID(),action:'submit',studentId,invitationId:invitation?.id,invitationVersion:invitation?.version,choices:choices.map(c=>c.id),note})}>{busy?'送信中…':'予約希望を送信する'}</button></FlowDialog>}
  </main>;
 }

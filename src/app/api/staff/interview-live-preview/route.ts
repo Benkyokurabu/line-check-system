@@ -2,7 +2,7 @@ import {createHash,randomBytes} from 'node:crypto';
 import {NextRequest} from 'next/server';
 import {staffContext,staffResponse,staffErrorResponse,staffJsonBody,assertStaffMutationOrigin} from '@/lib/staff-auth-http';
 import {InterviewError} from '@/lib/interview-core.mjs';
-import {parentView,parentRequest,validateRequestedSlots,type Slot} from '@/lib/interview-requests';
+import {parentView,parentSummary,parentRequest,validateRequestedSlots,type Slot} from '@/lib/interview-requests';
 import {loadInterviewState,readAll} from '@/lib/interview-store';
 import {requestDbError} from '@/lib/parent-interview-http';
 import {syncInterview} from '@/lib/interview-sync';
@@ -22,7 +22,8 @@ export async function GET(request:NextRequest){
  let context;
  try{
   context=await staffContext(request);authorize(context.staff);
-  return staffResponse(await parentView(context.dataClient,lineUserId),context);
+  const invitation=request.nextUrl.searchParams.get('invitation')??'';if(invitation&&!uuid(invitation))throw new InterviewError('案内リンクを確認してください。',400);
+  return staffResponse(await (request.nextUrl.searchParams.get('availability')==='1'?parentView:parentSummary)(context.dataClient,lineUserId,invitation),context);
  }catch(error){return error instanceof InterviewError?staffResponse({error:error.message},context,error.status):staffErrorResponse(error,context);}
 }
 

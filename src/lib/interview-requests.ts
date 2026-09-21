@@ -6,6 +6,8 @@ import {getJapanDate} from './reservation-date.mjs';
 import {BENSUKE_SOURCE,queryPages,staffDirectory,scheduleValue,checkedPage,prepareBinding,prepareBindings} from './bensuke-booking.mjs';
 import {bensukeAvailability} from './bensuke-reader.mjs';
 import {bensukeRequest} from './interview-sync';
+import {dateOnly,parentRequest,parentSummary} from './parent-interview-summary.mjs';
+export {dateOnly,parentRequest,parentSummary} from './parent-interview-summary.mjs';
 type Row=Record<string,unknown>;
 export type Slot={id:string;notion_page_id:string;data:Record<string,string>;version:number;published:boolean;notion_edited_at:string;source_available?:boolean};
 const teacherKey=(s:unknown)=>normalizeTeacher(s).replace(/(?:先生|さん)$/u,'');
@@ -15,14 +17,8 @@ export function available(slot:Slot,state:InterviewState,teacher:unknown){
  &&!state.bookings.some(b=>b.notion_page_id===slot.notion_page_id)
  &&conflicts(slot.data,state.lessons,state.bookings).length===0;
 }
-export const dateOnly=(d:Record<string,unknown>)=>({date:d.date,start:d.start,end:d.end});
-export function parentRequest(row:Row,bookings:Row[]){
- const booking=bookings.find(b=>b.id===row.booking_id);
- return {id:row.id,studentId:row.student_id,status:row.status,version:row.version,note:row.note,reason:row.reason,
-  choices:(row.choices as {slotId:string;data:Record<string,string>}[]).map(c=>({slotId:c.slotId,...dateOnly(c.data)})),
-  confirmed:booking?{...dateOnly(booking.data as Row),status:booking.status}:null};
-}
-export async function parentView(db:SupabaseClient,lineUserId:string){
+export async function parentView(db:SupabaseClient,lineUserId:string,invitationId=''){
+ if(invitationId)await parentSummary(db,lineUserId,invitationId);
  const links=await db.from('student_line_accounts').select('student_number').eq('line_user_id',lineUserId).eq('verification_status','confirmed').in('relation',['mother','father','guardian','shared','student']).limit(100);
  if(links.error)throw new InterviewError('登録情報を確認できません。',503);
  if(!links.data.length)return {students:[],slots:[],requests:[]};
@@ -32,10 +28,12 @@ export async function parentView(db:SupabaseClient,lineUserId:string){
  const invitationResult=await db.from('interview_invitations').select('id,student_id,slots,teacher,expires_at,version').in('student_id',students.map(s=>s.id)).eq('status','active').gt('expires_at',new Date().toISOString());
  if(invitationResult.error)throw new InterviewError('面談案内を読み込めません。',503);
  // General parent rollout is deliberately disabled. Only the authenticated KUDO preview can use invitations.
- const invitations=lineUserId==='BENTAN-KUDO-INTERVIEW-LIVE-PREVIEW'?invitationResult.data:[];
+ const invitations=lineUserId==='BENTAN-KUDO-INTERVIEW-LIVE-PREVIEW'?invitationResult.data.filter(i=>!invitationId||i.id===invitationId):[];
  if(invitations.length)await refreshHomeroomSlots(db,students.filter(s=>invitations.some(i=>i.student_id===s.id)),state);
  const slots=await readAll(db,'interview_public_slots') as Slot[];
- const requests=await db.from('interview_parent_requests').select('*').in('student_id',students.map(s=>s.id)).order('created_at',{ascending:false}).limit(100);
+ let requestQuery=db.from('interview_parent_requests').select('*').in('student_id',students.map(s=>s.id)).order('created_at',{ascending:false}).limit(100);
+ if(invitationId)requestQuery=requestQuery.eq('invitation_id',invitationId);
+ const requests=await requestQuery;
  if(requests.error)throw new InterviewError('申請状況を読み込めません。',503);
  return {invitationOnly:true,invitations:invitations.map(i=>({id:i.id,studentId:i.student_id,expiresAt:i.expires_at,version:i.version})),students:students.map(s=>({id:s.id,name:s.student_name,teacher:teacherKey(s.homeroom_teacher)})),slots:students.flatMap(s=>slots.filter(slot=>available(slot,state,s.homeroom_teacher)&&invitations.some(i=>i.student_id===s.id&&i.teacher===teacherKey(s.homeroom_teacher)&&(i.slots as {id:string;version:number}[]).some(v=>v.id===slot.id&&v.version===slot.version))).map(slot=>({id:slot.id,studentId:s.id,...dateOnly(slot.data)}))).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start).localeCompare(String(b.start))),requests:requests.data.map(r=>parentRequest(r,state.bookings))};
 }

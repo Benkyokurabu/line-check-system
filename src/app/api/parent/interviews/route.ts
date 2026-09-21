@@ -1,6 +1,6 @@
 import {NextRequest} from 'next/server';
 import {parentContext,parentFailure,parentResponse,requestDbError} from '@/lib/parent-interview-http';
-import {parentView,parentRequest,validateRequestedSlots,type Slot} from '@/lib/interview-requests';
+import {parentView,parentSummary,parentRequest,validateRequestedSlots,type Slot} from '@/lib/interview-requests';
 import {loadInterviewState,readAll} from '@/lib/interview-store';
 import {assertStaffMutationOrigin,staffJsonBody} from '@/lib/staff-auth-http';
 import {InterviewError} from '@/lib/interview-core.mjs';
@@ -10,7 +10,7 @@ export const dynamic='force-dynamic';
 export const maxDuration=60;
 const uuid=(v:unknown)=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 export async function GET(request:NextRequest){
- try{const c=await parentContext(request);return parentResponse(await parentView(c.db,c.lineUserId));}
+ try{const c=await parentContext(request),invitation=request.nextUrl.searchParams.get('invitation')??'';if(invitation&&!uuid(invitation))throw new InterviewError('案内リンクを確認してください。',400);return parentResponse(await (request.nextUrl.searchParams.get('availability')==='1'?parentView:parentSummary)(c.db,c.lineUserId,invitation));}
  catch(e){if(e instanceof InterviewError&&e.status===401)return parentResponse({loginRequired:true,loginAvailable:!!loginConfig()},401);return parentFailure(e);}
 }
 export async function DELETE(request:NextRequest){

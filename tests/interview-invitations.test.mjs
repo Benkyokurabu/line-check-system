@@ -41,7 +41,7 @@ test('本番パイロットのDB制限・案内範囲・期限・承認・通知
  create function staff_authorize(uuid,uuid,text,boolean) returns jsonb language sql as $$select jsonb_build_object('staffId',id,'role',role,'staffCode',staff_code) from staff_accounts limit 1$$;`);
  await db.query("insert into staff_accounts values($1,'admin','KUDO',true)",[actor]);
  await db.exec("insert into student_registry(student_number,student_name,homeroom_teacher) values('2018999','工藤検証','工藤'),('other','別の生徒','工藤')");
- for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916','interview_parent_cancel_20260918','interview_auto_availability_20260921','interview_pilot_notifications_20260921','interview_invitations_20260921'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
+ for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916','interview_parent_cancel_20260918','interview_auto_availability_20260921','interview_pilot_notifications_20260921','interview_invitations_20260921','interview_invitation_links_20260921'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
  const student=await value("select id v from interview_students where student_number='2018999'"),other=await value("select id v from interview_students where student_number='other'");
  await db.query("insert into student_line_accounts values('2018999',$1,'student','confirmed'),('2018999',$2,'student','confirmed')",[line,recipient]);
  await db.query("insert into interview_parent_sessions values($1,$2,now()+interval '1 day',now())",[hash,line]);
@@ -56,7 +56,7 @@ test('本番パイロットのDB制限・案内範囲・期限・承認・通知
  const submit=(ids,version=i.version,inv=i.id,op=randomUUID())=>value('select interview_invited_submit($1,$2,$3,$4,$5,$6,$7) v',[hash,op,student,ids,'検証',inv,version]);
  await assert.rejects(()=>submit([b.id]),/invitation_slot_denied/);
  await assert.rejects(()=>submit([a.id],99),/invitation_required/);
- const claim=()=>value('select interview_invitation_notification_claim($1) v',[i.id]);const first=await claim();assert.equal(first.recipient,recipient);assert.equal(await claim(),null);
+ const claim=()=>value('select interview_invitation_notification_claim($1) v',[i.id]);const first=await claim();assert.equal(first.recipient,recipient);assert.ok(first.message.includes('/interviews/trial?invitation='+i.id));assert.ok(!first.message.includes('/staff/entry'));assert.equal(await claim(),null);
  await value("select interview_invitation_notification_finish($1,$2,'retry',null,'network') v",[i.id,first.lease]);await db.query('update interview_invitations set next_attempt_at=null where id=$1',[i.id]);const second=await claim();assert.equal(first.retry_key,second.retry_key);
  await value("select interview_invitation_notification_finish($1,$2,'sent','accepted',null) v",[i.id,second.lease]);assert.equal(await claim(),null);assert.equal(await value('select count(*)::int v from line_messages'),1);
  const op=randomUUID(),r=await submit([a.id],i.version,i.id,op);assert.equal(r.invitation_id,i.id);assert.equal((await submit([a.id],i.version,i.id,op)).id,r.id);
@@ -65,7 +65,7 @@ test('本番パイロットのDB制限・案内範囲・期限・承認・通知
  const approved=await value("select interview_review_request($1,$2,$3,$4,$5,'approve',$6,$7,$8,'',$9) v",[user,session,randomUUID(),r.id,r.version,a.id,await value('select interview_snapshot() v'),JSON.stringify(data),'approve']);
  assert.equal(await value('select interview_pilot_notification_claim($1) v',[approved.booking_id]),null);
  await db.query('update interview_bookings set notion_synced_version=version where id=$1',[approved.booking_id]);
- const n=await value('select interview_pilot_notification_claim($1) v',[approved.booking_id]);assert.equal(n.recipient,recipient);
+ const n=await value('select interview_pilot_notification_claim($1) v',[approved.booking_id]);assert.equal(n.recipient,recipient);assert.ok(n.message.includes('/interviews/trial?invitation='+i.id));
  await value("select interview_pilot_notification_finish($1,$2,'sent','ok',null) v",[approved.booking_id,n.lease]);assert.equal(await value('select count(*)::int v from line_messages'),2);
  await assert.rejects(()=>value("select interview_invitation_save($1,$2,$3,'revoke',null,null,null,$4,$5) v",[user,session,randomUUID(),i.id,i.version]),/request_already_active/);
  await value('select interview_parent_withdraw($1,$2,$3,$4) v',[hash,randomUUID(),approved.id,approved.version]);
