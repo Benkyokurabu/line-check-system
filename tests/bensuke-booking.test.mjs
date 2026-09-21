@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {BENSUKE_SOURCE,prepareBinding,teacherMatch,scheduleValue,scheduleProperties,desiredSchedule,equivalentSchedule,assertNoNotionConflicts,remoteAppointment} from '../src/lib/bensuke-booking.mjs';
+import {BENSUKE_SOURCE,prepareBinding,prepareBindings,teacherMatch,scheduleValue,scheduleProperties,desiredSchedule,equivalentSchedule,assertNoNotionConflicts,remoteAppointment} from '../src/lib/bensuke-booking.mjs';
 import {syncBensukeBooking} from '../src/lib/bensuke-sync.mjs';
 const pageId='11111111-1111-4111-8111-111111111111',teacherId='22222222-2222-4222-8222-222222222222';
 const schema={properties:Object.fromEntries(Object.entries({名前:['title'],日時:['date'],担当者:['relation'],校舎:['multi_select','本校','南教室'],教室:['select','本①','本②','南①'],内容:['multi_select','本：予約可','南：予約可','面談(対面)','面談(オンライン)','電話']}).map(([name,[type,...names]])=>[name,{id:name,name,type,[type]:type==='relation'?{data_source_id:'staff'}:{options:names.map(n=>({id:n,name:n}))}}]))};
@@ -26,6 +26,32 @@ function fixture(){
 test('職員名の敬称・異体字を対応し、同姓同名の重複は推測しない',()=>{
  assert.equal(teacherMatch('工藤',directory).id,teacherId);
  assert.throws(()=>teacherMatch('髙山',[{id:'a',name:'高山先生'},{id:'b',name:'髙山先生'}]),/一意/);
+});
+test('3希望で定義・職員・リソース履歴を共有し、別の申請では取り直す',async()=>{
+ const f=fixture(),calls=[],pages=new Map();
+ const choices=[1,2,3].map(n=>{
+  const id=`11111111-1111-4111-8111-11111111111${n}`,day=`2026-12-0${n}`;
+  pages.set(`/pages/${id}`,card({...original,date:{start:day+'T13:00:00+09:00',end:day+'T13:45:00+09:00'}},id));
+  return {pageId:id,editedAt:card().last_edited_time,data:{...data,date:day}};
+ });
+ const request=async(path,init)=>{calls.push([path,init?.body]);return pages.get(path)??f.request(path,init);};
+ const result=await prepareBindings({request,choices});assert.equal(result.length,3);assert.equal(calls.length,8);
+ assert.equal(calls.filter(([path])=>path===`/data_sources/${BENSUKE_SOURCE}`).length,1);
+ assert.equal(calls.filter(([path])=>path==='/data_sources/staff/query').length,1);
+ for(const [path,body] of calls.filter(([path])=>path===`/data_sources/${BENSUKE_SOURCE}/query`)){
+  assert.ok(path);assert.match(body,/2026-12-03T23:59:59/);assert.ok(!body.includes('on_or_after'));
+ }
+ await prepareBindings({request,choices});assert.equal(calls.length,16);
+ pages.set(`/pages/${choices[1].pageId}`,{...pages.get(`/pages/${choices[1].pageId}`),last_edited_time:'changed'});
+ await assert.rejects(()=>prepareBindings({request,choices}),/変更/);
+});
+test('まとめ取得でも後続ページの長期予定・別校舎の重複を見落とさない',async()=>{
+ const f=fixture(),conflict=card({...original,date:{start:'2026-11-01T00:00:00+09:00',end:'2026-12-02T14:00:00+09:00'},campuses:['南教室'],room:'南①',tags:['面談(対面)']},'conflict');
+ const request=async(path,init)=>{
+  if(path===`/data_sources/${BENSUKE_SOURCE}/query`){const body=JSON.parse(init.body);return body.start_cursor?{results:[conflict]}:{results:[],has_more:true,next_cursor:'next'};}
+  return f.request(path,init);
+ };
+ await assert.rejects(()=>prepareBindings({request,choices:[{pageId,editedAt:card().last_edited_time,data}]}),/重なり/);
 });
 test('予約可を再取得して日時・担当・所属DB・版を確認する',async()=>{
  const f=fixture(),args={request:f.request,pageId,editedAt:card().last_edited_time,data};

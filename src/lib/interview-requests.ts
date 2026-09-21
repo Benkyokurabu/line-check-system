@@ -3,7 +3,7 @@ import type {SupabaseClient} from '@supabase/supabase-js';
 import {loadInterviewState,readAll,type InterviewState} from './interview-store';
 import {conflicts,InterviewError,normalizeTeacher,validateAppointment} from './interview-core.mjs';
 import {getJapanDate} from './reservation-date.mjs';
-import {BENSUKE_SOURCE,queryPages,staffDirectory,scheduleValue,checkedPage,prepareBinding} from './bensuke-booking.mjs';
+import {BENSUKE_SOURCE,queryPages,staffDirectory,scheduleValue,checkedPage,prepareBinding,prepareBindings} from './bensuke-booking.mjs';
 import {bensukeAvailability} from './bensuke-reader.mjs';
 import {bensukeRequest} from './interview-sync';
 type Row=Record<string,unknown>;
@@ -56,6 +56,15 @@ export async function bindingForSlot(slot:Slot,student:Row,state:InterviewState,
  if(!available(slot,state,student.homeroom_teacher))throw new InterviewError('選んだ日程を現在は受け付けていません。',409);
  const binding=await prepareBinding({request:bensukeRequest,pageId:slot.notion_page_id,editedAt:slot.notion_edited_at,data});
  return {...data,bensuke:binding,manualReviewed:true,externalReviewed:true};
+}
+export async function validateRequestedSlots(ids:string[],slots:Slot[],student:Row,state:InterviewState,note=''){
+ const choices=ids.map(id=>{
+  const slot=slots.find(s=>s.id===id);
+  if(!slot||!available(slot,state,student.homeroom_teacher))throw new InterviewError('選んだ日程を現在は受け付けていません。',409);
+  const data=validateAppointment({...slot.data,studentId:student.id,method:'Zoom',channel:'LINE',purpose:'保護者面談',participants:'保護者',note},state.settings.data);
+  return {pageId:slot.notion_page_id,editedAt:slot.notion_edited_at,data};
+ });
+ await prepareBindings({request:bensukeRequest,choices});
 }
 export async function notionOffers(){
  const schema=await bensukeRequest(`/data_sources/${BENSUKE_SOURCE}`),directory=await staffDirectory(bensukeRequest,schema);

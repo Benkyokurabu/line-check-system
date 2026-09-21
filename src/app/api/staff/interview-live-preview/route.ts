@@ -2,7 +2,7 @@ import {createHash,randomBytes} from 'node:crypto';
 import {NextRequest} from 'next/server';
 import {staffContext,staffResponse,staffErrorResponse,staffJsonBody,assertStaffMutationOrigin} from '@/lib/staff-auth-http';
 import {InterviewError} from '@/lib/interview-core.mjs';
-import {parentView,bindingForSlot,type Slot} from '@/lib/interview-requests';
+import {parentView,parentRequest,validateRequestedSlots,type Slot} from '@/lib/interview-requests';
 import {loadInterviewState,readAll} from '@/lib/interview-store';
 import {requestDbError} from '@/lib/parent-interview-http';
 import {syncInterview} from '@/lib/interview-sync';
@@ -56,10 +56,10 @@ export async function POST(request:NextRequest){
   if(!prior.data){
    const state=await loadInterviewState(context.dataClient),slots=await readAll(context.dataClient,'interview_public_slots') as Slot[],subjectStudent=state.students.find(row=>row.id===body.studentId);
    if(!subjectStudent)throw new InterviewError('確認用生徒を利用できません。',503);
-   for(const id of body.choices){const slot=slots.find(row=>row.id===id);if(!slot)throw new InterviewError('日程を選び直してください。',409);await bindingForSlot(slot,subjectStudent,state,note);}
+   await validateRequestedSlots(body.choices,slots,subjectStudent,state,note);
   }
   const saved=await context.dataClient.rpc('interview_parent_submit',{p_hash:hash,p_operation:body.operationKey,p_student:body.studentId,p_choices:body.choices,p_note:note});
-  requestDbError(saved.error);return staffResponse({saved:true},context);
+  requestDbError(saved.error);return staffResponse({saved:true,request:parentRequest(saved.data,[])},context);
  }catch(error){return error instanceof InterviewError?staffResponse({error:error.message},context,error.status):staffErrorResponse(error,context);}
  finally{if(hash&&context)await context.dataClient.from('interview_parent_sessions').delete().eq('token_hash',hash);}
 }

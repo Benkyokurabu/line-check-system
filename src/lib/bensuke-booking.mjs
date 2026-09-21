@@ -66,6 +66,30 @@ export async function prepareBinding({request,sourceId=BENSUKE_SOURCE,pageId,edi
  await checkNotionConflicts({request,sourceId,schema,data,teacherId:teacher.id,excludeId:pageId});
  return {pageId,sourceId,editedAt,baseline};
 }
+// One fresh read set per submission. Use the latest requested day as the upper
+// bound so all choices share the same resource history, including long events.
+// Each choice still validates its own page, version, teacher and time interval.
+export async function prepareBindings({request,sourceId=BENSUKE_SOURCE,choices}){
+ if(!Array.isArray(choices)||choices.length<1||choices.length>3)throw new InterviewError('日程を1〜3つ選んでください。');
+ const lastDay=choices.map(c=>c.data.date).sort().at(-1);
+ const reads=new Map();
+ const sharedRequest=(path,init={})=>{
+  let body=init.body;
+  if(path===`/data_sources/${sourceId}/query`&&body){
+   const query=JSON.parse(body);
+   for(const condition of query.filter?.and??[])if(condition.date?.on_or_before)condition.date.on_or_before=`${lastDay}T23:59:59+09:00`;
+   body=JSON.stringify(query);
+  }
+  const method=init.method??'GET';
+  if(method!=='GET'&&!(method==='POST'&&path.endsWith('/query')))throw new InterviewError('日程の確認中に書き込みはできません。',503);
+  const key=JSON.stringify([path,method,body??null]);
+  if(!reads.has(key))reads.set(key,Promise.resolve().then(()=>request(path,{...init,...(body?{body}:{})})));
+  return reads.get(key);
+ };
+ const bindings=[];
+ for(const choice of choices)bindings.push(await prepareBinding({request:sharedRequest,sourceId,...choice}));
+ return bindings;
+}
 export function desiredSchedule(booking,teacherId){
  const d=booking.data;
  if(['cancelled','rejected'].includes(booking.status))return booking.notion_original;

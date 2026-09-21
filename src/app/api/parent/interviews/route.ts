@@ -1,6 +1,6 @@
 import {NextRequest} from 'next/server';
 import {parentContext,parentFailure,parentResponse,requestDbError} from '@/lib/parent-interview-http';
-import {parentView,bindingForSlot,type Slot} from '@/lib/interview-requests';
+import {parentView,parentRequest,validateRequestedSlots,type Slot} from '@/lib/interview-requests';
 import {loadInterviewState,readAll} from '@/lib/interview-store';
 import {assertStaffMutationOrigin,staffJsonBody} from '@/lib/staff-auth-http';
 import {InterviewError} from '@/lib/interview-core.mjs';
@@ -34,8 +34,8 @@ export async function POST(request:NextRequest){
   if(!prior.data){
    const state=await loadInterviewState(c.db),slots=await readAll(c.db,'interview_public_slots') as Slot[],student=state.students.find(s=>s.id===body.studentId);
    if(!student)throw new InterviewError('お子さまの登録を確認してください。',403);
-   for(const id of body.choices){const slot=slots.find(s=>s.id===id);if(!slot)throw new InterviewError('日程を選び直してください。',409);await bindingForSlot(slot,student,state,body.note);}
+   await validateRequestedSlots(body.choices,slots,student,state,body.note);
   }
-  const saved=await c.db.rpc('interview_parent_submit',{p_hash:c.hash,p_operation:body.operationKey,p_student:body.studentId,p_choices:body.choices,p_note:body.note.trim()});requestDbError(saved.error);return parentResponse({saved:true});
+  const saved=await c.db.rpc('interview_parent_submit',{p_hash:c.hash,p_operation:body.operationKey,p_student:body.studentId,p_choices:body.choices,p_note:body.note.trim()});requestDbError(saved.error);return parentResponse({saved:true,request:parentRequest(saved.data,[])});
  }catch(e){return parentFailure(e);}
 }

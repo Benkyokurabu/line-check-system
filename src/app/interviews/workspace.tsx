@@ -19,7 +19,14 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  useEffect(()=>{let active=true;void(async()=>{try{await read();if(active&&new URLSearchParams(location.search).get('login')==='failed')setMessage('LINEでの確認を完了できませんでした。もう一度お試しください。');}catch(e){if(active)setMessage((e as Error).message);}finally{if(active)setReady(true);}})();return()=>{active=false;};},[read]);
  async function send(op:Operation){if(lock.current)return;lock.current=true;setBusy(true);setRetry(op);setMessage('');
   try{const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(trial?studentPreviewOperation(op):op)});const b=await r.json();if(!r.ok){if(r.status<500){setRetry(null);if(r.status===401){setState(null);setLogin(true);setReview(false);}if(r.status===409){setReview(false);await read();}}throw Error(b.error??'送信結果を確認できませんでした。');}
-   setRetry(null);setReview(false);setChoices([]);setNote('');await read();setMessage(op.action==='withdraw'?'予約を取り消しました。':trial?'検証用の予約希望を保存しました。':livePreview?'本番確認用の予約希望を送信しました。勉たんの「申請」に表示されます。':'予約希望を送信しました。先生の確認をお待ちください。');showStatus();
+   setRetry(null);setReview(false);setChoices([]);setNote('');
+   const success=op.action==='withdraw'?'予約を取り消しました。':trial?'検証用の予約希望を保存しました。':livePreview?'本番確認用の予約希望を送信しました。勉たんの「申請」に表示されます。':'予約希望を送信しました。先生の確認をお待ちください。';
+   setMessage(success);showStatus();
+   if(op.action==='submit'&&!trial&&b.request){
+    setState(old=>old?{...old,requests:[b.request,...old.requests.filter(row=>row.id!==b.request.id)]}:old);
+   }else{
+    try{await read();}catch{setMessage(`${success} 最新の状況を読み込めませんでした。「状況を更新する」で確認してください。`);}
+   }
   }catch(e){setMessage((e as Error).message||'通信を確認してください。');}finally{lock.current=false;setBusy(false);}}
  async function refresh(){if(lock.current)return;lock.current=true;setBusy(true);setMessage('');try{await read();setMessage('最新の状況に更新しました。');showStatus();}catch(e){setMessage((e as Error).message||'更新できませんでした。');showStatus();}finally{lock.current=false;setBusy(false);}}
  const frozen=busy||!!retry;
