@@ -2,7 +2,7 @@ import "server-only";
 
 import { notionRequest } from "@/lib/notion";
 import { canonicalTeacherName } from "@/lib/teacher-names";
-import { matchSurveyStudent } from "@/lib/survey-student-match.mjs";
+import { matchSurveyStudent,normalizeSurveyName } from "@/lib/survey-student-match.mjs";
 import type { InterviewSurveyTeacherGroup } from "@/lib/interview-surveys";
 
 type Property = {
@@ -43,15 +43,34 @@ function propertyTeacher(property?: Property) {
 async function queryAll(dataSourceId: string, filter: Record<string, unknown>) {
   const pages: Page[] = [];
   let cursor: string | null = null;
+  const seen=new Set<string>();
   do {
     const result = await notionRequest(`/data_sources/${dataSourceId}/query`, {
       method: "POST",
       body: JSON.stringify({ page_size: 100, filter, ...(cursor ? { start_cursor: cursor } : {}) }),
     }) as QueryResult;
-    pages.push(...(result.results ?? []));
+    if(!Array.isArray(result.results))throw Error('アンケートの取得結果を確認できません。');
+    pages.push(...result.results);
+    if(result.has_more&&(!result.next_cursor||seen.has(result.next_cursor)||seen.size>=100))throw Error('アンケートを最後まで取得できません。');
     cursor = result.has_more ? result.next_cursor ?? null : null;
+    if(cursor)seen.add(cursor);
   } while (cursor);
   return pages;
+}
+
+/** Uses the same active campaign as the existing interview survey screen. No write-back or guessed identities. */
+export async function loadInvitationSurveyResponses(students:Record<string,unknown>[]){
+ const roster=students.filter(s=>s.enrollment_status==='current_roster').map(s=>({name:String(s.student_name??''),number:String(s.student_number??''),grade:String(s.grade??''),teacher:String(s.homeroom_teacher??'')}));
+ const results=await Promise.all(SOURCES.map(async([grade,id])=>({grade,pages:await queryAll(id,{timestamp:'created_time',created_time:{on_or_after:SURVEY_STARTED_ON}})})));
+ const synced_at=new Date().toISOString(),base={source_name:'面談アンケート',school_year:SURVEY_STARTED_ON.slice(0,4)+'年度',round_label:SURVEY_STARTED_ON+'開始分',subject:'',synced_at,eligible_grades:SOURCES.map(([grade])=>grade)};
+ const rows:Record<string,unknown>[]=[{...base,student_number:null,link_status:'campaign',answered_at:null}];let unmatched=0;
+ for(const {grade,pages} of results)for(const page of pages){
+  const p=page.properties??{},name=propertyText(Object.values(p).find(v=>v.type==='title')),number=propertyText(p['学籍番号']);
+  const match=matchSurveyStudent({name,number,grade},roster),answered_at=page.created_time?new Date(page.created_time).toLocaleString('sv-SE',{timeZone:'Asia/Tokyo'}):null;
+  if(match)rows.push({...base,student_number:match.number,link_status:'linked',answered_at});
+  else {unmatched++;for(const candidate of roster.filter(s=>s.number===number||normalizeSurveyName(s.name)===normalizeSurveyName(name)))rows.push({...base,student_number:candidate.number,link_status:'needs_review',answered_at});}
+ }
+ return {rows,unmatched};
 }
 
 export async function loadInterviewSurveyGroups(): Promise<InterviewSurveyTeacherGroup[]> {

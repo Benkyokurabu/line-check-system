@@ -17,6 +17,8 @@ export async function parentContext(request:NextRequest){
 export function parentFailure(error:unknown){return parentResponse({error:error instanceof InterviewError?error.message:error instanceof StaffAuthError?'予約画面から操作してください。':'接続を確認して、もう一度お試しください。'},error instanceof InterviewError||error instanceof StaffAuthError?error.status:503);}
 export function requestDbError(error:{message:string}|null){
  if(!error)return;
+ const invitationMessages:Record<string,string>={pilot_only:'現在は工藤の検証用生徒だけに案内できます。',invitation_required:'有効な日程案内がありません。教室からの案内をお待ちください。',invitation_slot_denied:'案内された日程から選んでください。',invitation_already_active:'既に有効な案内があります。変更する場合は先に案内を取り消してください。',invalid_invitation:'日程と回答期限を確認してください。回答期限は最初の面談日の前日までです。',notification_in_progress:'通知の送信中です。少し待ってからもう一度お試しください。'};
+ if(invitationMessages[error.message])throw new InterviewError(invitationMessages[error.message],409);
  const messages:Record<string,[string,number]>={parent_session_required:['LINEからログインしてください。',401],parent_subject_denied:['お子さまとの登録を確認できません。教室にご連絡ください。',403],request_already_active:['既に申請中または確定済みの面談があります。',409],slot_unavailable:['選んだ日程の受付状況が変わりました。日程を選び直してください。',409],slot_changed:['日程が変更されています。希望を確認し直してください。',409],version_conflict:['予約が更新されています。最新の内容を確認してください。',409],idempotency_conflict:['送信内容が変わっています。最新の内容を確認してください。',409],invalid_choices:['日程を重複なく1〜3つ選んでください。',422],reason_required:['保護者への連絡事項を入力してください。',422]};
  const [message,status]=messages[error.message]??['保存できませんでした。同じ操作の結果を再確認してください。',503];throw new InterviewError(message,status);
 }

@@ -2,3 +2,4 @@
 .screen{width:100%;margin:0 auto}
 .screen a.button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}.screen a.button.primary{background:#177d63;color:white;border-color:#177d63}.screen a.button:focus-visible{outline:3px solid #13856c;outline-offset:3px}.manageEntry{display:grid;justify-items:center;gap:8px;margin-bottom:22px}.manageEntry .button{width:min(100%,360px);font-weight:700}
 .screen .danger{background:#fff2f1;color:#9d2925;border-color:#d88f8b;font-weight:700}
+.screen label input[type=checkbox]{width:auto;margin-right:10px}.screen select{max-width:100%}.screen fieldset{overflow-wrap:anywhere}.choice span{overflow-wrap:anywhere}

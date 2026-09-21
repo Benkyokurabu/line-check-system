@@ -29,11 +29,15 @@ export async function parentView(db:SupabaseClient,lineUserId:string){
  const state=await loadInterviewState(db),numbers=new Set(links.data.map(l=>l.student_number));
  const students=state.students.filter(r=>numbers.has(r.student_number as string)&&r.enrollment_status==='current_roster'&&r.id);
  if(!students.length)return {students:[],slots:[],requests:[]};
- await refreshHomeroomSlots(db,students,state);
+ const invitationResult=await db.from('interview_invitations').select('id,student_id,slots,teacher,expires_at,version').in('student_id',students.map(s=>s.id)).eq('status','active').gt('expires_at',new Date().toISOString());
+ if(invitationResult.error)throw new InterviewError('面談案内を読み込めません。',503);
+ // General parent rollout is deliberately disabled. Only the authenticated KUDO preview can use invitations.
+ const invitations=lineUserId==='BENTAN-KUDO-INTERVIEW-LIVE-PREVIEW'?invitationResult.data:[];
+ if(invitations.length)await refreshHomeroomSlots(db,students.filter(s=>invitations.some(i=>i.student_id===s.id)),state);
  const slots=await readAll(db,'interview_public_slots') as Slot[];
  const requests=await db.from('interview_parent_requests').select('*').in('student_id',students.map(s=>s.id)).order('created_at',{ascending:false}).limit(100);
  if(requests.error)throw new InterviewError('申請状況を読み込めません。',503);
- return {students:students.map(s=>({id:s.id,name:s.student_name,teacher:teacherKey(s.homeroom_teacher)})),slots:students.flatMap(s=>slots.filter(slot=>available(slot,state,s.homeroom_teacher)).map(slot=>({id:slot.id,studentId:s.id,...dateOnly(slot.data)}))).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start).localeCompare(String(b.start))),requests:requests.data.map(r=>parentRequest(r,state.bookings))};
+ return {invitationOnly:true,invitations:invitations.map(i=>({id:i.id,studentId:i.student_id,expiresAt:i.expires_at,version:i.version})),students:students.map(s=>({id:s.id,name:s.student_name,teacher:teacherKey(s.homeroom_teacher)})),slots:students.flatMap(s=>slots.filter(slot=>available(slot,state,s.homeroom_teacher)&&invitations.some(i=>i.student_id===s.id&&i.teacher===teacherKey(s.homeroom_teacher)&&(i.slots as {id:string;version:number}[]).some(v=>v.id===slot.id&&v.version===slot.version))).map(slot=>({id:slot.id,studentId:s.id,...dateOnly(slot.data)}))).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start).localeCompare(String(b.start))),requests:requests.data.map(r=>parentRequest(r,state.bookings))};
 }
 export async function refreshHomeroomSlots(db:SupabaseClient,students:Row[],state:InterviewState){
  const teachers=[...new Set(students.map(s=>teacherKey(s.homeroom_teacher)).filter(Boolean))];

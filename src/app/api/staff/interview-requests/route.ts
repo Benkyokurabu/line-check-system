@@ -8,6 +8,7 @@ import {bindingForSlot,publishData,notionOffers,available,type Slot} from '@/lib
 import {requestDbError} from '@/lib/parent-interview-http';
 import {syncInterview} from '@/lib/interview-sync';
 import {loginConfig} from '@/lib/parent-line-login.mjs';
+import {sendPilotNotification} from '@/lib/interview-pilot-notification.mjs';
 export const dynamic='force-dynamic';export const maxDuration=60;
 const uuid=(v:unknown)=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 export async function GET(request:NextRequest){
@@ -54,6 +55,7 @@ export async function POST(request:NextRequest){
    const saved=await db.rpc('interview_review_request',{...identity,p_id:body.id,p_version:body.version,p_action:body.action,p_slot:body.slotId??null,p_snapshot:state.snapshot,p_data:data,p_reason:typeof body.reason==='string'?body.reason:'',p_hash:hash});requestDbError(saved.error);result=saved.data;
   }
   let sync;if(result.booking_id){try{sync=await syncInterview(db,result.booking_id);}catch{sync={status:'error',message:'承認済みです。Notion反映は再確認してください。'};}}
-  return staffResponse({saved:result,sync},context);
+  const notification=result.booking_id?await sendPilotNotification({db,bookingId:result.booking_id,staffCode:context.staff.staffCode,token:process.env.LINE_CHANNEL_ACCESS_TOKEN}):undefined;
+  return staffResponse({saved:result,sync,notification},context);
  }catch(e){return e instanceof InterviewError?staffResponse({error:e.message},context,e.status):staffErrorResponse(e,context);}
 }
