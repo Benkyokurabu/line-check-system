@@ -16,11 +16,20 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  const [busy,setBusy]=useState(false),[retry,setRetry]=useState<Operation|null>(null);const lock=useRef(false);
  const [slotsLoading,setSlotsLoading]=useState(false),[slotsError,setSlotsError]=useState('');
  const readEpoch=useRef(0),readAbort=useRef<AbortController|null>(null);
+ const linkAccess=useRef<Promise<string>|null>(null);
  const invalidateRead=useCallback(()=>{readEpoch.current++;readAbort.current?.abort();},[]);
  const stopRead=useCallback(()=>{invalidateRead();setSlotsLoading(false);},[invalidateRead]);
  const read=useCallback(async()=>{
   stopRead();const epoch=readEpoch.current,controller=new AbortController();readAbort.current=controller;setSlotsError('');setState(old=>old?{...old,slots:[]}:old);
   const current=()=>readEpoch.current===epoch&&!controller.signal.aborted;
+  if(livePreview){
+   const token=new URLSearchParams(location.hash.slice(1)).get('access');
+   if(token&&!linkAccess.current){
+    history.replaceState(null,'',location.pathname+location.search);
+    linkAccess.current=(async()=>{const r=await fetch('/api/parent/invitation-entry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});const body=await r.json();if(!r.ok)throw Error(body.error??'案内リンクを確認できませんでした。');return body.invitationId as string;})();
+   }
+   if(linkAccess.current){const id=await linkAccess.current;if(!current())return;const url=new URL(location.href);url.searchParams.set('invitation',id);history.replaceState(null,'',url.pathname+url.search);}
+  }
   const invitation=new URLSearchParams(location.search).get('invitation'),readUrl=invitation?endpoint+'?invitation='+encodeURIComponent(invitation):endpoint;
   try{
    const r=await fetch(readUrl,{cache:'no-store',signal:controller.signal}),raw=await r.json();if(!current())return;
@@ -36,7 +45,7 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
     }catch(e){if(current())setSlotsError((e as Error).message);}finally{if(current())setSlotsLoading(false);}})();
    }
   }catch(e){if(current())throw e;}
- },[endpoint,trial,stopRead]);
+ },[endpoint,trial,livePreview,stopRead]);
  const showStatus=()=>requestAnimationFrame(()=>window.scrollTo({top:0,behavior:'auto'}));
  useEffect(()=>{let active=true;void(async()=>{try{await read();if(active&&new URLSearchParams(location.search).get('login')==='failed')setMessage('LINEでの確認を完了できませんでした。もう一度お試しください。');}catch(e){if(active)setMessage((e as Error).message);}finally{if(active)setReady(true);}})();return()=>{active=false;invalidateRead();};},[read,invalidateRead]);
  async function send(op:Operation){if(lock.current)return;stopRead();lock.current=true;setBusy(true);setRetry(op);setMessage('');
@@ -61,7 +70,7 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  const notice=<>{message&&<p role="status">{message}</p>}{retry&&<><p>送信結果を確認できていません。</p><button disabled={busy} onClick={()=>void send(retry)}>送信結果を再確認する</button></>}</>;
  return <main className={styles.screen}><h1>面談予約</h1><p>オンライン・45分</p>{trial&&<p className={styles.notice}>生徒役の検証用です。架空の日程で申請を試せます。実予約・Notion登録・LINE通知は行いません。</p>}{livePreview&&<p className={styles.notice}>本番と同じ申請・先生承認・Notion登録を確認する画面です。確認用生徒の予約として登録され、実際の面談ではありません。</p>}
  {!review&&message&&<p role="status" className={styles.notice}>{message}</p>}
- {!ready?<p>読み込んでいます…</p>:login!==null?<section className={styles.panel}><p>{trial||livePreview?'LINEの個別メニューから開き直してください。':login?'LINEに登録されているお子さまの面談を申し込めます。':'面談予約の受付は準備中です。日程については教室へお問い合わせください。'}</p>{login&&!trial&&!livePreview&&<a className={styles.button} href="/api/parent/line/login">LINEで続ける</a>}</section>:!state?<button onClick={()=>void read().catch(e=>setMessage(e.message))}>もう一度読み込む</button>:state.students.length===0?<section className={styles.panel}><p>お子さまとの登録を確認できませんでした。教室へLINEでご連絡ください。</p></section>:<>
+ {!ready?<p>読み込んでいます…</p>:login!==null?<section className={styles.panel}><p>{livePreview?'最新の案内LINEにある専用リンクから開いてください。':trial?'LINEの個別メニューから開き直してください。':login?'LINEに登録されているお子さまの面談を申し込めます。':'面談予約の受付は準備中です。日程については教室へお問い合わせください。'}</p>{login&&!trial&&!livePreview&&<a className={styles.button} href="/api/parent/line/login">LINEで続ける</a>}</section>:!state?<button onClick={()=>void read().catch(e=>setMessage(e.message))}>もう一度読み込む</button>:state.students.length===0?<section className={styles.panel}><p>お子さまとの登録を確認できませんでした。教室へLINEでご連絡ください。</p></section>:<>
  <section className={styles.panel}>{state.students.length>1?<label>お子さま<select disabled={frozen} value={studentId} onChange={e=>{setStudentId(e.target.value);setChoices([]);setNote('');}}>{state.students.map(s=><option key={s.id} value={s.id}>{s.name}さん</option>)}</select></label>:<h2>{state.students[0].name}さんの面談</h2>}
  {!trial&&(state.students.find(s=>s.id===studentId)?.teacher?<p>担任：{state.students.find(s=>s.id===studentId)?.teacher}先生{!state.invitationOnly&&<><br/>明日以降の空き日程を自動で表示しています。</>}</p>:<p>担任の登録を確認できません。教室へLINEでご連絡ください。</p>)}
  {state.invitationOnly&&(invitation?<p>回答期限：{new Date(invitation.expiresAt).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}</p>:<p>現在、回答受付中の案内はありません。教室からのLINE案内をお待ちください。</p>)}
@@ -75,7 +84,7 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  <details><summary>相談したいことを記入する（任意）</summary><label>相談内容<textarea maxLength={1500} disabled={frozen} value={note} onChange={e=>setNote(e.target.value)}/></label></details>
  <div className={styles.actions}><button className={styles.primary} disabled={frozen||!valid} onClick={()=>setReview(true)}>選んだ日程を確認する</button></div><small>先生が確認し、希望の中から1つの日程を確定します。</small></>}</>
  {retry&&!review&&<div className={styles.notice}>{notice}</div>}
- </section><footer className={styles.footer}><button disabled={frozen} onClick={()=>void(async()=>{if(lock.current)return;stopRead();lock.current=true;setBusy(true);try{const r=await fetch(trial||livePreview?'/api/staff/session':'/api/parent/interviews',{method:'DELETE'});if(!r.ok&&r.status!==401)throw Error('終了できませんでした。もう一度お試しください。');setState(null);setChoices([]);setNote('');setStudentId('');setLogin(true);setMessage('');}catch(e){setMessage((e as Error).message);}finally{lock.current=false;setBusy(false);}})()}>終了する</button></footer></>}
+ </section><footer className={styles.footer}><button disabled={frozen} onClick={()=>void(async()=>{if(lock.current)return;stopRead();lock.current=true;setBusy(true);try{if(livePreview){const ended=await fetch('/api/parent/invitation-entry',{method:'DELETE'});if(!ended.ok)throw Error('終了できませんでした。もう一度お試しください。');linkAccess.current=null;}const r=await fetch(trial||livePreview?'/api/staff/session':'/api/parent/interviews',{method:'DELETE'});if(!r.ok&&r.status!==401)throw Error('終了できませんでした。もう一度お試しください。');setState(null);setChoices([]);setNote('');setStudentId('');setLogin(true);setMessage('');}catch(e){setMessage((e as Error).message);}finally{lock.current=false;setBusy(false);}})()}>終了する</button></footer></>}
  {review&&state&&<FlowDialog label="予約希望の確認" onBack={()=>setReview(false)} blocked={frozen} notice={notice}><h2>この希望日程で送信しますか？</h2><p>{state.students.find(s=>s.id===studentId)?.name}さん ／ オンライン・45分</p><ol>{choices.map(c=><li key={c.id}>{describe(c)}</li>)}</ol>{note&&<p>{note}</p>}<p>送信後は承認待ちになります。</p><button className={styles.primary} disabled={frozen||!valid} aria-live="polite" onClick={()=>void send({operationKey:crypto.randomUUID(),action:'submit',studentId,invitationId:invitation?.id,invitationVersion:invitation?.version,choices:choices.map(c=>c.id),note})}>{busy?'送信中…':'予約希望を送信する'}</button></FlowDialog>}
  </main>;
 }

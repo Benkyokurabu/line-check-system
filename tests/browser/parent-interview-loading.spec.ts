@@ -11,9 +11,10 @@ test('日程取得が終わる前に確定予約を表示し、日程取得失�
 });
 test('終了後に遅れた日程取得が戻っても生徒名と予約を再表示しない',async({page})=>{
  let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve});let started=false;
+ await page.route('**/api/parent/invitation-entry',r=>r.fulfill({json:{signedOut:true}}));
  await page.route('**/api/staff/session',r=>r.fulfill({json:{loggedOut:true}}));
  await page.route('**/api/staff/interview-live-preview*',async r=>{if(r.request().url().includes('availability=1')){started=true;await pending;await r.fulfill({json:state}).catch(()=>{});}else await r.fulfill({json:{...state,slotsPending:true}})});
- await page.goto('/interviews/trial');await expect(page.getByText('予約確定',{exact:true})).toBeVisible();await expect.poll(()=>started).toBe(true);await page.getByRole('button',{name:'終了する',exact:true}).click();await expect(page.getByText('LINEの個別メニューから開き直してください。')).toBeVisible();release();await expect(page.getByText('予約確定',{exact:true})).toHaveCount(0);await expect(page.getByRole('heading',{name:'確認用生徒さんの面談',exact:true})).toHaveCount(0);
+ await page.goto('/interviews/trial');await expect(page.getByText('予約確定',{exact:true})).toBeVisible();await expect.poll(()=>started).toBe(true);await page.getByRole('button',{name:'終了する',exact:true}).click();await expect(page.getByText('最新の案内LINEにある専用リンクから開いてください。')).toBeVisible();release();await expect(page.getByText('予約確定',{exact:true})).toHaveCount(0);await expect(page.getByRole('heading',{name:'確認用生徒さんの面談',exact:true})).toHaveCount(0);
 });
 test('遅れた日程応答で取消結果を上書きしない',async({page})=>{
  let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve});let withdrawn=false,started=false;
