@@ -9,7 +9,7 @@ async function setup(page: Page, empty = false) {
     if (url.origin !== "http://127.0.0.1:3197") return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
-    if (path === "/api/attendance/students") return route.fulfill({ json: { students: [student] } });
+    if ((path === "/api/attendance/students" || path === "/api/admin/contacts/students")) return route.fulfill({ json: { students: [student] } });
     if (path === "/api/attendance/candidates") return route.fulfill({ json: { candidates: [{ id: "auto", student_number: student.student_number, student_roster: student, status: state.savedRows ? "notion_failed" : "pending", event_type: "absence", event_date: "2099-09-11", ai_summary: "検証用", attendance_candidate_items: state.savedRows ?? rows, line_messages: { text: "9月11日から18日まで欠席します", display_name: "検証用 工藤謙" } }] } });
     if (path === "/api/attendance/lessons") {
       if (url.searchParams.has("date_from")) { state.rangeReads++; }

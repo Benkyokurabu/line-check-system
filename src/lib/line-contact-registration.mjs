@@ -19,9 +19,14 @@ export function studentInstructionTypeLabel(value) {
   return instructionType || "授業形態未設定";
 }
 
+export function studentEnrollmentLabel(value) {
+  return value === "current_roster" ? "在塾" : String(value ?? "").trim();
+}
+
 export function studentRegistrationLabel(student) {
   if (!student) return "";
   return [
+    studentEnrollmentLabel(student.enrollment_status),
     student.grade || "学年未設定",
     student.student_name || "氏名未設定",
     studentInstructionTypeLabel(student.instruction_type),
@@ -41,6 +46,7 @@ export function studentRegistrationSearchText(student) {
     student.campus,
     student.school_name,
     student.homeroom_teacher,
+    studentEnrollmentLabel(student.enrollment_status),
   ].filter(Boolean).join("").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
 }
 

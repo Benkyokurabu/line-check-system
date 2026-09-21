@@ -9,9 +9,18 @@ import {
   normalizeVerificationTargets,
   relationLabel,
   studentInstructionTypeLabel,
+  studentEnrollmentLabel,
   studentRegistrationLabel,
   studentRegistrationSearchText,
 } from "../src/lib/line-contact-registration.mjs";
+
+test("graduation status and current individual tuition remain distinct in registration", () => {
+  const former = { student_name: "試験卒塾生", grade: "高2", enrollment_status: "卒塾", instruction_type: "個別ほか" };
+  assert.match(studentRegistrationLabel(former), /^卒塾｜高2｜試験卒塾生｜個別ほか/);
+  assert.match(studentRegistrationSearchText(former), /卒塾/);
+  assert.equal(studentEnrollmentLabel("current_roster"), "在塾");
+  assert.match(studentRegistrationLabel({ ...former, enrollment_status: "current_roster" }), /^在塾｜/);
+});
 
 test("buildLineContactAlias makes campus/student/relation label", () => {
   assert.equal(buildLineContactAlias({ student_name: "山田 太郎", campus: "本校" }, "mother"), "本　山田太郎　母");

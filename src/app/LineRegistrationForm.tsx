@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { buildLineContactAlias, studentRegistrationLabel, studentRegistrationSearchText } from "@/lib/line-contact-registration.mjs";
 
-type Student = { student_number: string; student_name: string; grade?: string | null; campus?: string | null; instruction_type?: string | null; school_name?: string | null; record_origin?: "official_roster" | "notion_only"; merged_record_count?: number; merged_student_numbers?: string[] };
+type Student = { student_number: string; student_name: string; grade?: string | null; campus?: string | null; instruction_type?: string | null; school_name?: string | null; enrollment_status?: string; record_origin?: "official_roster" | "notion_only" | "registry"; merged_record_count?: number; merged_student_numbers?: string[] };
+
+const recordLabel = (student: Student) => student.record_origin === "registry" ? "生徒台帳（卒塾生も登録可能）" : student.record_origin === "notion_only" ? "Notionのみ（正式名簿未確認）" : "正式なクラス名簿";
 type Evidence = { id: string; text: string; direction?: string; message_type?: string };
 export type LineRegistrationResult = { relation: string; alias: string; studentNumbers: string[] };
 type Props = {
@@ -14,7 +16,7 @@ type Props = {
 };
 const field = { display: "grid", gap: 6 } as const;
 const input = { width: "100%", minWidth: 0, boxSizing: "border-box", padding: 10, border: "1px solid #bdcdd2", borderRadius: 7, font: "inherit" } as const;
-const button = { padding: "10px 14px", borderRadius: 7, border: "1px solid #adc5ca", background: "white", color: "#194e56", font: "inherit", cursor: "pointer" } as const;
+const button = { padding: "10px 14px", borderRadius: 7, border: "1px solid #adc5ca", background: "white", color: "#194e56", font: "inherit", cursor: "pointer", overflowWrap: "anywhere", minWidth: 0 } as const;
 const primary = { ...button, background: "#146471", color: "white" };
 
 export function LineRegistrationForm(props: Props) {
@@ -45,7 +47,7 @@ export function LineRegistrationForm(props: Props) {
       try {
         const get = async (url: string) => { const response = await fetch(url, { signal: controller.signal }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "登録情報を読み込めませんでした。"); return data; };
         const [roster, detail] = await Promise.all([
-          config.students ? Promise.resolve(null) : get("/api/attendance/students"),
+          get("/api/admin/contacts/students"),
           config.evidence !== undefined ? Promise.resolve(null) : get(`/api/admin/contacts/${encodeURIComponent(config.userId)}/messages`),
         ]);
         if (controller.signal.aborted) return;
@@ -87,7 +89,7 @@ export function LineRegistrationForm(props: Props) {
     } catch (error) { setMessage(error instanceof Error ? error.message : "登録できませんでした。"); }
     finally { serial.current = false; setSaving(false); }
   }
-  return <section ref={root} aria-label="生徒本人・保護者のLINE登録" style={{ border: "2px solid #0891b2", borderRadius: 10, padding: 16, display: "grid", gap: 14, background: "white", minWidth: 0 }}>
+  return <section ref={root} aria-label="生徒本人・保護者のLINE登録" style={{ border: "2px solid #0891b2", borderRadius: 10, padding: 16, display: "grid", gap: 14, background: "white", minWidth: 0, overflowWrap: "anywhere" }}>
     <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}><strong style={{ fontSize: 17 }}>生徒本人・保護者のLINE登録</strong><button type="button" style={button} disabled={saving} onClick={props.onClose}>LINE登録を閉じる</button></div>
     <p style={{ margin: 0 }}>相手のLINE表示名：<strong>{props.displayName || "表示名なし"}</strong></p>
     <small>表示名が未確定・登録を修正したいときに設定します。毎回の登録は不要です。</small>
@@ -103,13 +105,13 @@ export function LineRegistrationForm(props: Props) {
         {["guardian", "mother", "father", "family"].includes(relation) && <label style={{ ...field, marginTop: 10 }}>保護者の続柄<select style={input} value={relation} onChange={e => { setRelation(e.target.value); setAliases({}); }}><option value="guardian">保護者</option><option value="mother">母</option><option value="father">父</option><option value="family">家族</option></select></label>}
       </fieldset>
       {staff ? <div style={field}><strong>2. 先生・スタッフの名前を入力</strong><label style={field}>先生・スタッフの登録名<input style={input} maxLength={200} value={staffName} onChange={e => setStaffName(e.target.value)} /></label><small>「スタッフ」グループに登録します。</small></div> : <div style={field}>
-        <strong>2. 対象の生徒を選ぶ</strong><small>保護者のLINEの場合も、お子さまの名前を選びます。兄弟も同じLINEなら追加できます。</small>
+        <strong>2. 対象の生徒を選ぶ</strong><small>在塾生・卒塾生とも登録できます。卒業後も個別指導で在塾している場合は、現在の状態と授業形態を確認してください。保護者のLINEの場合も、お子さまの名前を選びます。</small>
         <label style={field}>生徒を検索<input style={input} value={query} onChange={e => setQuery(e.target.value)} placeholder="氏名・学年・校舎・学校・生徒番号で検索" /></label>
-        {matches.map(s => <button type="button" key={s.student_number} disabled={selectedIds.length >= 10} style={{ ...button, textAlign: "left", display: "grid", gap: 3 }} onClick={() => { setSelectedIds(ids => [...ids, s.student_number]); setQuery(""); }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12, color: "#52636a" }}>生徒番号 {s.student_number} / {s.record_origin === "notion_only" ? "Notionのみ（正式名簿未確認）" : "正式なクラス名簿"}</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412", fontWeight: 700 }}>以前のNotion重複 {s.merged_record_count}件を同じ生徒として整理して表示</span>}</button>)}
+        {matches.map(s => <button type="button" key={s.student_number} disabled={selectedIds.length >= 10} style={{ ...button, textAlign: "left", display: "grid", gap: 3 }} onClick={() => { setSelectedIds(ids => [...ids, s.student_number]); setQuery(""); }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12, color: "#52636a" }}>生徒番号 {s.student_number} / {recordLabel(s)}</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412", fontWeight: 700 }}>以前のNotion重複 {s.merged_record_count}件を同じ生徒として整理して表示</span>}</button>)}
         {normalized && !matches.length && <small>該当する未選択の生徒が見つかりません。</small>}
         {selectedIds.length >= 10 && <small>一度に登録できる生徒は10名までです。</small>}
         {selectedIds.filter(id => !students.some(s => s.student_number === id)).map(id => <button type="button" key={id} style={button} onClick={() => setSelectedIds(ids => ids.filter(value => value !== id))}>名簿にない選択候補を外す</button>)}
-        {selected.map(s => <div key={s.student_number} style={{ padding: 10, background: "#eff8f3", borderRadius: 7, display: "grid", gap: 6 }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12 }}>選択先：生徒番号 {s.student_number}（{s.record_origin === "notion_only" ? "Notionのみ" : "正式なクラス名簿"}）</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412" }}>同じ生徒の古いNotion重複 {s.merged_record_count}件は候補から除外済みです。</span>}<button type="button" style={button} onClick={() => setSelectedIds(ids => ids.filter(id => id !== s.student_number))}>{s.student_name} を外す</button></div>)}
+        {selected.map(s => <div key={s.student_number} style={{ padding: 10, background: "#eff8f3", borderRadius: 7, display: "grid", gap: 6 }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12 }}>選択先：生徒番号 {s.student_number}（{recordLabel(s)}）</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412" }}>同じ生徒の古いNotion重複 {s.merged_record_count}件は候補から除外済みです。</span>}<button type="button" style={button} onClick={() => setSelectedIds(ids => ids.filter(id => id !== s.student_number))}>{s.student_name} を外す</button></div>)}
       </div>}
       <div style={field}><strong>3. 表示名を確認して登録</strong><small>登録すると、この一覧と連絡先管理の名前が更新されます。</small>
         {!staff && <>{selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}{props.confirmedBy === undefined ? <label style={field}>LINE登録の確認者名<input style={input} value={localOperator} onChange={e => setLocalOperator(e.target.value)} /></label> : !operator.trim() && <small>画面上部の確認者名・スタッフ名を入力してください。</small>}</>}

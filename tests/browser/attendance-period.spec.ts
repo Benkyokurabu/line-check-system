@@ -11,7 +11,7 @@ async function setup(page: Page, line = false) {
     if (url.origin !== "http://127.0.0.1:3197") return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
-    if (path === "/api/attendance/students") return route.fulfill({ json: { students: [student] } });
+    if ((path === "/api/attendance/students" || path === "/api/admin/contacts/students")) return route.fulfill({ json: { students: [student] } });
     if (path === "/api/attendance/lessons") {
       if (url.searchParams.has("date_from")) {
         state.rangeReads++;

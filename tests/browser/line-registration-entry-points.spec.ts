@@ -12,7 +12,7 @@ async function setup(page: Page) {
       return route.fulfill({ json: { ok: true } });
     }
     if (path === '/api/admin/teachers') return route.fulfill({ json: { teachers: [{ display_name: '試験先生' }] } });
-    if (path === '/api/students' || path === '/api/attendance/students') return route.fulfill({ json: { students: [student, sibling] } });
+    if (path === '/api/students' || path === '/api/attendance/students' || path === '/api/admin/contacts/students') return route.fulfill({ json: { students: [student, sibling] } });
     if (path === '/api/admin/contacts') return route.fulfill({ json: { contacts: [{ line_user_id: 'ui-line', display_name: '登録試験LINE', pending_evidence: true }] } });
     if (path === '/api/admin/contacts/ui-line/messages') return route.fulfill({ json: { messages: [{ id: 'ui-evidence', text: '試験一郎と試験二郎の保護者です。', direction: 'inbound', message_type: 'text' }], registration_history: [] } });
     if (path.startsWith('/api/students/') && path.endsWith('/messages')) return route.fulfill({ json: { student, link_status: 'unlinked', messages: [] } });

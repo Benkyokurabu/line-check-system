@@ -7,7 +7,7 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
   const student = { student_number: "relation-test", student_name: "続柄試験", grade: "中1", campus: "本校" };
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/api/attendance/students") return route.fulfill({ json: { students: options.staff ? [] : [student] } });
+    if ((path === "/api/attendance/students" || path === "/api/admin/contacts/students")) return route.fulfill({ json: { students: options.staff ? [] : [student] } });
     if (path === "/api/attendance/candidates") return route.fulfill({ json: { candidates: [{
       id: "relation-candidate", student_number: options.staff ? null : student.student_number, student_roster: options.staff ? null : student,
       status: "pending", event_type: "absence", event_date: "2099-09-11", ai_summary: "欠席",
