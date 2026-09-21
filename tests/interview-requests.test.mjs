@@ -15,12 +15,38 @@ before(async()=>{
  create function staff_authorize(uuid,uuid,text,boolean) returns jsonb language sql as $$select jsonb_build_object('staffId',id,'role',role,'staffCode',staff_code) from staff_accounts limit 1$$;`);
  await db.query("insert into staff_accounts values($1,'admin','KUDO')",[actor]);
  await db.exec("insert into student_registry(student_number,student_name,grade,homeroom_teacher) values('one','架空生徒','中1','工藤'),('two','別の生徒','中2','工藤')");
- for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916','interview_parent_cancel_20260918'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
+ for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916','interview_parent_cancel_20260918','interview_auto_availability_20260921'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
  student=await value("select id v from interview_students where student_number='one'");other=await value("select id v from interview_students where student_number='two'");
  await db.query("insert into student_line_accounts values('one',$1,'mother','confirmed')",[line]);
  await db.query("insert into interview_parent_sessions(token_hash,line_user_id,expires_at) values($1,$2,now()+interval '1 hour')",[hash,line]);
 });
 after(()=>db.close());
+test('翌日は申請でき、当日・60日超・担任違いは拒否する',async()=>{
+ const tomorrow=await value("select ((now() at time zone 'Asia/Tokyo')::date+1)::text v");
+ const s=await publish(1);await db.query("update interview_public_slots set data=jsonb_set(data,'{date}',to_jsonb($1::text)) where id=$2",[tomorrow,s.id]);
+ assert.equal(await value('select interview_slot_available($1,$2) v',[s.id,'工藤']),true);
+ assert.equal(await value('select interview_slot_available($1,$2) v',[s.id,'金城']),false);
+ const r=await submit([s.id]);await withdraw(r);
+ for(const day of [0,61]){const d=await value("select ((now() at time zone 'Asia/Tokyo')::date+$1::int)::text v",[day]);await db.query("update interview_public_slots set data=jsonb_set(data,'{date}',to_jsonb($1::text)) where id=$2",[d,s.id]);assert.equal(await value('select interview_slot_available($1,$2) v',[s.id,'工藤']),false);}
+});
+test('自動取得は職員になりすまさず、非公開・変更版・削除・同時取得を保持する',async()=>{
+ const s=await publish(20),page=randomUUID(),checked=new Date().toISOString();
+ const offers=[{pageId:s.notion_page_id,editedAt:s.notion_edited_at,data:s.data},{pageId:page,editedAt:s.notion_edited_at,data:{...s.data,teacher:'金城'}}];
+ const refresh=(rows,time=checked)=>db.query('select interview_refresh_slots($1,$2,$3)',[['工藤','金城'],JSON.stringify(rows),time]);
+ await refresh(offers);
+ const created=await value('select to_jsonb(s) v from interview_public_slots s where notion_page_id=$1',[page]);
+ assert.equal(created.updated_by,null);assert.equal(created.published,true);assert.equal(created.source_available,true);
+ await refresh(offers);assert.equal(await value('select version v from interview_public_slots where id=$1',[s.id]),s.version);
+ await db.query('update interview_public_slots set published=false where id=$1',[s.id]);
+ await refresh(offers);assert.equal(await value('select published v from interview_public_slots where id=$1',[s.id]),false);
+ const newer=new Date(Date.now()+1000).toISOString();await refresh([],newer);
+ assert.equal(await value('select source_available v from interview_public_slots where id=$1',[created.id]),false);
+ await refresh(offers,checked);assert.equal(await value('select source_available v from interview_public_slots where id=$1',[created.id]),false);
+ await refresh(offers,new Date(Date.now()+2000).toISOString());
+ assert.equal(await value('select source_available v from interview_public_slots where id=$1',[created.id]),true);
+ assert.equal(await value('select published v from interview_public_slots where id=$1',[s.id]),false);
+ await db.exec('set role anon');await assert.rejects(()=>refresh(offers),/permission denied/);await db.exec('reset role');
+});
 const snapshot=()=>value('select interview_snapshot() v');
 const publish=async(n=4)=>{
  const page=randomUUID(),data={studentId:'00000000-0000-4000-8000-000000000000',teacher:'工藤',date:date(n),start:'13:00',end:'13:45',busyStart:'13:00',busyEnd:'14:00',campus:'本校',room:'',method:'Zoom',purpose:'保護者面談',participants:'保護者',channel:'LINE',note:''};

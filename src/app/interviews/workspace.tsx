@@ -6,7 +6,7 @@ import styles from './interviews.module.css';
 type Time={date:string;start:string;end:string};
 type Slot=Time&{id:string;studentId:string};
 type RequestRow={id:string;studentId:string;status:string;version:number;choices:(Time&{slotId:string})[];note:string;reason:string;confirmed:(Time&{status:string})|null};
-type State={students:{id:string;name:string}[];slots:Slot[];requests:RequestRow[]};
+type State={students:{id:string;name:string;teacher?:string}[];slots:Slot[];requests:RequestRow[]};
 type Operation={operationKey:string;action:string;[key:string]:unknown};
 export function describe(d:Time){return `${new Intl.DateTimeFormat('ja-JP',{month:'long',day:'numeric',weekday:'short',timeZone:'Asia/Tokyo'}).format(new Date(d.date+'T12:00:00+09:00'))} ${d.start}〜${d.end}`;}
 export default function ParentInterviews({trial=false,livePreview=false}:{trial?:boolean;livePreview?:boolean}){
@@ -33,13 +33,15 @@ export default function ParentInterviews({trial=false,livePreview=false}:{trial?
  {!review&&message&&<p role="status" className={styles.notice}>{message}</p>}
  {!ready?<p>読み込んでいます…</p>:login!==null?<section className={styles.panel}><p>{trial||livePreview?'LINEの個別メニューから開き直してください。':login?'LINEに登録されているお子さまの面談を申し込めます。':'面談予約の受付は準備中です。日程については教室へお問い合わせください。'}</p>{login&&!trial&&!livePreview&&<a className={styles.button} href="/api/parent/line/login">LINEで続ける</a>}</section>:!state?<button onClick={()=>void read().catch(e=>setMessage(e.message))}>もう一度読み込む</button>:state.students.length===0?<section className={styles.panel}><p>お子さまとの登録を確認できませんでした。教室へLINEでご連絡ください。</p></section>:<>
  <section className={styles.panel}>{state.students.length>1?<label>お子さま<select disabled={frozen} value={studentId} onChange={e=>{setStudentId(e.target.value);setChoices([]);setNote('');}}>{state.students.map(s=><option key={s.id} value={s.id}>{s.name}さん</option>)}</select></label>:<h2>{state.students[0].name}さんの面談</h2>}
+ {!trial&&(state.students.find(s=>s.id===studentId)?.teacher?<p>担任：{state.students.find(s=>s.id===studentId)?.teacher}先生<br/>明日以降の空き日程を自動で表示しています。</p>:<p>担任の登録を確認できません。教室へLINEでご連絡ください。</p>)}
  {trial?<details open={!!message}><summary>これまでの検証申請（{own.filter(r=>r.status!=='cancelled').length}件）</summary>{requestCards}</details>:requestCards}
- {own.length>0&&<button disabled={frozen} onClick={()=>void refresh()}>{busy?'更新中…':'状況を更新する'}</button>}
- {!active&&<><h2>希望の日程を選ぶ</h2><p>第1希望から順に、最大3つ選んでください。1つでも申し込めます。</p>
- {slots.length===0?<p className={styles.empty}>現在、受付中の日程はありません。</p>:<div className={styles.slots}>{slots.map(slot=>{const rank=choices.findIndex(c=>c.id===slot.id);return <button key={slot.id} className={styles.slot} disabled={frozen||rank<0&&choices.length===3} aria-pressed={rank>=0} onClick={()=>setChoices(old=>rank>=0?old.filter(c=>c.id!==slot.id):[...old,slot])}><span>{describe(slot)}</span>{rank>=0&&<span className={styles.rank}>第{rank+1}希望</span>}</button>;})}</div>}
+ <button disabled={frozen} onClick={()=>void refresh()}>{busy?'更新中…':'状況を更新する'}</button>
+ <><h2>{active?'担任の空き日程':'希望の日程を選ぶ'}</h2><p>{active?'新しい希望を送る場合は、現在の申請・予約を取り消してから選んでください。':'第1希望から順に、最大3つ選んでください。1つでも申し込めます。'}</p>
+ {slots.length===0?<p className={styles.empty}>現在、受付中の日程はありません。</p>:<div className={styles.slots}>{slots.map(slot=>{const rank=choices.findIndex(c=>c.id===slot.id);return <button key={slot.id} className={styles.slot} disabled={active||frozen||rank<0&&choices.length===3} aria-pressed={rank>=0} onClick={()=>setChoices(old=>rank>=0?old.filter(c=>c.id!==slot.id):[...old,slot])}><span>{describe(slot)}</span>{rank>=0&&<span className={styles.rank}>第{rank+1}希望</span>}</button>;})}</div>}
+ {!active&&<>
  {choices.length>0&&<div className={styles.selected} aria-label="選択した希望日程"><ol>{choices.map((c,i)=><li key={c.id}>{describe(c)}<div>{i>0&&<button disabled={frozen} onClick={()=>setChoices(old=>{const next=[...old];[next[i-1],next[i]]=[next[i],next[i-1]];return next;})}>優先順を上げる</button>}<button disabled={frozen} onClick={()=>setChoices(old=>old.filter(s=>s.id!==c.id))}>外す</button></div></li>)}</ol></div>}
  <details><summary>相談したいことを記入する（任意）</summary><label>相談内容<textarea maxLength={1500} disabled={frozen} value={note} onChange={e=>setNote(e.target.value)}/></label></details>
- <div className={styles.actions}><button className={styles.primary} disabled={frozen||!valid} onClick={()=>setReview(true)}>選んだ日程を確認する</button></div><small>先生が確認し、希望の中から1つの日程を確定します。</small></>}
+ <div className={styles.actions}><button className={styles.primary} disabled={frozen||!valid} onClick={()=>setReview(true)}>選んだ日程を確認する</button></div><small>先生が確認し、希望の中から1つの日程を確定します。</small></>}</>
  {retry&&!review&&<div className={styles.notice}>{notice}</div>}
  </section><footer className={styles.footer}><button disabled={frozen} onClick={()=>void(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{const r=await fetch(trial||livePreview?'/api/staff/session':'/api/parent/interviews',{method:'DELETE'});if(!r.ok&&r.status!==401)throw Error('終了できませんでした。もう一度お試しください。');setState(null);setChoices([]);setNote('');setStudentId('');setLogin(true);setMessage('');}catch(e){setMessage((e as Error).message);}finally{lock.current=false;setBusy(false);}})()}>終了する</button></footer></>}
  {review&&state&&<FlowDialog label="予約希望の確認" onBack={()=>setReview(false)} blocked={frozen} notice={notice}><h2>この希望日程で送信しますか？</h2><p>{state.students.find(s=>s.id===studentId)?.name}さん ／ オンライン・45分</p><ol>{choices.map(c=><li key={c.id}>{describe(c)}</li>)}</ol>{note&&<p>{note}</p>}<p>送信後は承認待ちになります。</p><button className={styles.primary} disabled={frozen||!valid} aria-live="polite" onClick={()=>void send({operationKey:crypto.randomUUID(),action:'submit',studentId,choices:choices.map(c=>c.id),note})}>{busy?'送信中…':'予約希望を送信する'}</button></FlowDialog>}
