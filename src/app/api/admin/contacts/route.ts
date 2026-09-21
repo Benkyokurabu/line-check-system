@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { withContactAcademicGrades } from "@/lib/student-academic-grade.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export async function GET() {
   }
 
   if (!summaryError) {
-    return NextResponse.json({ contacts: summaries });
+    const at = new Date();
+    return NextResponse.json({ contacts: summaries.map(contact => withContactAcademicGrades(contact, at)) });
   }
   if (!["42883", "PGRST202"].includes(summaryError.code ?? "")) {
     return NextResponse.json({ error: summaryError.message }, { status: 500 });
