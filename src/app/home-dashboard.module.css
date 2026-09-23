@@ -163,6 +163,7 @@
 .surveyRestoreButton { border: 1px solid #8fc7b4; background: #e6f4ef; color: #125f58; }
 .surveyRestoreButton:hover { border-color: #569c84; background: #d8eee5; }
 .surveyNote { margin: 10px 0 0; color: var(--home-muted); font-size: 11px; line-height: 1.7; }
+.scheduleFilter{display:flex;align-items:center;gap:8px;font-size:13px}.scheduleFilter select{font:inherit;min-height:44px;border:1px solid #bccfc8;border-radius:8px;padding:8px;background:white;color:#193b35}.scheduleStatus{display:grid;gap:5px;max-width:260px;font-size:12px;line-height:1.6}.scheduleStatus span{justify-self:start;padding:3px 10px;border-radius:15px;background:#e9edf0;color:#354a54;font-weight:700}.scheduleStatus span[data-status=invited]{background:#fff0c7;color:#715209}.scheduleStatus span[data-status=confirmed]{background:#d6f1e2;color:#156447}.scheduleStatus span[data-status=unknown]{background:#fbe7e1;color:#863a26}.scheduleStatus small{white-space:normal;overflow-wrap:anywhere}.scheduleStatus strong{font-size:12px}
 .quickLinks a { display: flex; align-items: center; gap: 10px; padding: 18px 14px; border: 1px solid #c8e1d8; border-radius: 10px; background: #e6f4ef; color: #125f58; font-size: 13px; font-weight: 600; }
 .quickLinks a span:last-child { margin-left: auto; }
 .quickLinks a:hover { background: #d8eee5; }

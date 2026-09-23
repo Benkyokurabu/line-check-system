@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import {PGlite} from '@electric-sql/pglite';
 import {surveyPageId,validateSurveyChanges} from '../src/lib/survey-confirmations.mjs';
+import './survey-scheduling.test.mjs';
 test('URL表記を同じ回答IDに統一し、不正な保存を拒否する',()=>{
  assert.equal(surveyPageId('https://app.notion.com/p/11111111-1111-4111-8111-111111111111'),'11111111111141118111111111111111');
  assert.equal(surveyPageId('bad'),null);
