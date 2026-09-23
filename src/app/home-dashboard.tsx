@@ -195,18 +195,18 @@ export default function HomeDashboard({
               {surveyError ? <p className={styles.surveyError} role="status">{surveyError}</p> : <>
                 <div className={styles.surveyTools}>
                   <label className={styles.surveySearch}><Icon name="search" /><input type="search" aria-label="アンケートの生徒を検索" placeholder="生徒名で探す" value={surveyQuery} onChange={e=>{setSurveyQuery(e.target.value);setShowHiddenSurveys(false);}} /></label>
-                  <button type="button" aria-pressed={onlyUnconfirmed} onClick={()=>{setOnlyUnconfirmed(v=>!v);setShowHiddenSurveys(false);}}>未確認だけ</button>
+                  <button type="button" aria-pressed={onlyUnconfirmed} onClick={()=>{setOnlyUnconfirmed(v=>!v);setShowHiddenSurveys(false);}}>未対応だけ</button>
                   <button type="button" disabled={surveyRefreshing} onClick={refreshSurveys}>{surveyRefreshing ? "更新中…" : "更新する"}</button>
-                  <button type="button" disabled={!!confirmation.saving} onClick={()=>void confirmation.load()}>確認状態を再取得</button>
+                  <button type="button" disabled={!!confirmation.saving} onClick={()=>void confirmation.load()}>対応状況を再取得</button>
                 </div>
-                <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.ready ? '確認状態は自動保存され、先生間で共有されます。' : '共有の確認状態を読み込み中…')}{confirmation.lastSync&&` 最終同期 ${confirmation.lastSync}`}{confirmation.loginNeeded&&<> <Link className={styles.surveySave} href="/staff/self-study-room">職員ログイン</Link></>}</p>
+                <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.ready ? '対応状況は自動保存され、先生間で共有されます。' : '共有の対応状況を読み込み中…')}{confirmation.lastSync&&` 最終同期 ${confirmation.lastSync}`}{confirmation.loginNeeded&&<> <Link className={styles.surveySave} href="/staff/self-study-room">職員ログイン</Link></>}</p>
                 {Object.keys(confirmation.local).length>0&&<div className={styles.surveyStudents} aria-label="未共有の端末記録">
                   <strong>未共有の端末記録 {Object.keys(confirmation.local).length}件</strong>
                   <p>共有側に記録がない旧記録は自動で引き継ぎます。保存失敗や共有側との違いがある場合は、対象と内容を確認して共有してください。</p>
                   <ul>{Object.entries(confirmation.local).map(([id,record])=>{
                     const student=surveyGroups.flatMap(g=>g.students).find(s=>surveyPageId(s.notionUrl)===id);
                     const current=confirmation.getShared(`https://app.notion.com/p/${id}`);
-                    return <li key={id}><div><strong>{student?.name??'現在の回答一覧にない記録'}</strong><p>端末の操作：{record.confirmed?'確認済み':'未確認'} ／ 共有：{confirmation.ready?(current?.confirmed?'確認済み':'未確認'):'取得待ち'}</p>{confirmation.issues[id]&&<p role="alert">{confirmation.issues[id]}</p>}
+                    return <li key={id}><div><strong>{student?.name??'現在の回答一覧にない記録'}</strong><p>端末の操作：{record.confirmed?'対応済み':'未対応'} ／ 共有：{confirmation.ready?(current?.confirmed?'対応済み':'未対応'):'取得待ち'}</p>{confirmation.issues[id]&&<p role="alert">{confirmation.issues[id]}</p>}
                     <div className={styles.surveyActions}><button className={styles.surveyStatusButton} disabled={!student||!confirmation.ready||!!confirmation.saving} onClick={()=>confirmation.retry(id)}>{confirmation.saving===id?'保存中…':confirmation.issues[id]?'内容を確認して再試行':'この端末の記録を共有'}</button><button className={styles.surveyRestoreButton} disabled={!!confirmation.saving} onClick={()=>confirmation.discard(id)}>共有状態を使う</button></div></div></li>;
                   })}</ul>
                 </div>}
@@ -236,7 +236,7 @@ export default function HomeDashboard({
                         <span className={styles.gradeBadge}>{student.grade}</span>
                         <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>{!selectedSurveyTeacher && `${student.teacher}先生・`}{formatSubmittedAt(student.submittedAt)}</small><small>回答を開く ↗</small></a>
                         <div className={styles.surveyActions}>
-                          <button className={styles.surveyStatusButton} type="button" disabled={!confirmation.ready||!!confirmation.saving} aria-pressed={confirmed} onClick={() => confirmation.toggle(student.notionUrl)}>{confirmation.saving===surveyPageId(student.notionUrl)?'保存中…':!confirmation.ready?'確認状態を取得待ち':confirmed ? "確認済み" : "未確認"}</button>
+                          <button className={styles.surveyStatusButton} type="button" disabled={!confirmation.ready||!!confirmation.saving} aria-pressed={confirmed} onClick={() => confirmation.toggle(student.notionUrl)}>{confirmation.saving===surveyPageId(student.notionUrl)?'保存中…':!confirmation.ready?'対応状況を取得待ち':confirmed ? "対応済み" : "未対応"}</button>
                           {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
                           {confirmation.get(student.notionUrl)?.updated_at&&<small>最終更新：{submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
                           <button className={styles.surveyHideButton} type="button" aria-label="確認したのでこの行を削除する" title="この端末の一覧から非表示にします" onClick={() => hideSurvey(student.notionUrl)}>非表示</button>
@@ -244,7 +244,7 @@ export default function HomeDashboard({
                       </li>;
                     })}
                   </ul>
-                  <p className={styles.surveyNote}>確認状態はボタンを押すと自動保存します。他のPCは画面を開いた時・戻った時に同期します。開いたままの画面では「確認状態を再取得」で更新できます。「非表示」はこの端末だけに反映されます。</p>
+                  <p className={styles.surveyNote}>対応状況はボタンを押すと自動保存します。他のPCは画面を開いた時・戻った時に同期します。開いたままの画面では「対応状況を再取得」で更新できます。「非表示」はこの端末だけに反映されます。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶか、生徒名で検索してください。</p>}
               </>}
             </div>

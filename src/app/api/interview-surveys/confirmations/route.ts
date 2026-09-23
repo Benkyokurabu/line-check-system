@@ -22,7 +22,7 @@ function answerIds(){
 }
 export async function GET(){
  try{return staffResponse({states:await readStates(createSupabaseAdminClient())});}
- catch{return staffResponse({error:'確認状態を読み込めませんでした。'},undefined,503);}
+ catch{return staffResponse({error:'対応状況を読み込めませんでした。'},undefined,503);}
 }
 export async function POST(request:NextRequest){
  try{

@@ -27,7 +27,7 @@ export function useSurveyConfirmations(answerUrls:string[]){
   try{
    const r=await fetch('/api/interview-surveys/confirmations',{cache:'no-store',signal:AbortSignal.timeout(60000)});
    if(generation!==epoch.current)return;
-   if(r.status===401){setLoginNeeded(true);setReady(false);throw Error('確認状態の共有には職員ログインが必要です。');}
+   if(r.status===401){setLoginNeeded(true);setReady(false);throw Error('対応状況の共有には職員ログインが必要です。');}
    if(!r.ok)throw Error('同期できません。前回の表示を保持しています。');
    const body=await r.json();if(generation!==epoch.current)return;
    accept(parse(body.states));setMessage('');
