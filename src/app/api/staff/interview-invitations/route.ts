@@ -17,7 +17,7 @@ export async function GET(request:NextRequest){let context;try{
  if(request.nextUrl.searchParams.get('slots')==='1'){
   const students=state.students.filter(s=>s.student_number==='2018999'&&s.enrollment_status==='current_roster');
   await refreshHomeroomSlots(db,students,state);const slots=await readAll(db,'interview_public_slots') as Slot[];
-  return staffResponse({slots:students.flatMap(s=>slots.filter(slot=>available(slot,state,s.homeroom_teacher)).map(slot=>({...slot.data,id:slot.id,version:slot.version,studentId:s.id})))},context);
+  return staffResponse({source:'notion',fetchedAt:new Date().toISOString(),slots:students.flatMap(s=>slots.filter(slot=>available(slot,state,s.homeroom_teacher)).map(slot=>({...slot.data,id:slot.id,version:slot.version,studentId:s.id})))},context);
  }
  let survey;try{survey=await loadInvitationSurveyResponses(state.students);}catch{throw new InterviewError('Notionのアンケートを取得できません。未提出の判定は行っていません。',503);}
  const [invitations,notifications,config,requests]=await Promise.all([

@@ -41,8 +41,8 @@ test('先生は承認後の予約をチェックなしの簡単な画面から�
   return route.fulfill({json:{snapshot:'snapshot',requests:approved?[]:[{id:'request',studentName:'確認用生徒',status:'pending',version:1,note:'学習の相談',choices:slots.slice(0,3).map(s=>({slotId:s.id,data:{...s,teacher:'確認用講師'},available:true}))}],bookings:approved&&!cancelled?[{id:'booking',status:'confirmed',version:2,notion_synced_version:2,notion_page_id:'test',data:{...slots[1],teacher:'確認用講師',studentName:'確認用生徒',method:'Zoom'}}]:[],slots:[],loginReady:true}});
  });
  await page.setViewportSize({width:390,height:844});await page.goto('/staff/interviews');
- await expect(page.getByRole('main').getByRole('button')).toHaveText(['アンケートから選ぶ','希望日時に返信を確認']);
- await page.getByRole('button',{name:'希望日時に返信を確認',exact:true}).click();
+ await expect(page.getByRole('main').getByRole('button')).toHaveText(['アンケートから選ぶ','希望日時（返信）を確認']);
+ await page.getByRole('button',{name:'希望日時（返信）を確認',exact:true}).click();
  const manage=page.getByRole('link',{name:'面談記録・取消・詳細管理'});
  await expect(manage).toBeVisible();await expect(manage).toHaveCSS('min-height','44px');await expect(manage).toHaveCSS('background-color','rgb(23, 125, 99)');
  await page.getByRole('radio').nth(1).check();await page.getByRole('button',{name:'選んだ日程で承認'}).click();let dialog=page.getByRole('dialog',{name:'日程を承認'});

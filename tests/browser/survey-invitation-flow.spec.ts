@@ -9,6 +9,24 @@ async function auth(page:Page,code='KUDO'){
 async function confirm(page:Page){
  await page.goto('/staff/interviews?tab=invitations');await page.getByRole('button',{name:'日程を打診する',exact:true}).click();await page.getByRole('checkbox',{name:'2030-01-03 の枠を選択'}).check();await page.getByLabel('回答期限（日本時間）').fill('2030-01-02T12:00');await page.getByRole('button',{name:'打診内容を確認'}).click();
 }
+
+test('工藤だけは未提出でも表示し、Notion更新で最新の予約可を選び直す',async({page})=>{
+ await auth(page);let reads=0;
+ await page.route('**/api/staff/interview-invitations*',r=>{
+  if(r.request().url().includes('slots=1')){reads++;return r.fulfill({json:{source:'notion',fetchedAt:'2026-09-23T12:00:00Z',slots:reads===1?[slot]:[{...slot,id:'new-slot',start:'14:00',end:'14:45'}]}});}
+  return r.fulfill({json:{...state,students:[{...student,surveys:[{round:'2026-autumn',status:'missing',date:null}]},{...student,id:'other',number:'other',name:'未提出の生徒',pilot:false,surveys:[{round:'2026-autumn',status:'missing',date:null}]}]}});
+ });
+ await page.goto('/staff/interviews?tab=invitations');
+ await expect(page.getByRole('combobox',{name:'アンケート提出状況',exact:true})).toHaveValue('submitted');
+ const pilot=page.getByRole('article',{name:student.name,exact:true});await expect(pilot).toBeVisible();await expect(pilot).toContainText('工藤・動作確認用');
+ await expect(page.getByRole('article',{name:'未提出の生徒',exact:true})).toHaveCount(0);
+ await page.getByLabel('生徒名・学籍番号').fill('検索に一致しない');await expect(pilot).toBeVisible();
+ await pilot.getByRole('button',{name:'日程を打診する'}).click();
+ await expect(page.getByText(/Notionから取得：/)).toBeVisible();await page.getByRole('checkbox',{name:'13:00〜13:45',exact:true}).check();
+ await page.getByRole('button',{name:'Notionの予約可を更新',exact:true}).click();
+ await expect(page.getByRole('checkbox',{name:'14:00〜14:45',exact:true})).not.toBeChecked();
+ await expect(page.getByRole('checkbox',{name:'13:00〜13:45',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'打診内容を確認'})).toBeDisabled();expect(reads).toBe(2);
+});
 test('有効な打診は二重作成に進めず、提出済みと回答待ちを分ける',async({page})=>{
  await auth(page);await page.route('**/api/staff/interview-invitations*',r=>r.fulfill({json:{...state,invitations:[{id:'inv',student_id:student.id,status:'active',version:1,created_at:'2026-09-23',expires_at:'2030-01-02',notification_status:'sent',answerStatus:'unanswered'}]}}));
  await page.goto('/staff/interviews?tab=invitations');await expect(page.getByText('アンケート：提出済み')).toBeVisible();await expect(page.getByText('面談：回答待ち')).toBeVisible();await expect(page.getByRole('button',{name:'日程を打診する',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'打診・予約の詳細'}).click();await expect(page.getByText(/有効な打診があります/)).toBeVisible();
