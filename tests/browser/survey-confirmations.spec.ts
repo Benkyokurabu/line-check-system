@@ -80,3 +80,11 @@ test('共有への保存が未ログインでも旧端末の確認済み表示�
  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('bentan:2026-autumn-survey-confirmed')||'[]').length)).toBe(1);
  expect(await page.evaluate(()=>!!localStorage.getItem('bentan:2026-autumn-survey-before-sharing'))).toBe(true);
 });
+
+test('同じ記録が共有済みなら旧端末の共有待ち表示を自動解消する',async({page,context})=>{
+ const s=server();s.states=[{page_id:id,confirmed:true,version:1}];await setup(context,s);
+ await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
+ await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toHaveCount(0);
+ await expect.poll(()=>page.evaluate(()=>Object.keys(JSON.parse(localStorage.getItem('bentan:2026-autumn-survey-drafts-v1')||'{}')).length)).toBe(0);expect(s.posts).toBe(0);
+});

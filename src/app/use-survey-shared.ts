@@ -65,6 +65,8 @@ export function useSurveyConfirmations(answerUrls:string[]){
  },[ready,store,accept,discard]);
  useEffect(()=>{
   if(!ready||saving)return;
+  const acknowledged=Object.entries(local).find(([id,s])=>states[id]?.confirmed===s.confirmed&&states[id].version>=s.version);
+  if(acknowledged){const timer=setTimeout(()=>discard(acknowledged[0]),0);return()=>clearTimeout(timer);}
   const allowed=new Set(answerUrls.map(url=>surveyPageId(url)));
   const candidate=Object.entries(local).find(([id,s])=>allowed.has(id)&&s.version===0&&!states[id]&&!migrationAttempted.current.has(id));
   if(!candidate)return;
@@ -72,7 +74,7 @@ export function useSurveyConfirmations(answerUrls:string[]){
   // A single attempt; failures and concurrent shared edits require explicit review.
   const timer=setTimeout(()=>void save(id,s.confirmed,0),0);
   return()=>{clearTimeout(timer);};
- },[ready,saving,local,states,answerUrls,save]);
+ },[ready,saving,local,states,answerUrls,save,discard]);
  const get=(url:string)=>{const id=surveyPageId(url);return id?(states[id]??restored[id]):undefined;};
  return {ready,saving,message,loginNeeded,lastSync,local,issues,load,get,getShared:(url:string)=>{const id=surveyPageId(url);return id?states[id]:undefined;},isLocal:(url:string)=>{const id=surveyPageId(url);return !!(id&&!states[id]&&restored[id]);},isConfirmed:(url:string)=>!!get(url)?.confirmed,
   toggle:(url:string)=>{const id=surveyPageId(url);if(id){const current=shared.current[id]??restored[id];void save(id,!current?.confirmed,current?.version??0);}},
