@@ -234,7 +234,7 @@ export default function HomeDashboard({
                         <div className={styles.surveyActions}>
                           <button className={styles.surveyStatusButton} type="button" disabled={!confirmation.ready||!!confirmation.saving} aria-pressed={confirmed} onClick={() => confirmation.toggle(student.notionUrl)}>{confirmation.saving===surveyPageId(student.notionUrl)?'保存中…':!confirmation.ready?'確認状態を取得待ち':confirmed ? "確認済み" : "未確認"}</button>
                           {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
-                          {confirmation.get(student.notionUrl)?.updated_at&&<small>最終更新：{confirmation.get(student.notionUrl)?.updated_name} {submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
+                          {confirmation.get(student.notionUrl)?.updated_at&&<small>最終更新：{submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
                           <button className={styles.surveyHideButton} type="button" aria-label="確認したのでこの行を削除する" title="この端末の一覧から非表示にします" onClick={() => hideSurvey(student.notionUrl)}>非表示</button>
                         </div>
                       </li>;
