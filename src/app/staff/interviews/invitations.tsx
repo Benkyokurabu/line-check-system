@@ -14,13 +14,13 @@ type Slot={id:string;version:number;studentId:string;date:string;start:string;en
 type Invitation={id:string;student_id:string;expires_at:string;status:string;version:number;notification_status:string;created_at:string;answerStatus?:string;campaignLabel?:string};
 type State={students:Student[];rounds:{id:string;label:string}[];syncedAt:string|null;invitations:Invitation[];notifications:{booking_id:string;status:string}[];pilotReady:boolean;unmatchedSurveys?:number};
 type Operation={action:string;operationKey?:string;[key:string]:unknown};
-type Props={staff:{staffId:string;staffCode:string;displayName:string};onBusyChange:(busy:boolean)=>void;onRequests:()=>void;onSlots:()=>void};
+type Props={staff:{staffId:string;staffCode:string;displayName:string};onBusyChange:(busy:boolean)=>void;onRequests:()=>void;onSlots:()=>void;initialStep?:'students'|'history'};
 const statusLabel:Record<string,string>={submitted:'提出済み',missing:'未提出（照合済みの記録なし）',unknown:'要確認',active:'回答受付中',revoked:'取消済み',declined:'日程が合わない',pending:'送信待ち',sending:'送信処理中',retry:'再確認が必要',sent:'LINE送信処理済み',blocked:'送信停止・要確認',obsolete:'通知対象外',not_applicable:'通知対象外'};
 const japanTime=(value:string)=>new Date(value).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'});
-export default function InterviewInvitations({staff,onBusyChange,onRequests,onSlots}:Props){
+export default function InterviewInvitations({staff,onBusyChange,onRequests,onSlots,initialStep='students'}:Props){
  const [state,setState]=useState<State|null>(null),[message,setMessage]=useState(''),[refreshError,setRefreshError]=useState(''),[busy,setBusy]=useState(false),[retry,setRetry]=useState<Operation|null>(null),[confirm,setConfirm]=useState(false);
  const [round,setRound]=useState<string>(INTERVIEW_SURVEY_CAMPAIGN.id),[teacher,setTeacher]=useState(''),[status,setStatus]=useState('submitted'),[progress,setProgress]=useState(''),[query,setQuery]=useState(''),[sort,setSort]=useState('date-desc');
- const [step,setStep]=useState<'students'|'slots'|'history'>('students'),[selected,setSelected]=useState(''),[answerStudent,setAnswerStudent]=useState<Student|null>(null);
+ const [step,setStep]=useState<'students'|'slots'|'history'>(initialStep),[selected,setSelected]=useState(''),[answerStudent,setAnswerStudent]=useState<Student|null>(null);
  const [slots,setSlots]=useState<Slot[]>([]),[chosen,setChosen]=useState<string[]>([]),[expires,setExpires]=useState(''),[loadedStudent,setLoadedStudent]=useState(''),[slotsLoading,setSlotsLoading]=useState(false),[slotError,setSlotError]=useState(''),[slotReload,setSlotReload]=useState(0);
  const [now,setNow]=useState(()=>Date.now());const lock=useRef(false),initialized=useRef(false),heading=useRef<HTMLHeadingElement>(null);
  const prefKey=`bentan:interview-survey-filters:${staff.staffId}:${INTERVIEW_SURVEY_CAMPAIGN.id}`;

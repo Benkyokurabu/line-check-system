@@ -1,0 +1,22 @@
+import {test,expect} from '@playwright/test';
+test('面談の入口は二つだけで、返信待ちと確定予定は次の画面に置く',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ await page.route('**/api/staff/session',r=>r.fulfill({json:{staff:{staffId:'staff',staffCode:'KUDO',displayName:'工藤',role:'admin'}}}));
+ await page.route('**/api/staff/interview-requests*',r=>r.fulfill({json:{requests:[],bookings:[],slots:[],snapshot:'s',loginReady:true}}));
+ await page.route('**/api/staff/interview-invitations*',r=>r.fulfill({json:{students:[],rounds:[{id:'2026-autumn',label:'2026年 秋のアンケート'}],invitations:[],notifications:[],pilotReady:true,syncedAt:null}}));
+ await page.goto('/staff/interviews');
+ const main=page.getByRole('main');
+ await expect(main.getByRole('button')).toHaveText(['アンケートから選ぶ','希望日時に返信を確認']);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:'analysis_outputs/interview-entry-mobile.png'});
+ await page.getByRole('button',{name:'アンケートから選ぶ',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'アンケートから生徒を選ぶ'})).toBeVisible();
+ await page.getByRole('button',{name:'希望日時に返信を確認',exact:true}).click();
+ await expect(page.getByText('確認待ちの申請はありません。')).toBeVisible();
+ await page.getByRole('button',{name:'返信待ち・打診履歴',exact:true}).click();
+ await expect(page.getByText('打診の記録はありません。')).toBeVisible();
+ await page.getByRole('button',{name:'確定予定',exact:true}).click();
+ await expect(page.getByText('確定した面談はありません。')).toBeVisible();
+ await page.getByRole('button',{name:'面談予約の入口へ戻る'}).click();
+ await expect(main.getByRole('button')).toHaveText(['アンケートから選ぶ','希望日時に返信を確認']);
+});
