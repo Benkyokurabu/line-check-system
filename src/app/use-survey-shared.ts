@@ -4,15 +4,17 @@ import {surveyPageId} from '@/lib/survey-confirmations.mjs';
 type State={confirmed:boolean;version:number;updated_at?:string;updated_name?:string};
 type States=Record<string,State>;
 const KEY='bentan:2026-autumn-survey-drafts-v1', LEGACY='bentan:2026-autumn-survey-confirmed';
+const ATTEMPTED='bentan:2026-autumn-survey-migration-attempted-v1';
 function parse(rows:unknown):States {
  if(!Array.isArray(rows))throw Error('共有状態の応答を確認できません。');
  const next:States={};
  for(const s of rows){if(!s||!/^[a-f0-9]{32}$/.test(s.page_id)||typeof s.confirmed!=='boolean'||!Number.isSafeInteger(s.version)||s.version<1)throw Error('共有状態の応答を確認できません。');next[s.page_id]=s;}
  return next;
 }
-export function useSurveyConfirmations(){
+export function useSurveyConfirmations(answerUrls:string[]){
  const [states,setStates]=useState<States>({}),[local,setLocal]=useState<States>({});
  const shared=useRef<States>({}),pending=useRef<States>({}),busy=useRef(false),reading=useRef(false),epoch=useRef(0);
+ const migrationAttempted=useRef(new Set<string>());
  const [ready,setReady]=useState(false),[saving,setSaving]=useState(''),[message,setMessage]=useState(''),[loginNeeded,setLoginNeeded]=useState(false),[lastSync,setLastSync]=useState('');
  const [issues,setIssues]=useState<Record<string,string>>({});
  const store=useCallback((next:States)=>{pending.current=next;setLocal(next);try{localStorage.setItem(KEY,JSON.stringify(next));localStorage.removeItem(LEGACY);}catch{}},[]);
@@ -34,19 +36,20 @@ export function useSurveyConfirmations(){
  useEffect(()=>{
   const initial=setTimeout(()=>{
    const saved:States={};
+   try{const ids=JSON.parse(localStorage.getItem(ATTEMPTED)||'[]');if(Array.isArray(ids))for(const id of ids)if(typeof id==='string')migrationAttempted.current.add(id);}catch{}
    try{for(const [id,s] of Object.entries(JSON.parse(localStorage.getItem(KEY)||'{}')) as [string,State][]){if(/^[a-f0-9]{32}$/.test(id)&&s&&typeof s.confirmed==='boolean'&&Number.isSafeInteger(s.version)&&s.version>=0)saved[id]=s;}}catch{}
    try{const old=JSON.parse(localStorage.getItem(LEGACY)||'[]');if(Array.isArray(old))for(const url of old){const id=surveyPageId(url);if(id&&!saved[id])saved[id]={confirmed:true,version:0};}}catch{}
    store(saved);void load();
   },0);
   const refresh=()=>{if(document.visibilityState==='visible')void load();};
-  window.addEventListener('focus',refresh);window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);
-  const timer=setInterval(refresh,30000);
+  window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
   const generationRef=epoch;
-  return()=>{clearTimeout(initial);clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);generationRef.current++;};
+  return()=>{clearTimeout(initial);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);generationRef.current++;};
  },[load,store]);
- const discard=(id:string)=>{const next={...pending.current};delete next[id];store(next);setIssues(v=>{const n={...v};delete n[id];return n;});};
- const save=async(id:string,confirmed:boolean,version:number)=>{
+ const discard=useCallback((id:string)=>{const next={...pending.current};delete next[id];store(next);setIssues(v=>{const n={...v};delete n[id];return n;});},[store]);
+ const save=useCallback(async(id:string,confirmed:boolean,version:number)=>{
   if(!ready||busy.current)return;
+  migrationAttempted.current.add(id);try{localStorage.setItem(ATTEMPTED,JSON.stringify([...migrationAttempted.current]));}catch{}
   busy.current=true;epoch.current++;setSaving(id);setMessage('');store({...pending.current,[id]:{confirmed,version}});
   try{
    const r=await fetch('/api/interview-surveys/confirmations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientVersion:2,changes:[{pageId:id,confirmed,version}]}),signal:AbortSignal.timeout(60000)});
@@ -57,7 +60,17 @@ export function useSurveyConfirmations(){
    accept(next);discard(id);
   }catch(e){setIssues(v=>({...v,[id]:e instanceof Error?e.message:'保存結果を確認できません。再試行してください。'}));}
   finally{busy.current=false;setSaving('');}
- };
+ },[ready,store,accept,discard]);
+ useEffect(()=>{
+  if(!ready||saving)return;
+  const allowed=new Set(answerUrls.map(url=>surveyPageId(url)));
+  const candidate=Object.entries(local).find(([id,s])=>allowed.has(id)&&s.version===0&&!states[id]&&!migrationAttempted.current.has(id));
+  if(!candidate)return;
+  const [id,s]=candidate;
+  // A single attempt; failures and concurrent shared edits require explicit review.
+  const timer=setTimeout(()=>void save(id,s.confirmed,0),0);
+  return()=>{clearTimeout(timer);};
+ },[ready,saving,local,states,answerUrls,save]);
  const get=(url:string)=>{const id=surveyPageId(url);return id?states[id]:undefined;};
  return {ready,saving,message,loginNeeded,lastSync,local,issues,load,get,isConfirmed:(url:string)=>!!get(url)?.confirmed,
   toggle:(url:string)=>{const id=surveyPageId(url);if(id){const current=shared.current[id];void save(id,!current?.confirmed,current?.version??0);}},

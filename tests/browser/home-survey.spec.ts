@@ -31,8 +31,6 @@ test('古い担任未特定のキャッシュを自動更新し確認状態は�
  await page.goto('/');
  await page.getByRole('button',{name:'工藤先生 1'}).click();
  await expect(page.getByRole('button',{name:'担任未特定先生 1'})).toHaveCount(0);
- await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'この端末の記録を共有'}).click();
  await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
 });
 

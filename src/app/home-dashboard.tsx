@@ -69,7 +69,7 @@ export default function HomeDashboard({
   const [query, setQuery] = useState("");
   const [selectedSurveyTeacher, setSelectedSurveyTeacher] = useState<string | null>(null);
   const [surveyGroups, setSurveyGroups] = useState(initialSurveyGroups);
-  const confirmation = useSurveyConfirmations();
+  const confirmation = useSurveyConfirmations(surveyGroups.flatMap(g=>g.students.map(s=>s.notionUrl)));
   const [hiddenSurveys, setHiddenSurveys] = useState<string[]>([]);
   const [showHiddenSurveys, setShowHiddenSurveys] = useState(false);
   const [surveyRefreshing, setSurveyRefreshing] = useState(false);
@@ -198,7 +198,7 @@ export default function HomeDashboard({
                 <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.ready ? '確認状態は自動保存され、先生間で共有されます。' : '共有の確認状態を読み込み中…')}{confirmation.lastSync&&` 最終同期 ${confirmation.lastSync}`}{confirmation.loginNeeded&&<> <Link className={styles.surveySave} href="/staff/self-study-room">職員ログイン</Link></>}</p>
                 {Object.keys(confirmation.local).length>0&&<div className={styles.surveyStudents} aria-label="未共有の端末記録">
                   <strong>未共有の端末記録 {Object.keys(confirmation.local).length}件</strong>
-                  <p>共有状態は下の一覧に表示しています。端末内の記録を反映する場合は、対象と内容を確認して共有してください。</p>
+                  <p>共有側に記録がない旧記録は自動で引き継ぎます。保存失敗や共有側との違いがある場合は、対象と内容を確認して共有してください。</p>
                   <ul>{Object.entries(confirmation.local).map(([id,record])=>{
                     const student=surveyGroups.flatMap(g=>g.students).find(s=>surveyPageId(s.notionUrl)===id);
                     const current=confirmation.get(`https://app.notion.com/p/${id}`);
@@ -239,7 +239,7 @@ export default function HomeDashboard({
                       </li>;
                     })}
                   </ul>
-                  <p className={styles.surveyNote}>確認状態はボタンを押すと自動保存します。他のPCは画面を開いた時・戻った時・表示中の30秒ごとに同期します。「非表示」はこの端末だけに反映されます。</p>
+                  <p className={styles.surveyNote}>確認状態はボタンを押すと自動保存します。他のPCは画面を開いた時・戻った時に同期します。開いたままの画面では「確認状態を再取得」で更新できます。「非表示」はこの端末だけに反映されます。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶか、生徒名で検索してください。</p>}
               </>}
             </div>

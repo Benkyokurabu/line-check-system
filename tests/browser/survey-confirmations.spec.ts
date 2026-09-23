@@ -18,7 +18,7 @@ async function setup(c:BrowserContext,s:ReturnType<typeof server>){
   }return r.fulfill({json:{states:s.states}});
  });
 }
-test('自動保存成功後に確定し別PCへ反映、取消・再読込・30秒同期',async({browser})=>{
+test('自動保存・画面復帰・再読込で共有し、開いたままでは定期取得しない',async({browser})=>{
  const s=server();const contexts=await Promise.all([browser.newContext(),browser.newContext()]);
  for(const c of contexts)await setup(c,s);
  const [a,b]=await Promise.all(contexts.map(c=>c.newPage()));
@@ -28,7 +28,9 @@ test('自動保存成功後に確定し別PCへ反映、取消・再読込・30�
  await expect(a.getByRole('button',{name:'確認済み',exact:true})).toBeEnabled();await expect(a.getByText(/最終更新：工藤/)).toBeVisible();
  await b.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(b.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
  await b.getByRole('button',{name:'確認済み',exact:true}).click();await expect(b.getByRole('button',{name:'未確認',exact:true})).toBeEnabled();
- await a.clock.fastForward(31000);await expect(a.getByRole('button',{name:'未確認',exact:true})).toBeVisible();
+ let idleReads=0;a.on('request',r=>{if(r.method()==='GET'&&r.url().endsWith('/api/interview-surveys/confirmations'))idleReads++;});
+ await a.clock.fastForward(120000);await expect(a.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();expect(idleReads).toBe(0);
+ await a.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(a.getByRole('button',{name:'未確認',exact:true})).toBeVisible();
  await a.reload();await a.getByRole('button',{name:'工藤先生 1'}).click();await expect(a.getByRole('button',{name:'未確認',exact:true})).toBeVisible();expect(s.posts).toBe(2);
  await Promise.all(contexts.map(c=>c.close()));
 });
@@ -38,11 +40,16 @@ test('保存失敗は確認済みにせず再試行、競合は共有と操作�
  s.fail=false;s.conflict=true;await page.getByRole('button',{name:'内容を確認して再試行'}).click();await expect(page.locator('p[role=alert]')).toContainText('他のPC');expect(s.posts).toBe(2);
  await page.getByRole('button',{name:'内容を確認して再試行'}).click();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeEnabled();expect(s.states[0].version).toBe(3);
 });
-test('旧端末記録は共有を隠さず明示的に取り込む、スマホでも操作可能',async({page,context})=>{
+test('共有記録がない旧端末記録を自動で引き継ぐ、スマホでも操作可能',async({page,context})=>{
  const s=server();await setup(context,s);await page.setViewportSize({width:390,height:844});await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
- await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeVisible();expect(s.posts).toBe(0);
- await page.getByRole('button',{name:'この端末の記録を共有'}).click();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
+ await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();expect(s.posts).toBe(1);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+test('共有側に変更がある旧記録は自動で上書きしない',async({page,context})=>{
+ const s=server();s.states=[{page_id:id,confirmed:false,version:2}];await setup(context,s);
+ await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
+ await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toBeEnabled();
+ await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeVisible();expect(s.posts).toBe(0);
 });
 test('ログイン切れで共有状態を偽装せず再ログイン後に復帰',async({page,context})=>{
  const s=server();await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeEnabled();
