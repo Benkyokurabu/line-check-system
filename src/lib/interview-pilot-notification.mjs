@@ -5,7 +5,7 @@ export async function sendPilotNotification({db,bookingId=undefined,invitationId
  if(staffCode!=='KUDO')return {status:'not_applicable'};
  const invitation=!!invitationId,kind=invitation?'interview_invitation_notification':'interview_pilot_notification',args=invitation?{p_invitation:invitationId}:{p_booking:bookingId};
  const claimed=await db.rpc(kind+'_claim',args);
- if(claimed.error)return {status:'retry',message:'予約は確定済みです。工藤検証LINE通知の状態を再確認してください。'};
+ if(claimed.error)return {status:'retry',message:invitation?'打診は保存済みです。工藤検証LINE通知の状態を再確認してください。':'予約は確定済みです。工藤検証LINE通知の状態を再確認してください。'};
  const n=claimed.data;
  if(!n){
   const state=await db.from(invitation?'interview_invitations':'interview_pilot_notifications').select(invitation?'notification_status':'status').eq(invitation?'id':'booking_id',invitationId??bookingId).maybeSingle();

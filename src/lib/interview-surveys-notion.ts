@@ -4,6 +4,8 @@ import { notionRequest } from "@/lib/notion";
 import { canonicalTeacherName } from "@/lib/teacher-names";
 import { matchSurveyStudent,normalizeSurveyName } from "@/lib/survey-student-match.mjs";
 import type { InterviewSurveyTeacherGroup } from "@/lib/interview-surveys";
+import {INTERVIEW_SURVEY_CAMPAIGN} from './interview-survey-campaign.mjs';
+import {surveyAnswerFields} from './interview-invitation-flow.mjs';
 
 type Property = {
   type?: string;
@@ -18,7 +20,7 @@ type Page = { id: string; url?: string; created_time?: string; properties?: Reco
 type QueryResult = { results?: Page[]; has_more?: boolean; next_cursor?: string | null };
 
 const STUDENT_DATA_SOURCE_ID = "19ef0120-80a7-80b7-9f23-000b21e0a53b";
-const SURVEY_STARTED_ON = "2026-09-09";
+const SURVEY_STARTED_ON = INTERVIEW_SURVEY_CAMPAIGN.startedOn;
 const SOURCES = [
   ["小4", "8aff0120-80a7-823e-9537-87dd8f5e84a0"], ["小5", "50df0120-80a7-8258-8d7a-879abd64b6fe"],
   ["小6", "97bf0120-80a7-821a-b0ba-87572758dce2"], ["中1", "978f0120-80a7-827e-90c4-87afdf38d445"],
@@ -62,12 +64,12 @@ async function queryAll(dataSourceId: string, filter: Record<string, unknown>) {
 export async function loadInvitationSurveyResponses(students:Record<string,unknown>[]){
  const roster=students.filter(s=>s.enrollment_status==='current_roster').map(s=>({name:String(s.student_name??''),number:String(s.student_number??''),grade:String(s.grade??''),teacher:String(s.homeroom_teacher??'')}));
  const results=await Promise.all(SOURCES.map(async([grade,id])=>({grade,pages:await queryAll(id,{timestamp:'created_time',created_time:{on_or_after:SURVEY_STARTED_ON}})})));
- const synced_at=new Date().toISOString(),base={source_name:'面談アンケート',school_year:SURVEY_STARTED_ON.slice(0,4)+'年度',round_label:SURVEY_STARTED_ON+'開始分',subject:'',synced_at,eligible_grades:SOURCES.map(([grade])=>grade)};
+ const synced_at=new Date().toISOString(),base={campaign_id:INTERVIEW_SURVEY_CAMPAIGN.id,campaign_label:INTERVIEW_SURVEY_CAMPAIGN.label,source_name:'面談アンケート',school_year:SURVEY_STARTED_ON.slice(0,4)+'年度',round_label:SURVEY_STARTED_ON+'開始分',subject:'',synced_at,eligible_grades:SOURCES.map(([grade])=>grade)};
  const rows:Record<string,unknown>[]=[{...base,student_number:null,link_status:'campaign',answered_at:null}];let unmatched=0;
  for(const {grade,pages} of results)for(const page of pages){
   const p=page.properties??{},name=propertyText(Object.values(p).find(v=>v.type==='title')),number=propertyText(p['学籍番号']);
   const match=matchSurveyStudent({name,number,grade},roster),answered_at=page.created_time?new Date(page.created_time).toLocaleString('sv-SE',{timeZone:'Asia/Tokyo'}):null;
-  if(match)rows.push({...base,student_number:match.number,link_status:'linked',answered_at});
+  if(match)rows.push({...base,student_number:match.number,link_status:'linked',answered_at,page_id:page.id,notion_url:`https://www.notion.so/${page.id.replaceAll('-','')}`,answer_fields:surveyAnswerFields(p)});
   else {unmatched++;for(const candidate of roster.filter(s=>s.number===number||normalizeSurveyName(s.name)===normalizeSurveyName(name)))rows.push({...base,student_number:candidate.number,link_status:'needs_review',answered_at});}
  }
  return {rows,unmatched};

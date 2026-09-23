@@ -1,11 +1,12 @@
-export const surveyKey=row=>JSON.stringify([row.source_name??'',row.school_year??'',row.round_label??'',row.subject??'']);
+export const surveyKey=row=>row.campaign_id||JSON.stringify([row.source_name??'',row.school_year??'',row.round_label??'',row.subject??'']);
 export function invitationStudents(students,surveys){
  const rounds=new Map();
- for(const row of surveys){const id=surveyKey(row),old=rounds.get(id);rounds.set(id,{id,label:[row.source_name,row.school_year,row.round_label,row.subject].filter(Boolean).join(' ／ '),latest:row.answered_at&&(!old?.latest||row.answered_at>old.latest)?row.answered_at:old?.latest??null});}
+ for(const row of surveys){const id=surveyKey(row),old=rounds.get(id);rounds.set(id,{id,label:row.campaign_label||[row.source_name,row.school_year,row.round_label,row.subject].filter(Boolean).join(' ／ '),latest:row.answered_at&&(!old?.latest||row.answered_at>old.latest)?row.answered_at:old?.latest??null});}
  return {rounds:[...rounds.values()].sort((a,b)=>(b.latest??'').localeCompare(a.latest??'')||a.id.localeCompare(b.id)),students:students.filter(s=>s.enrollment_status==='current_roster').map(s=>({id:s.id,number:s.student_number,name:s.student_name,teacher:s.homeroom_teacher??'',grade:s.grade??'',pilot:s.student_number==='2018999',surveys:[...rounds.keys()].map(round=>{
   const rows=surveys.filter(r=>surveyKey(r)===round&&r.student_number===s.student_number),linked=rows.filter(r=>r.link_status==='linked');
   const eligible=surveys.find(r=>surveyKey(r)===round)?.eligible_grades;
-  return {round,status:linked.length?'submitted':rows.length||eligible&&!eligible.includes(s.grade)?'unknown':'missing',date:linked.map(r=>r.answered_at).filter(Boolean).sort().at(-1)??null};
+  return {round,status:linked.length?'submitted':rows.length||eligible&&!eligible.includes(s.grade)?'unknown':'missing',date:linked.map(r=>r.answered_at).filter(Boolean).sort().at(-1)??null,
+   responses:linked.filter(r=>r.page_id).sort((a,b)=>(b.answered_at??'').localeCompare(a.answered_at??'')).map(r=>({id:r.page_id,date:r.answered_at,url:r.notion_url,fields:r.answer_fields??[]}))};
  })})),syncedAt:surveys.map(r=>r.synced_at).filter(Boolean).sort().at(-1)??null};
 }
 export function filterInvitationStudents(students,{round='',teacher='',status='',query='',from='',to='',sort='date-desc'}={}){

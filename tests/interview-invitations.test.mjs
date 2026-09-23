@@ -5,6 +5,7 @@ import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import {invitationStudents,filterInvitationStudents} from '../src/lib/interview-invitation-students.mjs';
 import {sendPilotNotification} from '../src/lib/interview-pilot-notification.mjs';
+import './interview-invitation-flow.test.mjs';
 
 test('アンケートは対象回の回答だけで判定し、担任・日付・提出状況を組み合わせる',()=>{
  const students=[{id:'a',student_number:'1',student_name:'生徒A',homeroom_teacher:'工藤',enrollment_status:'current_roster'},{id:'b',student_number:'2',student_name:'生徒B',homeroom_teacher:'先生B',enrollment_status:'current_roster'},{id:'c',student_number:'3',student_name:'生徒C',homeroom_teacher:'工藤',enrollment_status:'current_roster'}];
@@ -48,10 +49,11 @@ test('本番パイロットのDB制限・案内範囲・期限・承認・通知
  await db.query('insert into interview_pilot_notification_config(staff_id,recipient,enabled) values($1,$2,true)',[actor,recipient]);
  const publish=async(n)=>{const date=await value("select ((now() at time zone 'Asia/Tokyo')::date+$1::int)::text v",[n]);const data={studentId:student,teacher:'工藤',date,start:'13:00',end:'13:45',busyStart:'13:00',busyEnd:'14:00',campus:'本校',room:'',method:'Zoom',purpose:'保護者面談',participants:'保護者',channel:'LINE',note:''};return value('select interview_publish_slot($1,$2,$3,$4,$5,$6,true) v',[user,session,randomUUID(),randomUUID(),JSON.stringify(data),'2026-09-21T00:00:00Z'])};
  const a=await publish(3),b=await publish(4),expires=new Date(Date.now()+86400000).toISOString();
- const create=(id=student,key=randomUUID(),time=expires)=>value("select interview_invitation_save($1,$2,$3,'create',$4,$5,$6,null,null) v",[user,session,key,id,JSON.stringify([{id:a.id,version:a.version}]),time]);
+ const create=(id=student,key=randomUUID(),time=expires)=>value("select interview_invitation_save($1,$2,$3,'create',$4,$5,$6,null,null) v",[user,session,key,id,JSON.stringify([{id:a.id,version:a.version,surveyCampaign:{id:'2026-autumn',label:'2026年 秋のアンケート'}}]),time]);
  await assert.rejects(()=>create(other),/pilot_only/);
  await assert.rejects(()=>create(student,randomUUID(),new Date(Date.now()-1000).toISOString()),/invalid_invitation/);
  const key=randomUUID(),i=await create(student,key);assert.equal((await create(student,key)).id,i.id);
+ assert.equal(await value("select slots->0->'surveyCampaign'->>'id' v from interview_invitations where id=$1",[i.id]),'2026-autumn');
  await assert.rejects(()=>create(),/invitation_already_active/);
  const submit=(ids,version=i.version,inv=i.id,op=randomUUID())=>value('select interview_invited_submit($1,$2,$3,$4,$5,$6,$7) v',[hash,op,student,ids,'検証',inv,version]);
  await assert.rejects(()=>submit([b.id]),/invitation_slot_denied/);

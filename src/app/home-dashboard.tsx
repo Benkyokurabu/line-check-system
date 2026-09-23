@@ -188,6 +188,10 @@ export default function HomeDashboard({
                 <div><p className={styles.surveyEyebrow}>2026年 秋のアンケート</p><h3>担当生徒の回答を確認してください</h3></div>
                 {!surveyError && <span className={styles.surveyTotal}>表示中 {visibleSurveyGroups.reduce((sum, item) => sum + item.students.length, 0)}件</span>}
               </div>
+              <div className={styles.surveyInvitation}>
+                <Link className={styles.surveyInvitationButton} href="/staff/interviews?tab=invitations&survey=2026-autumn" prefetch={false}>アンケートから選ぶ <span aria-hidden="true">→</span></Link>
+                <p>2026年 秋のアンケート → 生徒を選ぶ → 面談の日程を打診</p>
+              </div>
               {surveyError ? <p className={styles.surveyError} role="status">{surveyError}</p> : <>
                 <div className={styles.surveyTools}>
                   <label className={styles.surveySearch}><Icon name="search" /><input type="search" aria-label="アンケートの生徒を検索" placeholder="生徒名で探す" value={surveyQuery} onChange={e=>{setSurveyQuery(e.target.value);setShowHiddenSurveys(false);}} /></label>
