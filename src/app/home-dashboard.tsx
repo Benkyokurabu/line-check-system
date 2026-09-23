@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import styles from "./home-dashboard.module.css";
-import {useSurveyConfirmations} from './use-survey-confirmations';
+import {useSurveyConfirmations} from './use-survey-shared';
+import {surveyPageId} from '@/lib/survey-confirmations.mjs';
 
 type Group = "all" | "student" | "lesson" | "communication" | "reservation" | "admin";
 type MenuItem = { href: string; title: string; description: string; group: Exclude<Group, "all">; icon: string; trial?: boolean };
@@ -192,9 +193,19 @@ export default function HomeDashboard({
                   <label className={styles.surveySearch}><Icon name="search" /><input type="search" aria-label="アンケートの生徒を検索" placeholder="生徒名で探す" value={surveyQuery} onChange={e=>{setSurveyQuery(e.target.value);setShowHiddenSurveys(false);}} /></label>
                   <button type="button" aria-pressed={onlyUnconfirmed} onClick={()=>{setOnlyUnconfirmed(v=>!v);setShowHiddenSurveys(false);}}>未確認だけ</button>
                   <button type="button" disabled={surveyRefreshing} onClick={refreshSurveys}>{surveyRefreshing ? "更新中…" : "更新する"}</button>
-                  <button className={styles.surveySave} type="button" disabled={!confirmation.ready||confirmation.saving||!confirmation.pending} onClick={()=>void confirmation.save()}>{confirmation.saving?'保存中…':'確認状態を保存'}</button>
+                  <button type="button" disabled={!!confirmation.saving} onClick={()=>void confirmation.load()}>確認状態を再取得</button>
                 </div>
-                <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.pending ? `未保存の変更 ${confirmation.pending}件` : confirmation.ready ? '確認状態は先生間で共有されます。' : '共有の確認状態を読み込み中…')}{confirmation.loginNeeded&&<> <Link href="/staff/self-study-room">職員ログイン</Link></>}</p>
+                <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.ready ? '確認状態は自動保存され、先生間で共有されます。' : '共有の確認状態を読み込み中…')}{confirmation.lastSync&&` 最終同期 ${confirmation.lastSync}`}{confirmation.loginNeeded&&<> <Link className={styles.surveySave} href="/staff/self-study-room">職員ログイン</Link></>}</p>
+                {Object.keys(confirmation.local).length>0&&<div className={styles.surveyStudents} aria-label="未共有の端末記録">
+                  <strong>未共有の端末記録 {Object.keys(confirmation.local).length}件</strong>
+                  <p>共有状態は下の一覧に表示しています。端末内の記録を反映する場合は、対象と内容を確認して共有してください。</p>
+                  <ul>{Object.entries(confirmation.local).map(([id,record])=>{
+                    const student=surveyGroups.flatMap(g=>g.students).find(s=>surveyPageId(s.notionUrl)===id);
+                    const current=confirmation.get(`https://app.notion.com/p/${id}`);
+                    return <li key={id}><div><strong>{student?.name??'現在の回答一覧にない記録'}</strong><p>端末の操作：{record.confirmed?'確認済み':'未確認'} ／ 共有：{confirmation.ready?(current?.confirmed?'確認済み':'未確認'):'取得待ち'}</p>{confirmation.issues[id]&&<p role="alert">{confirmation.issues[id]}</p>}
+                    <div className={styles.surveyActions}><button className={styles.surveyStatusButton} disabled={!student||!confirmation.ready||!!confirmation.saving} onClick={()=>confirmation.retry(id)}>{confirmation.saving===id?'保存中…':confirmation.issues[id]?'内容を確認して再試行':'この端末の記録を共有'}</button><button className={styles.surveyRestoreButton} disabled={!!confirmation.saving} onClick={()=>confirmation.discard(id)}>共有状態を使う</button></div></div></li>;
+                  })}</ul>
+                </div>}
                 <div className={styles.teacherButtons} aria-label="担任を選択">
                   {visibleSurveyGroups.map(item => <button key={item.teacher} type="button" aria-pressed={!showHiddenSurveys && selectedSurveyTeacher === item.teacher} onClick={() => { setShowHiddenSurveys(false); setSelectedSurveyTeacher(current => current === item.teacher ? null : item.teacher); }}>
                     {item.teacher === '担任未特定' ? '担任を確認' : `${item.teacher}先生`} <span>{item.students.length}</span>
@@ -221,13 +232,14 @@ export default function HomeDashboard({
                         <span className={styles.gradeBadge}>{student.grade}</span>
                         <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>{!selectedSurveyTeacher && `${student.teacher}先生・`}{formatSubmittedAt(student.submittedAt)}</small><small>回答を開く ↗</small></a>
                         <div className={styles.surveyActions}>
-                          <button className={styles.surveyStatusButton} type="button" disabled={!confirmation.ready||confirmation.saving} aria-pressed={confirmed} onClick={() => confirmation.toggle(student.notionUrl)}>{confirmed ? "確認済み" : "未確認"}</button>
+                          <button className={styles.surveyStatusButton} type="button" disabled={!confirmation.ready||!!confirmation.saving} aria-pressed={confirmed} onClick={() => confirmation.toggle(student.notionUrl)}>{confirmation.saving===surveyPageId(student.notionUrl)?'保存中…':!confirmation.ready?'確認状態を取得待ち':confirmed ? "確認済み" : "未確認"}</button>
+                          {confirmation.get(student.notionUrl)?.updated_at&&<small>最終更新：{confirmation.get(student.notionUrl)?.updated_name} {submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
                           <button className={styles.surveyHideButton} type="button" aria-label="確認したのでこの行を削除する" title="この端末の一覧から非表示にします" onClick={() => hideSurvey(student.notionUrl)}>非表示</button>
                         </div>
                       </li>;
                     })}
                   </ul>
-                  <p className={styles.surveyNote}>確認済み・未確認を変更したら「確認状態を保存」を押してください。保存後は他の先生にも共有されます。「非表示」はこの端末だけに反映されます。</p>
+                  <p className={styles.surveyNote}>確認状態はボタンを押すと自動保存します。他のPCは画面を開いた時・戻った時・表示中の30秒ごとに同期します。「非表示」はこの端末だけに反映されます。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶか、生徒名で検索してください。</p>}
               </>}
             </div>

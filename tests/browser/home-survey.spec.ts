@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-test.beforeEach(async({page})=>{await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({json:{states:[]}}));});
+test.beforeEach(async({page})=>{let states:unknown[]=[];await page.route('**/api/interview-surveys/confirmations',r=>{if(r.request().method()==='POST'){const c=r.request().postDataJSON().changes[0];states=[{page_id:c.pageId,confirmed:c.confirmed,version:c.version+1}];}return r.fulfill({json:{states}});});});
 
 test('スマホで生徒検索・未確認の絞り込みができる',async({page})=>{
  await page.setViewportSize({width:390,height:844});
@@ -31,6 +31,8 @@ test('古い担任未特定のキャッシュを自動更新し確認状態は�
  await page.goto('/');
  await page.getByRole('button',{name:'工藤先生 1'}).click();
  await expect(page.getByRole('button',{name:'担任未特定先生 1'})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'この端末の記録を共有'}).click();
  await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
 });
 
