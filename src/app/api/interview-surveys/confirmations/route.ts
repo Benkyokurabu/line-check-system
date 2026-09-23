@@ -1,4 +1,5 @@
 import {NextRequest} from 'next/server';
+import {createSupabaseAdminClient} from '@/lib/supabase';
 import {assertStaffMutationOrigin,staffContext,staffJsonBody,staffResponse,staffErrorResponse} from '@/lib/staff-auth-http';
 import {StaffAuthError} from '@/lib/staff-auth-core.mjs';
 import {loadInterviewSurveyGroups} from '@/lib/interview-surveys-notion';
@@ -19,10 +20,11 @@ function answerIds(){
  void value.catch(()=>{if(idsCache?.value===value)idsCache=undefined;});
  return value;
 }
-export async function GET(request:NextRequest){
- let context;
- try{context=await staffContext(request);return staffResponse({states:await readStates(context,await answerIds())},context);}
- catch(e){return staffErrorResponse(e,context);}
+export async function GET(){
+ // Keep the original answer-list visibility. Staff identities remain private;
+ // mutations still require a verified staff session below.
+ const {data,error}=await createSupabaseAdminClient().from('survey_confirmations').select('page_id,confirmed,version').order('page_id').limit(10000);
+ return error?staffResponse({error:'確認状態を読み込めませんでした。'},undefined,503):staffResponse({states:data});
 }
 export async function POST(request:NextRequest){
  let context;

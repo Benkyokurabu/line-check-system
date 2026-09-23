@@ -53,21 +53,30 @@ test('共有側に変更がある旧記録は自動で上書きしない',async(
 });
 test('ログイン切れで共有状態を偽装せず再ログイン後に復帰',async({page,context})=>{
  const s=server();await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeEnabled();
- s.unauthorized=true;await page.getByRole('button',{name:'未確認',exact:true}).click();await expect(page.getByRole('link',{name:'職員ログイン',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'確認状態を取得待ち'})).toBeDisabled();
+ s.unauthorized=true;await page.getByRole('button',{name:'未確認',exact:true}).click();await expect(page.getByRole('link',{name:'職員ログイン',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeEnabled();
  s.unauthorized=false;await page.getByRole('button',{name:'確認状態を再取得'}).click();await expect(page.getByRole('button',{name:'内容を確認して再試行'})).toBeEnabled();
 });
-test('未認証の取得と保存・他サイトからの保存を拒否',async({request})=>{
- expect((await request.get('/api/interview-surveys/confirmations')).status()).toBe(401);
+test('未認証の保存・他サイトからの保存を拒否',async({request})=>{
  expect((await request.post('/api/interview-surveys/confirmations',{headers:{origin:'https://other.invalid'},data:{changes:[]}})).status()).toBe(403);
  expect((await request.post('/api/interview-surveys/confirmations',{headers:{origin:'https://test.invalid'},data:{changes:[]}})).status()).toBe(401);
 });
 
 test('保存失敗した操作は再読込後も残り、自動では送信しない',async({page,context})=>{
  const s=server();s.fail=true;await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await page.getByRole('button',{name:'未確認',exact:true}).click();await expect(page.locator('p[role=alert]')).toBeVisible();
- await page.reload();await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toBeEnabled();await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeVisible();expect(s.posts).toBe(1);
+ await page.reload();await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toBeEnabled();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();await expect(page.getByText('この端末の記録・共有待ち',{exact:true})).toBeVisible();expect(s.posts).toBe(1);
  s.fail=false;await page.getByRole('button',{name:'この端末の記録を共有'}).click();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
 });
 test('取得失敗で前回の確認状態を未確認に戻さない',async({page,context})=>{
  const s=server();s.states=[{page_id:id,confirmed:true,version:1}];await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
  await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({status:503,json:{error:'unavailable'}}));await page.getByRole('button',{name:'確認状態を再取得'}).click();await expect(page.getByText(/同期できません。前回の表示/)).toBeVisible();await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeVisible();
+});
+
+test('共有への保存が未ログインでも旧端末の確認済み表示を維持し、原本を保全する',async({page,context})=>{
+ const s=server();await setup(context,s);
+ await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
+ await page.route('**/api/interview-surveys/confirmations',r=>r.request().method()==='POST'?r.fulfill({status:401,json:{error:'ログインし直してください。'}}):r.fulfill({json:{states:[]}}));
+ await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();
+ await expect(page.getByRole('button',{name:'確認済み',exact:true})).toBeEnabled();await expect(page.getByText('この端末の記録・共有待ち',{exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('bentan:2026-autumn-survey-confirmed')||'[]').length)).toBe(1);
+ expect(await page.evaluate(()=>!!localStorage.getItem('bentan:2026-autumn-survey-before-sharing'))).toBe(true);
 });

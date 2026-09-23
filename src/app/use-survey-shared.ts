@@ -13,11 +13,12 @@ function parse(rows:unknown):States {
 }
 export function useSurveyConfirmations(answerUrls:string[]){
  const [states,setStates]=useState<States>({}),[local,setLocal]=useState<States>({});
+ const [restored,setRestored]=useState<States>({});
  const shared=useRef<States>({}),pending=useRef<States>({}),busy=useRef(false),reading=useRef(false),epoch=useRef(0);
  const migrationAttempted=useRef(new Set<string>());
  const [ready,setReady]=useState(false),[saving,setSaving]=useState(''),[message,setMessage]=useState(''),[loginNeeded,setLoginNeeded]=useState(false),[lastSync,setLastSync]=useState('');
  const [issues,setIssues]=useState<Record<string,string>>({});
- const store=useCallback((next:States)=>{pending.current=next;setLocal(next);try{localStorage.setItem(KEY,JSON.stringify(next));localStorage.removeItem(LEGACY);}catch{}},[]);
+ const store=useCallback((next:States)=>{pending.current=next;setLocal(next);try{localStorage.setItem(KEY,JSON.stringify(next));}catch{}},[]);
  const accept=useCallback((next:States)=>{shared.current=next;setStates(next);setReady(true);setLoginNeeded(false);setLastSync(new Date().toLocaleTimeString('ja-JP'));},[]);
  const load=useCallback(async()=>{
   if(busy.current||reading.current)return;
@@ -36,24 +37,25 @@ export function useSurveyConfirmations(answerUrls:string[]){
  useEffect(()=>{
   const initial=setTimeout(()=>{
    const saved:States={};
+   try{if(!localStorage.getItem('bentan:2026-autumn-survey-before-sharing'))localStorage.setItem('bentan:2026-autumn-survey-before-sharing',JSON.stringify({drafts:localStorage.getItem(KEY),legacy:localStorage.getItem(LEGACY)}));}catch{}
    try{const ids=JSON.parse(localStorage.getItem(ATTEMPTED)||'[]');if(Array.isArray(ids))for(const id of ids)if(typeof id==='string')migrationAttempted.current.add(id);}catch{}
    try{for(const [id,s] of Object.entries(JSON.parse(localStorage.getItem(KEY)||'{}')) as [string,State][]){if(/^[a-f0-9]{32}$/.test(id)&&s&&typeof s.confirmed==='boolean'&&Number.isSafeInteger(s.version)&&s.version>=0)saved[id]=s;}}catch{}
    try{const old=JSON.parse(localStorage.getItem(LEGACY)||'[]');if(Array.isArray(old))for(const url of old){const id=surveyPageId(url);if(id&&!saved[id])saved[id]={confirmed:true,version:0};}}catch{}
-   store(saved);void load();
+   setRestored(saved);store(saved);void load();
   },0);
   const refresh=()=>{if(document.visibilityState==='visible')void load();};
   window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
   const generationRef=epoch;
   return()=>{clearTimeout(initial);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);generationRef.current++;};
  },[load,store]);
- const discard=useCallback((id:string)=>{const next={...pending.current};delete next[id];store(next);setIssues(v=>{const n={...v};delete n[id];return n;});},[store]);
+ const discard=useCallback((id:string)=>{const next={...pending.current};delete next[id];store(next);setRestored(v=>{const n={...v};delete n[id];return n;});try{const old=JSON.parse(localStorage.getItem(LEGACY)||'[]');if(Array.isArray(old))localStorage.setItem(LEGACY,JSON.stringify(old.filter(url=>surveyPageId(url)!==id)));}catch{}setIssues(v=>{const n={...v};delete n[id];return n;});},[store]);
  const save=useCallback(async(id:string,confirmed:boolean,version:number)=>{
   if(!ready||busy.current)return;
   migrationAttempted.current.add(id);try{localStorage.setItem(ATTEMPTED,JSON.stringify([...migrationAttempted.current]));}catch{}
   busy.current=true;epoch.current++;setSaving(id);setMessage('');store({...pending.current,[id]:{confirmed,version}});
   try{
    const r=await fetch('/api/interview-surveys/confirmations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientVersion:2,changes:[{pageId:id,confirmed,version}]}),signal:AbortSignal.timeout(60000)});
-   const body=await r.json();if(r.status===401){setLoginNeeded(true);setReady(false);}
+   const body=await r.json();if(r.status===401)setLoginNeeded(true);
    if(r.status===409&&body.states)accept(parse(body.states));
    if(!r.ok)throw Error(r.status===409?'他のPCで変更されています。共有状態と今回の操作を確認してください。':body.error||'保存できませんでした。再試行してください。');
    const next=parse(body.states);if(!next[id])throw Error('保存結果を確認できません。再試行してください。');
@@ -71,8 +73,8 @@ export function useSurveyConfirmations(answerUrls:string[]){
   const timer=setTimeout(()=>void save(id,s.confirmed,0),0);
   return()=>{clearTimeout(timer);};
  },[ready,saving,local,states,answerUrls,save]);
- const get=(url:string)=>{const id=surveyPageId(url);return id?states[id]:undefined;};
- return {ready,saving,message,loginNeeded,lastSync,local,issues,load,get,isConfirmed:(url:string)=>!!get(url)?.confirmed,
-  toggle:(url:string)=>{const id=surveyPageId(url);if(id){const current=shared.current[id];void save(id,!current?.confirmed,current?.version??0);}},
+ const get=(url:string)=>{const id=surveyPageId(url);return id?(states[id]??restored[id]):undefined;};
+ return {ready,saving,message,loginNeeded,lastSync,local,issues,load,get,getShared:(url:string)=>{const id=surveyPageId(url);return id?states[id]:undefined;},isLocal:(url:string)=>{const id=surveyPageId(url);return !!(id&&!states[id]&&restored[id]);},isConfirmed:(url:string)=>!!get(url)?.confirmed,
+  toggle:(url:string)=>{const id=surveyPageId(url);if(id){const current=shared.current[id]??restored[id];void save(id,!current?.confirmed,current?.version??0);}},
   retry:(id:string)=>{const s=pending.current[id];if(s)void save(id,s.confirmed,shared.current[id]?.version??0);},discard};
 }
