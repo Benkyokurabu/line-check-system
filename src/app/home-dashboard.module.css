@@ -171,3 +171,5 @@
 @media (max-width: 760px) { .hero h1 { font-size: 30px; } .navigation { grid-template-columns: repeat(3,minmax(0,1fr)); } .navigation button { gap: 6px; padding: 10px 8px; } }
 @media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyStudents li { grid-template-columns: auto minmax(0,1fr); } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; } }
 @media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+.scheduleStatus a.scheduleAction{display:inline-flex;align-items:center;min-height:44px;padding:8px 12px;border:1px solid #187d60;border-radius:8px;background:#e6f4ef;color:#125f58;font-weight:700;text-decoration:none;box-sizing:border-box}.scheduleStatus a.scheduleAction:focus-visible{outline:3px solid #13856c;outline-offset:3px}

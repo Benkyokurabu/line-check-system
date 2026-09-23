@@ -15,7 +15,10 @@ export async function GET(request:NextRequest){let context;try{
  context=await staffContext(request);authorize(context.staff);const db=context.dataClient;
  const state=await loadInterviewState(db);
  if(request.nextUrl.searchParams.get('slots')==='1'){
-  const students=state.students.filter(s=>s.student_number==='2018999'&&s.enrollment_status==='current_roster');
+  const studentId=request.nextUrl.searchParams.get('studentId');
+  if(studentId&&!uuid(studentId))throw new InterviewError('生徒を選び直してください。');
+  const students=state.students.filter(s=>(studentId?s.id===studentId:s.student_number==='2018999')&&s.enrollment_status==='current_roster');
+  if(!students.length)throw new InterviewError('対象の生徒を確認できません。',404);
   await refreshHomeroomSlots(db,students,state);const slots=await readAll(db,'interview_public_slots') as Slot[];
   return staffResponse({source:'notion',fetchedAt:new Date().toISOString(),slots:students.flatMap(s=>slots.filter(slot=>available(slot,state,s.homeroom_teacher)).map(slot=>({...slot.data,id:slot.id,version:slot.version,studentId:s.id})))},context);
  }
