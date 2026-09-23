@@ -4,7 +4,7 @@ import {surveyPageId} from '@/lib/survey-confirmations.mjs';
 type State={confirmed:boolean;version:number;updated_at?:string;updated_name?:string};
 type States=Record<string,State>;
 const KEY='bentan:2026-autumn-survey-drafts-v1', LEGACY='bentan:2026-autumn-survey-confirmed';
-const ATTEMPTED='bentan:2026-autumn-survey-migration-attempted-v1';
+const ATTEMPTED='bentan:2026-autumn-survey-shared-migration-attempted-v2';
 function parse(rows:unknown):States {
  if(!Array.isArray(rows))throw Error('共有状態の応答を確認できません。');
  const next:States={};

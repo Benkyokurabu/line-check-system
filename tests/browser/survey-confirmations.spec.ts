@@ -56,9 +56,9 @@ test('ログイン切れで共有状態を偽装せず再ログイン後に復�
  s.unauthorized=true;await page.getByRole('button',{name:'未確認',exact:true}).click();await expect(page.getByRole('link',{name:'職員ログイン',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'未確認',exact:true})).toBeEnabled();
  s.unauthorized=false;await page.getByRole('button',{name:'確認状態を再取得'}).click();await expect(page.getByRole('button',{name:'内容を確認して再試行'})).toBeEnabled();
 });
-test('未認証の保存・他サイトからの保存を拒否',async({request})=>{
+test('ログインを要求せず入力検証し、他サイトからの保存を拒否',async({request})=>{
  expect((await request.post('/api/interview-surveys/confirmations',{headers:{origin:'https://other.invalid'},data:{changes:[]}})).status()).toBe(403);
- expect((await request.post('/api/interview-surveys/confirmations',{headers:{origin:'https://test.invalid'},data:{changes:[]}})).status()).toBe(401);
+ expect((await request.post('/api/interview-surveys/confirmations',{headers:{origin:'https://test.invalid'},data:{clientVersion:2,changes:[]}})).status()).toBe(400);
 });
 
 test('保存失敗した操作は再読込後も残り、自動では送信しない',async({page,context})=>{
