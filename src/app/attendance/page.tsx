@@ -7,6 +7,7 @@ import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
 import { LineRegistrationForm } from "@/app/LineRegistrationForm";
 import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
+import { recommendedAttendanceLesson } from "@/lib/attendance-lesson-choice.mjs";
 import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
 import {
   actionCandidatesForReview,
@@ -226,6 +227,7 @@ function makeClientId() {
 }
 
 function initialItems(candidate: Candidate, initialCampus: string, fallbackStudentNumber: string) {
+  const requiresStudentSelection = candidate.student_selection_required === true;
   const source = (candidate.attendance_candidate_items ?? []).length > 0 ? candidate.attendance_candidate_items! : [{
     id: "", student_number: candidate.student_number, event_type: candidate.event_type, event_date: candidate.event_date, lesson_id: candidate.lesson_id,
     suggested_subject: candidate.suggested_subject, suggested_class_name: candidate.suggested_class_name,
@@ -234,11 +236,11 @@ function initialItems(candidate: Candidate, initialCampus: string, fallbackStude
   return source.map((item) => ({
     client_id: item.id || makeClientId(),
     id: item.id || undefined,
-    student_number: item.student_number ?? candidate.student_number ?? fallbackStudentNumber,
+    student_number: requiresStudentSelection ? "" : item.student_number ?? candidate.student_number ?? fallbackStudentNumber,
     event_type: item.event_type || candidate.event_type || "absence",
     event_date: item.event_date ?? "",
     campus: item.lessons?.campus ?? initialCampus,
-    lesson_id: item.lesson_id ?? "",
+    lesson_id: requiresStudentSelection ? "" : item.lesson_id ?? "",
     suggested_subject: item.suggested_subject,
     suggested_class_name: item.suggested_class_name,
     ai_summary: item.ai_summary ?? fallbackReason(item.event_type || candidate.event_type),
@@ -876,7 +878,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
       <span style={{ fontWeight: 700 }}>授業</span>
       {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
         <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: lesson.id === lessonId ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === lessonId ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === lessonId; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
       </div>)}
     </div>}
     {!periodMode && isCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
@@ -1086,7 +1088,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
             <span style={{ fontWeight: 700 }}>授業</span>
             {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
               <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => <button key={lesson.id} type="button" onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: lesson.id === draft.lesson_id ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: lesson.id === draft.lesson_id ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>)}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === draft.lesson_id; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
             </div>)}
           </div>
           {isEditingCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
@@ -1198,10 +1200,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
             const eligibleLessons = targetCampus ? found.filter((lesson) => lesson.campus === targetCampus) : found;
             const subject = normalizeLessonText(item.suggested_subject);
             const className = normalizeLessonText(item.suggested_class_name);
-            const recommended = eligibleLessons.find((lesson) => {
-              const label = normalizeLessonText(lesson.label);
-              return lesson.enrolled && ((subject && label.includes(subject)) || (className && label.includes(className)));
-            }) ?? eligibleLessons.find((lesson) => lesson.enrolled) ?? null;
+            const recommended = recommendedAttendanceLesson(eligibleLessons, subject, className);
             if (!recommended) return item;
             return { ...item, lesson_id: recommended.id, campus: recommended.campus || targetCampus, cross_campus_override: false, cross_campus_reason: "" };
           }));
@@ -1532,6 +1531,16 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     <div style={{ color: "#666", fontSize: 13, fontWeight: 700, marginTop: 12 }}>受信日時: {receivedAtText}</div>
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <ReplyHistory replies={candidate.reply_messages ?? []} />
+    {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 8, padding: 12, margin: "12px 0", display: "grid", gap: 10 }}>
+      <strong style={{ color: "#9a3412" }}>欠席・遅刻の対象生徒を選択</strong>
+      <p style={{ color: "#9a3412", margin: 0, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</p>
+      {suggestions.length > 0 && <div role="group" aria-label="連絡した生徒の候補" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {suggestions.map((student) => {
+          const selected = student.student_number === studentNumber;
+          return <button key={student.student_number} type="button" aria-pressed={selected} disabled={busy || registering} onClick={() => selectStudent(student.student_number)} style={{ ...ghostButtonStyle, border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", background: selected ? "#ecfdf3" : "white", color: selected ? "var(--accent)" : "#222" }}>{student.grade} {student.student_name}</button>;
+        })}
+      </div>}
+    </div>}
     {registrationOpen && senderLineUserId && <div ref={registrationRef} style={{ margin: "12px 0" }}><LineRegistrationForm key={senderLineUserId} userId={senderLineUserId} displayName={candidate.line_messages?.display_name} students={studentOptions} initialStudentNumber={studentNumber} evidence={candidate.line_messages?.id ? { id: candidate.line_messages.id, text: candidate.line_messages.text ?? "（本文なし）" } : null} confirmedBy={confirmedBy} onConfirmedByChange={onConfirmedByChange} source="attendance_review" onClose={() => setRegistrationOpen(false)} onSaved={async (result) => { if (result.relation !== "staff" && result.studentNumbers[0]) selectStudent(result.studentNumbers[0]); await onChanged(); }} /></div>}
 
 
@@ -1625,7 +1634,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
                 {group.lessons.map((lesson) => {
                   const selected = lesson.id === item.lesson_id;
                   const enrolled = Boolean(lesson.enrolled);
-                  return <button key={lesson.id} type="button" disabled={rowClosed} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                  return <button key={lesson.id} type="button" aria-pressed={selected} disabled={rowClosed} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
                     <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
                   </button>;
                 })}

@@ -28,6 +28,7 @@ type StudentSuggestionResult = {
   suggestions: StudentSuggestion[];
   requiresSelection: boolean;
   reason: string | null;
+  resolvedStudentNumber: string | null;
 };
 
 type LineAccountRow = {
@@ -161,15 +162,28 @@ function buildStudentSuggestions(input: {
     }
   }
 
-  const sorted = [...suggestions.values()].sort((a, b) => b.score - a.score).slice(0, 5);
-  const hasExplicitStudent = Boolean(input.currentStudentNumber) || sorted.some((student) =>
-    ["名前一致", "送信者名に生徒名", "送信者名に姓名の一部"].includes(student.reason),
-  );
-  const requiresSelection = linkedStudentNumbers.length > 1 && !hasExplicitStudent;
+  const sortedSuggestions = [...suggestions.values()].sort((a, b) => b.score - a.score);
+  const linkedStudentNumberSet = new Set(linkedStudentNumbers);
+  const linkedSuggestions = sortedSuggestions.filter((student) => linkedStudentNumberSet.has(student.student_number));
+  const sorted = [
+    ...linkedSuggestions,
+    ...sortedSuggestions
+      .filter((student) => !linkedStudentNumberSet.has(student.student_number))
+      .slice(0, Math.max(0, 5 - linkedSuggestions.length)),
+  ];
+  const explicitLinkedStudents = linkedStudentNumbers.filter((studentNumber) => {
+    const studentName = normalizeName(rosterByNumber.get(studentNumber)?.student_name);
+    return Boolean(studentName && messageText.includes(studentName));
+  });
+  const requiresSelection = linkedStudentNumbers.length > 1 && explicitLinkedStudents.length !== 1;
+  const resolvedStudentNumber = requiresSelection
+    ? null
+    : explicitLinkedStudents[0] ?? input.currentStudentNumber;
   return {
     suggestions: sorted,
     requiresSelection,
-    reason: requiresSelection ? "同じLINE連絡先に兄弟姉妹が複数紐づいています。本文から生徒を特定できないため、登録前に人間が名前を選択してください。" : null,
+    reason: requiresSelection ? "同じLINE連絡先に兄弟姉妹が複数紐づいています。本文から生徒を1人に特定できないため、候補をすべて表示し、誰の連絡か選ぶまで授業を選択しません。" : null,
+    resolvedStudentNumber,
   } satisfies StudentSuggestionResult;
 }
 
@@ -319,6 +333,10 @@ export async function GET(request: Request) {
     });
     return {
       ...candidate,
+      student_number: suggestionResult.resolvedStudentNumber,
+      student_roster: suggestionResult.resolvedStudentNumber
+        ? rosterRows.find((student) => student.student_number === suggestionResult.resolvedStudentNumber) ?? candidate.student_roster
+        : null,
       sender_profile: buildSenderProfile({ lineMessage, accounts: linkedAccounts, aliases: aliasRows }),
       reply_messages: repliesByCandidateId.get(candidate.id as string) ?? [],
       reply_status: (() => {

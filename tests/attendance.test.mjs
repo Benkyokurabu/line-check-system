@@ -13,11 +13,40 @@ import {
   actionCandidatesForReview,
   visibleCandidateCountAfterReload,
 } from "../src/lib/attendance-review-logic.mjs";
+import { recommendedAttendanceLesson } from "../src/lib/attendance-lesson-choice.mjs";
 
 const identityStudents = [
   { student_number: "1001", student_name: "山田 太郎" },
   { student_number: "1002", student_name: "髙橋 花子" },
 ];
+
+test("lesson auto-selection stays empty when one student has multiple possible lessons", () => {
+  const lessons = [
+    { id: "math", label: "数学 A", enrolled: true },
+    { id: "english", label: "英語 B", enrolled: true },
+  ];
+  assert.equal(recommendedAttendanceLesson(lessons, "", ""), null);
+  assert.equal(recommendedAttendanceLesson(lessons, "英語", ""), lessons[1]);
+  assert.equal(recommendedAttendanceLesson([lessons[0]], "", ""), lessons[0]);
+  assert.equal(recommendedAttendanceLesson([
+    lessons[0],
+    { id: "math-2", label: "数学 B", enrolled: true },
+  ], "数学", ""), null);
+});
+
+test("ambiguous sibling attendance shows every candidate without preselecting a student", async () => {
+  const [route, page] = await Promise.all([
+    readFile(new URL("../src/app/api/attendance/candidates/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /explicitLinkedStudents\.length !== 1/);
+  assert.match(route, /\.slice\(0, Math\.max\(0, 5 - linkedSuggestions\.length\)\)/);
+  assert.match(route, /student_number: suggestionResult\.resolvedStudentNumber/);
+  assert.match(page, /欠席・遅刻の対象生徒を選択/);
+  assert.match(page, /aria-label="連絡した生徒の候補"/);
+  assert.match(page, /requiresStudentSelection \? "" : item\.lesson_id/);
+  assert.match(page, /recommendedAttendanceLesson\(eligibleLessons, subject, className\)/);
+});
 
 test("explicit LINE identity statements detect the student and relationship", () => {
   assert.deepEqual(detectExplicitLineIdentities("こんにちは。山田太郎の母です。", identityStudents), [{

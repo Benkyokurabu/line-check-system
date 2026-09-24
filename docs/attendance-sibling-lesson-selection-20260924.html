@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>勉たん　LINE欠席確認の選択ルール</title>
+  <style>
+    :root { --ink:#17342a; --muted:#62716b; --line:#d8e0dc; --green:#087a3d; --soft:#ecfdf3; --warn:#fff7ed; --orange:#9a3412; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:#f4f7f5; font-family:"Yu Gothic UI","Hiragino Sans",sans-serif; }
+    main { width:min(1080px,calc(100% - 32px)); margin:32px auto 56px; }
+    h1 { margin:0 0 8px; font-size:clamp(26px,4vw,42px); letter-spacing:.02em; }
+    h2 { margin:0 0 14px; font-size:21px; }
+    p { line-height:1.7; }
+    .lead { color:var(--muted); margin:0 0 28px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+    .card { background:white; border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:0 8px 26px #153a2a0a; }
+    .wide { grid-column:1/-1; }
+    .message { padding:14px; border-left:5px solid var(--green); background:#f7faf8; border-radius:8px; }
+    .notice { padding:12px; color:var(--orange); background:var(--warn); border:1px solid #fed7aa; border-radius:8px; font-weight:700; }
+    .choices { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0; }
+    button { font:inherit; border:1px solid var(--line); border-radius:9px; padding:11px 15px; background:white; color:var(--ink); font-weight:750; }
+    button.selected { border:2px solid var(--green); background:var(--soft); color:var(--green); }
+    .caption { color:var(--muted); font-size:13px; }
+    .flow { display:grid; grid-template-columns:1fr auto 1fr auto 1fr; align-items:stretch; gap:10px; }
+    .step { padding:14px; border:1px solid var(--line); border-radius:12px; background:white; }
+    .arrow { align-self:center; color:var(--green); font-size:24px; font-weight:900; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { padding:12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { color:var(--muted); font-size:13px; }
+    .ok { color:var(--green); font-weight:800; }
+    @media(max-width:760px){ .grid{grid-template-columns:1fr}.wide{grid-column:auto}.flow{grid-template-columns:1fr}.arrow{transform:rotate(90deg);justify-self:center} }
+  </style>
+</head>
+<body>
+<main>
+  <h1>LINE欠席確認の選択ルール</h1>
+  <p class="lead">2026-09-24 確定案／判断の自動化は「1人・1授業に一意に決まる時だけ」とする。</p>
+
+  <section class="card wide">
+    <h2>全体フロー</h2>
+    <div class="flow">
+      <div class="step"><strong>1. LINE本文を確認</strong><p>本文中の生徒名・科目・クラスを使う。送信者名だけでは生徒を決めない。</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><strong>2. 生徒を確定</strong><p>本文で1人に決まれば選択。決まらなければ兄弟姉妹を全員表示し、未選択で止める。</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><strong>3. 授業を確定</strong><p>1件だけなら自動選択。2件以上は科目・クラスの一意一致時だけ自動選択。</p></div>
+    </div>
+  </section>
+
+  <div class="grid" style="margin-top:18px">
+    <section class="card">
+      <h2>兄弟姉妹を特定できない例</h2>
+      <div class="message">保護者LINE：「今日は欠席します」</div>
+      <p class="notice">同じLINEに複数の生徒が連携済み。候補をすべて表示し、誰も選択しない。</p>
+      <div class="choices" aria-label="生徒候補の表示例">
+        <button>中2　山田 花子</button><button>小6　山田 太郎</button>
+      </div>
+      <p class="caption">職員が生徒を選ぶまで、授業候補は自動選択しない。</p>
+    </section>
+
+    <section class="card">
+      <h2>同日に2授業ある例</h2>
+      <div class="message">保護者LINE：「花子は今日、数学を欠席します」</div>
+      <div class="choices" aria-label="授業選択の表示例">
+        <button class="selected" aria-pressed="true">✓ 17:00　数学A／受講中</button>
+        <button aria-pressed="false">19:00　英語B／受講中</button>
+      </div>
+      <p class="caption">色が付くのは現在選択中の1件だけ。選択を外した授業は白に戻る。</p>
+    </section>
+
+    <section class="card wide">
+      <h2>自動選択の境界</h2>
+      <table>
+        <thead><tr><th>状況</th><th>生徒</th><th>授業</th></tr></thead>
+        <tbody>
+          <tr><td>本文に連携済み生徒の氏名が1人だけある</td><td class="ok">自動選択</td><td>以下の授業ルールで判定</td></tr>
+          <tr><td>兄弟姉妹が複数連携済みで、本文から1人に決まらない</td><td>全員を候補表示・未選択</td><td>未選択</td></tr>
+          <tr><td>対象日の受講授業が1件</td><td>確定済み</td><td class="ok">自動選択</td></tr>
+          <tr><td>受講授業が2件以上、科目・クラスが1件に一意一致</td><td>確定済み</td><td class="ok">一致した1件を自動選択</td></tr>
+          <tr><td>受講授業が2件以上、本文で特定できない</td><td>確定済み</td><td>全授業を白で表示・未選択</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</main>
+</body>
+</html>
