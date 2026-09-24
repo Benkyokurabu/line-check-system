@@ -6,7 +6,7 @@ const menuItems = [
     href: "/staff/interview-availability",
     group: "reservation" as const,
     icon: "calendar",
-    title: "面談受付枠を作る",
+    title: "予約可能枠を作る",
     description: "毎月のスケジュール表から、自分の勤務校舎と空き時間を確認してNotionへ予約可を作成します。",
   },
   {
