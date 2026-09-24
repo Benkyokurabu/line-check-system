@@ -22,12 +22,29 @@ export function schoolLessonInterval(value){
  return [start,end];
 }
 
-/** @param {{date:string,teacher:string,lessons:Array<{lesson_date:string,teacher_name?:string,campus?:string,start_time?:string}>,bookings?:Array<{status:string,data?:Record<string,string>}>,settings:{duration:number,buffer:number,daytime:string[],evening:string[],flexibleStart:string,flexibleEnd:string}}} input */
-export function planTeacherAvailability({date,teacher,lessons,bookings=[],settings}){
+export class CampusChoiceNeeded extends Error {
+ constructor(){super('同じ授業が本校と南教室の両方に載っています。実際に勤務する校舎を選んでください。');}
+}
+
+const lessonKey=row=>[row.start_time,row.grade,row.class_name,row.subject,row.label].map(value=>String(value??'').normalize('NFKC').replace(/\s/g,'')).join('|');
+
+export function resolveDayCampus(teacherLessons,campusChoice=''){
+ if(!teacherLessons.length)throw Error('担当授業がないため勤務日と判断できません。');
+ if(teacherLessons.some(row=>!['本校','南教室'].includes(row.campus)))throw Error('校舎が不明な授業があります。スケジュール表を確認してください。');
+ const byLesson=Map.groupBy(teacherLessons,lessonKey);
+ const exclusive=new Set([...byLesson.values()].filter(group=>new Set(group.map(row=>row.campus)).size===1).map(group=>group[0].campus));
+ if(exclusive.size>1)throw Error('同日に本校と南教室で異なる授業があります。勤務校舎を確認してください。');
+ const campuses=new Set(teacherLessons.map(row=>row.campus));
+ const resolved=exclusive.values().next().value??(campuses.size===1?campuses.values().next().value:'');
+ if(resolved){if(campusChoice&&campusChoice!==resolved)throw Error('スケジュール表の授業と選択した校舎が一致しません。');return resolved;}
+ if(!['本校','南教室'].includes(campusChoice))throw new CampusChoiceNeeded();
+ return campusChoice;
+}
+
+/** @param {{date:string,teacher:string,lessons:Array<{lesson_date:string,teacher_name?:string,campus?:string,start_time?:string}>,bookings?:Array<{status:string,data?:Record<string,string>}>,settings:{duration:number,buffer:number,daytime:string[],evening:string[],flexibleStart:string,flexibleEnd:string},campusChoice?:string}} input */
+export function planTeacherAvailability({date,teacher,lessons,bookings=[],settings,campusChoice=''}){
  const key=normalizeTeacher(teacher),teacherLessons=lessons.filter(row=>row.lesson_date===date&&normalizeTeacher(row.teacher_name)===key);
- const campuses=[...new Set(teacherLessons.map(row=>row.campus).filter(campus=>['本校','南教室'].includes(campus)))];
- if(campuses.length!==1)throw Error(campuses.length?'同日に複数校舎の授業があります。自動登録を停止しました。':'担当授業がないため勤務日と判断できません。');
- const campus=campuses[0],duration=settings.duration,buffer=settings.buffer;
+ const campus=resolveDayCampus(teacherLessons,campusChoice),duration=settings.duration,buffer=settings.buffer;
  const starts=[...settings.daytime.filter(start=>start!=='13:00'),'18:40',...settings.evening];
  return [...new Set(starts)].sort().flatMap(start=>{
   const slotStart=minutes(start),flexible=slotStart>=minutes(settings.flexibleStart)&&slotStart<minutes(settings.flexibleEnd);

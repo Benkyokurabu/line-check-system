@@ -22,3 +22,24 @@ test('金城は独立メニューで自分の受付枠だけを確認する',asy
  await page.route('**/api/staff/interview-auto-availability?*',route=>new URL(route.request().url()).searchParams.get('overview')==='1'?route.fulfill({json:{month:'2026-10',teachers:[]}}):route.fulfill({json:{...base,teacher:'金城',summary:{create:0,update:0,archive:0,keep:0,skip:0,review:0},items:[]}}));
  await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'unchanged',message:'同期済み'}}));await page.goto('/staff/interview-availability');await expect(page.getByRole('heading',{name:'金城正樹さんの受付枠'})).toBeVisible();await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('金城先生');
 });
+
+test('29日の両校舎表記では勤務校舎を尋ね、再確認後だけ反映できる',async({page})=>{
+ let selected=false,applied=false;
+ await page.setViewportSize({width:390,height:844});
+ await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'00000000-0000-4000-8000-000000000001',staffCode:'KUDO',displayName:'工藤謙',role:'admin'}}}));
+ await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'unchanged',message:'同期済み'}}));
+ await page.route('**/api/staff/interview-auto-availability*',route=>{
+  const request=route.request(),url=new URL(request.url());
+  if(url.searchParams.get('overview')==='1')return route.fulfill({json:{month:'2026-10',teachers:[]}});
+  if(request.method()==='POST'){expect(request.postDataJSON().campusChoices).toEqual({'2026-10-29':'南教室'});applied=true;return route.fulfill({json:{saved:{applied:[{action:'create'}]}}});}
+  const choices=JSON.parse(url.searchParams.get('campusChoices')??'{}');if(choices['2026-10-29']==='南教室')selected=true;
+  const item=applied?{key:'2026-10-29|14:00',date:'2026-10-29',start:'14:00',end:'14:45',campus:'南教室',action:'keep',reason:'変更なし'}:selected?{key:'2026-10-29|14:00',date:'2026-10-29',start:'14:00',end:'14:45',campus:'南教室',action:'create',reason:'新しく作成'}:{key:'2026-10-29|review',date:'2026-10-29',start:'',end:'',campus:'',action:'review',needsCampusChoice:true,reason:'実際に勤務する校舎を選んでください。'};
+  return route.fulfill({json:{...base,summary:{create:selected&&!applied?1:0,update:0,archive:0,keep:applied?1:0,skip:0,review:selected?0:1},campusDecisions:selected?[{date:'2026-10-29',campus:'南教室',source:applied?'saved':'selected'}]:[],items:[item]}});
+ });
+ await page.goto('/staff/interview-availability');await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();
+ await expect(page.getByLabel('勤務校舎の選択')).toContainText('2026-10-29');await expect(page.getByRole('button',{name:'この内容をNotionへ反映'})).toBeDisabled();
+ await page.getByLabel('2026-10-29の勤務校舎').selectOption('南教室');await page.getByRole('button',{name:'選んだ校舎で枠を再確認'}).click();
+ await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('2026-10-29 14:00〜14:45');await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('勤務校舎の確認：2026-10-29 南教室');
+ await page.getByRole('button',{name:'この内容をNotionへ反映'}).click();await page.getByRole('dialog',{name:'予約可の反映確認'}).getByRole('button',{name:'Notionへ反映する'}).click();
+ await expect(page.getByRole('status')).toContainText('1件をNotionへ反映しました');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
