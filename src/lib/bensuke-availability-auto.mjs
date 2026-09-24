@@ -9,6 +9,7 @@ export function schoolLessonInterval(value){
  return [start,end];
 }
 
+/** @param {{date:string,teacher:string,lessons:Array<{lesson_date:string,teacher_name?:string,campus?:string,start_time?:string}>,bookings?:Array<{status:string,data?:Record<string,string>}>,settings:{duration:number,buffer:number,daytime:string[],evening:string[],flexibleStart:string,flexibleEnd:string}}} input */
 export function planTeacherAvailability({date,teacher,lessons,bookings=[],settings}){
  const key=normalizeTeacher(teacher),teacherLessons=lessons.filter(row=>row.lesson_date===date&&normalizeTeacher(row.teacher_name)===key);
  const campuses=[...new Set(teacherLessons.map(row=>row.campus).filter(campus=>['本校','南教室'].includes(campus)))];
