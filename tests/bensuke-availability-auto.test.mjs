@@ -9,9 +9,17 @@ test('授業日誌の12時間表記を午後の授業として扱う',()=>{
  assert.deepEqual(schoolLessonInterval('13:00～14:20'),[13*60,14*60+20]);
 });
 
-test('工藤の授業と予備時間に重ならない45分枠だけを作る',()=>{
+test('13時を除き、工藤の授業と予備時間に重ならない45分枠だけを作る',()=>{
  const rows=planTeacherAvailability({date:'2026-10-01',teacher:'工藤',settings:defaults,lessons:[{lesson_date:'2026-10-01',teacher_name:'工藤',campus:'本校',start_time:'4:55～6:15'}]});
- assert.deepEqual(rows.map(row=>[row.start,row.end,row.busyEnd]),[['13:00','13:45','14:00'],['14:00','14:45','15:00'],['15:00','15:45','16:00']]);
+ assert.deepEqual(rows.map(row=>[row.start,row.end,row.busyStart,row.busyEnd]),[
+  ['14:00','14:45','14:00','15:00'],['15:00','15:45','15:00','16:00'],
+  ['18:40','19:25','18:35','20:05'],['20:30','21:15','20:30','21:30'],['21:30','22:15','21:30','22:30'],
+ ]);
+});
+
+test('授業コマの時間帯でも本人の授業がなければ作成する',()=>{
+ const rows=planTeacherAvailability({date:'2026-10-02',teacher:'工藤',settings:defaults,lessons:[{lesson_date:'2026-10-02',teacher_name:'工藤',campus:'本校',start_time:'8:25～9:55'}]});
+ assert.deepEqual(rows.map(row=>row.start),['14:00','15:00','16:00','17:00','18:40']);
 });
 
 test('授業がない日や複数校舎の日は自動登録しない',()=>{

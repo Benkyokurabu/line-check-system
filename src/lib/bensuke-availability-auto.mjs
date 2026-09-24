@@ -14,10 +14,12 @@ export function planTeacherAvailability({date,teacher,lessons,bookings=[],settin
  const campuses=[...new Set(teacherLessons.map(row=>row.campus).filter(campus=>['本校','南教室'].includes(campus)))];
  if(campuses.length!==1)throw Error(campuses.length?'同日に複数校舎の授業があります。自動登録を停止しました。':'担当授業がないため勤務日と判断できません。');
  const campus=campuses[0],duration=settings.duration,buffer=settings.buffer;
- return [...new Set(settings.daytime)].sort().flatMap(start=>{
-  const from=minutes(start),to=from+duration+buffer;
+ const starts=[...settings.daytime.filter(start=>start!=='13:00'),'18:40',...settings.evening];
+ return [...new Set(starts)].sort().flatMap(start=>{
+  const slotStart=minutes(start),flexible=slotStart>=minutes(settings.flexibleStart)&&slotStart<minutes(settings.flexibleEnd);
+  const from=flexible?minutes(settings.flexibleStart):slotStart,to=flexible?minutes(settings.flexibleEnd):slotStart+duration+buffer;
   const lessonConflict=teacherLessons.some(row=>{const [a,b]=schoolLessonInterval(row.start_time);return overlaps(from,to,a,b);});
   const bookingConflict=bookings.some(row=>!['cancelled','rejected'].includes(row.status)&&row.data?.date===date&&normalizeTeacher(row.data?.teacher)===key&&overlaps(from,to,minutes(row.data.busyStart),minutes(row.data.busyEnd)));
-  return lessonConflict||bookingConflict?[]:[{date,teacher,campus,start,end:clock(from+duration),busyStart:start,busyEnd:clock(to)}];
+  return lessonConflict||bookingConflict?[]:[{date,teacher,campus,start,end:clock(slotStart+duration),busyStart:clock(from),busyEnd:clock(to)}];
  });
 }
