@@ -8,7 +8,9 @@ export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export const maxDuration=60;
 async function readStates(client:ReturnType<typeof createSupabaseAdminClient>,ids?:Set<string|null>){
- const {data,error}=await client.from('survey_confirmations').select('page_id,confirmed,progress_status,version,updated_at,updated_by').order('page_id').limit(10000);
+ let query=client.from('survey_confirmations').select('page_id,confirmed,progress_status,version,updated_at,updated_by');
+ if(ids)query=query.in('page_id',[...ids].filter((id):id is string=>!!id));
+ const {data,error}=await query.order('page_id').limit(ids?.size||10000);
  if(error)throw new Error('read_failed');
  return (data??[]).filter(s=>!ids||ids.has(s.page_id)).map(s=>({page_id:s.page_id,confirmed:s.confirmed,progress_status:s.progress_status,version:s.version,updated_at:s.updated_at,updated_name:s.updated_by?'職員による保存':'共有操作'}));
 }
@@ -30,13 +32,17 @@ export async function POST(request:NextRequest){
   const body=await staffJsonBody(request,32768);
   if(![2,3].includes(Number(body.clientVersion)))return staffResponse({error:'共有方法が更新されました。画面を再読み込みしてください。端末の記録は残っています。'},undefined,409);
   const changes=validateSurveyChanges(body.changes);
-  const ids=await answerIds();
-  if(changes.some(c=>!ids.has(c.pageId)))throw new StaffAuthError('invalid_request',400);
   const client=createSupabaseAdminClient();
+  const changedIds=new Set(changes.map(c=>c.pageId));
+  const {data:knownRows,error:knownError}=await client.from('survey_confirmations').select('page_id').in('page_id',[...changedIds]);
+  if(knownError)throw new Error('read_failed');
+  const knownIds=new Set((knownRows??[]).map(row=>row.page_id));
+  const unknownIds=changes.filter(c=>!knownIds.has(c.pageId)).map(c=>c.pageId);
+  if(unknownIds.length){const validIds=await answerIds();if(unknownIds.some(id=>!validIds.has(id)))throw new StaffAuthError('invalid_request',400);}
   const {error}=await client.rpc('save_shared_survey_confirmations',{p_changes:changes});
-  if(error?.message==='survey_conflict')return staffResponse({error:'他の先生が更新しています。',states:await readStates(client,ids)},undefined,409);
+  if(error?.message==='survey_conflict')return staffResponse({error:'他の先生が更新しています。',states:await readStates(client,changedIds),partial:true},undefined,409);
   if(error)return staffResponse({error:'保存できませんでした。変更は残っています。再試行してください。'},undefined,503);
-  return staffResponse({saved:true,states:await readStates(client,ids)});
+  return staffResponse({saved:true,states:await readStates(client,changedIds),partial:true});
  }catch(e){
   if(e instanceof StaffAuthError)return staffErrorResponse(e);
   if(e instanceof Error&&e.message==='invalid_request')return staffErrorResponse(new StaffAuthError('invalid_request',400));
