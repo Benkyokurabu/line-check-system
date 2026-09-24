@@ -1202,17 +1202,23 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         .then((body) => {
           const found = (body.lessons ?? []) as Lesson[];
           setLessonLists((current) => ({ ...current, [requestKey]: found }));
-          setItems((currentItems) => currentItems.map((item) => {
-            if (item.event_date !== date || item.student_number !== rowStudentNumber || !rowStudentNumber || item.lesson_id) return item;
-            const itemStudent = studentOptions.find((student) => student.student_number === item.student_number);
-            const targetCampus = selectableCampus(itemStudent?.campus);
-            const eligibleLessons = targetCampus ? found.filter((lesson) => lesson.campus === targetCampus) : found;
-            const subject = normalizeLessonText(item.suggested_subject);
-            const className = normalizeLessonText(item.suggested_class_name);
-            const recommended = recommendedAttendanceLesson(eligibleLessons, subject, className);
-            if (!recommended) return item;
-            return { ...item, lesson_id: recommended.id, campus: recommended.campus || targetCampus, cross_campus_override: false, cross_campus_reason: "" };
-          }));
+          setItems((currentItems) => {
+            const assignedLessonIds = new Set(currentItems
+              .filter((item) => item.event_date === date && item.student_number === rowStudentNumber && item.lesson_id)
+              .map((item) => item.lesson_id));
+            return currentItems.map((item) => {
+              if (item.event_date !== date || item.student_number !== rowStudentNumber || !rowStudentNumber || item.lesson_id) return item;
+              const itemStudent = studentOptions.find((student) => student.student_number === item.student_number);
+              const targetCampus = selectableCampus(itemStudent?.campus);
+              const eligibleLessons = found.filter((lesson) => !assignedLessonIds.has(lesson.id) && (!targetCampus || lesson.campus === targetCampus));
+              const subject = normalizeLessonText(item.suggested_subject);
+              const className = normalizeLessonText(item.suggested_class_name);
+              const recommended = recommendedAttendanceLesson(eligibleLessons, subject, className);
+              if (!recommended) return item;
+              assignedLessonIds.add(recommended.id);
+              return { ...item, lesson_id: recommended.id, campus: recommended.campus || targetCampus, cross_campus_override: false, cross_campus_reason: "" };
+            });
+          });
         })
         .catch((error) => {
           if (error instanceof DOMException && error.name === "AbortError") return;

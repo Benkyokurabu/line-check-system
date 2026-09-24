@@ -116,3 +116,56 @@ test("changing the registration-row student refreshes that student's lessons and
   await expect(page.getByRole("button", { name: /受講中/ })).toHaveCount(0);
   expect(lessonRequests).toContain("taro");
 });
+
+test("changing a row to a student already listed below selects only that student's remaining lesson", async ({ page }) => {
+  const sora = { student_number: "sora", student_name: "菊池 そら", grade: "中1", campus: "本校", homeroom_teacher: "田中" };
+  const shota = { student_number: "shota", student_name: "菊池 翔太", grade: "小6", campus: "本校", homeroom_teacher: "佐藤" };
+  const lessons = [
+    { id: "sora-lesson", label: "理科C", lesson_date: "2099-09-11", start_time: "16:00", campus: "本校", classroom: "C" },
+    { id: "math", label: "数学A", lesson_date: "2099-09-11", start_time: "17:00", campus: "本校", classroom: "A" },
+    { id: "english", label: "英語B", lesson_date: "2099-09-11", start_time: "19:00", campus: "本校", classroom: "B" },
+  ];
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/attendance/students") return route.fulfill({ json: { students: [sora, shota] } });
+    if (url.pathname === "/api/attendance/candidates") return route.fulfill({ json: { candidates: [{
+      id: "candidate-two-rows",
+      student_number: "sora",
+      student_roster: sora,
+      status: "pending",
+      event_type: "absence",
+      event_date: "2099-09-11",
+      ai_summary: "体調不良",
+      ai_confidence: 0.9,
+      sender_profile: { display_name: "菊池保護者", alias_names: [], account_names: [], tag_names: [] },
+      line_messages: { id: "message-two-rows", line_user_id: "line-family", display_name: "菊池保護者", text: "欠席します", received_at: "2099-09-10T09:00:00Z" },
+      attendance_candidate_items: [
+        { id: "item-sora", student_number: "sora", event_type: "absence", event_date: "2099-09-11", lesson_id: "sora-lesson", suggested_subject: null, suggested_class_name: null, ai_summary: "体調不良", status: "pending" },
+        { id: "item-shota", student_number: "shota", event_type: "absence", event_date: "2099-09-11", lesson_id: "math", suggested_subject: null, suggested_class_name: null, ai_summary: "体調不良", status: "pending" },
+      ],
+      reply_messages: [],
+    }] } });
+    if (url.pathname === "/api/attendance/lessons") {
+      const studentNumber = url.searchParams.get("student_number");
+      return route.fulfill({ json: { lessons: lessons.map((lesson) => ({ ...lesson, enrolled: studentNumber === "sora" ? lesson.id === "sora-lesson" : lesson.id !== "sora-lesson" })) } });
+    }
+    if (url.pathname === "/api/attendance/status") return route.fulfill({ json: {} });
+    if (url.pathname === "/api/attendance/extract") return route.fulfill({ json: { processed: 0, candidates: 0, ignored: 0, retrying: 0, dead: 0 } });
+    return route.fulfill({ json: {} });
+  });
+
+  await page.goto("/attendance");
+  await page.getByRole("button", { name: "対応する", exact: true }).click();
+  await expect(page.getByRole("button", { name: /数学A/ }).nth(1)).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: /菊池 そら.*別の生徒に変更/ }).click();
+  await page.getByRole("option", { name: /菊池 翔太/ }).click();
+
+  const firstRowEnglish = page.getByRole("button", { name: /英語B/ }).first();
+  const firstRowMath = page.getByRole("button", { name: /数学A/ }).first();
+  await expect(firstRowEnglish).toHaveAttribute("aria-pressed", "true");
+  await expect(firstRowEnglish).not.toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(firstRowMath).toHaveAttribute("aria-pressed", "false");
+  await expect(firstRowMath).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.getByRole("button", { name: /数学A/ }).nth(1)).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /英語B/ }).nth(1)).toHaveAttribute("aria-pressed", "false");
+});
