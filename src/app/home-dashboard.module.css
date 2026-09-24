@@ -168,7 +168,11 @@
 .surveyStudents a:hover { color: var(--home-accent); }
 .surveyStudents a small { color: var(--home-accent); font-size: 11px; font-weight: 500; }
 .surveyStudents a small:first-of-type { color: var(--home-muted); }
+.surveyStudentSummary { display:grid; gap:4px; min-width:0; }
+.surveyUpdatedAt { color:var(--home-muted); font-size:11px; line-height:1.35; }
 .surveyActions { display: flex; align-items: center; gap: 7px; }
+.surveyRowActions { display:grid; grid-template-columns:minmax(128px,230px) minmax(150px,1fr) auto; align-items:center; width:440px; }
+.surveyRowDetails { display:grid; gap:4px; min-width:0; color:var(--home-muted); font-size:11px; }
 .surveyActions button { padding: 7px 10px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .surveyStatusButton { min-width:70px; border:1px solid #d7b36f; background:#fff8e8; color:#77531d; }
 .surveyStatusButton:hover { border-color:#bb8523; background:#fff1cf; }
@@ -196,8 +200,8 @@
 .quickLinks a:hover { background: #d8eee5; }
 @media (max-width: 1050px) { .quickLinks { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .hero h1 { font-size: 30px; } .navigation { grid-template-columns: repeat(3,minmax(0,1fr)); } .navigation button { gap: 6px; padding: 10px 8px; } }
-@media (max-width: 850px) { .surveyFilterGrid { grid-template-columns:1fr 1fr; } .surveySearch { grid-column:1 / -1; } }
-@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyWorkflow ol { grid-template-columns:1fr; gap:5px; } .surveyWorkflow li::after { content:none; } .surveyWorkflow li { white-space:normal; } .surveyFilterGrid { grid-template-columns:1fr; } .surveySearch { grid-column:auto; } .surveyFilterHeading { display:grid; gap:3px; } .surveyFilterActions { display:grid; grid-template-columns:1fr 1fr; } .surveyFilterActions .surveyRefreshButton { grid-column:1 / -1; } .surveyStudents li { grid-template-columns: auto minmax(0,1fr); } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: stretch; flex-wrap: wrap; } .surveyProgressCell { flex:1 1 145px; max-width:none; } .surveyProgressCell select { width:100%; min-height:44px; } .surveyActions .scheduleAction { flex:1 1 170px; } }
+@media (max-width: 850px) { .surveyFilterGrid { grid-template-columns:1fr 1fr; } .surveySearch { grid-column:1 / -1; } .surveyStudents li { grid-template-columns:auto minmax(0,1fr); } .surveyRowActions { grid-column:1 / -1; width:100%; } }
+@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyWorkflow ol { grid-template-columns:1fr; gap:5px; } .surveyWorkflow li::after { content:none; } .surveyWorkflow li { white-space:normal; } .surveyFilterGrid { grid-template-columns:1fr; } .surveySearch { grid-column:auto; } .surveyFilterHeading { display:grid; gap:3px; } .surveyFilterActions { display:grid; grid-template-columns:1fr 1fr; } .surveyFilterActions .surveyRefreshButton { grid-column:1 / -1; } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: stretch; flex-wrap: wrap; } .surveyRowActions { grid-template-columns:minmax(0,1fr) auto; } .surveyProgressCell { grid-column:1 / -1; max-width:none; } .surveyProgressCell select { width:100%; min-height:44px; } .surveyRowDetails .scheduleAction { width:100%; } }
 @media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
 .surveyActions a.scheduleAction{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;border:1px solid #187d60;border-radius:8px;background:#e6f4ef;color:#125f58;font-size:12px;font-weight:700;text-decoration:none;box-sizing:border-box}.surveyActions a.scheduleAction:focus-visible{outline:3px solid #13856c;outline-offset:3px}

@@ -43,6 +43,14 @@ test('選択直後に表示を切り替え、操作した行だけを並行保�
  await second.selectOption('scheduled');await expect(second).toHaveValue('scheduled');await expect(second).toBeDisabled();
  await expect(first).toBeEnabled();await expect(second).toBeEnabled();await expect(first).toHaveValue('coordinating');await expect(second).toHaveValue('scheduled');expect(s.posts).toBe(2);
 });
+test('最終更新時刻があっても進捗の縦列を揃える',async({page,context})=>{
+ const s=server();s.states=[{page_id:id,confirmed:true,progress_status:'handled',version:1,updated_at:'2026-09-23T07:00:00Z'}];await setup(context,s);
+ await page.setViewportSize({width:1280,height:900});await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');
+ const first=page.getByRole('combobox',{name:'保存確認生徒の対応状況'}),second=page.getByRole('combobox',{name:'並行保存生徒の対応状況'});
+ await expect(page.getByText(/進捗の最終更新：/)).toBeVisible();
+ const [firstBox,secondBox]=await Promise.all([first.boundingBox(),second.boundingBox()]);
+ expect(firstBox).not.toBeNull();expect(secondBox).not.toBeNull();expect(Math.abs(firstBox!.x-secondBox!.x)).toBeLessThanOrEqual(1);
+});
 test('保存失敗は対応済みにせず再試行、競合は共有と操作を比較してから反映',async({page,context})=>{
  const s=server();s.fail=true;await setup(context,s);await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');
  await page.getByRole('combobox',{name:'保存確認生徒の対応状況'}).selectOption('completed');await expect(page.locator('p[role=alert]')).toContainText('保存できません');await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');

@@ -252,18 +252,22 @@ export default function HomeDashboard({
                       const isThirdGrade=/中(?:学)?\s*3/.test(student.grade);
                       return <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
                         <span className={styles.gradeBadge}>{student.grade}</span>
-                        <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>{!selectedSurveyTeacher && `${student.teacher}先生・`}{formatSubmittedAt(student.submittedAt)}</small><small>回答を開く ↗</small></a>
-                        <div className={styles.surveyActions}>
+                        <div className={styles.surveyStudentSummary}>
+                          <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>{!selectedSurveyTeacher && `${student.teacher}先生・`}{formatSubmittedAt(student.submittedAt)}</small><small>回答を開く ↗</small></a>
+                          {confirmation.get(student.notionUrl)?.updated_at&&<small className={styles.surveyUpdatedAt}>進捗の最終更新：{submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
+                        </div>
+                        <div className={`${styles.surveyActions} ${styles.surveyRowActions}`}>
                           <div className={styles.surveyProgressCell} data-status={progress.status}>
                             <span className={styles.surveyProgressLabel}>進捗</span>
                             <select value={progress.status} aria-label={`${student.name}の対応状況`} disabled={!confirmation.ready||confirmation.isSaving(student.notionUrl)} onChange={e=>confirmation.setProgress(student.notionUrl,e.target.value as 'needs-review'|'handled'|'coordinating'|'scheduled'|'completed')}>{Object.entries(surveyProgressLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select>
                             {schedule.date&&<small className={styles.surveyAppointment}>{schedule.date} {schedule.start}〜{schedule.end}</small>}
                             {schedule.status!=='uncontacted'&&<small>{schedule.detail}</small>}
                           </div>
-                          {schedule.status==='uncontacted'&&['needs-review','handled'].includes(progress.status)&&surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：面談日程を案内`}>{isThirdGrade?'面談日程を案内':'面談希望あり → 日程を案内'}</Link>}
-                          {confirmation.isSaving(student.notionUrl)&&<small role="status">保存中…</small>}
-                          {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
-                          {confirmation.get(student.notionUrl)?.updated_at&&<small>最終更新：{submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
+                          <div className={styles.surveyRowDetails}>
+                            {schedule.status==='uncontacted'&&['needs-review','handled'].includes(progress.status)&&surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：面談日程を案内`}>{isThirdGrade?'面談日程を案内':'面談希望あり → 日程を案内'}</Link>}
+                            {confirmation.isSaving(student.notionUrl)&&<small role="status">保存中…</small>}
+                            {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
+                          </div>
                           <button className={styles.surveyHideButton} type="button" aria-label="確認したのでこの行を削除する" title="この端末の一覧から非表示にします" onClick={() => hideSurvey(student.notionUrl)}>非表示</button>
                         </div>
                       </li>;
