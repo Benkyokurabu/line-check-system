@@ -1,12 +1,19 @@
 import {INTERVIEW_SURVEY_CAMPAIGN} from './interview-survey-campaign.mjs';
-export const schedulingLabels={uncontacted:'未連絡',invited:'打診済み',confirmed:'面談日確定',unknown:'要確認'};
+export const schedulingLabels={uncontacted:'未連絡',invited:'日程調整中',confirmed:'日程確定',completed:'面談終了',unknown:'要確認'};
+export const surveyProgressLabels={'needs-review':'要確認',handled:'対応済み',coordinating:'日程調整中',scheduled:'日程確定',completed:'面談終了'};
+export function surveyProgress(isHandled,schedule){
+ if(schedule.status==='completed')return {status:'completed',label:surveyProgressLabels.completed};
+ if(schedule.status==='confirmed')return {status:'scheduled',label:surveyProgressLabels.scheduled};
+ if(schedule.status==='invited')return {status:'coordinating',label:surveyProgressLabels.coordinating};
+ return isHandled?{status:'handled',label:surveyProgressLabels.handled}:{status:'needs-review',label:surveyProgressLabels['needs-review']};
+}
 export function surveyScheduling(studentId,invitations,requests,bookings,now=Date.now()){
  if(!studentId)return {status:'unknown',detail:'生徒の紐づけを確認してください。'};
  const all=invitations.filter(i=>i.student_id===studentId);
  const rows=all.filter(i=>i.slots?.some(s=>s.surveyCampaign?.id===INTERVIEW_SURVEY_CAMPAIGN.id)).sort((a,b)=>b.created_at.localeCompare(a.created_at));
  const answers=requests.filter(r=>rows.some(i=>i.id===r.invitation_id));
  const fixed=bookings.filter(b=>['confirmed','completed'].includes(b.status)&&answers.some(r=>r.booking_id===b.id)).sort((a,b)=>String(a.data.date).localeCompare(String(b.data.date)))[0];
- if(fixed)return {status:'confirmed',detail:fixed.status==='completed'?'実施済み':'日程が確定しています。',date:fixed.data.date,start:fixed.data.start,end:fixed.data.end};
+ if(fixed)return {status:fixed.status==='completed'?'completed':'confirmed',detail:fixed.status==='completed'?'面談が終了しています。':'日程が確定しています。',date:fixed.data.date,start:fixed.data.start,end:fixed.data.end};
  const invitation=rows.find(i=>i.status==='active'&&Date.parse(i.expires_at)>now)??rows[0];
  if(!invitation){
   // Legacy or manually entered records have no campaign identity. Do not guess.

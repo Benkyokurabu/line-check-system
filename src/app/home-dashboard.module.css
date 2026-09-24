@@ -115,11 +115,19 @@
 .surveyInvitationButton:hover { background: #125544; }
 .surveyInvitationButton:focus-visible { outline: 3px solid #9b722f; outline-offset: 3px; }
 .surveyInvitation p { margin: 8px 0 0; color: var(--home-muted); font-size: 13px; }
+.surveyWorkflow { margin-top:18px; padding:14px 16px; border-left:4px solid #176b58; border-radius:8px; background:#eef7f4; }
+.surveyWorkflow p { display:flex; flex-wrap:wrap; gap:5px 12px; margin:0 0 12px; font-size:13px; }
+.surveyWorkflow p span { color:var(--home-muted); }
+.surveyWorkflow ol { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin:0; padding:0; list-style:none; }
+.surveyWorkflow li { display:flex; align-items:center; gap:6px; min-width:0; color:#52677a; font-size:11px; font-weight:700; white-space:nowrap; }
+.surveyWorkflow li::after { content:'›'; margin-left:auto; color:#8ba199; font-size:18px; font-weight:400; }
+.surveyWorkflow li:last-child::after { content:none; }
+.surveyWorkflow li span { display:grid; place-items:center; width:22px; height:22px; flex:0 0 22px; border-radius:50%; background:#dce8e4; color:#36564b; }
 .surveyFilters { margin:20px 0 12px; padding:16px; border-radius:12px; background:#f5f9f7; }
 .surveyFilterHeading { display:flex; align-items:baseline; gap:10px; margin-bottom:12px; }
 .surveyFilterHeading strong { font-size:15px; }
 .surveyFilterHeading span { color:var(--home-muted); font-size:12px; }
-.surveyFilterGrid { display:grid; grid-template-columns:minmax(210px,2fr) repeat(3,minmax(130px,1fr)); gap:10px; align-items:end; }
+.surveyFilterGrid { display:grid; grid-template-columns:minmax(210px,2fr) repeat(2,minmax(150px,1fr)); gap:10px; align-items:end; }
 .surveySearch,.surveyFilterField { min-width:0; display:grid; gap:6px; color:#36564b; font-size:12px; font-weight:700; }
 .surveySearchControl { display:flex; align-items:center; gap:8px; min-height:44px; padding:0 12px; border:1px solid #bccfc8; border-radius:9px; background:#fff; }
 .surveySearch svg { width:18px; height:18px; flex-shrink:0; color:#627c75; }
@@ -164,23 +172,29 @@
 .surveyActions button { padding: 7px 10px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .surveyStatusButton { min-width:70px; border:1px solid #d7b36f; background:#fff8e8; color:#77531d; }
 .surveyStatusButton:hover { border-color:#bb8523; background:#fff1cf; }
-.surveyStatusField { display:grid; gap:4px; min-width:104px; color:var(--home-muted); font-size:11px; font-weight:700; }
-.surveyStatusField select { min-height:38px; padding:7px 28px 7px 9px; border:1px solid #d7b36f; border-radius:7px; background:#fff8e8; color:#77531d; font:inherit; font-size:12px; font-weight:700; }
-.surveyStatusField select:has(option[value="confirmed"]:checked) { border-color:#8fc7b4; background:#e6f4ef; color:#125f58; }
-.surveyStatusField select:disabled { opacity:.65; cursor:wait; }
+.surveyProgressCell { display:grid; gap:4px; min-width:128px; max-width:230px; color:var(--home-muted); font-size:11px; font-weight:700; }
+.surveyProgressLabel { color:var(--home-muted); }
+.surveyProgressCell select { width:100%; min-height:38px; padding:7px 28px 7px 9px; border:1px solid #d7b36f; border-radius:7px; background:#fff8e8; color:#77531d; font:inherit; font-size:12px; font-weight:700; }
+.surveyProgressCell select:has(option[value="confirmed"]:checked) { border-color:#8fc7b4; background:#e6f4ef; color:#125f58; }
+.surveyProgressCell select:disabled { opacity:.65; cursor:wait; }
+.surveyProgressCell > strong { justify-self:start; padding:5px 10px; border-radius:15px; background:#e9edf0; color:#354a54; font-size:12px; }
+.surveyProgressCell[data-status="coordinating"] > strong { background:#fff0c7; color:#715209; }
+.surveyProgressCell[data-status="scheduled"] > strong { background:#dcecf7; color:#285979; }
+.surveyProgressCell[data-status="completed"] > strong { background:#d6f1e2; color:#156447; }
+.surveyProgressCell > small { white-space:normal; overflow-wrap:anywhere; font-weight:500; }
+.surveyProgressCell .surveyAppointment { color:var(--home-ink); font-weight:700; }
 .surveyHideButton { border: 1px solid #d5dde5; background: #fff; color: #52677a; }
 .surveyHideButton:hover { border-color: #99a9b8; background: #f1f4f7; color: #263e54; }
 .surveyRestoreButton { border: 1px solid #8fc7b4; background: #e6f4ef; color: #125f58; }
 .surveyRestoreButton:hover { border-color: #569c84; background: #d8eee5; }
 .surveyNote { margin: 10px 0 0; color: var(--home-muted); font-size: 11px; line-height: 1.7; }
-.scheduleStatus{display:grid;gap:5px;max-width:260px;font-size:12px;line-height:1.6}.scheduleStatus span{justify-self:start;padding:3px 10px;border-radius:15px;background:#e9edf0;color:#354a54;font-weight:700}.scheduleStatus span[data-status=invited]{background:#fff0c7;color:#715209}.scheduleStatus span[data-status=confirmed]{background:#d6f1e2;color:#156447}.scheduleStatus span[data-status=unknown]{background:#fbe7e1;color:#863a26}.scheduleStatus small{white-space:normal;overflow-wrap:anywhere}.scheduleStatus strong{font-size:12px}
 .quickLinks a { display: flex; align-items: center; gap: 10px; padding: 18px 14px; border: 1px solid #c8e1d8; border-radius: 10px; background: #e6f4ef; color: #125f58; font-size: 13px; font-weight: 600; }
 .quickLinks a span:last-child { margin-left: auto; }
 .quickLinks a:hover { background: #d8eee5; }
 @media (max-width: 1050px) { .quickLinks { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .hero h1 { font-size: 30px; } .navigation { grid-template-columns: repeat(3,minmax(0,1fr)); } .navigation button { gap: 6px; padding: 10px 8px; } }
 @media (max-width: 850px) { .surveyFilterGrid { grid-template-columns:1fr 1fr; } .surveySearch { grid-column:1 / -1; } }
-@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyFilterGrid { grid-template-columns:1fr; } .surveySearch { grid-column:auto; } .surveyFilterHeading { display:grid; gap:3px; } .surveyFilterActions { display:grid; grid-template-columns:1fr 1fr; } .surveyFilterActions .surveyRefreshButton { grid-column:1 / -1; } .surveyStudents li { grid-template-columns: auto minmax(0,1fr); } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; } .surveyStatusField { flex:1 1 120px; } .surveyStatusField select { width:100%; min-height:44px; } }
+@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyWorkflow ol { grid-template-columns:1fr; gap:5px; } .surveyWorkflow li::after { content:none; } .surveyWorkflow li { white-space:normal; } .surveyFilterGrid { grid-template-columns:1fr; } .surveySearch { grid-column:auto; } .surveyFilterHeading { display:grid; gap:3px; } .surveyFilterActions { display:grid; grid-template-columns:1fr 1fr; } .surveyFilterActions .surveyRefreshButton { grid-column:1 / -1; } .surveyStudents li { grid-template-columns: auto minmax(0,1fr); } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: stretch; flex-wrap: wrap; } .surveyProgressCell { flex:1 1 145px; max-width:none; } .surveyProgressCell select { width:100%; min-height:44px; } .surveyActions .scheduleAction { flex:1 1 170px; } }
 @media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
-.scheduleStatus a.scheduleAction{display:inline-flex;align-items:center;min-height:44px;padding:8px 12px;border:1px solid #187d60;border-radius:8px;background:#e6f4ef;color:#125f58;font-weight:700;text-decoration:none;box-sizing:border-box}.scheduleStatus a.scheduleAction:focus-visible{outline:3px solid #13856c;outline-offset:3px}
+.surveyActions a.scheduleAction{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;border:1px solid #187d60;border-radius:8px;background:#e6f4ef;color:#125f58;font-size:12px;font-weight:700;text-decoration:none;box-sizing:border-box}.surveyActions a.scheduleAction:focus-visible{outline:3px solid #13856c;outline-offset:3px}

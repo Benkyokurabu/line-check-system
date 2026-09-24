@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 test.beforeEach(async({page})=>{let states:unknown[]=[];await page.route('**/api/interview-surveys/confirmations',r=>{if(r.request().method()==='POST'){const c=r.request().postDataJSON().changes[0];states=[{page_id:c.pageId,confirmed:c.confirmed,version:c.version+1}];}return r.fulfill({json:{states}});});});
 
-test('スマホで生徒検索・担任・対応状況を分かりやすく絞り込める',async({page})=>{
+test('スマホで生徒検索・担任・業務進捗を分かりやすく絞り込める',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[{teacher:'工藤',students:[
   {grade:'中3',name:'架空　花子',notionUrl:'https://app.notion.com/p/11111111111141118111111111111111',submittedAt:'2026-09-16T00:00:00Z'},
@@ -12,9 +12,9 @@ test('スマホで生徒検索・担任・対応状況を分かりやすく絞�
  await expect(page.getByRole('link',{name:/架空\s*花子/})).toBeVisible();
  await expect(page.getByRole('link',{name:/架空\s*太郎/})).toHaveCount(0);
  await page.getByRole('combobox',{name:'架空　花子の対応状況'}).selectOption('confirmed');
- await page.getByRole('combobox',{name:'アンケートの対応状況'}).selectOption('needs-review');
+ await page.getByRole('combobox',{name:'アンケートの進捗'}).selectOption('needs-review');
  await expect(page.getByText('条件に合う回答はありません。')).toBeVisible();
- await page.getByRole('combobox',{name:'アンケートの対応状況'}).selectOption('all');
+ await page.getByRole('combobox',{name:'アンケートの進捗'}).selectOption('');
  const box=await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).boundingBox();
  expect(box!.x+box!.width).toBeLessThanOrEqual(390);
  await page.getByRole('heading',{name:'担当生徒の回答を確認してください'}).scrollIntoViewIfNeeded();

@@ -3,26 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>秋アンケート操作欄 再設計</title>
+<title>秋アンケート 業務進捗の再設計</title>
 <style>
-body{margin:0;padding:28px;background:#eef4f2;color:#17332d;font-family:"Yu Gothic UI",sans-serif}.frame{max-width:760px;margin:auto;background:#fff;border:1px solid #d5e4df;border-radius:16px;padding:24px}.eyebrow{margin:0;color:#176b58;font-size:12px;font-weight:700}.head{display:flex;justify-content:space-between;gap:16px;align-items:start}.head h1{font-size:20px;margin:5px 0}.count{padding:6px 10px;border-radius:999px;background:#e6f4ef;color:#125f58;font-size:12px;font-weight:700}.filters{margin-top:20px;padding:16px;background:#f6faf8;border-radius:12px}.filters h2{margin:0 0 12px;font-size:15px}.grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px}label{display:grid;gap:5px;font-size:12px;font-weight:700}input,select,button{box-sizing:border-box;min-height:44px;border:1px solid #bdcec8;border-radius:8px;background:#fff;color:#17332d;font:inherit;padding:9px 11px}.actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}.primary{background:#176b58;color:#fff;border-color:#176b58}.result{margin-top:18px}.row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid #dbe5e1;border-radius:10px;margin-top:8px}.grade{padding:4px 7px;background:#e7eef5;border-radius:6px;font-size:11px;font-weight:700}.student strong,.student small{display:block}.student small{margin-top:4px;color:#63756f;font-size:11px}.status select{min-width:110px}.note{font-size:11px;color:#63756f}@media(max-width:620px){body{padding:12px}.frame{padding:16px}.grid{grid-template-columns:1fr 1fr}.search{grid-column:1/-1}.actions{justify-content:stretch;flex-wrap:wrap}.actions button{flex:1}.row{grid-template-columns:auto 1fr}.status{grid-column:1/-1}.status select{width:100%}}
+body{margin:0;padding:28px;background:#eef4f2;color:#17332d;font-family:"Yu Gothic UI",sans-serif}.frame{max-width:820px;margin:auto;background:#fff;border:1px solid #d5e4df;border-radius:16px;padding:24px}.eyebrow{margin:0;color:#176b58;font-size:12px;font-weight:700}.head{display:flex;justify-content:space-between;gap:16px;align-items:start}.head h1{font-size:20px;margin:5px 0}.count{padding:6px 10px;border-radius:999px;background:#e6f4ef;color:#125f58;font-size:12px;font-weight:700}.workflow{margin-top:18px;padding:14px 16px;border-left:4px solid #176b58;border-radius:8px;background:#eef7f4}.workflow p{display:flex;flex-wrap:wrap;gap:6px 12px;margin:0 0 12px;font-size:13px}.workflow p span{color:#63756f}.steps{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:0;padding:0;list-style:none}.steps li{display:flex;align-items:center;gap:6px;color:#52677a;font-size:11px;font-weight:700}.steps li:not(:last-child):after{content:'›';margin-left:auto;color:#8ba199;font-size:18px}.steps b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#dce8e4}.filters{margin-top:20px;padding:16px;background:#f6faf8;border-radius:12px}.filters h2{margin:0 0 12px;font-size:15px}.grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px}label{display:grid;gap:5px;font-size:12px;font-weight:700}input,select,button,.button{box-sizing:border-box;min-height:44px;border:1px solid #bdcec8;border-radius:8px;background:#fff;color:#17332d;font:inherit;padding:9px 11px}.actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}.primary{background:#176b58;color:#fff;border-color:#176b58}.result{margin-top:18px}.row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid #dbe5e1;border-radius:10px;margin-top:8px}.grade{padding:4px 7px;background:#e7eef5;border-radius:6px;font-size:11px;font-weight:700}.student strong,.student small{display:block}.student small{margin-top:4px;color:#63756f;font-size:11px}.progress{display:flex;align-items:end;gap:8px}.progress label{min-width:120px}.button{display:flex;align-items:center;background:#e6f4ef;border-color:#187d60;color:#125f58;font-size:12px;font-weight:700}.fixed{display:grid;gap:4px;min-width:130px;font-size:11px;color:#63756f}.fixed strong{justify-self:start;padding:5px 10px;border-radius:15px;background:#fff0c7;color:#715209;font-size:12px}.note{font-size:11px;color:#63756f}@media(max-width:620px){body{padding:12px}.frame{padding:16px}.steps{grid-template-columns:1fr}.steps li:after{display:none}.grid{grid-template-columns:1fr}.actions{justify-content:stretch;flex-wrap:wrap}.actions button{flex:1}.row{grid-template-columns:auto 1fr}.progress{grid-column:1/-1;align-items:stretch;flex-wrap:wrap}.progress>*{flex:1}.progress label{min-width:140px}}
 </style>
 </head>
 <body>
 <main class="frame">
   <div class="head"><div><p class="eyebrow">2026年 秋のアンケート</p><h1>担当生徒の回答を確認</h1></div><span class="count">表示中 31件</span></div>
+  <section class="workflow" aria-label="アンケート対応の進め方">
+    <p><strong>中3は全員面談</strong><span>その他の学年は希望者のみ面談へ進みます</span></p>
+    <ol class="steps"><li><b>1</b>要確認</li><li><b>2</b>対応済み</li><li><b>3</b>日程調整中</li><li><b>4</b>日程確定</li><li><b>5</b>面談終了</li></ol>
+  </section>
   <section class="filters" aria-label="アンケート回答の絞り込み">
     <h2>回答を探す</h2>
     <div class="grid">
-      <label class="search">生徒名<input type="search" placeholder="氏名を入力"></label>
-      <label>担任<select><option>選択してください</option><option>工藤先生</option><option>金城先生</option></select></label>
-      <label>対応状況<select><option>すべて</option><option>要確認</option><option>対応済み</option></select></label>
-      <label>面談状況<select><option>すべて</option><option>未連絡</option><option>打診済み</option><option>面談日確定</option><option>要確認</option></select></label>
+      <label>生徒名<input type="search" placeholder="氏名を入力"></label>
+      <label>担任<select><option>選択してください</option><option>工藤先生</option></select></label>
+      <label>進捗<select><option>すべて</option><option>要確認</option><option>対応済み</option><option>日程調整中</option><option>日程確定</option><option>面談終了</option></select></label>
     </div>
     <div class="actions"><button>条件をクリア</button><button class="primary">一覧を最新に更新</button></div>
   </section>
   <section class="result"><strong>工藤先生の担当</strong> <span class="note">8件</span>
-    <article class="row"><span class="grade">中3</span><div class="student"><strong>表示例 生徒</strong><small>提出 9/12 10:14・回答を開く</small><small>面談：未連絡</small></div><label class="status">対応状況<select><option>要確認</option><option>対応済み</option></select></label></article>
+    <article class="row"><span class="grade">中3</span><div class="student"><strong>表示例 生徒</strong><small>提出 9/12 10:14・回答を開く</small></div><div class="progress"><label>進捗<select><option>要確認</option><option selected>対応済み</option></select></label><span class="button">面談日程を案内</span></div></article>
+    <article class="row"><span class="grade">中1</span><div class="student"><strong>面談希望 生徒</strong><small>提出 9/13 17:30・回答を開く</small></div><div class="fixed"><span>進捗</span><strong>日程調整中</strong><small>返信待ち</small></div></article>
   </section>
 </main>
 </body>

@@ -1,4 +1,4 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {surveyScheduling as status} from '../src/lib/survey-scheduling.mjs';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {surveyProgress as progress,surveyScheduling as status} from '../src/lib/survey-scheduling.mjs';
 const now=Date.parse('2026-09-23T00:00:00Z');
 const invitation={id:'i',student_id:'s',slots:[{surveyCampaign:{id:'2026-autumn'}}],created_at:'2026-09-20',status:'active',expires_at:'2026-10-01',notification_status:'sent'};
 test('未連絡、返信待ち、承認待ち、確定日時を区別する',()=>{
@@ -21,5 +21,13 @@ test('他生徒・別アンケートを混ぜず、紐づけ不明を未連絡�
 test('再打診中は最新の有効な打診を表示し、確定済みは維持する',()=>{
  const newer={...invitation,id:'new',created_at:'2026-09-22',notification_status:'retry'};
  assert.equal(status('s',[invitation,newer],[],[],now).status,'uncontacted');
- assert.equal(status('s',[invitation,newer],[{invitation_id:'i',booking_id:'b'}],[{id:'b',status:'completed',data:{date:'2026-09-21'}}],now).status,'confirmed');
+ assert.equal(status('s',[invitation,newer],[{invitation_id:'i',booking_id:'b'}],[{id:'b',status:'completed',data:{date:'2026-09-21'}}],now).status,'completed');
+});
+test('手動確認と面談記録を一つの業務進捗にまとめる',()=>{
+ assert.equal(progress(false,{status:'uncontacted'}).status,'needs-review');
+ assert.equal(progress(true,{status:'uncontacted'}).status,'handled');
+ assert.equal(progress(true,{status:'invited'}).status,'coordinating');
+ assert.equal(progress(false,{status:'confirmed'}).status,'scheduled');
+ assert.equal(progress(false,{status:'completed'}).status,'completed');
+ assert.equal(progress(true,{status:'unknown'}).status,'handled');
 });

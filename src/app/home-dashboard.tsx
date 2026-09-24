@@ -6,7 +6,7 @@ import styles from "./home-dashboard.module.css";
 import {useSurveyConfirmations} from './use-survey-shared';
 import {surveyPageId} from '@/lib/survey-confirmations.mjs';
 import {useSurveyScheduling} from './use-survey-scheduling';
-import {schedulingLabels} from '@/lib/survey-scheduling.mjs';
+import {surveyProgress,surveyProgressLabels} from '@/lib/survey-scheduling.mjs';
 
 type Group = "all" | "student" | "lesson" | "communication" | "reservation" | "admin";
 type MenuItem = { href: string; title: string; description: string; group: Exclude<Group, "all">; icon: string; trial?: boolean };
@@ -73,8 +73,7 @@ export default function HomeDashboard({
   const [surveyGroups, setSurveyGroups] = useState(initialSurveyGroups);
   const confirmation = useSurveyConfirmations(surveyGroups.flatMap(g=>g.students.map(s=>s.notionUrl)));
   const scheduling=useSurveyScheduling();
-  const [scheduleFilter,setScheduleFilter]=useState('');
-  const [confirmationFilter,setConfirmationFilter]=useState<'all'|'needs-review'|'confirmed'>('all');
+  const [progressFilter,setProgressFilter]=useState('');
   const [hiddenSurveys, setHiddenSurveys] = useState<string[]>([]);
   const [showHiddenSurveys, setShowHiddenSurveys] = useState(false);
   const [surveyRefreshing, setSurveyRefreshing] = useState(false);
@@ -149,11 +148,10 @@ export default function HomeDashboard({
   const surveyRows = visibleSurveyGroups.filter(item => !selectedSurveyTeacher || item.teacher === selectedSurveyTeacher)
     .flatMap(item => item.students.map(student => ({ ...student, teacher: item.teacher })))
     .filter(student => (!surveyName || student.name.normalize("NFKC").replace(/\s/g, "").includes(surveyName)) &&
-      (confirmationFilter==='all'||(confirmationFilter==='confirmed'&&confirmation.isConfirmed(student.notionUrl))||(confirmationFilter==='needs-review'&&!confirmation.isConfirmed(student.notionUrl))) &&
-      (!scheduleFilter||scheduling.get(student.notionUrl).status===scheduleFilter))
+      (!progressFilter||surveyProgress(confirmation.isConfirmed(student.notionUrl),scheduling.get(student.notionUrl)).status===progressFilter))
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
-  const hasSurveyFilters=!!selectedSurveyTeacher||!!surveyQuery||confirmationFilter!=='all'||!!scheduleFilter;
-  const clearSurveyFilters=()=>{setSelectedSurveyTeacher(null);setSurveyQuery('');setConfirmationFilter('all');setScheduleFilter('');setShowHiddenSurveys(false);};
+  const hasSurveyFilters=!!selectedSurveyTeacher||!!surveyQuery||!!progressFilter;
+  const clearSurveyFilters=()=>{setSelectedSurveyTeacher(null);setSurveyQuery('');setProgressFilter('');setShowHiddenSurveys(false);};
   const visible = items.filter(item => (group === "all" || item.group === group) &&
     (!normalized || `${item.title} ${item.description}`.normalize("NFKC").toLocaleLowerCase("ja").includes(normalized)));
   const home = group === "all" && !normalized;
@@ -204,13 +202,16 @@ export default function HomeDashboard({
                 <p>2026年 秋のアンケート → 生徒を選ぶ → 面談の日程を打診</p>
               </div>
               {surveyError ? <p className={styles.surveyError} role="status">{surveyError}</p> : <>
+                <div className={styles.surveyWorkflow} aria-label="アンケート対応の進め方">
+                  <p><strong>中3は全員面談</strong><span>その他の学年は希望者のみ面談へ進みます</span></p>
+                  <ol>{Object.entries(surveyProgressLabels).map(([key,label],index)=><li key={key} data-status={key}><span>{index+1}</span>{label}</li>)}</ol>
+                </div>
                 <section className={styles.surveyFilters} aria-label="アンケート回答の絞り込み">
                   <div className={styles.surveyFilterHeading}><strong>回答を探す</strong><span>生徒名または条件で絞り込みます</span></div>
                   <div className={styles.surveyFilterGrid}>
                     <label className={styles.surveySearch}><span>生徒名</span><span className={styles.surveySearchControl}><Icon name="search" /><input type="search" aria-label="アンケートの生徒を検索" placeholder="氏名を入力" value={surveyQuery} onChange={e=>{setSurveyQuery(e.target.value);setShowHiddenSurveys(false);}} /></span></label>
                     <label className={styles.surveyFilterField}><span>担任</span><select aria-label="アンケートの担任" value={selectedSurveyTeacher??''} onChange={e=>{setSelectedSurveyTeacher(e.target.value||null);setShowHiddenSurveys(false);}}><option value="">選択してください</option>{visibleSurveyGroups.map(item=><option key={item.teacher} value={item.teacher}>{item.teacher==='担任未特定'?'担任を確認':`${item.teacher}先生`}（{item.students.length}件）</option>)}</select></label>
-                    <label className={styles.surveyFilterField}><span>対応状況</span><select aria-label="アンケートの対応状況" value={confirmationFilter} onChange={e=>{setConfirmationFilter(e.target.value as typeof confirmationFilter);setShowHiddenSurveys(false);}}><option value="all">すべて</option><option value="needs-review">要確認</option><option value="confirmed">対応済み</option></select></label>
-                    <label className={styles.surveyFilterField}><span>面談状況</span><select aria-label="アンケートの面談状況" value={scheduleFilter} onChange={e=>{setScheduleFilter(e.target.value);setShowHiddenSurveys(false);}}><option value="">すべて</option>{Object.entries(schedulingLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+                    <label className={styles.surveyFilterField}><span>進捗</span><select aria-label="アンケートの進捗" value={progressFilter} onChange={e=>{setProgressFilter(e.target.value);setShowHiddenSurveys(false);}}><option value="">すべて</option>{Object.entries(surveyProgressLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
                   </div>
                   <div className={styles.surveyFilterActions}>
                     {hiddenSurveyRows.length>0&&<button type="button" aria-pressed={showHiddenSurveys} onClick={()=>{setSelectedSurveyTeacher(null);setShowHiddenSurveys(v=>!v);}}>非表示一覧（{hiddenSurveyRows.length}件）</button>}
@@ -218,7 +219,7 @@ export default function HomeDashboard({
                     <button className={styles.surveyRefreshButton} type="button" disabled={surveyRefreshing||scheduling.loading||!!confirmation.saving} onClick={()=>void refreshSurveyWorkspace()}>{surveyRefreshing||scheduling.loading?'更新中…':'一覧を最新に更新'}</button>
                   </div>
                 </section>
-                <p className={styles.surveyRefreshMessage} role="status">{scheduling.error||'面談日程は打診・返信・予約の記録から自動表示します。打診済みは既読・到達を意味しません。'}{scheduling.updatedAt&&!scheduling.error&&` 最終取得 ${submittedAtFormatter.format(new Date(scheduling.updatedAt))}`}</p>
+                <p className={styles.surveyRefreshMessage} role="status">{scheduling.error||'日程調整中・日程確定・面談終了は、打診・予約・実施の記録から自動表示します。'}{scheduling.updatedAt&&!scheduling.error&&` 最終取得 ${submittedAtFormatter.format(new Date(scheduling.updatedAt))}`}</p>
                 <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.ready ? '対応状況は自動保存され、先生間で共有されます。' : '共有の対応状況を読み込み中…')}{confirmation.lastSync&&` 最終同期 ${confirmation.lastSync}`}{confirmation.loginNeeded&&<> <Link className={styles.surveySave} href="/staff/self-study-room">職員ログイン</Link></>}</p>
                 {Object.keys(confirmation.local).length>0&&<div className={styles.surveyStudents} aria-label="未共有の端末記録">
                   <strong>未共有の端末記録 {Object.keys(confirmation.local).length}件</strong>
@@ -247,12 +248,20 @@ export default function HomeDashboard({
                     {surveyRows.map(student => {
                       const confirmed = confirmation.isConfirmed(student.notionUrl);
                       const schedule=scheduling.get(student.notionUrl);
+                      const progress=surveyProgress(confirmed,schedule);
+                      const canSetManualProgress=['uncontacted','unknown'].includes(schedule.status);
+                      const isThirdGrade=/中(?:学)?\s*3/.test(student.grade);
                       return <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
                         <span className={styles.gradeBadge}>{student.grade}</span>
                         <a href={student.notionUrl} target="_blank" rel="noreferrer">{student.name}<small>{!selectedSurveyTeacher && `${student.teacher}先生・`}{formatSubmittedAt(student.submittedAt)}</small><small>回答を開く ↗</small></a>
                         <div className={styles.surveyActions}>
-                          <div className={styles.scheduleStatus} aria-label="面談の日程状況">{schedule.status==='uncontacted'&&surveyPageId(student.notionUrl)?<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：未連絡・候補日時を選ぶ`}>未連絡 → 日程を選ぶ</Link>:<span data-status={schedule.status}>{schedulingLabels[schedule.status]}</span>}{schedule.date&&<strong>{schedule.date} {schedule.start}〜{schedule.end}</strong>}<small>{schedule.detail}</small></div>
-                          <label className={styles.surveyStatusField}><span>対応状況</span><select value={confirmed?'confirmed':'needs-review'} aria-label={`${student.name}の対応状況`} disabled={!confirmation.ready||!!confirmation.saving} onChange={e=>{if((e.target.value==='confirmed')!==confirmed)confirmation.toggle(student.notionUrl);}}><option value="needs-review">要確認</option><option value="confirmed">対応済み</option></select></label>
+                          <div className={styles.surveyProgressCell} data-status={progress.status}>
+                            <span className={styles.surveyProgressLabel}>進捗</span>
+                            {canSetManualProgress?<select value={confirmed?'confirmed':'needs-review'} aria-label={`${student.name}の対応状況`} disabled={!confirmation.ready||!!confirmation.saving} onChange={e=>{if((e.target.value==='confirmed')!==confirmed)confirmation.toggle(student.notionUrl);}}><option value="needs-review">要確認</option><option value="confirmed">対応済み</option></select>:<strong>{progress.label}</strong>}
+                            {schedule.date&&<small className={styles.surveyAppointment}>{schedule.date} {schedule.start}〜{schedule.end}</small>}
+                            {schedule.status!=='uncontacted'&&<small>{schedule.detail}</small>}
+                          </div>
+                          {schedule.status==='uncontacted'&&surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：面談日程を案内`}>{isThirdGrade?'面談日程を案内':'面談希望あり → 日程を案内'}</Link>}
                           {confirmation.saving===surveyPageId(student.notionUrl)&&<small role="status">保存中…</small>}
                           {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
                           {confirmation.get(student.notionUrl)?.updated_at&&<small>最終更新：{submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
@@ -261,7 +270,7 @@ export default function HomeDashboard({
                       </li>;
                     })}
                   </ul>
-                  <p className={styles.surveyNote}>対応状況はプルダウンで変更すると自動保存します。他のPCは画面を開いた時・戻った時に同期します。開いたままの画面では「一覧を最新に更新」で更新できます。「非表示」はこの端末だけに反映されます。</p>
+                  <p className={styles.surveyNote}>「要確認／対応済み」はプルダウンで変更すると自動保存します。日程調整中以降は面談記録から自動更新します。中3は全員「面談日程を案内」へ、その他の学年は面談希望がある場合のみ進めてください。「非表示」はこの端末だけに反映されます。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶか、生徒名で検索してください。</p>}
               </>}
             </div>
