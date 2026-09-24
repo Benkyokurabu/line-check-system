@@ -337,11 +337,13 @@ export async function GET(request: Request) {
       linksByLineUserId,
       aliases: aliasRows,
     });
+    const humanReviewed = Boolean(candidate.human_reviewed_at);
+    const resolvedStudentNumber = humanReviewed ? candidate.student_number as string | null : suggestionResult.resolvedStudentNumber;
     return {
       ...candidate,
-      student_number: suggestionResult.resolvedStudentNumber,
-      student_roster: suggestionResult.resolvedStudentNumber
-        ? rosterRows.find((student) => student.student_number === suggestionResult.resolvedStudentNumber) ?? candidate.student_roster
+      student_number: resolvedStudentNumber,
+      student_roster: resolvedStudentNumber
+        ? rosterRows.find((student) => student.student_number === resolvedStudentNumber) ?? candidate.student_roster
         : null,
       sender_profile: buildSenderProfile({ lineMessage, accounts: linkedAccounts, aliases: aliasRows }),
       reply_messages: repliesByCandidateId.get(candidate.id as string) ?? [],
@@ -356,8 +358,8 @@ export async function GET(request: Request) {
         };
       })(),
       student_suggestions: suggestionResult.suggestions,
-      student_selection_required: suggestionResult.requiresSelection,
-      student_selection_reason: suggestionResult.reason,
+      student_selection_required: humanReviewed ? false : suggestionResult.requiresSelection,
+      student_selection_reason: humanReviewed ? null : suggestionResult.reason,
     };
   });
   candidates.sort((a, b) => {

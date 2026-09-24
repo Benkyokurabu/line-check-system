@@ -48,24 +48,21 @@ test("ambiguous siblings remain unselected and lesson buttons toggle independent
   await sisterButton.click();
   const math = page.getByRole("button", { name: /数学A/ });
   const english = page.getByRole("button", { name: /英語B/ });
-  await expect(math).toHaveAttribute("aria-pressed", "false");
-  await expect(english).toHaveAttribute("aria-pressed", "false");
-  await expect(math).toHaveCSS("background-color", "rgb(255, 255, 255)");
-  await expect(english).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(math).toHaveAttribute("aria-pressed", "true");
+  await expect(english).toHaveAttribute("aria-pressed", "true");
 
   await math.click();
-  await expect(math).toHaveAttribute("aria-pressed", "true");
-  await expect(english).toHaveAttribute("aria-pressed", "false");
-  await english.click();
-  await expect(math).toHaveAttribute("aria-pressed", "true");
-  await expect(english).toHaveAttribute("aria-pressed", "true");
-  await math.click();
   await expect(math).toHaveAttribute("aria-pressed", "false");
+  await expect(english).toHaveAttribute("aria-pressed", "true");
   await expect(math).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await math.click();
+  await expect(math).toHaveAttribute("aria-pressed", "true");
   await expect(english).toHaveAttribute("aria-pressed", "true");
   await english.click();
   await expect(english).toHaveAttribute("aria-pressed", "false");
   await expect(english).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await math.click();
+  await expect(math).toHaveAttribute("aria-pressed", "false");
   await page.getByLabel("確認者名").fill("テスト担当");
   await page.getByRole("button", { name: "確認してNotionへ登録" }).click();
   await expect(page.getByText("すべての登録行で、日付・校舎・授業・理由を入力してください。")).toBeVisible();
@@ -93,7 +90,7 @@ test("changing the registration-row student refreshes that student's lessons and
       ai_confidence: 0.9,
       sender_profile: { display_name: "山田保護者", alias_names: [], account_names: [], tag_names: [] },
       line_messages: { id: "message-row-change", line_user_id: "line-family", display_name: "山田保護者", text: "欠席します", received_at: "2099-09-10T09:00:00Z" },
-      attendance_candidate_items: [{ id: "item-row-change", student_number: "hanako", event_type: "absence", event_date: "2099-09-11", lesson_id: null, suggested_subject: null, suggested_class_name: null, ai_summary: "体調不良", status: "pending" }],
+      attendance_candidate_items: [{ id: "item-row-change", student_number: null, event_type: "absence", event_date: "2099-09-11", lesson_id: null, suggested_subject: null, suggested_class_name: null, ai_summary: "体調不良", status: "pending" }],
       reply_messages: [],
     }] } });
     if (url.pathname === "/api/attendance/lessons") {
@@ -114,7 +111,6 @@ test("changing the registration-row student refreshes that student's lessons and
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   const math = page.getByRole("button", { name: /数学A/ });
   await expect(math).toBeVisible();
-  await math.click();
   await expect(math).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("button", { name: /山田 花子.*別の生徒に変更/ }).click();
@@ -235,4 +231,59 @@ test("two saved lessons for one student and day reopen as one row", async ({ pag
   await row.getByRole("button", { name: /英語B/ }).click();
   await expect(row.getByRole("button", { name: /数学A/ })).toHaveAttribute("aria-pressed", "true");
   await expect(row.getByRole("button", { name: /英語B/ })).toHaveAttribute("aria-pressed", "false");
+});
+
+test("human student and white lesson choices survive a reload without auto-selection returning", async ({ page }) => {
+  const sister = { student_number: "sister", student_name: "山田 花子", grade: "中2", campus: "本校", homeroom_teacher: "佐藤" };
+  const brother = { student_number: "brother", student_name: "山田 太郎", grade: "小6", campus: "本校", homeroom_teacher: "鈴木" };
+  let humanReviewed = false;
+  let savedItems: Array<{ student_number: string; lesson_id: string | null }> = [];
+  let saves = 0;
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/attendance/students") return route.fulfill({ json: { students: [sister, brother] } });
+    if (url.pathname === "/api/attendance/candidates" && route.request().method() === "GET") return route.fulfill({ json: { candidates: [{
+      id: "manual-choice", student_number: humanReviewed ? "sister" : null, student_roster: humanReviewed ? sister : null,
+      human_reviewed_at: humanReviewed ? "2099-09-10T10:00:00Z" : null,
+      student_selection_required: !humanReviewed, student_selection_reason: humanReviewed ? null : "対象生徒を選択してください。",
+      student_suggestions: [sister, brother], status: "pending", event_type: "absence", event_date: "2099-09-11",
+      ai_summary: "体調不良", ai_confidence: 0.5,
+      sender_profile: { display_name: "山田保護者", alias_names: [], account_names: [] },
+      line_messages: { id: "message-manual-choice", line_user_id: "family-line", display_name: "山田保護者", text: "欠席します", received_at: "2099-09-10T09:00:00Z" },
+      attendance_candidate_items: humanReviewed ? savedItems.map((item, index) => ({ ...item, id: `saved-${index}`, event_type: "absence", event_date: "2099-09-11", ai_summary: "体調不良", status: "pending" })) : [{ id: "initial", student_number: null, lesson_id: null, event_type: "absence", event_date: "2099-09-11", ai_summary: "体調不良", status: "pending" }],
+      reply_messages: [],
+    }] } });
+    if (url.pathname === "/api/attendance/candidates/manual-choice" && route.request().method() === "PATCH") {
+      const body = route.request().postDataJSON();
+      expect(body.reviewed_by).toBe("テスト担当");
+      savedItems = body.items;
+      humanReviewed = true;
+      saves += 1;
+      return route.fulfill({ json: { candidate: {} } });
+    }
+    if (url.pathname === "/api/attendance/lessons") return route.fulfill({ json: { lessons: [
+      { id: "math", label: "数学A", lesson_date: "2099-09-11", start_time: "17:00", campus: "本校", enrolled: true },
+      { id: "english", label: "英語B", lesson_date: "2099-09-11", start_time: "19:00", campus: "本校", enrolled: true },
+    ] } });
+    if (url.pathname === "/api/attendance/status") return route.fulfill({ json: {} });
+    if (url.pathname === "/api/attendance/extract") return route.fulfill({ json: { processed: 0, candidates: 0, ignored: 0, retrying: 0, dead: 0 } });
+    return route.fulfill({ json: {} });
+  });
+
+  await page.goto("/attendance");
+  await page.getByLabel("確認者名").fill("テスト担当");
+  await page.getByRole("button", { name: "対応する", exact: true }).click();
+  await page.getByRole("group", { name: "連絡した生徒の候補" }).getByRole("button", { name: "中2 山田 花子" }).click();
+  await expect(page.getByRole("button", { name: /数学A/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /英語B/ })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: /英語B/ }).click();
+  await expect(page.getByRole("button", { name: /英語B/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("人が選んだ内容を保存しました")).toBeVisible();
+  expect(saves).toBeGreaterThan(0);
+  expect(savedItems.filter((item) => item.lesson_id).map((item) => item.lesson_id)).toEqual(["math"]);
+  await page.reload();
+  await page.getByRole("button", { name: "対応する", exact: true }).click();
+  await expect(page.getByRole("button", { name: /数学A/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /英語B/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("人の選択を優先")).toBeVisible();
 });

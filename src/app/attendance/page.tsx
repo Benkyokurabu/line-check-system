@@ -7,7 +7,6 @@ import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
 import { LineRegistrationForm } from "@/app/LineRegistrationForm";
 import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
-import { recommendedAttendanceLesson } from "@/lib/attendance-lesson-choice.mjs";
 import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
 import {
   actionCandidatesForReview,
@@ -43,6 +42,7 @@ type CandidateItem = {
 };
 type Candidate = {
   id: string; student_number: string | null; suggested_student_name: string | null;
+  human_reviewed_at?: string | null; human_reviewed_by?: string | null;
   event_type: string; event_date: string | null; lesson_id: string | null;
   suggested_subject: string | null; suggested_class_name: string | null;
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
@@ -60,6 +60,7 @@ type Candidate = {
 };
 type EditableItem = {
   client_id: string; id?: string; group_token?: string; student_number: string; event_type: string; event_date: string; campus: string; lesson_id: string;
+  auto_select?: boolean;
   suggested_subject: string | null; suggested_class_name: string | null; ai_summary: string;
   arrival_expected_time: string; note_internal: string; note_for_classroom: string; status?: string;
   cross_campus_override: boolean; cross_campus_reason: string;
@@ -208,10 +209,6 @@ function StatusBadge({ label, detail, kind }: { label: string; detail: string; k
   </span>;
 }
 
-function normalizeLessonText(value: string | null | undefined) {
-  return (value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
-}
-
 function lessonsByTime(lessons: Lesson[]) {
   return lessons.reduce<Array<{ time: string; lessons: Lesson[] }>>((groups, lesson) => {
     const time = lesson.start_time ?? "時刻なし";
@@ -255,7 +252,7 @@ function groupCandidateItems(items: EditableItem[]) {
 }
 
 function initialItems(candidate: Candidate, initialCampus: string, fallbackStudentNumber: string) {
-  const requiresStudentSelection = candidate.student_selection_required === true;
+  const requiresStudentSelection = candidate.student_selection_required === true && !candidate.human_reviewed_at;
   const source = (candidate.attendance_candidate_items ?? []).length > 0 ? candidate.attendance_candidate_items! : [{
     id: "", student_number: candidate.student_number, event_type: candidate.event_type, event_date: candidate.event_date, lesson_id: candidate.lesson_id,
     suggested_subject: candidate.suggested_subject, suggested_class_name: candidate.suggested_class_name,
@@ -269,6 +266,7 @@ function initialItems(candidate: Candidate, initialCampus: string, fallbackStude
     event_date: item.event_date ?? "",
     campus: item.lessons?.campus ?? initialCampus,
     lesson_id: requiresStudentSelection ? "" : item.lesson_id ?? "",
+    auto_select: !requiresStudentSelection && !candidate.human_reviewed_at && !item.student_number,
     suggested_subject: item.suggested_subject,
     suggested_class_name: item.suggested_class_name,
     ai_summary: item.ai_summary ?? fallbackReason(item.event_type || candidate.event_type),
@@ -1169,6 +1167,11 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   const [sending, setSending] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [cardMessage, setCardMessage] = useState("");
+  const [manualRevision, setManualRevision] = useState(0);
+  const [draftStatus, setDraftStatus] = useState("");
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [reviewHistory, setReviewHistory] = useState<Array<{ id: number; actor: string | null; before_student_number: string | null; after_student_number: string | null; before_lessons: Array<{ lesson_id: string | null }>; after_lessons: Array<{ lesson_id: string | null }>; created_at: string }>>([]);
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
   const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
   const [additionalMessageMode, setAdditionalMessageMode] = useState(false);
@@ -1232,21 +1235,37 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           const found = (body.lessons ?? []) as Lesson[];
           setLessonLists((current) => ({ ...current, [requestKey]: found }));
           setItems((currentItems) => {
-            const assignedLessonIds = new Set(currentItems
-              .filter((item) => item.event_date === date && item.student_number === rowStudentNumber && item.lesson_id)
-              .map((item) => item.lesson_id));
-            return currentItems.map((item) => {
-              if (item.event_date !== date || item.student_number !== rowStudentNumber || !rowStudentNumber || item.lesson_id) return item;
-              const itemStudent = studentOptions.find((student) => student.student_number === item.student_number);
-              const targetCampus = selectableCampus(itemStudent?.campus);
-              const eligibleLessons = found.filter((lesson) => !assignedLessonIds.has(lesson.id) && (!targetCampus || lesson.campus === targetCampus));
-              const subject = normalizeLessonText(item.suggested_subject);
-              const className = normalizeLessonText(item.suggested_class_name);
-              const recommended = recommendedAttendanceLesson(eligibleLessons, subject, className);
-              if (!recommended) return item;
-              assignedLessonIds.add(recommended.id);
-              return { ...item, lesson_id: recommended.id, campus: recommended.campus || targetCampus, cross_campus_override: false, cross_campus_reason: "" };
-            });
+            if (!rowStudentNumber) return currentItems;
+            const replacements = new Map<string, EditableItem[]>();
+            const groups = groupCandidateItems(currentItems).filter((group) =>
+              group.items[0].event_date === date && group.items[0].student_number === rowStudentNumber &&
+              group.items.some((item) => item.auto_select) && group.items.every((item) => item.status !== "confirmed"));
+            let projectedLength = currentItems.length;
+            for (const group of groups) {
+              const groupIds = new Set(group.items.map((item) => item.client_id));
+              const assignedElsewhere = new Set(currentItems.filter((item) => !groupIds.has(item.client_id) && item.student_number === rowStudentNumber && item.event_date === date && item.lesson_id).map((item) => item.lesson_id));
+              const student = studentOptions.find((entry) => entry.student_number === rowStudentNumber);
+              const campus = selectableCampus(student?.campus);
+              const enrolled = found.filter((lesson) => lesson.enrolled && !assignedElsewhere.has(lesson.id) && (!campus || lesson.campus === campus));
+              const first = group.items[0];
+              const selected = enrolled.slice(0, Math.max(0, 80 - projectedLength + group.items.length)).map((lesson, index): EditableItem => ({
+                ...(group.items.find((item) => item.lesson_id === lesson.id) ?? first),
+                id: index === 0 ? first.id : undefined,
+                client_id: index === 0 ? first.client_id : makeClientId(),
+                lesson_id: lesson.id,
+                campus: lesson.campus ?? campus,
+                suggested_subject: null,
+                suggested_class_name: null,
+                cross_campus_override: false,
+                cross_campus_reason: "",
+                auto_select: false,
+              }));
+              const nextItems = selected.length ? selected : [{ ...first, lesson_id: "", campus, auto_select: false }];
+              projectedLength += nextItems.length - group.items.length;
+              replacements.set(first.client_id, nextItems);
+              for (const item of group.items.slice(1)) replacements.set(item.client_id, []);
+            }
+            return replacements.size ? currentItems.flatMap((item) => replacements.get(item.client_id) ?? [item]) : currentItems;
           });
         })
         .catch((error) => {
@@ -1258,13 +1277,33 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     return () => controller.abort();
   }, [lessonRequestKeys, expanded, studentOptions, showAutoPeriod]);
 
+  const saveDraftEvent = useEffectEvent((rows: EditableItem[]) => save(rows));
+
+  useEffect(() => {
+    if (!manualRevision || closed || registering || busy) return;
+    const snapshot = items.map((item) => ({ ...item }));
+    const timer = window.setTimeout(() => {
+      setDraftStatus("変更を保存中…");
+      saveQueueRef.current = saveQueueRef.current.catch(() => {}).then(async () => {
+        await saveDraftEvent(snapshot);
+        setDraftStatus("人が選んだ内容を保存しました");
+      }).catch((error) => {
+        setDraftStatus("変更を保存できませんでした。登録前に再試行してください");
+        setCardMessage(error instanceof Error ? error.message : String(error));
+        throw error;
+      });
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [items, manualRevision, confirmedBy, closed, registering, busy]);
+
   function updateGroup(groupItems: EditableItem[], patch: Partial<EditableItem>, clearLessons = false) {
+    setManualRevision((value) => value + 1);
     const groupIds = new Set(groupItems.map((item) => item.client_id));
     const firstId = groupItems[0].client_id;
     setItems((current) => current.flatMap((item) => {
       if (!groupIds.has(item.client_id)) return [item];
       if (clearLessons && item.client_id !== firstId) return [];
-      return [{ ...item, ...patch, ...(clearLessons ? { lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "" } : {}) }];
+      return [{ ...item, ...patch, ...(clearLessons ? { lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "", auto_select: true } : {}) }];
     }));
   }
 
@@ -1280,18 +1319,20 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       return;
     }
     setCardMessage("");
+    setManualRevision((value) => value + 1);
     setItems((current) => {
+      current = current.map((item) => groupIds.has(item.client_id) ? { ...item, auto_select: false } : item);
       const members = current.filter((item) => groupIds.has(item.client_id));
       const selectedItem = members.find((item) => item.lesson_id === lesson.id);
       if (selectedItem) {
         if (members.length > 1) return current.filter((item) => item.client_id !== selectedItem.client_id);
-        return current.map((item) => item.client_id === selectedItem.client_id ? { ...item, lesson_id: "", suggested_subject: null, suggested_class_name: null } : item);
+        return current.map((item) => item.client_id === selectedItem.client_id ? { ...item, lesson_id: "", suggested_subject: null, suggested_class_name: null, auto_select: false } : item);
       }
       const blankItem = members.find((item) => !item.lesson_id);
-      if (blankItem) return current.map((item) => item.client_id === blankItem.client_id ? { ...item, lesson_id: lesson.id, campus: lesson.campus ?? item.campus, suggested_subject: null, suggested_class_name: null } : item);
+      if (blankItem) return current.map((item) => item.client_id === blankItem.client_id ? { ...item, lesson_id: lesson.id, campus: lesson.campus ?? item.campus, suggested_subject: null, suggested_class_name: null, auto_select: false } : item);
       const firstItem = members[0];
       if (!firstItem || current.length >= 80) return current;
-      return [...current, { ...firstItem, id: undefined, client_id: makeClientId(), lesson_id: lesson.id, campus: lesson.campus ?? firstItem.campus, suggested_subject: null, suggested_class_name: null }];
+      return [...current, { ...firstItem, id: undefined, client_id: makeClientId(), lesson_id: lesson.id, campus: lesson.campus ?? firstItem.campus, suggested_subject: null, suggested_class_name: null, auto_select: false }];
     });
   }
 
@@ -1299,8 +1340,9 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     setPeriodOpen(false);
     setLineNameOpen(false);
     setStudentNumber(value);
+    setManualRevision((current) => current + 1);
     const student = studentOptions.find((option) => option.student_number === value);
-    setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "" })));
+    setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "", auto_select: true })));
   }
 
   function openLineNameEdit() {
@@ -1348,6 +1390,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     if (items.length >= 80) { setCardMessage("登録行は80件までです。"); return; }
     const previous = items[items.length - 1];
     const clientId = makeClientId();
+    setManualRevision((value) => value + 1);
     setItems((current) => [...current, {
       client_id: clientId,
       group_token: clientId,
@@ -1368,6 +1411,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   }
 
   function removeGroup(groupItems: EditableItem[]) {
+    setManualRevision((value) => value + 1);
     const groupIds = new Set(groupItems.map((item) => item.client_id));
     setItems((current) => current.length <= groupIds.size ? current : current.filter((item) => !groupIds.has(item.client_id)));
     setItemStudentQueries((current) => {
@@ -1401,6 +1445,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        reviewed_by: confirmedBy.trim() || null,
         student_number: firstItem?.student_number || studentNumber,
         event_date: firstItem?.event_date || null,
         event_type: firstItem?.event_type || candidate.event_type,
@@ -1447,6 +1492,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     setBusy(true);
     setCardMessage("Notionへ登録しています...");
     try {
+      await saveQueueRef.current.catch(() => {});
       await save(registrationRows);
       const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, {
         method: "POST",
@@ -1555,6 +1601,19 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     }
   }
 
+  async function toggleReviewHistory() {
+    if (historyOpen) { setHistoryOpen(false); return; }
+    try {
+      const response = await fetch(`/api/attendance/candidates/${candidate.id}/history`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "変更履歴を取得できませんでした");
+      setReviewHistory(body.history ?? []);
+      setHistoryOpen(true);
+    } catch (error) {
+      setCardMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function copyReply() {
     try {
       await navigator.clipboard.writeText(replyText);
@@ -1580,6 +1639,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           <StatusBadge label="LINE返信" detail={replyDetail} kind={replyKind} />
           <StatusBadge label="Notion" detail={notionDetail} kind={notionKind} />
           {candidate.student_selection_required && <StatusBadge label="生徒確認" detail="要選択" kind="partial" />}
+          {candidate.human_reviewed_at && <StatusBadge label="生徒・授業" detail="人の選択を優先" kind="done" />}
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1719,7 +1779,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           </div>}
           
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {selectionSummary}</div>
-          <div style={{ color: "#59635e", fontSize: 12 }}>授業は複数選択できます。選択中の授業をもう一度押すと解除します。</div>
+          <div style={{ color: "#59635e", fontSize: 12 }}>生徒を選ぶと受講中の授業を初期選択します。授業は複数選択でき、押すたびに緑（選択）／白（解除）が切り替わります。</div>
           <div style={{ display: "grid", gap: 6 }}>
             {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : !lessonList ? <div role="status" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>選択した生徒の授業を読み込んでいます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((timeGroup) => <div key={timeGroup.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
               <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{timeGroup.time}</div>
@@ -1738,6 +1798,11 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       })}
     </div>}
 
+    {draftStatus && <div role="status" style={{ marginTop: 10, color: draftStatus.includes("できません") ? "#b42318" : "#087a3d", fontSize: 13 }}>{draftStatus}{!confirmedBy.trim() ? "（担当者名は未入力）" : ""}</div>}
+    <div style={{ marginTop: 10 }}><button type="button" style={ghostButtonStyle} aria-expanded={historyOpen} onClick={() => void toggleReviewHistory()}>{historyOpen ? "変更履歴を閉じる" : "生徒・授業の変更履歴"}</button></div>
+    {historyOpen && <div style={{ display: "grid", gap: 6, marginTop: 8, fontSize: 13 }}>{reviewHistory.length === 0 ? <div>変更履歴はありません。</div> : reviewHistory.map((entry) => <div key={entry.id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+      {formatReceivedAt(entry.created_at)} / {entry.actor || "担当者名未入力"}：{studentOptions.find((student) => student.student_number === entry.before_student_number)?.student_name ?? entry.before_student_number ?? "未選択"} → {studentOptions.find((student) => student.student_number === entry.after_student_number)?.student_name ?? entry.after_student_number ?? "未選択"}、授業 {entry.before_lessons.filter((lesson) => lesson.lesson_id).length}件 → {entry.after_lessons.filter((lesson) => lesson.lesson_id).length}件
+    </div>)}</div>}
     {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}>{!showAutoPeriod && <button style={buttonStyle} disabled={busy || dismissing || registered || Boolean(resyncItems)} onClick={() => void confirmCandidate()}>{registered ? "Notion登録済み" : busy ? "登録中..." : registering ? "登録状態を確認・再試行" : "確認してNotionへ登録"}</button>}{!registered && !registering && <button style={secondaryButtonStyle} disabled={busy || dismissing} onClick={dismiss}>{dismissing ? "処理中..." : "対応不要"}</button>}</div>}
     </>}
   </section>;

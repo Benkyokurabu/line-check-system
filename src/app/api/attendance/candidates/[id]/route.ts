@@ -48,10 +48,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     cross_campus_reason: cleanText(item.cross_campus_reason),
   }));
   const supabase = createSupabaseAdminClient();
-  const { error } = await supabase.rpc("replace_attendance_candidate_draft", {
+  const { error } = await supabase.rpc("save_attendance_candidate_review", {
     p_candidate_id: id,
     p_candidate: candidate,
     p_items: items,
+    p_actor: cleanText(body.reviewed_by),
   });
   if (error) {
     const status = error.code === "P0001" ? 409 : error.code === "22023" ? 400 : 500;

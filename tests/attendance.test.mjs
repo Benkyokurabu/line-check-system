@@ -78,11 +78,11 @@ test("ambiguous LINE students stay selectable without preselecting a student", a
   ]);
   assert.match(route, /resolveAttendanceStudentFromLine/);
   assert.match(route, /\.slice\(0, Math\.max\(0, 5 - linkedSuggestions\.length\)\)/);
-  assert.match(route, /student_number: suggestionResult\.resolvedStudentNumber/);
+  assert.match(route, /humanReviewed \? candidate\.student_number/);
   assert.match(page, /欠席・遅刻の対象生徒を選択/);
   assert.match(page, /aria-label="連絡した生徒の候補"/);
   assert.match(page, /requiresStudentSelection \? "" : item\.lesson_id/);
-  assert.match(page, /recommendedAttendanceLesson\(eligibleLessons, subject, className\)/);
+  assert.match(page, /found\.filter\(\(lesson\) => lesson\.enrolled/);
 });
 
 test("explicit LINE identity statements detect the student and relationship", () => {
@@ -397,7 +397,7 @@ test("candidate draft replacement and dismissal are atomic database operations",
   assert.match(migration, /from public\.attendance_events[\s\S]*status <> 'cancelled'[\s\S]*一部登録済みの候補は対応不要にできません/);
   assert.match(migration, /status = 'confirmed'[\s\S]*continue;[\s\S]*editable_count := editable_count \+ 1/);
   assert.match(candidateRoute, /id: cleanUuid\(item\.id\)/);
-  assert.match(candidateRoute, /rpc\("replace_attendance_candidate_draft"/);
+  assert.match(candidateRoute, /rpc\("save_attendance_candidate_review"/);
   assert.match(candidateRoute, /rpc\("dismiss_attendance_candidate"/);
   assert.doesNotMatch(candidateRoute, /\.from\("attendance_candidate_items"\)\s*\.delete\(\)/);
 });

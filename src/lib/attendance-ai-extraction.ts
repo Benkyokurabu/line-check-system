@@ -225,12 +225,19 @@ async function processAttendanceMessage(input: {
     };
     const { data: existingCandidate, error: existingError } = await supabase
       .from("attendance_candidates")
-      .select("id")
+      .select("id,human_reviewed_at")
       .eq("source_message_id", message.id)
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
     if (existingError) throw existingError;
+
+    // Reprocessing the same LINE message must not erase a staff-reviewed draft.
+    if (existingCandidate?.human_reviewed_at) {
+      await updateReview(supabase, message.id, "candidate", null);
+      await completeJob(supabase, message.id, "succeeded");
+      return "candidate" as const;
+    }
 
     let candidateId: string;
     if (existingCandidate?.id) {
