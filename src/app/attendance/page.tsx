@@ -226,6 +226,10 @@ function makeClientId() {
   return Math.random().toString(36).slice(2);
 }
 
+function candidateLessonListKey(date: string, studentNumber: string) {
+  return JSON.stringify([date, studentNumber]);
+}
+
 function initialItems(candidate: Candidate, initialCampus: string, fallbackStudentNumber: string) {
   const requiresStudentSelection = candidate.student_selection_required === true;
   const source = (candidate.attendance_candidate_items ?? []).length > 0 ? candidate.attendance_candidate_items! : [{
@@ -1169,7 +1173,9 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   const lineStudentAccount = candidate.sender_profile?.student_accounts?.find((account) =>
     account.student_number === studentNumber && account.relation === "student",
   ) ?? null;
-  const datesKey = useMemo(() => [...new Set(items.map((item) => item.event_date).filter(Boolean))].sort().join("|"), [items]);
+  const lessonRequestKeys = useMemo(() => JSON.stringify([...new Set(items
+    .filter((item) => item.event_date)
+    .map((item) => candidateLessonListKey(item.event_date, item.student_number)))].sort()), [items]);
   const eventSummary = items.slice(0, 2).map((item) => [item.event_date || "日付未定", eventTypeLabel(item.event_type), item.ai_summary || fallbackReason(item.event_type)].join(" / ")).join("　｜　");
   const hasError = candidateHasError(candidate);
   const showAutoPeriod = Boolean(periodProposal && !manualPeriod && !closed && !registering);
@@ -1182,9 +1188,12 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   useEffect(() => {
     if (!expanded || showAutoPeriod) return;
     const controller = new AbortController();
-    const dates = datesKey ? datesKey.split("|") : [];
-    for (const date of dates) {
-      fetch(`/api/attendance/lessons?date=${encodeURIComponent(date)}&student_number=${encodeURIComponent(studentNumber)}`, { signal: controller.signal })
+    const requestKeys = JSON.parse(lessonRequestKeys) as string[];
+    for (const requestKey of requestKeys) {
+      const [date, rowStudentNumber] = JSON.parse(requestKey) as [string, string];
+      const params = new URLSearchParams({ date });
+      if (rowStudentNumber) params.set("student_number", rowStudentNumber);
+      fetch(`/api/attendance/lessons?${params}`, { signal: controller.signal })
         .then(async (response) => {
           const body = await response.json();
           if (!response.ok) throw new Error(body.error ?? "授業一覧を取得できませんでした");
@@ -1192,11 +1201,11 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         })
         .then((body) => {
           const found = (body.lessons ?? []) as Lesson[];
-          setLessonLists((current) => ({ ...current, [date]: found }));
+          setLessonLists((current) => ({ ...current, [requestKey]: found }));
           setItems((currentItems) => currentItems.map((item) => {
-            if (item.event_date !== date || item.lesson_id) return item;
+            if (item.event_date !== date || item.student_number !== rowStudentNumber || !rowStudentNumber || item.lesson_id) return item;
             const itemStudent = studentOptions.find((student) => student.student_number === item.student_number);
-            const targetCampus = selectableCampus(itemStudent?.campus ?? selectedStudent?.campus);
+            const targetCampus = selectableCampus(itemStudent?.campus);
             const eligibleLessons = targetCampus ? found.filter((lesson) => lesson.campus === targetCampus) : found;
             const subject = normalizeLessonText(item.suggested_subject);
             const className = normalizeLessonText(item.suggested_class_name);
@@ -1207,12 +1216,12 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         })
         .catch((error) => {
           if (error instanceof DOMException && error.name === "AbortError") return;
-          setLessonLists((current) => ({ ...current, [date]: [] }));
+          setLessonLists((current) => ({ ...current, [requestKey]: [] }));
           setCardMessage(error instanceof Error ? error.message : String(error));
         });
     }
     return () => controller.abort();
-  }, [datesKey, expanded, studentNumber, selectedStudent?.campus, studentOptions, showAutoPeriod]);
+  }, [lessonRequestKeys, expanded, studentOptions, showAutoPeriod]);
 
   function updateItem(clientId: string, patch: Partial<EditableItem>) {
     setItems((current) => current.map((item) => item.client_id === clientId ? { ...item, ...patch } : item));
@@ -1223,7 +1232,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     setLineNameOpen(false);
     setStudentNumber(value);
     const student = studentOptions.find((option) => option.student_number === value);
-    setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" })));
+    setItems((current) => current.map((item) => ({ ...item, student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "" })));
   }
 
   function openLineNameEdit() {
@@ -1355,7 +1364,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     if (invalid) { setCardMessage("すべての登録行で、日付・校舎・授業・理由を入力してください。"); return; }
     const invalidCampus = rows.find((item) => {
       const student = studentOptions.find((entry) => entry.student_number === item.student_number);
-      const lesson = proposedLessons.find((entry) => entry.id === item.lesson_id) ?? (lessonLists[item.event_date] ?? []).find((entry) => entry.id === item.lesson_id) ?? candidateLesson(candidate, item);
+      const lesson = proposedLessons.find((entry) => entry.id === item.lesson_id) ?? (lessonLists[candidateLessonListKey(item.event_date, item.student_number)] ?? []).find((entry) => entry.id === item.lesson_id) ?? candidateLesson(candidate, item);
       const crossCampus = lessonIsCrossCampus(student, lesson, item.campus);
       return crossCampus && (!item.cross_campus_override || !item.cross_campus_reason.trim());
     });
@@ -1583,14 +1592,18 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         setItems([...retained, ...additions.map((lesson): EditableItem => ({ client_id: makeClientId(), student_number: studentNumber, event_type: eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: "", note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }))]);
         setLessonLists((current) => {
           const next = { ...current };
-          for (const lesson of lessons) next[lesson.lesson_date] = [...(next[lesson.lesson_date] ?? []).filter((row) => row.id !== lesson.id), lesson];
+          for (const lesson of lessons) {
+            const key = candidateLessonListKey(lesson.lesson_date, studentNumber);
+            next[key] = [...(next[key] ?? []).filter((row) => row.id !== lesson.id), lesson];
+          }
           return next;
         });
         setPeriodOpen(false);
         setCardMessage(`${additions.length}授業の登録行を作りました。内容を確認し、「確認してNotionへ登録」を押してください。`);
       }} />}
       {items.map((item, index) => {
-        const lessons = item.event_date ? lessonLists[item.event_date] ?? [] : [];
+        const lessonList = item.event_date ? lessonLists[candidateLessonListKey(item.event_date, item.student_number)] : undefined;
+        const lessons = lessonList ?? [];
         const currentLesson = lessons.find((lesson) => lesson.id === item.lesson_id) ?? candidateLesson(candidate, item);
         const rowStudent = studentOptions.find((student) => student.student_number === item.student_number) ?? null;
         const crossCampus = lessonIsCrossCampus(rowStudent, currentLesson, item.campus);
@@ -1608,7 +1621,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
               onQueryChange={(value) => setItemStudentQueries((current) => ({ ...current, [item.client_id]: value }))}
               onChange={(value) => {
                 const student = studentOptions.find((entry) => entry.student_number === value);
-                updateItem(item.client_id, { student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", cross_campus_override: false, cross_campus_reason: "" });
+                updateItem(item.client_id, { student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "" });
               }}
               candidates={suggestions}
               disabled={rowClosed}
@@ -1628,7 +1641,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {currentLesson?.label ?? "授業未選択"}</div>
           <div style={{ display: "grid", gap: 6 }}>
-            {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
+            {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : !lessonList ? <div role="status" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>選択した生徒の授業を読み込んでいます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
               <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
                 {group.lessons.map((lesson) => {

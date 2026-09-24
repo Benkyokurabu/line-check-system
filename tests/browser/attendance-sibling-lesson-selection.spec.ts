@@ -56,3 +56,63 @@ test("ambiguous siblings remain unselected and only the chosen lesson is colored
   await expect(math).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(english).toHaveAttribute("aria-pressed", "true");
 });
+
+test("changing the registration-row student refreshes that student's lessons and leaves unmatched lessons white", async ({ page }) => {
+  const hanako = { student_number: "hanako", student_name: "山田 花子", grade: "中2", campus: "本校", homeroom_teacher: "佐藤" };
+  const sora = { student_number: "sora", student_name: "菊池 そら", grade: "中1", campus: "本校", homeroom_teacher: "田中" };
+  const taro = { student_number: "taro", student_name: "山田 太郎", grade: "小6", campus: "本校", homeroom_teacher: "鈴木" };
+  const lessonRequests: string[] = [];
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/attendance/students") return route.fulfill({ json: { students: [hanako, sora, taro] } });
+    if (url.pathname === "/api/attendance/candidates") return route.fulfill({ json: { candidates: [{
+      id: "candidate-row-change",
+      student_number: "hanako",
+      student_roster: hanako,
+      status: "pending",
+      event_type: "absence",
+      event_date: "2099-09-11",
+      ai_summary: "体調不良",
+      ai_confidence: 0.9,
+      sender_profile: { display_name: "山田保護者", alias_names: [], account_names: [], tag_names: [] },
+      line_messages: { id: "message-row-change", line_user_id: "line-family", display_name: "山田保護者", text: "欠席します", received_at: "2099-09-10T09:00:00Z" },
+      attendance_candidate_items: [{ id: "item-row-change", student_number: "hanako", event_type: "absence", event_date: "2099-09-11", lesson_id: null, suggested_subject: null, suggested_class_name: null, ai_summary: "体調不良", status: "pending" }],
+      reply_messages: [],
+    }] } });
+    if (url.pathname === "/api/attendance/lessons") {
+      const studentNumber = url.searchParams.get("student_number") ?? "";
+      lessonRequests.push(studentNumber);
+      return route.fulfill({ json: { lessons: [
+        { id: "math", label: "数学A", lesson_date: "2099-09-11", start_time: "17:00", campus: "本校", classroom: "A", enrolled: studentNumber === "hanako" },
+        { id: "english", label: "英語B", lesson_date: "2099-09-11", start_time: "19:00", campus: "本校", classroom: "B", enrolled: studentNumber === "hanako" },
+        { id: "sora-lesson", label: "理科C", lesson_date: "2099-09-11", start_time: "20:00", campus: "本校", classroom: "C", enrolled: studentNumber === "sora" },
+      ] } });
+    }
+    if (url.pathname === "/api/attendance/status") return route.fulfill({ json: {} });
+    if (url.pathname === "/api/attendance/extract") return route.fulfill({ json: { processed: 0, candidates: 0, ignored: 0, retrying: 0, dead: 0 } });
+    return route.fulfill({ json: {} });
+  });
+
+  await page.goto("/attendance");
+  await page.getByRole("button", { name: "対応する", exact: true }).click();
+  const math = page.getByRole("button", { name: /数学A/ });
+  await expect(math).toBeVisible();
+  await math.click();
+  await expect(math).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: /山田 花子.*別の生徒に変更/ }).click();
+  await page.getByRole("option", { name: /菊池 そら/ }).click();
+  const soraLesson = page.getByRole("button", { name: /理科C/ });
+  await expect(soraLesson).toHaveAttribute("aria-pressed", "true");
+  await expect(soraLesson).toContainText("受講中");
+  await expect(math).toHaveAttribute("aria-pressed", "false");
+  await expect(math).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  expect(lessonRequests).toContain("sora");
+
+  await page.getByRole("button", { name: /菊池 そら.*別の生徒に変更/ }).click();
+  await page.getByRole("option", { name: /山田 太郎/ }).click();
+  await expect(soraLesson).toHaveAttribute("aria-pressed", "false");
+  await expect(soraLesson).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.getByRole("button", { name: /受講中/ })).toHaveCount(0);
+  expect(lessonRequests).toContain("taro");
+});
