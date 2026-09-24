@@ -2,7 +2,7 @@ import 'server-only';
 import {createHash} from 'node:crypto';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {InterviewError,normalizeTeacher,validateAppointment} from './interview-core.mjs';
-import {planTeacherAvailability} from './bensuke-availability-auto.mjs';
+import {planTeacherAvailability,resolveAvailabilityTeacher} from './bensuke-availability-auto.mjs';
 import {BENSUKE_SOURCE,assertNoNotionConflicts,bookingSchema,equivalentSchedule,queryPages,scheduleProperties,scheduleValue,staffDirectory,teacherMatch} from './bensuke-booking.mjs';
 import {bensukeRequest} from './interview-sync';
 import {readAll} from './interview-store';
@@ -15,6 +15,8 @@ type Booking={status:string;data?:Record<string,string>};
 type Action='create'|'update'|'archive'|'keep'|'skip'|'review';
 export type AvailabilityItem={key:string;date:string;start:string;end:string;campus:string;action:Action;reason:string;pageId?:string;notionEditedAt?:string;expected?:Row};
 export type AvailabilityPreview={month:string;teacher:string;items:AvailabilityItem[];summary:Record<Action,number>;hash:string;lessonDays:number};
+export type AvailabilityActor={staffCode:string;displayName:string};
+export type AvailabilityOverview={month:string;teachers:Array<{teacher:string;status:'not-run'|'applied'|'review';lessonDays:number;activeSlots:number;reviewCount:number;finishedAt:string|null}>};
 const pageKey=(value:string)=>String(value??'').replaceAll('-','').toLowerCase();
 const teacherKey=(value:unknown)=>normalizeTeacher(value).replace(/(?:先生|さん)$/u,'');
 const monthEnd=(month:string)=>{const [year,n]=month.split('-').map(Number);return new Date(Date.UTC(year,n,1)).toISOString().slice(0,10);};
@@ -27,14 +29,16 @@ function desiredValue(row:Row,staffId:string){const prefix=row.campus==='本校'
 async function monthRows(db:SupabaseClient,table:string,column:string,from:string,to:string){
  const rows:Row[]=[];for(let offset=0;offset<5000;offset+=500){const result=await db.from(table).select('*').gte(column,from).lt(column,to).range(offset,offset+499);if(result.error)throw new InterviewError('予約可の管理情報を読み込めません。',503);rows.push(...(result.data??[]));if((result.data?.length??0)<500)return rows;}throw new InterviewError('対象月のデータが多すぎます。',503);
 }
-export async function previewGeneratedAvailability(db:SupabaseClient,month:string,teacher='工藤'):Promise<AvailabilityPreview>{
- checkMonth(month);if(teacherKey(teacher)!=='工藤')throw new InterviewError('現在は工藤先生の予約可だけを自動作成できます。',403);
+export async function previewGeneratedAvailability(db:SupabaseClient,month:string,actor:AvailabilityActor):Promise<AvailabilityPreview>{
+ checkMonth(month);
  const from=`${month}-01`,to=monthEnd(month);
  const [lessons,managed,bookings,publicSlots,invitations,requests,schema]=await Promise.all([
   monthRows(db,'lessons','lesson_date',from,to),monthRows(db,'interview_generated_availability','slot_date',from,to),readAll(db,'interview_bookings'),readAll(db,'interview_public_slots'),readAll(db,'interview_invitations'),readAll(db,'interview_parent_requests'),bensukeRequest(`/data_sources/${BENSUKE_SOURCE}`),
  ]);
  const settingsResult=await db.from('interview_settings').select('data').eq('id',true).single();if(settingsResult.error)throw new InterviewError('面談時間の設定を読み込めません。',503);const settings=(settingsResult.data as Row).data;
- const directory=await staffDirectory(bensukeRequest,schema),staff=teacherMatch(teacher,directory),property:any=bookingSchema(schema); // eslint-disable-line @typescript-eslint/no-explicit-any
+ const directory=await staffDirectory(bensukeRequest,schema);
+ let teacher:string;try{const lessonCandidates=lessons.map((row:Row)=>row.teacher_name).filter(Boolean);teacher=resolveAvailabilityTeacher({displayName:actor.displayName,staffCode:actor.staffCode,candidates:lessonCandidates.length?lessonCandidates:directory.map((row:{name:string})=>row.name)});}catch(error){throw new InterviewError(error instanceof Error?error.message:'担当する先生を特定できません。',422);}
+ const staff=teacherMatch(teacher,directory),property:any=bookingSchema(schema); // eslint-disable-line @typescript-eslint/no-explicit-any
  const pages:Row[]=await queryPages(bensukeRequest,BENSUKE_SOURCE,{and:[{property:property.date.id,date:{on_or_after:from}},{property:property.date.id,date:{on_or_before:lastDay(month)}}]}) as Row[];
  const conflictMap=new Map<string,Row>(pages.map(page=>[pageKey(page.id),page]));
  const teacherPages:Row[]=await queryPages(bensukeRequest,BENSUKE_SOURCE,{and:[{property:property.date.id,date:{on_or_before:lastDay(month)}},{property:property.teachers.id,relation:{contains:staff.id}}]}) as Row[];
@@ -51,7 +55,7 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
  for(const invitation of invitations as Row[])for(const choice of Array.isArray(invitation.slots)?invitation.slots:[]){const slot=publicById.get(String(choice.id));if(slot?.notion_page_id)protectedPages.add(pageKey(slot.notion_page_id));}
  for(const request of requests as Row[])for(const choice of Array.isArray(request.choices)?request.choices:[]){const slot=publicById.get(String(choice.slotId));if(slot?.notion_page_id)protectedPages.add(pageKey(slot.notion_page_id));}
  const relevantBookings=bookings.filter((row:Row)=>row.data?.date>=from&&row.data?.date<to),desired=new Map<string,Row>(),items:AvailabilityItem[]=[],reviewDates=new Set<string>();
- const lessonDates=[...new Set<string>(lessons.filter((row:Row)=>teacherKey(row.teacher_name)==='工藤').map((row:Row)=>String(row.lesson_date)))].sort();
+ const lessonDates=[...new Set<string>(lessons.filter((row:Row)=>teacherKey(row.teacher_name)===teacherKey(teacher)).map((row:Row)=>String(row.lesson_date)))].sort();
  for(const date of lessonDates){
   try{
    for(const planned of planTeacherAvailability({date,teacher,lessons:lessons as Lesson[],bookings:relevantBookings as Booking[],settings})){
@@ -60,8 +64,8 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
    }
   }catch(error){reviewDates.add(date);items.push({key:`${date}|review`,date,start:'',end:'',campus:'',action:'review',reason:error instanceof Error?error.message:'勤務校舎を確認してください。'});}
  }
- const managedMap=new Map(managed.filter((row:Row)=>teacherKey(row.teacher)==='工藤').map((row:Row)=>[managedKey(row.slot_date,row.start_time),row]));
- if(!lessonDates.length&&managedMap.size){for(const date of [...new Set<string>([...managedMap.values()].filter((row:Row)=>row.status==='active').map((row:Row)=>String(row.slot_date)))]){reviewDates.add(date);items.push({key:`${date}|missing-lessons`,date,start:'',end:'',campus:'',action:'review',reason:'この月の工藤先生の授業を読み取れないため、既存枠を削除しません。'});}}
+ const managedMap=new Map(managed.filter((row:Row)=>teacherKey(row.teacher)===teacherKey(teacher)).map((row:Row)=>[managedKey(row.slot_date,row.start_time),row]));
+ if(!lessonDates.length&&managedMap.size){for(const date of [...new Set<string>([...managedMap.values()].filter((row:Row)=>row.status==='active').map((row:Row)=>String(row.slot_date)))]){reviewDates.add(date);items.push({key:`${date}|missing-lessons`,date,start:'',end:'',campus:'',action:'review',reason:`この月の${teacher}先生の授業を読み取れないため、既存枠を削除しません。`});}}
  for(const [key,row] of desired){
   const tracked=managedMap.get(key),expected=desiredValue(row,staff.id),card=tracked?.notion_page_id?byPage.get(pageKey(tracked.notion_page_id)):undefined;
   if(tracked?.status==='active'){
@@ -78,7 +82,7 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
   catch(error){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'skip',reason:error instanceof Error?error.message:'既存予定と重なります。'});continue;}
   items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'create',reason:'新しく作成',expected});
  }
- for(const tracked of managed.filter((row:Row)=>teacherKey(row.teacher)==='工藤'&&row.status==='active')){
+ for(const tracked of managed.filter((row:Row)=>teacherKey(row.teacher)===teacherKey(teacher)&&row.status==='active')){
   const key=managedKey(tracked.slot_date,tracked.start_time);if(desired.has(key)||reviewDates.has(tracked.slot_date))continue;const card=byPage.get(pageKey(tracked.notion_page_id));
   if(!card){items.push({key,date:tracked.slot_date,start:tracked.start_time,end:'',campus:tracked.campus,action:'review',reason:'自動作成したNotionカードが見つかりません。',pageId:tracked.notion_page_id});continue;}
   if(!equivalentSchedule(card.value,tracked.expected)){items.push({key,date:tracked.slot_date,start:tracked.start_time,end:card.value.date?.end?new Date(card.value.date.end).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'',campus:tracked.campus,action:'review',reason:'自動作成後にNotionで変更されています。',pageId:card.page.id});continue;}
@@ -87,14 +91,23 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
  }
  items.sort((a,b)=>a.date.localeCompare(b.date)||a.start.localeCompare(b.start)||a.action.localeCompare(b.action));
  const summary={create:0,update:0,archive:0,keep:0,skip:0,review:0};for(const item of items)summary[item.action]++;
- const hash=createHash('sha256').update(JSON.stringify(items)).digest('hex');return {month,teacher,items,summary,hash,lessonDays:lessonDates.length};
+ const hash=createHash('sha256').update(JSON.stringify({month,teacher,items})).digest('hex');return {month,teacher,items,summary,hash,lessonDays:lessonDates.length};
 }
 
-export async function applyGeneratedAvailability(db:SupabaseClient,input:{month:string;teacher?:string;previewHash:string;operationKey:string;actor:string}){
- const {month,teacher='工藤',previewHash,operationKey,actor}=input;if(!/^[0-9a-f-]{36}$/i.test(operationKey)||!/^[0-9a-f-]{36}$/i.test(actor))throw new InterviewError('操作をやり直してください。');
+export async function availabilityOverview(db:SupabaseClient,month:string):Promise<AvailabilityOverview>{
+ checkMonth(month);const from=`${month}-01`,to=monthEnd(month);
+ const [lessons,managed,runsResult]=await Promise.all([monthRows(db,'lessons','lesson_date',from,to),monthRows(db,'interview_generated_availability','slot_date',from,to),db.from('interview_availability_runs').select('status,result,finished_at,created_at').eq('target_month',from).order('created_at',{ascending:false})]);
+ if(runsResult.error)throw new InterviewError('先生別の実行状況を読み込めません。',503);
+ const names=new Map<string,string>();for(const row of [...lessons,...managed]){const value=String(row.teacher_name??row.teacher??'').trim();if(value)names.set(teacherKey(value),teacherKey(value));}
+ const latest=new Map<string,Row>();for(const run of runsResult.data??[]){const key=teacherKey(run.result?.teacher);if(key&&!latest.has(key))latest.set(key,run);}
+ return {month,teachers:[...names.values()].sort((a,b)=>a.localeCompare(b,'ja')).map(teacher=>{const key=teacherKey(teacher),run=latest.get(key),reviewCount=Number(run?.result?.summary?.review??0);return {teacher,status:!run?'not-run':run.status==='applied'&&!reviewCount?'applied':'review',lessonDays:new Set(lessons.filter(row=>teacherKey(row.teacher_name)===key).map(row=>row.lesson_date)).size,activeSlots:managed.filter(row=>teacherKey(row.teacher)===key&&row.status==='active').length,reviewCount,finishedAt:run?.finished_at??null};})};
+}
+
+export async function applyGeneratedAvailability(db:SupabaseClient,input:{month:string;identity:AvailabilityActor;previewHash:string;operationKey:string;actor:string}){
+ const {month,identity,previewHash,operationKey,actor}=input;if(!/^[0-9a-f-]{36}$/i.test(operationKey)||!/^[0-9a-f-]{36}$/i.test(actor))throw new InterviewError('操作をやり直してください。');
  const prior=await db.from('interview_availability_runs').select('*').eq('operation_key',operationKey).maybeSingle();if(prior.error)throw new InterviewError('実行履歴を確認できません。',503);
  if(prior.data){if(prior.data.status==='applied')return prior.data.result;throw new InterviewError('前回の反映結果を確認してから、もう一度プレビューしてください。',409);}
- const preview=await previewGeneratedAvailability(db,month,teacher);if(preview.hash!==previewHash)throw new InterviewError('授業表または予定が更新されました。もう一度確認してください。',409);
+ const preview=await previewGeneratedAvailability(db,month,identity),teacher=preview.teacher;if(preview.hash!==previewHash)throw new InterviewError('授業表または予定が更新されました。もう一度確認してください。',409);
  const claim=await db.from('interview_availability_runs').insert({operation_key:operationKey,actor,target_month:`${month}-01`,preview_hash:previewHash,status:'applying'});if(claim.error)throw new InterviewError('別の反映処理を確認してください。',409);
  const schema=await bensukeRequest(`/data_sources/${BENSUKE_SOURCE}`),results:Row[]=[];
  try{
@@ -112,5 +125,5 @@ export async function applyGeneratedAvailability(db:SupabaseClient,input:{month:
    const saved=await db.from('interview_generated_availability').upsert({teacher,slot_date:item.date,start_time:item.start,campus:item.campus,notion_page_id:page.id,expected:item.expected,notion_edited_at:page.last_edited_time,status:'active',updated_at:new Date().toISOString()},{onConflict:'teacher,slot_date,start_time'});if(saved.error)throw saved.error;results.push({action:item.action,date:item.date,start:item.start});
   }
   const result={month,teacher,summary:preview.summary,applied:results};const finished=await db.from('interview_availability_runs').update({status:'applied',result,finished_at:new Date().toISOString()}).eq('operation_key',operationKey);if(finished.error)throw finished.error;return result;
- }catch(error){await db.from('interview_availability_runs').update({status:'failed',result:{message:error instanceof Error?error.message:'反映に失敗しました。'},finished_at:new Date().toISOString()}).eq('operation_key',operationKey);throw error instanceof InterviewError?error:new InterviewError('一部の反映結果を再確認してください。もう一度プレビューしてください。',503);}
+ }catch(error){await db.from('interview_availability_runs').update({status:'failed',result:{teacher,message:error instanceof Error?error.message:'反映に失敗しました。'},finished_at:new Date().toISOString()}).eq('operation_key',operationKey);throw error instanceof InterviewError?error:new InterviewError('一部の反映結果を再確認してください。もう一度プレビューしてください。',503);}
 }

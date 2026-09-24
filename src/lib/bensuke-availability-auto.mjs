@@ -1,5 +1,18 @@
 import {clock,minutes,normalizeTeacher,overlaps} from './interview-core.mjs';
 
+const teacherKey=value=>normalizeTeacher(value).replace(/(?:先生|さん)$/u,'');
+
+/** @param {{displayName:string,staffCode?:string,candidates?:Array<unknown>}} input */
+export function resolveAvailabilityTeacher({displayName,staffCode='',candidates=[]}){
+ const display=teacherKey(displayName),known={KUDO:'工藤',KINJO:'金城'}[String(staffCode).toUpperCase()];
+ const names=[...new Set(candidates.map(teacherKey).filter(Boolean))];
+ if(known&&names.includes(known))return known;
+ const matches=names.filter(name=>display===name||display.startsWith(name)||name.startsWith(display)).sort((a,b)=>b.length-a.length);
+ if(matches.length&&(!matches[1]||matches[0].length>matches[1].length))return matches[0];
+ if(known)return known;
+ throw Error(matches.length?'職員名に対応する先生を一意に特定できません。':'職員名に対応する先生を授業表・Notionから特定できません。');
+}
+
 export function schoolLessonInterval(value){
  const match=String(value??'').normalize('NFKC').match(/(\d{1,2}:[0-5]\d)\s*[～〜~\-–－]\s*(\d{1,2}:[0-5]\d)/);
  if(!match)throw Error('授業時間を読み取れません。');

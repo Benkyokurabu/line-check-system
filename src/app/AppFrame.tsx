@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import {pageTitles} from '@/lib/page-titles';
 
 const navigation = [
-  { label: "面談", links: [["/staff/interviews", "面談の予定・入力"]] },
+  { label: "面談", links: [["/staff/interview-availability", "面談受付枠を作る"], ["/staff/interviews", "面談の予定・入力"]] },
   { label: "授業・出欠", links: [["/attendance", "欠席連絡の確認"], ["/classroom-office", "教室への連絡"], ["/schedule-import", "授業スケジュール"]] },
   { label: "生徒・連絡", links: [["/dashboard", "未対応メッセージ"], ["/students", "生徒一覧"], ["/karte", "生徒カルテ"], ["/contacts", "連絡先管理"]] },
   { label: "予約・管理", links: [["/staff/self-study-room/trial", "自習室管理（操作確認用）"], ["/admin/notion-roster", "名簿の照合"], ["/line-alias-import", "LINE登録名の取込"], ["/feedback", "ご意見・ご要望"]] },
