@@ -50,7 +50,9 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
  const staff=teacherMatch(teacher,directory),property:any=bookingSchema(schema); // eslint-disable-line @typescript-eslint/no-explicit-any
  const pages:Row[]=await queryPages(bensukeRequest,BENSUKE_SOURCE,{and:[{property:property.date.id,date:{on_or_after:from}},{property:property.date.id,date:{on_or_before:lastDay(month)}}]}) as Row[];
  const conflictMap=new Map<string,Row>(pages.map(page=>[pageKey(page.id),page]));
- const teacherPages:Row[]=await queryPages(bensukeRequest,BENSUKE_SOURCE,{and:[{property:property.date.id,date:{on_or_before:lastDay(month)}},{property:property.teachers.id,relation:{contains:staff.id}}]}) as Row[];
+ // Long-running events may start in an earlier month, so read the full teacher history.
+ // Some established teachers have over 2,000 historical cards.
+ const teacherPages:Row[]=await queryPages(bensukeRequest,BENSUKE_SOURCE,{and:[{property:property.date.id,date:{on_or_before:lastDay(month)}},{property:property.teachers.id,relation:{contains:staff.id}}]},50) as Row[];
  for(const page of teacherPages)conflictMap.set(pageKey(page.id),page);
  for(const campus of ['本校','南教室']){
   const closures:Row[]=await queryPages(bensukeRequest,BENSUKE_SOURCE,{and:[{property:property.date.id,date:{on_or_before:lastDay(month)}},{property:property.campuses.id,multi_select:{contains:campus}},{property:property.tags.id,multi_select:{contains:'休み'}},{property:property.teachers.id,relation:{is_empty:true}}]}) as Row[];

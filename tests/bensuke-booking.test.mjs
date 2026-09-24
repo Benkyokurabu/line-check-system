@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {BENSUKE_SOURCE,prepareBinding,prepareBindings,teacherMatch,scheduleValue,scheduleProperties,desiredSchedule,equivalentSchedule,assertNoNotionConflicts,remoteAppointment} from '../src/lib/bensuke-booking.mjs';
+import {BENSUKE_SOURCE,prepareBinding,prepareBindings,queryPages,teacherMatch,scheduleValue,scheduleProperties,desiredSchedule,equivalentSchedule,assertNoNotionConflicts,remoteAppointment} from '../src/lib/bensuke-booking.mjs';
 import {syncBensukeBooking} from '../src/lib/bensuke-sync.mjs';
 const pageId='11111111-1111-4111-8111-111111111111',teacherId='22222222-2222-4222-8222-222222222222';
 const schema={properties:Object.fromEntries(Object.entries({名前:['title'],日時:['date'],担当者:['relation'],校舎:['multi_select','本校','南教室'],教室:['select','本①','本②','南①'],内容:['multi_select','本：予約可','南：予約可','面談(対面)','面談(オンライン)','電話']}).map(([name,[type,...names]])=>[name,{id:name,name,type,[type]:type==='relation'?{data_source_id:'staff'}:{options:names.map(n=>({id:n,name:n}))}}]))};
@@ -25,7 +25,13 @@ function fixture(){
 }
 test('職員名の敬称・異体字を対応し、同姓同名の重複は推測しない',()=>{
  assert.equal(teacherMatch('工藤',directory).id,teacherId);
- assert.throws(()=>teacherMatch('髙山',[{id:'a',name:'高山先生'},{id:'b',name:'髙山先生'}]),/一意/);
+ assert.equal(teacherMatch('髙山',[{id:'a',name:'高山先生'},{id:'b',name:'髙山先生'}]).id,'b');
+ assert.throws(()=>teacherMatch('髙山',[{id:'a',name:'髙山先生'},{id:'b',name:'髙山先生'}]),/一意/);
+});
+test('履歴が20ページを超える先生も全件を読み、上限超過や巡回は拒否する',async()=>{
+ const request=async(_path,init)=>{const page=Number(JSON.parse(init.body).start_cursor??0);return {results:[],has_more:page<29,next_cursor:String(page+1)};};
+ assert.equal((await queryPages(request,'staff',undefined,50)).length,0);
+ await assert.rejects(()=>queryPages(request,'staff'),/全予定/);
 });
 test('3希望で定義・職員・リソース履歴を共有し、別の申請では取り直す',async()=>{
  const f=fixture(),calls=[],pages=new Map();

@@ -22,13 +22,13 @@ export function scheduleValue(page,schema){
  for(const key of Object.keys(fields))if(!get(key)||get(key).has_more)throw new InterviewError('ベンスケの項目を全件取得できません。Notionで確認してください。',503);
  return {title:text(get('title').title),date:get('date').date,teachers:get('teachers').relation.map(x=>x.id).sort(),campuses:get('campuses').multi_select.map(x=>x.name).sort(),room:get('room').select?.name??'',tags:get('tags').multi_select.map(x=>x.name).sort()};
 }
-export async function queryPages(request,sourceId,filter){
+export async function queryPages(request,sourceId,filter,maxPages=20){
  let cursor;const seen=new Set(),rows=[];
  do{
   const page=await request(`/data_sources/${sourceId}/query`,{method:'POST',body:JSON.stringify({page_size:100,...(filter?{filter}:{}),...(cursor?{start_cursor:cursor}:{})})});
   if(!Array.isArray(page.results))throw new InterviewError('Notionの取得結果を確認できません。',503);
   rows.push(...page.results.filter(p=>!p.archived&&!p.in_trash));
-  if(page.has_more&&(!page.next_cursor||seen.has(page.next_cursor)||seen.size>=19))throw new InterviewError('Notionの全予定を確認できません。確定を停止しました。',503);
+  if(page.has_more&&(!page.next_cursor||seen.has(page.next_cursor)||seen.size>=maxPages-1))throw new InterviewError('Notionの全予定を確認できません。確定を停止しました。',503);
   cursor=page.has_more?page.next_cursor:null;if(cursor)seen.add(cursor);
  }while(cursor);
  return rows;
@@ -40,8 +40,12 @@ export async function staffDirectory(request,schema){
 }
 export function teacherMatch(name,directory){
  const matches=directory.filter(p=>teacherKey(p.name)===teacherKey(name));
- if(matches.length!==1)throw new InterviewError(`担当講師「${name}」と職員DBを一意に対応できません。職員DBの名前・重複を確認してください。`,409);
- return matches[0];
+ if(matches.length===1)return matches[0];
+ // Preserve the original glyph when aliases (高/髙) point to different staff cards.
+ const literal=value=>String(value??'').normalize('NFKC').replace(/\s/g,'').replace(/(?:先生|さん)$/u,'');
+ const exact=matches.filter(p=>literal(p.name)===literal(name));
+ if(exact.length===1)return exact[0];
+ throw new InterviewError(`担当講師「${name}」と職員DBを一意に対応できません。職員DBの名前・重複を確認してください。`,409);
 }
 export async function checkedPage(request,pageId,sourceId){
  if(!uuid.test(pageId))throw new InterviewError('ベンスケのカードを選び直してください。');
