@@ -59,7 +59,7 @@ type Candidate = {
   lessons: Lesson | null; line_messages: { id?: string; text: string | null; received_at: string | null; display_name: string | null; line_user_id?: string | null } | null;
 };
 type EditableItem = {
-  client_id: string; id?: string; student_number: string; event_type: string; event_date: string; campus: string; lesson_id: string;
+  client_id: string; id?: string; group_token?: string; student_number: string; event_type: string; event_date: string; campus: string; lesson_id: string;
   suggested_subject: string | null; suggested_class_name: string | null; ai_summary: string;
   arrival_expected_time: string; note_internal: string; note_for_classroom: string; status?: string;
   cross_campus_override: boolean; cross_campus_reason: string;
@@ -230,6 +230,30 @@ function candidateLessonListKey(date: string, studentNumber: string) {
   return JSON.stringify([date, studentNumber]);
 }
 
+function candidateItemGroupKey(item: EditableItem) {
+  return JSON.stringify([
+    item.student_number, item.event_date, item.event_type, item.campus, item.ai_summary,
+    item.arrival_expected_time, item.note_internal, item.note_for_classroom,
+    item.cross_campus_override, item.cross_campus_reason, item.status ?? "pending", item.group_token ?? "",
+  ]);
+}
+
+function groupCandidateItems(items: EditableItem[]) {
+  const groups: Array<{ key: string; items: EditableItem[] }> = [];
+  const byKey = new Map<string, (typeof groups)[number]>();
+  for (const item of items) {
+    const key = candidateItemGroupKey(item);
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, items: [] };
+      groups.push(group);
+      byKey.set(key, group);
+    }
+    group.items.push(item);
+  }
+  return groups;
+}
+
 function initialItems(candidate: Candidate, initialCampus: string, fallbackStudentNumber: string) {
   const requiresStudentSelection = candidate.student_selection_required === true;
   const source = (candidate.attendance_candidate_items ?? []).length > 0 ? candidate.attendance_candidate_items! : [{
@@ -258,8 +282,9 @@ function initialItems(candidate: Candidate, initialCampus: string, fallbackStude
 }
 
 function candidateLesson(candidate: Candidate, item: EditableItem) {
+  if (!item.lesson_id) return null;
   const itemLesson = candidate.attendance_candidate_items?.find((source) => source.id === item.id)?.lessons;
-  if (itemLesson) return itemLesson;
+  if (itemLesson?.id === item.lesson_id) return itemLesson;
   if (candidate.lesson_id === item.lesson_id) return candidate.lessons;
   return null;
 }
@@ -1176,7 +1201,11 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   const lessonRequestKeys = useMemo(() => JSON.stringify([...new Set(items
     .filter((item) => item.event_date)
     .map((item) => candidateLessonListKey(item.event_date, item.student_number)))].sort()), [items]);
-  const eventSummary = items.slice(0, 2).map((item) => [item.event_date || "日付未定", eventTypeLabel(item.event_type), item.ai_summary || fallbackReason(item.event_type)].join(" / ")).join("　｜　");
+  const displayGroups = useMemo(() => groupCandidateItems(items), [items]);
+  const eventSummary = displayGroups.slice(0, 2).map((group) => {
+    const item = group.items[0];
+    return [item.event_date || "日付未定", eventTypeLabel(item.event_type), item.ai_summary || fallbackReason(item.event_type)].join(" / ");
+  }).join("　｜　");
   const hasError = candidateHasError(candidate);
   const showAutoPeriod = Boolean(periodProposal && !manualPeriod && !closed && !registering);
 
@@ -1229,8 +1258,41 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     return () => controller.abort();
   }, [lessonRequestKeys, expanded, studentOptions, showAutoPeriod]);
 
-  function updateItem(clientId: string, patch: Partial<EditableItem>) {
-    setItems((current) => current.map((item) => item.client_id === clientId ? { ...item, ...patch } : item));
+  function updateGroup(groupItems: EditableItem[], patch: Partial<EditableItem>, clearLessons = false) {
+    const groupIds = new Set(groupItems.map((item) => item.client_id));
+    const firstId = groupItems[0].client_id;
+    setItems((current) => current.flatMap((item) => {
+      if (!groupIds.has(item.client_id)) return [item];
+      if (clearLessons && item.client_id !== firstId) return [];
+      return [{ ...item, ...patch, ...(clearLessons ? { lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "" } : {}) }];
+    }));
+  }
+
+  function toggleGroupLesson(groupItems: EditableItem[], lesson: Lesson) {
+    const groupIds = new Set(groupItems.map((item) => item.client_id));
+    const chosen = groupItems.find((item) => item.lesson_id === lesson.id);
+    if (!chosen && items.some((item) => !groupIds.has(item.client_id) && item.student_number === groupItems[0].student_number && item.event_date === groupItems[0].event_date && item.lesson_id === lesson.id)) {
+      setCardMessage("この授業は別の登録行で選択済みです。");
+      return;
+    }
+    if (!chosen && items.length >= 80 && groupItems.every((item) => item.lesson_id)) {
+      setCardMessage("登録できる授業は80件までです。");
+      return;
+    }
+    setCardMessage("");
+    setItems((current) => {
+      const members = current.filter((item) => groupIds.has(item.client_id));
+      const selectedItem = members.find((item) => item.lesson_id === lesson.id);
+      if (selectedItem) {
+        if (members.length > 1) return current.filter((item) => item.client_id !== selectedItem.client_id);
+        return current.map((item) => item.client_id === selectedItem.client_id ? { ...item, lesson_id: "", suggested_subject: null, suggested_class_name: null } : item);
+      }
+      const blankItem = members.find((item) => !item.lesson_id);
+      if (blankItem) return current.map((item) => item.client_id === blankItem.client_id ? { ...item, lesson_id: lesson.id, campus: lesson.campus ?? item.campus, suggested_subject: null, suggested_class_name: null } : item);
+      const firstItem = members[0];
+      if (!firstItem || current.length >= 80) return current;
+      return [...current, { ...firstItem, id: undefined, client_id: makeClientId(), lesson_id: lesson.id, campus: lesson.campus ?? firstItem.campus, suggested_subject: null, suggested_class_name: null }];
+    });
   }
 
   function selectStudent(value: string) {
@@ -1285,8 +1347,10 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   function addItem() {
     if (items.length >= 80) { setCardMessage("登録行は80件までです。"); return; }
     const previous = items[items.length - 1];
+    const clientId = makeClientId();
     setItems((current) => [...current, {
-      client_id: makeClientId(),
+      client_id: clientId,
+      group_token: clientId,
       student_number: previous?.student_number ?? studentNumber,
       event_type: previous?.event_type ?? candidate.event_type ?? "absence",
       event_date: previous?.event_date ?? candidate.event_date ?? "",
@@ -1303,11 +1367,12 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     }]);
   }
 
-  function removeItem(clientId: string) {
-    setItems((current) => current.length <= 1 ? current : current.filter((item) => item.client_id !== clientId));
+  function removeGroup(groupItems: EditableItem[]) {
+    const groupIds = new Set(groupItems.map((item) => item.client_id));
+    setItems((current) => current.length <= groupIds.size ? current : current.filter((item) => !groupIds.has(item.client_id)));
     setItemStudentQueries((current) => {
       const next = { ...current };
-      delete next[clientId];
+      for (const clientId of groupIds) delete next[clientId];
       return next;
     });
   }
@@ -1362,13 +1427,17 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   }
 
   async function confirmCandidate(rows = items, proposedLessons: PeriodLesson[] = []) {
-    if (busy || !rows.length || rows.length > 80) return;
+    const registrationRows = groupCandidateItems(rows).flatMap((group) => {
+      const selected = group.items.filter((item) => item.lesson_id);
+      return selected.length ? selected : group.items.slice(0, 1);
+    });
+    if (busy || !registrationRows.length || registrationRows.length > 80) return;
     if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
-    const invalidStudent = rows.find((item) => !item.student_number);
+    const invalidStudent = registrationRows.find((item) => !item.student_number);
     if (invalidStudent) { setCardMessage("すべての登録行で名前を選択してください。"); return; }
-    const invalid = rows.find((item) => !item.event_date || !item.campus || !item.lesson_id || !item.ai_summary.trim());
+    const invalid = registrationRows.find((item) => !item.event_date || !item.campus || !item.lesson_id || !item.ai_summary.trim());
     if (invalid) { setCardMessage("すべての登録行で、日付・校舎・授業・理由を入力してください。"); return; }
-    const invalidCampus = rows.find((item) => {
+    const invalidCampus = registrationRows.find((item) => {
       const student = studentOptions.find((entry) => entry.student_number === item.student_number);
       const lesson = proposedLessons.find((entry) => entry.id === item.lesson_id) ?? (lessonLists[candidateLessonListKey(item.event_date, item.student_number)] ?? []).find((entry) => entry.id === item.lesson_id) ?? candidateLesson(candidate, item);
       const crossCampus = lessonIsCrossCampus(student, lesson, item.campus);
@@ -1378,7 +1447,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     setBusy(true);
     setCardMessage("Notionへ登録しています...");
     try {
-      await save(rows);
+      await save(registrationRows);
       const response = await fetch(`/api/attendance/candidates/${candidate.id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1607,16 +1676,20 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         setPeriodOpen(false);
         setCardMessage(`${additions.length}授業の登録行を作りました。内容を確認し、「確認してNotionへ登録」を押してください。`);
       }} />}
-      {items.map((item, index) => {
+      {displayGroups.map((registrationGroup, index) => {
+        const item = registrationGroup.items[0];
         const lessonList = item.event_date ? lessonLists[candidateLessonListKey(item.event_date, item.student_number)] : undefined;
         const lessons = lessonList ?? [];
-        const currentLesson = lessons.find((lesson) => lesson.id === item.lesson_id) ?? candidateLesson(candidate, item);
+        const selectedItems = registrationGroup.items.filter((row) => row.lesson_id);
+        const selectedLessonIds = new Set(selectedItems.map((row) => row.lesson_id));
+        const currentLesson = selectedItems.length === 1 ? lessons.find((lesson) => lesson.id === selectedItems[0].lesson_id) ?? candidateLesson(candidate, selectedItems[0]) : null;
         const rowStudent = studentOptions.find((student) => student.student_number === item.student_number) ?? null;
-        const crossCampus = lessonIsCrossCampus(rowStudent, currentLesson, item.campus);
+        const crossCampus = selectedItems.some((row) => lessonIsCrossCampus(rowStudent, lessons.find((lesson) => lesson.id === row.lesson_id) ?? candidateLesson(candidate, row), row.campus));
         const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus) : lessons;
         const lessonGroups = lessonsByTime(filteredLessons);
         const rowClosed = closed || item.status === "confirmed";
-        return <div key={item.client_id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
+        const selectionSummary = selectedItems.length > 1 ? `${selectedItems.length}授業選択中` : currentLesson?.label ?? (selectedItems.length ? "1授業選択中" : "授業未選択");
+        return <div key={item.client_id} role="group" aria-label={`${index + 1}行目の登録内容`} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
           {item.status === "confirmed" && <div style={{ color: "#087a3d", fontWeight: 800 }}>この行はNotion登録済みです。未完了の行だけ再試行されます。</div>}
           <div style={{ display: "grid", gridTemplateColumns: "minmax(190px,1.2fr) 110px 120px 130px minmax(220px,1fr) 42px", gap: 8, alignItems: "end" }}>
             <StudentPicker
@@ -1627,33 +1700,34 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
               onQueryChange={(value) => setItemStudentQueries((current) => ({ ...current, [item.client_id]: value }))}
               onChange={(value) => {
                 const student = studentOptions.find((entry) => entry.student_number === value);
-                updateItem(item.client_id, { student_number: value, campus: selectableCampus(student?.campus), lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "" });
+                updateGroup(registrationGroup.items, { student_number: value, campus: selectableCampus(student?.campus) }, true);
               }}
               candidates={suggestions}
               disabled={rowClosed}
               changeLabel="別の生徒に変更"
             />
-            <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { event_date: event.target.value, lesson_id: "" })} /></label>
-            <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { campus: event.target.value, lesson_id: currentLesson?.campus === event.target.value ? item.lesson_id : "", cross_campus_override: false, cross_campus_reason: "" })}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
-            <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={rowClosed} onChange={(event) => { if (event.target.value) updateItem(item.client_id, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
-            <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={rowClosed || items.length <= 1} onClick={() => removeItem(item.client_id)}>削除</button>
+            <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { event_date: event.target.value }, true)} /></label>
+            <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { campus: event.target.value }, true)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+            <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={rowClosed} onChange={(event) => { if (event.target.value) updateGroup(registrationGroup.items, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
+            <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={rowClosed || items.length <= registrationGroup.items.length} onClick={() => removeGroup(registrationGroup.items)}>削除</button>
           </div>
           {crossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
             <div style={{ color: "#9a3412", fontWeight: 800 }}>所属校舎は{rowStudent?.campus}、選択中の授業は{item.campus}です。</div>
-            <label style={{ fontWeight: 800 }}><input type="checkbox" checked={item.cross_campus_override} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { cross_campus_override: event.target.checked })} /> 別校舎での振替・受講として登録する</label>
-            <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={item.cross_campus_reason} disabled={rowClosed} onChange={(event) => updateItem(item.client_id, { cross_campus_reason: event.target.value })} placeholder="例：本日のみ南教室へ振替" /></label>
+            <label style={{ fontWeight: 800 }}><input type="checkbox" checked={item.cross_campus_override} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { cross_campus_override: event.target.checked })} /> 別校舎での振替・受講として登録する</label>
+            <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={item.cross_campus_reason} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { cross_campus_reason: event.target.value })} placeholder="例：本日のみ南教室へ振替" /></label>
           </div>}
           
-          <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {currentLesson?.label ?? "授業未選択"}</div>
+          <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {selectionSummary}</div>
+          <div style={{ color: "#59635e", fontSize: 12 }}>授業は複数選択できます。選択中の授業をもう一度押すと解除します。</div>
           <div style={{ display: "grid", gap: 6 }}>
-            {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : !lessonList ? <div role="status" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>選択した生徒の授業を読み込んでいます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
-              <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
+            {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : !lessonList ? <div role="status" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>選択した生徒の授業を読み込んでいます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((timeGroup) => <div key={timeGroup.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
+              <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{timeGroup.time}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
-                {group.lessons.map((lesson) => {
-                  const selected = lesson.id === item.lesson_id;
+                {timeGroup.lessons.map((lesson) => {
+                  const selected = selectedLessonIds.has(lesson.id);
                   const enrolled = Boolean(lesson.enrolled);
-                  return <button key={lesson.id} type="button" aria-pressed={selected} disabled={rowClosed} onClick={() => updateItem(item.client_id, { lesson_id: lesson.id, campus: lesson.campus ?? item.campus })} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                  return <button key={lesson.id} type="button" aria-pressed={selected} disabled={rowClosed} onClick={() => toggleGroupLesson(registrationGroup.items, lesson)} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
                     <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
                   </button>;
                 })}
