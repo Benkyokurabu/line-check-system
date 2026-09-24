@@ -41,11 +41,19 @@ export function resolveDayCampus(teacherLessons,campusChoice=''){
  return campusChoice;
 }
 
-/** @param {{date:string,teacher:string,lessons:Array<{lesson_date:string,teacher_name?:string,campus?:string,start_time?:string}>,bookings?:Array<{status:string,data?:Record<string,string>}>,settings:{duration:number,buffer:number,daytime:string[],evening:string[],flexibleStart:string,flexibleEnd:string},campusChoice?:string}} input */
-export function planTeacherAvailability({date,teacher,lessons,bookings=[],settings,campusChoice=''}){
+export function availabilityStartTime(value='14:00'){
+ if(typeof value!=='string'||!/^(?:09|1[0-7]):00$/.test(value))throw Error('開始時間は09:00〜17:00の毎時から選んでください。');
+ return value;
+}
+
+/** @param {{date:string,teacher:string,lessons:Array<{lesson_date:string,teacher_name?:string,campus?:string,start_time?:string}>,bookings?:Array<{status:string,data?:Record<string,string>}>,settings:{duration:number,buffer:number,daytime:string[],evening:string[],flexibleStart:string,flexibleEnd:string},campusChoice?:string,startTime?:string}} input */
+export function planTeacherAvailability({date,teacher,lessons,bookings=[],settings,campusChoice='',startTime='14:00'}){
+ availabilityStartTime(startTime);
  const key=normalizeTeacher(teacher),teacherLessons=lessons.filter(row=>row.lesson_date===date&&normalizeTeacher(row.teacher_name)===key);
  const campus=resolveDayCampus(teacherLessons,campusChoice),duration=settings.duration,buffer=settings.buffer;
- const starts=[...settings.daytime.filter(start=>start!=='13:00'),'18:40',...settings.evening];
+ const standard=settings.daytime.filter(start=>start!=='13:00').sort(),first=standard.length?minutes(standard[0]):minutes('14:00');
+ const earlier=[];for(let time=minutes(startTime);time<first;time+=60)earlier.push(clock(time));
+ const starts=[...earlier,...standard.filter(start=>minutes(start)>=minutes(startTime)),'18:40',...settings.evening];
  return [...new Set(starts)].sort().flatMap(start=>{
   const slotStart=minutes(start),flexible=slotStart>=minutes(settings.flexibleStart)&&slotStart<minutes(settings.flexibleEnd);
   const from=flexible?minutes(settings.flexibleStart):slotStart,to=flexible?minutes(settings.flexibleEnd):slotStart+duration+buffer;

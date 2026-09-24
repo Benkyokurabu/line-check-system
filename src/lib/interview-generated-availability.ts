@@ -2,7 +2,7 @@ import 'server-only';
 import {createHash} from 'node:crypto';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {InterviewError,normalizeTeacher,validateAppointment} from './interview-core.mjs';
-import {CampusChoiceNeeded,planTeacherAvailability,resolveAvailabilityTeacher,resolveDayCampus} from './bensuke-availability-auto.mjs';
+import {availabilityStartTime,CampusChoiceNeeded,planTeacherAvailability,resolveAvailabilityTeacher,resolveDayCampus} from './bensuke-availability-auto.mjs';
 import {BENSUKE_SOURCE,assertNoNotionConflicts,bookingSchema,equivalentSchedule,queryPages,scheduleProperties,scheduleValue,staffDirectory,teacherMatch} from './bensuke-booking.mjs';
 import {bensukeRequest} from './interview-sync';
 import {readAll} from './interview-store';
@@ -15,7 +15,7 @@ type Booking={status:string;data?:Record<string,string>};
 type Action='create'|'update'|'archive'|'keep'|'skip'|'review';
 export type AvailabilityItem={key:string;date:string;start:string;end:string;campus:string;action:Action;reason:string;needsCampusChoice?:boolean;pageId?:string;notionEditedAt?:string;expected?:Row};
 type CampusDecision={date:string;campus:string;lessonHash:string;source:'selected'|'saved'};
-export type AvailabilityPreview={month:string;teacher:string;items:AvailabilityItem[];summary:Record<Action,number>;hash:string;lessonDays:number;campusDecisions:CampusDecision[]};
+export type AvailabilityPreview={month:string;teacher:string;startTime:string;items:AvailabilityItem[];summary:Record<Action,number>;hash:string;lessonDays:number;campusDecisions:CampusDecision[]};
 export type AvailabilityActor={staffCode:string;displayName:string};
 export type AvailabilityOverview={month:string;teachers:Array<{teacher:string;status:'not-run'|'applied'|'review';lessonDays:number;activeSlots:number;reviewCount:number;finishedAt:string|null}>};
 const pageKey=(value:string)=>String(value??'').replaceAll('-','').toLowerCase();
@@ -37,8 +37,9 @@ function desiredValue(row:Row,staffId:string){const prefix=row.campus==='本校'
 async function monthRows(db:SupabaseClient,table:string,column:string,from:string,to:string){
  const rows:Row[]=[];for(let offset=0;offset<5000;offset+=500){const result=await db.from(table).select('*').gte(column,from).lt(column,to).range(offset,offset+499);if(result.error)throw new InterviewError('予約可の管理情報を読み込めません。',503);rows.push(...(result.data??[]));if((result.data?.length??0)<500)return rows;}throw new InterviewError('対象月のデータが多すぎます。',503);
 }
-export async function previewGeneratedAvailability(db:SupabaseClient,month:string,actor:AvailabilityActor,choiceInput?:unknown):Promise<AvailabilityPreview>{
+export async function previewGeneratedAvailability(db:SupabaseClient,month:string,actor:AvailabilityActor,choiceInput?:unknown,startInput:string|undefined='14:00'):Promise<AvailabilityPreview>{
  checkMonth(month);const campusChoices=checkCampusChoices(month,choiceInput);
+ let startTime:string;try{startTime=availabilityStartTime(startInput);}catch{throw new InterviewError('開始時間は09:00〜17:00の毎時から選んでください。',422);}
  const from=`${month}-01`,to=monthEnd(month);
  const [lessons,managed,runs,bookings,publicSlots,invitations,requests,schema]=await Promise.all([
   monthRows(db,'lessons','lesson_date',from,to),monthRows(db,'interview_generated_availability','slot_date',from,to),monthRows(db,'interview_availability_runs','target_month',from,to),readAll(db,'interview_bookings'),readAll(db,'interview_public_slots'),readAll(db,'interview_invitations'),readAll(db,'interview_parent_requests'),bensukeRequest(`/data_sources/${BENSUKE_SOURCE}`),
@@ -70,7 +71,7 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
    const dayLessons=lessons.filter((row:Row)=>String(row.lesson_date)===date&&teacherKey(row.teacher_name)===teacherKey(teacher));
    const fingerprint=lessonHash(dayLessons),saved=savedDecisions.get(date),selected=campusChoices[date];
    let choice='';try{resolveDayCampus(dayLessons);}catch(error){if(!(error instanceof CampusChoiceNeeded))throw error;choice=selected??(saved?.lessonHash===fingerprint?saved.campus:'');}
-   for(const planned of planTeacherAvailability({date,teacher,lessons:lessons as Lesson[],bookings:relevantBookings as Booking[],settings,campusChoice:choice})){
+   for(const planned of planTeacherAvailability({date,teacher,lessons:lessons as Lesson[],bookings:relevantBookings as Booking[],settings,campusChoice:choice,startTime})){
     const data=validateAppointment({...planned,studentId:'00000000-0000-4000-8000-000000000000',method:'Zoom',purpose:'保護者面談',participants:'保護者',channel:'職員入力',note:'',room:''},settings);
     desired.set(managedKey(date,planned.start),{...data,campus:planned.campus,teacher});
    }
@@ -105,7 +106,7 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
  items.sort((a,b)=>a.date.localeCompare(b.date)||a.start.localeCompare(b.start)||a.action.localeCompare(b.action));
  const summary={create:0,update:0,archive:0,keep:0,skip:0,review:0};for(const item of items)summary[item.action]++;
  const sourceHash=lessonHash(lessons.filter((row:Row)=>teacherKey(row.teacher_name)===teacherKey(teacher)));
- const hash=createHash('sha256').update(JSON.stringify({month,teacher,sourceHash,campusDecisions,items})).digest('hex');return {month,teacher,items,summary,hash,lessonDays:lessonDates.length,campusDecisions};
+ const hash=createHash('sha256').update(JSON.stringify({month,teacher,startTime,sourceHash,campusDecisions,items})).digest('hex');return {month,teacher,startTime,items,summary,hash,lessonDays:lessonDates.length,campusDecisions};
 }
 
 export async function availabilityOverview(db:SupabaseClient,month:string):Promise<AvailabilityOverview>{
@@ -117,11 +118,11 @@ export async function availabilityOverview(db:SupabaseClient,month:string):Promi
  return {month,teachers:[...names.values()].sort((a,b)=>a.localeCompare(b,'ja')).map(teacher=>{const key=teacherKey(teacher),run=latest.get(key),reviewCount=Number(run?.result?.summary?.review??0);return {teacher,status:!run?'not-run':run.status==='applied'&&!reviewCount?'applied':'review',lessonDays:new Set(lessons.filter(row=>teacherKey(row.teacher_name)===key).map(row=>row.lesson_date)).size,activeSlots:managed.filter(row=>teacherKey(row.teacher)===key&&row.status==='active').length,reviewCount,finishedAt:run?.finished_at??null};})};
 }
 
-export async function applyGeneratedAvailability(db:SupabaseClient,input:{month:string;identity:AvailabilityActor;previewHash:string;operationKey:string;actor:string;campusChoices?:unknown}){
- const {month,identity,previewHash,operationKey,actor,campusChoices}=input;if(!/^[0-9a-f-]{36}$/i.test(operationKey)||!/^[0-9a-f-]{36}$/i.test(actor))throw new InterviewError('操作をやり直してください。');
+export async function applyGeneratedAvailability(db:SupabaseClient,input:{month:string;identity:AvailabilityActor;previewHash:string;operationKey:string;actor:string;campusChoices?:unknown;startTime?:string}){
+ const {month,identity,previewHash,operationKey,actor,campusChoices,startTime}=input;if(!/^[0-9a-f-]{36}$/i.test(operationKey)||!/^[0-9a-f-]{36}$/i.test(actor))throw new InterviewError('操作をやり直してください。');
  const prior=await db.from('interview_availability_runs').select('*').eq('operation_key',operationKey).maybeSingle();if(prior.error)throw new InterviewError('実行履歴を確認できません。',503);
  if(prior.data){if(prior.data.status==='applied')return prior.data.result;throw new InterviewError('前回の反映結果を確認してから、もう一度プレビューしてください。',409);}
- const preview=await previewGeneratedAvailability(db,month,identity,campusChoices),teacher=preview.teacher;if(preview.hash!==previewHash)throw new InterviewError('授業表または予定が更新されました。もう一度確認してください。',409);
+ const preview=await previewGeneratedAvailability(db,month,identity,campusChoices,startTime),teacher=preview.teacher;if(preview.hash!==previewHash)throw new InterviewError('授業表・開始時間または予定が更新されました。もう一度確認してください。',409);
  const claim=await db.from('interview_availability_runs').insert({operation_key:operationKey,actor,target_month:`${month}-01`,preview_hash:previewHash,status:'applying'});if(claim.error)throw new InterviewError('別の反映処理を確認してください。',409);
  const schema=await bensukeRequest(`/data_sources/${BENSUKE_SOURCE}`),results:Row[]=[];
  try{
@@ -138,6 +139,6 @@ export async function applyGeneratedAvailability(db:SupabaseClient,input:{month:
    }else page=await bensukeRequest('/pages',{method:'POST',body:JSON.stringify({parent:{type:'data_source_id',data_source_id:BENSUKE_SOURCE},properties})});
    const saved=await db.from('interview_generated_availability').upsert({teacher,slot_date:item.date,start_time:item.start,campus:item.campus,notion_page_id:page.id,expected:item.expected,notion_edited_at:page.last_edited_time,status:'active',updated_at:new Date().toISOString()},{onConflict:'teacher,slot_date,start_time'});if(saved.error)throw saved.error;results.push({action:item.action,date:item.date,start:item.start});
   }
-  const result={month,teacher,summary:preview.summary,campusDecisions:preview.campusDecisions,applied:results};const finished=await db.from('interview_availability_runs').update({status:'applied',result,finished_at:new Date().toISOString()}).eq('operation_key',operationKey);if(finished.error)throw finished.error;return result;
+  const result={month,teacher,startTime:preview.startTime,summary:preview.summary,campusDecisions:preview.campusDecisions,applied:results};const finished=await db.from('interview_availability_runs').update({status:'applied',result,finished_at:new Date().toISOString()}).eq('operation_key',operationKey);if(finished.error)throw finished.error;return result;
  }catch(error){await db.from('interview_availability_runs').update({status:'failed',result:{teacher,message:error instanceof Error?error.message:'反映に失敗しました。'},finished_at:new Date().toISOString()}).eq('operation_key',operationKey);throw error instanceof InterviewError?error:new InterviewError('一部の反映結果を再確認してください。もう一度プレビューしてください。',503);}
 }

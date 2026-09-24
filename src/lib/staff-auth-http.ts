@@ -57,6 +57,11 @@ export async function staffContext(request: NextRequest) {
     accessToken: request.cookies.get(STAFF_ACCESS_COOKIE)?.value,
     refreshToken: request.cookies.get(STAFF_REFRESH_COOKIE)?.value,
   });
+  // Common-password teacher accounts are limited to their own availability screen.
+  if (authenticated.staff.staffCode.startsWith('AVAIL_')
+    && !['/api/staff/session', '/api/staff/interview-auto-availability'].includes(request.nextUrl.pathname)) {
+    throw new StaffAuthError('permission_denied', 403);
+  }
   return { ...authenticated, dataClient };
 }
 

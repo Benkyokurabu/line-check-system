@@ -1,6 +1,54 @@
 import {test,expect} from '@playwright/test';
 
-const base={month:'2026-10',teacher:'工藤',lessonDays:2,hash:'a'.repeat(64)};
+const base={month:'2026-10',teacher:'工藤',startTime:'14:00',lessonDays:2,hash:'a'.repeat(64)};
+test.beforeEach(async({page})=>{
+ await page.route('**/api/admin/teachers',route=>route.fulfill({json:{teachers:[
+  {id:'00000000-0000-4000-8000-000000000001',display_name:'工藤'},
+  {id:'00000000-0000-4000-8000-000000000002',display_name:'金城'},
+  {id:'00000000-0000-4000-8000-000000000003',display_name:'髙山'},
+ ]}}));
+});
+
+test('先生名と共通パスワードで本人の予約可能枠へログインする',async({page})=>{
+ let loggedIn=false;
+ await page.setViewportSize({width:390,height:844});
+ await page.route('**/api/staff/session',route=>route.fulfill({status:401,json:{error:'ログインし直してください。'}}));
+ await page.route('**/api/staff/availability-login',route=>{
+  expect(route.request().postDataJSON()).toMatchObject({teacherId:'00000000-0000-4000-8000-000000000003'});
+  loggedIn=true;return route.fulfill({json:{staff:{staffId:'00000000-0000-4000-8000-000000000013',staffCode:'AVAIL_00000000000040008000000000000003',displayName:'髙山',role:'teacher'}}});
+ });
+ await page.goto('/staff/interview-availability');
+ await page.getByLabel('先生の名前').selectOption({label:'髙山先生'});
+ await page.getByLabel('共通パスワード').fill('test-password');
+ await page.getByRole('button',{name:'ログイン',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'髙山さんの受付枠'})).toBeVisible();
+ await expect(page.getByRole('region',{name:'先生別の月次実行状況'})).toHaveCount(0);
+ expect(loggedIn).toBe(true);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('開始時間11:00の指定をプレビューと反映の両方へ渡す',async({page})=>{
+ let applied=false;
+ await page.setViewportSize({width:390,height:844});
+ await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'00000000-0000-4000-8000-000000000001',staffCode:'KUDO',displayName:'工藤謙',role:'admin'}}}));
+ await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'unchanged'}}));
+ await page.route('**/api/staff/interview-auto-availability*',route=>{
+  const request=route.request(),url=new URL(request.url());
+  if(url.searchParams.get('overview')==='1')return route.fulfill({json:{month:'2026-10',teachers:[]}});
+  if(request.method()==='POST'){
+   expect(request.postDataJSON().startTime).toBe('11:00');applied=true;
+   return route.fulfill({json:{saved:{applied:[{action:'create'}]}}});
+  }
+  expect(url.searchParams.get('startTime')).toBe('11:00');
+  return route.fulfill({json:{...base,startTime:'11:00',summary:{create:applied?0:1,update:0,archive:0,keep:applied?1:0,skip:0,review:0},items:[{key:'2026-10-02|11:00',date:'2026-10-02',start:'11:00',end:'11:45',campus:'本校',action:applied?'keep':'create',reason:'新しく作成'}]}});
+ });
+ await page.goto('/staff/interview-availability');
+ await page.getByLabel('候補の開始時間').selectOption('11:00');
+ await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();
+ await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('11:00から');
+ await page.getByRole('button',{name:'この内容をNotionへ反映'}).click();
+ await page.getByRole('dialog',{name:'予約可の反映確認'}).getByRole('button',{name:'Notionへ反映する'}).click();
+ expect(applied).toBe(true);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
 test('独立メニューで翌月表を同期し、確認後だけ本人の予約可を反映する',async({page})=>{
  let synced=false,applied=false,posts=0;
  await page.setViewportSize({width:390,height:844});

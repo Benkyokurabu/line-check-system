@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaults} from '../src/lib/interview-core.mjs';
-import {planTeacherAvailability,resolveAvailabilityTeacher,resolveDayCampus,schoolLessonInterval} from '../src/lib/bensuke-availability-auto.mjs';
+import {availabilityStartTime,planTeacherAvailability,resolveAvailabilityTeacher,resolveDayCampus,schoolLessonInterval} from '../src/lib/bensuke-availability-auto.mjs';
 
 test('授業日誌の12時間表記を午後の授業として扱う',()=>{
  assert.deepEqual(schoolLessonInterval('4:55～6:15'),[16*60+55,18*60+15]);
@@ -20,6 +20,14 @@ test('13時を除き、工藤の授業と予備時間に重ならない45分枠�
 test('授業コマの時間帯でも本人の授業がなければ作成する',()=>{
  const rows=planTeacherAvailability({date:'2026-10-02',teacher:'工藤',settings:defaults,lessons:[{lesson_date:'2026-10-02',teacher_name:'工藤',campus:'本校',start_time:'8:25～9:55'}]});
  assert.deepEqual(rows.map(row=>row.start),['14:00','15:00','16:00','17:00','18:40']);
+});
+
+test('開始時間11:00なら11:00・12:00・13:00を追加し、14:00初期設定では13:00を除く',()=>{
+ const options={date:'2026-10-02',teacher:'工藤',settings:defaults,lessons:[{lesson_date:'2026-10-02',teacher_name:'工藤',campus:'本校',start_time:'8:25～9:55'}]};
+ assert.deepEqual(planTeacherAvailability({...options,startTime:'11:00'}).map(row=>row.start).slice(0,7),['11:00','12:00','13:00','14:00','15:00','16:00','17:00']);
+ assert.equal(planTeacherAvailability(options).some(row=>row.start==='13:00'),false);
+ assert.equal(planTeacherAvailability({...options,startTime:'15:00'}).some(row=>row.start==='14:00'),false);
+ assert.throws(()=>availabilityStartTime('11:30'),/開始時間/);
 });
 
 test('授業がない日や複数校舎の日は自動登録しない',()=>{
