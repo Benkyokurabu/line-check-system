@@ -14,6 +14,7 @@ import {
   visibleCandidateCountAfterReload,
 } from "../src/lib/attendance-review-logic.mjs";
 import { recommendedAttendanceLesson } from "../src/lib/attendance-lesson-choice.mjs";
+import { resolveAttendanceStudentFromLine } from "../src/lib/attendance-student-resolution.mjs";
 
 const identityStudents = [
   { student_number: "1001", student_name: "山田 太郎" },
@@ -34,12 +35,48 @@ test("lesson auto-selection stays empty when one student has multiple possible l
   ], "数学", ""), null);
 });
 
-test("ambiguous sibling attendance shows every candidate without preselecting a student", async () => {
+test("a human-confirmed LINE student outranks stale unverified and legacy links", () => {
+  const resolved = resolveAttendanceStudentFromLine({
+    confirmedStudentNumbers: ["confirmed-student"],
+    linkedStudentNumbers: ["confirmed-student", "old-unverified-student"],
+    explicitStudentNumbers: [],
+    currentStudentNumber: "old-unverified-student",
+  });
+  assert.deepEqual(resolved, { requiresSelection: false, resolvedStudentNumber: "confirmed-student", reason: null });
+});
+
+test("a message naming another student conflicts with a human-confirmed LINE registration", () => {
+  const resolved = resolveAttendanceStudentFromLine({
+    confirmedStudentNumbers: ["confirmed-student"],
+    linkedStudentNumbers: ["confirmed-student", "other-student"],
+    explicitStudentNumbers: ["other-student"],
+    currentStudentNumber: "confirmed-student",
+  });
+  assert.equal(resolved.requiresSelection, true);
+  assert.equal(resolved.resolvedStudentNumber, null);
+  assert.match(resolved.reason, /確認済みのLINE登録が一致しません/);
+});
+
+test("multiple confirmed students stay ambiguous unless one is explicitly named", () => {
+  const input = { confirmedStudentNumbers: ["first", "second"], linkedStudentNumbers: ["first", "second"], currentStudentNumber: "first" };
+  assert.equal(resolveAttendanceStudentFromLine({ ...input, explicitStudentNumbers: [] }).requiresSelection, true);
+  assert.equal(resolveAttendanceStudentFromLine({ ...input, explicitStudentNumbers: ["second"] }).resolvedStudentNumber, "second");
+});
+
+test("unverified links remain candidates but are not called siblings", () => {
+  const input = { confirmedStudentNumbers: [], linkedStudentNumbers: ["first", "second"], currentStudentNumber: null };
+  const unresolved = resolveAttendanceStudentFromLine({ ...input, explicitStudentNumbers: [] });
+  assert.equal(unresolved.requiresSelection, true);
+  assert.doesNotMatch(unresolved.reason, /兄弟姉妹/);
+  assert.equal(resolveAttendanceStudentFromLine({ ...input, explicitStudentNumbers: ["second"] }).resolvedStudentNumber, "second");
+});
+
+test("ambiguous LINE students stay selectable without preselecting a student", async () => {
   const [route, page] = await Promise.all([
     readFile(new URL("../src/app/api/attendance/candidates/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/app/attendance/page.tsx", import.meta.url), "utf8"),
   ]);
-  assert.match(route, /explicitLinkedStudents\.length !== 1/);
+  assert.match(route, /resolveAttendanceStudentFromLine/);
   assert.match(route, /\.slice\(0, Math\.max\(0, 5 - linkedSuggestions\.length\)\)/);
   assert.match(route, /student_number: suggestionResult\.resolvedStudentNumber/);
   assert.match(page, /欠席・遅刻の対象生徒を選択/);

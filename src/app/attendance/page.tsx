@@ -690,7 +690,7 @@ function StudentPicker({ label, students, value, onChange, query, onQueryChange,
         <strong style={{ fontSize: 15 }}>{student.student_name}</strong>
         <span style={{ color: "#626b66", fontSize: 12 }}>{meta || `生徒番号 ${student.student_number}`}</span>
       </span>
-      {isCandidate && <span style={{ flex: "0 0 auto", border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 999, padding: "3px 7px", fontSize: 11, fontWeight: 800 }}>AI候補</span>}
+      {isCandidate && <span style={{ flex: "0 0 auto", border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", borderRadius: 999, padding: "3px 7px", fontSize: 11, fontWeight: 800 }}>候補</span>}
     </button>;
   }
 
@@ -722,7 +722,7 @@ function StudentPicker({ label, students, value, onChange, query, onQueryChange,
       {query && !disabled && <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onQueryChange(""); setActiveIndex(0); setOpen(true); }} style={{ position: "absolute", top: 5, right: 5, height: 30, border: 0, borderRadius: 5, padding: "0 9px", background: "#eef0ed", color: "#555", cursor: "pointer", fontWeight: 700 }}>消去</button>}
     </div>}
     {open && !disabled && <div id={listboxId} role="listbox" style={{ position: "absolute", zIndex: 50, top: "calc(100% + 4px)", left: 0, right: 0, maxHeight: 330, overflowY: "auto", border: "1px solid #aeb8b2", borderRadius: 8, background: "white", boxShadow: "0 10px 28px rgba(0,0,0,0.16)" }}>
-      {candidateOptions.length > 0 && <div style={{ padding: "8px 12px 6px", background: "#fff7ed", color: "#9a3412", fontSize: 12, fontWeight: 800 }}>AIが推定した候補</div>}
+      {candidateOptions.length > 0 && <div style={{ padding: "8px 12px 6px", background: "#fff7ed", color: "#9a3412", fontSize: 12, fontWeight: 800 }}>LINE登録・本文からの候補</div>}
       {candidateOptions.map((student, index) => resultButton(student, index, true))}
       {otherOptions.length > 0 && <div style={{ padding: "8px 12px 6px", background: "#f7f7f4", color: "#59635e", fontSize: 12, fontWeight: 800 }}>{candidateOptions.length > 0 ? "その他の生徒" : "生徒候補"}</div>}
       {otherOptions.map((student, index) => resultButton(student, candidateOptions.length + index, false))}
@@ -1617,7 +1617,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     <ReplyHistory replies={candidate.reply_messages ?? []} />
     {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 8, padding: 12, margin: "12px 0", display: "grid", gap: 10 }}>
       <strong style={{ color: "#9a3412" }}>欠席・遅刻の対象生徒を選択</strong>
-      <p style={{ color: "#9a3412", margin: 0, fontWeight: 700 }}>{candidate.student_selection_reason ?? "兄弟姉妹の可能性があるため、名前を選択してください。"}</p>
+      <p style={{ color: "#9a3412", margin: 0, fontWeight: 700 }}>{candidate.student_selection_reason ?? "対象生徒を特定できないため、名前を選択してください。"}</p>
       {suggestions.length > 0 && <div role="group" aria-label="連絡した生徒の候補" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {suggestions.map((student) => {
           const selected = student.student_number === studentNumber;

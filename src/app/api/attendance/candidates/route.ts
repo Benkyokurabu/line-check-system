@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { normalizeStudentName } from "@/lib/student-linking";
+import { resolveAttendanceStudentFromLine } from "@/lib/attendance-student-resolution.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -118,8 +119,9 @@ function buildStudentSuggestions(input: {
   }
 
   for (const account of lineUserId ? input.accountsByLineUserId.get(lineUserId) ?? [] : []) {
-    const score = account.is_primary ? 98 : account.relation === "mother" || account.relation === "guardian" ? 96 : 92;
-    addSuggestion(suggestions, rosterByNumber, account.student_number, score, "LINE連携");
+    const confirmed = account.verification_status === "confirmed";
+    const score = confirmed ? 110 : account.is_primary ? 98 : account.relation === "mother" || account.relation === "guardian" ? 96 : 92;
+    addSuggestion(suggestions, rosterByNumber, account.student_number, score, confirmed ? "確認済みLINE登録" : "未確認LINE候補");
   }
   for (const studentNumber of lineUserId ? input.linksByLineUserId.get(lineUserId) ?? [] : []) {
     addSuggestion(suggestions, rosterByNumber, studentNumber, 94, "LINE履歴");
@@ -175,15 +177,19 @@ function buildStudentSuggestions(input: {
     const studentName = normalizeName(rosterByNumber.get(studentNumber)?.student_name);
     return Boolean(studentName && messageText.includes(studentName));
   });
-  const requiresSelection = linkedStudentNumbers.length > 1 && explicitLinkedStudents.length !== 1;
-  const resolvedStudentNumber = requiresSelection
-    ? null
-    : explicitLinkedStudents[0] ?? input.currentStudentNumber;
+  const resolution = resolveAttendanceStudentFromLine({
+    confirmedStudentNumbers: (lineUserId ? input.accountsByLineUserId.get(lineUserId) ?? [] : [])
+      .filter((account) => account.verification_status === "confirmed")
+      .map((account) => account.student_number),
+    linkedStudentNumbers,
+    explicitStudentNumbers: explicitLinkedStudents,
+    currentStudentNumber: input.currentStudentNumber,
+  });
   return {
     suggestions: sorted,
-    requiresSelection,
-    reason: requiresSelection ? "同じLINE連絡先に兄弟姉妹が複数紐づいています。本文から生徒を1人に特定できないため、候補をすべて表示し、誰の連絡か選ぶまで授業を選択しません。" : null,
-    resolvedStudentNumber,
+    requiresSelection: resolution.requiresSelection,
+    reason: resolution.reason,
+    resolvedStudentNumber: resolution.resolvedStudentNumber,
   } satisfies StudentSuggestionResult;
 }
 
