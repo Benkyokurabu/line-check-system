@@ -267,7 +267,7 @@ async function registerItem(input: {
           properties: pageProperties,
         }),
       });
-  return notionPage.id as string;
+  return { id: notionPage.id as string, created: !existingPageId };
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -377,6 +377,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const dataSource = await notionRequest(`/data_sources/${dataSourceId}`);
     const properties = propertyMap(dataSource);
     const pageIds: string[] = [];
+    let notionCreatedCount = 0;
+    let notionUpdatedCount = 0;
 
     for (const item of items) {
       const studentNumber = item.student_number ?? candidate.student_number as string;
@@ -392,7 +394,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const profilePageId = profileByStudent.get(studentNumber);
       if (!profilePageId) throw new Error("Notion生徒情報DBと紐づいていない生徒がいます");
       try {
-        const notionPageId = await registerItem({
+        const notionResult = await registerItem({
           dataSourceId,
           item,
           profilePageId,
@@ -400,6 +402,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           studentCampus: campusByStudent.get(studentNumber) ?? null,
           properties,
         });
+        const notionPageId = notionResult.id;
+        if (notionResult.created) notionCreatedCount += 1;
+        else notionUpdatedCount += 1;
         pageIds.push(notionPageId);
         await supabase.from("attendance_events").update({
           notion_page_id: notionPageId,
@@ -437,7 +442,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       notion_error: null,
     }).eq("id", id);
     if (saveError) throw new Error(`Notion登録後の履歴保存に失敗しました: ${saveError.message}`);
-    return NextResponse.json({ ok: true, notion_page_ids: pageIds, notion_page_id: pageIds[0] ?? null });
+    return NextResponse.json({ ok: true, notion_page_ids: pageIds, notion_page_id: pageIds[0] ?? null, notion_created_count: notionCreatedCount, notion_updated_count: notionUpdatedCount });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     await supabase.from("attendance_candidates").update({ status: "notion_failed", notion_error: message.slice(0, 500) }).eq("id", id);

@@ -43,6 +43,7 @@ type CandidateItem = {
 type Candidate = {
   id: string; student_number: string | null; suggested_student_name: string | null;
   human_reviewed_at?: string | null; human_reviewed_by?: string | null;
+  notion_page_id?: string | null;
   event_type: string; event_date: string | null; lesson_id: string | null;
   suggested_subject: string | null; suggested_class_name: string | null;
   ai_summary: string | null; ai_confidence: number | null; ai_reason: string | null;
@@ -1501,8 +1502,13 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Notion登録に失敗しました");
-      setCardMessage(`${body.notion_page_ids?.length ?? 1}行をNotionへ登録しました。`);
-      setMessage("Notionへ登録しました。");
+      const created = Number(body.notion_created_count);
+      const updated = Number(body.notion_updated_count);
+      const resultMessage = Number.isFinite(created) && Number.isFinite(updated)
+        ? `Notionに新規${created}行・既存更新${updated}行を反映しました。既存更新は行が増えません。`
+        : `${body.notion_page_ids?.length ?? 1}行をNotionへ登録しました。`;
+      setCardMessage(resultMessage);
+      setMessage(Number.isFinite(created) && Number.isFinite(updated) ? resultMessage : "Notionへ登録しました。");
       await onChanged();
     } catch (error) {
       setCardMessage(error instanceof Error ? error.message : String(error));
@@ -1638,6 +1644,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <StatusBadge label="LINE返信" detail={replyDetail} kind={replyKind} />
           <StatusBadge label="Notion" detail={notionDetail} kind={notionKind} />
+          {candidate.notion_page_id && <a href={`https://www.notion.so/${candidate.notion_page_id.replace(/-/g, "")}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Notionの記録を見る</a>}
           {candidate.student_selection_required && <StatusBadge label="生徒確認" detail="要選択" kind="partial" />}
           {candidate.human_reviewed_at && <StatusBadge label="生徒・授業" detail="人の選択を優先" kind="done" />}
         </div>
@@ -1663,7 +1670,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       <button type="button" style={ghostButtonStyle} disabled={!senderLineUserId || lineNameSaving} onClick={() => { setLineNameOpen(false); setExpanded(true); setRegistrationOpen(true); }}>紐付ける生徒・続柄も直す</button>
       <button type="button" style={buttonStyle} disabled={lineNameSaving || !lineNameValue.trim() || !confirmedBy.trim()} onClick={() => void saveLineName()}>{lineNameSaving ? "保存中..." : "この名前で保存"}</button>
     </section>}
-    {cardMessage && !showAutoPeriod && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("変更しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
+    {cardMessage && !showAutoPeriod && <p role="status" style={{ color: !cardMessage.includes("失敗") && (cardMessage.includes("登録しました") || cardMessage.includes("反映しました") || cardMessage.includes("変更しました") || cardMessage.includes("コピー") || cardMessage.includes("送信しました") || cardMessage.includes("更新しました") || cardMessage.includes("処理しました") || cardMessage.includes("移しました") || cardMessage.includes("戻しました")) ? "#087a3d" : "#b42318", marginTop: 10, fontWeight: 700 }}>{cardMessage}</p>}
     <div style={{ color: "#4b5563", fontSize: 13, fontWeight: 700, marginTop: 9 }}>{receivedAtText}　{showAutoPeriod && periodProposal ? `${periodProposal.start} 〜 ${periodProposal.end} / ${eventTypeLabel(periodProposal.eventType)}` : <>{eventSummary}{items.length > 2 ? `　ほか${items.length - 2}行` : ""}</>}</div>
     {!expanded && <div style={{ marginTop: 6, color: "#555", fontSize: 14, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>}
 
@@ -1675,13 +1682,13 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     <div style={{ color: "#666", fontSize: 13, fontWeight: 700, marginTop: 12 }}>受信日時: {receivedAtText}</div>
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <ReplyHistory replies={candidate.reply_messages ?? []} />
-    {candidate.student_selection_required && <div style={{ border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 8, padding: 12, margin: "12px 0", display: "grid", gap: 10 }}>
+    {(candidate.student_selection_required || suggestions.length > 0) && <div style={{ border: candidate.student_selection_required ? "1px solid #fed7aa" : "1px solid var(--line)", background: candidate.student_selection_required ? "#fff7ed" : "#f7faf8", borderRadius: 8, padding: 12, margin: "12px 0", display: "grid", gap: 10 }}>
       <strong style={{ color: "#9a3412" }}>欠席・遅刻の対象生徒を選択</strong>
-      <p style={{ color: "#9a3412", margin: 0, fontWeight: 700 }}>{candidate.student_selection_reason ?? "対象生徒を特定できないため、名前を選択してください。"}</p>
+      <p style={{ color: candidate.student_selection_required ? "#9a3412" : "#59635e", margin: 0, fontWeight: 700 }}>{candidate.student_selection_required ? candidate.student_selection_reason ?? "対象生徒を特定できないため、名前を選択してください。" : closed ? "登録済みの連絡です。選択した生徒を確認できます。" : candidate.human_reviewed_at ? "人が選んだ生徒を優先しています。ここから選び直せます。" : "候補から対象生徒を確認・変更できます。"}</p>
       {suggestions.length > 0 && <div role="group" aria-label="連絡した生徒の候補" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {suggestions.map((student) => {
-          const selected = student.student_number === studentNumber;
-          return <button key={student.student_number} type="button" aria-pressed={selected} disabled={busy || registering} onClick={() => selectStudent(student.student_number)} style={{ ...ghostButtonStyle, border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", background: selected ? "#ecfdf3" : "white", color: selected ? "var(--accent)" : "#222" }}>{student.grade} {student.student_name}</button>;
+          const selected = items.every((item) => item.student_number === student.student_number);
+          return <button key={student.student_number} type="button" aria-pressed={selected} disabled={busy || registering || closed} onClick={() => selectStudent(student.student_number)} style={{ ...ghostButtonStyle, border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", background: selected ? "#ecfdf3" : "white", color: selected ? "var(--accent)" : "#222" }}>{student.grade} {student.student_name}</button>;
         })}
       </div>}
     </div>}
