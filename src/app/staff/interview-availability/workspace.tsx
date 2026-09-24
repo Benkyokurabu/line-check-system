@@ -22,7 +22,22 @@ export default function AvailabilityWorkspace({entryCode=''}:{entryCode?:string}
  useEffect(()=>{let active=true;void(async()=>{try{const response=await fetch('/api/staff/session',{cache:'no-store'}),body=await response.json();if(active&&response.ok)setStaff(body.staff);else if(active&&response.status!==401)setMessage(body.error);}catch(error){if(active)setMessage((error as Error).message);}finally{if(active)setReady(true);}})();return()=>{active=false;};},[]);
  useEffect(()=>{if(!staff||!canOverview)return;let active=true;void(async()=>{try{const response=await fetch(`/api/staff/interview-auto-availability?month=${encodeURIComponent(month)}&overview=1`,{cache:'no-store'}),body=await response.json();if(!response.ok)throw Error(body.error??'全体状況を読み込めませんでした。');if(active)setOverview(body);}catch(error){if(active)setMessage((error as Error).message);}})();return()=>{active=false;};},[staff,canOverview,month]);
  async function login(event:FormEvent){event.preventDefault();await work(async()=>{const secret=password;setPassword('');const body=await api('/api/staff/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({staffCode:code.trim().toUpperCase(),password:secret})});setStaff(body.staff);setPreview(null);});}
- async function inspect(selected:Record<string,string>={}){await work(async()=>{setPreview(null);const synced=await api(`/api/schedule/sync?month=${encodeURIComponent(month)}`,{method:'POST'});if(!['applied','unchanged'].includes(synced.status))throw Error(synced.message??'スケジュール表の反映状況を確認してください。');const query=Object.keys(selected).length?`&campusChoices=${encodeURIComponent(JSON.stringify(selected))}`:'';const result=await api(`/api/staff/interview-auto-availability?month=${encodeURIComponent(month)}${query}`);setCampusChoices(selected);setNeedsRecheck(false);setPreview(result);setMessage(synced.message??'最新のスケジュール表で確認しました。');await loadOverview(month);});}
+ async function inspect(selected:Record<string,string>={}){await work(async()=>{
+  setPreview(null);
+  const synced=await api(`/api/schedule/sync?month=${encodeURIComponent(month)}`,{method:'POST'});
+  let syncMessage=synced.message??'最新のスケジュール表で確認しました。';
+  if(synced.status==='busy'){
+   // The sync lock is shared across months. A read-only comparison can confirm this month is already current.
+   const current=await api(`/api/schedule/preview?month=${encodeURIComponent(month)}`);
+   const summary=current.summary;
+   if(current.month!==month||!summary||!Number.isSafeInteger(summary.incoming)||summary.incoming<1||summary.existing!==summary.incoming||summary.unchanged!==summary.incoming||
+    ['add','update','remove','ambiguous'].some(kind=>summary[kind]!==0))throw Error('別の同期処理と重なりました。この月の原本には未反映の変更があるため、同期完了後にもう一度確認してください。');
+   syncMessage='別の同期処理と重なりましたが、この月の原本と登録済み授業が一致したため、枠を確認しました。';
+  }else if(!['applied','unchanged'].includes(synced.status))throw Error(syncMessage);
+  const query=Object.keys(selected).length?`&campusChoices=${encodeURIComponent(JSON.stringify(selected))}`:'';
+  const result=await api(`/api/staff/interview-auto-availability?month=${encodeURIComponent(month)}${query}`);
+  setCampusChoices(selected);setNeedsRecheck(false);setPreview(result);setMessage(syncMessage);await loadOverview(month);
+ });}
  async function apply(){if(!preview)return;await work(async()=>{const body=await api('/api/staff/interview-auto-availability',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({month:preview.month,previewHash:preview.hash,operationKey:crypto.randomUUID(),campusChoices})});setConfirm(false);const refreshed=await api(`/api/staff/interview-auto-availability?month=${encodeURIComponent(preview.month)}`);setPreview(refreshed);setCampusChoices({});setMessage(`${body.saved.applied.length}件をNotionへ反映しました。`);await loadOverview(preview.month);});}
  const changes=preview?preview.summary.create+preview.summary.update+preview.summary.archive:0;
  const choiceDates=preview?.items.filter(item=>item.needsCampusChoice)??[],newChoices=preview?.campusDecisions?.filter(item=>item.source==='selected')??[];

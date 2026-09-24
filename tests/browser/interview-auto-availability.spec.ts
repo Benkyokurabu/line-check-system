@@ -23,6 +23,36 @@ test('金城は独立メニューで自分の受付枠だけを確認する',asy
  await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'unchanged',message:'同期済み'}}));await page.goto('/staff/interview-availability');await expect(page.getByRole('heading',{name:'金城正樹さんの受付枠'})).toBeVisible();await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('金城先生');
 });
 
+test('別月の同期と重なっても、原本と授業が一致していれば予約枠を確認できる',async({page})=>{
+ let inspected=false;
+ await page.setViewportSize({width:390,height:844});
+ await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'00000000-0000-4000-8000-000000000001',staffCode:'KUDO',displayName:'工藤謙',role:'admin'}}}));
+ await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'busy',message:'直前の処理を実行中、または完了直後です。少し待って結果を確認してください。'}}));
+ await page.route('**/api/schedule/preview?*',route=>route.fulfill({json:{month:'2026-10',summary:{existing:397,incoming:397,unchanged:397,add:0,update:0,remove:0,ambiguous:0}}}));
+ await page.route('**/api/staff/interview-auto-availability?*',route=>{
+  if(new URL(route.request().url()).searchParams.get('overview')==='1')return route.fulfill({json:{month:'2026-10',teachers:[]}});
+  inspected=true;return route.fulfill({json:{...base,summary:{create:1,update:0,archive:0,keep:0,skip:0,review:0},items:[]}});
+ });
+ await page.goto('/staff/interview-availability');await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();
+ await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('作成 1');
+ await expect(page.getByRole('status')).toContainText('原本と登録済み授業が一致');
+ expect(inspected).toBe(true);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('同期中に原本の未反映変更があれば予約枠を表示しない',async({page})=>{
+ let inspected=false;
+ await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'00000000-0000-4000-8000-000000000001',staffCode:'KUDO',displayName:'工藤謙',role:'admin'}}}));
+ await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'busy'}}));
+ await page.route('**/api/schedule/preview?*',route=>route.fulfill({json:{month:'2026-10',summary:{existing:396,incoming:397,unchanged:396,add:1,update:0,remove:0,ambiguous:0}}}));
+ await page.route('**/api/staff/interview-auto-availability?*',route=>{
+  if(new URL(route.request().url()).searchParams.get('overview')==='1')return route.fulfill({json:{month:'2026-10',teachers:[]}});
+  inspected=true;return route.fulfill({json:{...base,summary:{create:1,update:0,archive:0,keep:0,skip:0,review:0},items:[]}});
+ });
+ await page.goto('/staff/interview-availability');await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();
+ await expect(page.getByRole('status')).toContainText('未反映の変更');
+ await expect(page.locator('[aria-label="予約可の反映予定"]')).toHaveCount(0);expect(inspected).toBe(false);
+});
+
 test('29日の両校舎表記では勤務校舎を尋ね、再確認後だけ反映できる',async({page})=>{
  let selected=false,applied=false;
  await page.setViewportSize({width:390,height:844});
