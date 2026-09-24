@@ -23,38 +23,38 @@ test('自動保存・画面復帰・再読込で共有し、開いたままで�
  for(const c of contexts)await setup(c,s);
  const [a,b]=await Promise.all(contexts.map(c=>c.newPage()));
  await a.clock.install();
- for(const p of [a,b]){await p.goto('/');await p.getByRole('button',{name:'工藤先生 1'}).click();await expect(p.getByRole('button',{name:'未対応',exact:true})).toBeEnabled();}
- s.delay=500;await a.getByRole('button',{name:'未対応',exact:true}).click();await expect(a.getByRole('button',{name:'保存中…'}).first()).toBeDisabled();
- await expect(a.getByRole('button',{name:'対応済み',exact:true})).toBeEnabled();await expect(a.getByText(/最終更新：/)).toBeVisible();
- await b.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(b.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();
- await b.getByRole('button',{name:'対応済み',exact:true}).click();await expect(b.getByRole('button',{name:'未対応',exact:true})).toBeEnabled();
+ for(const p of [a,b]){await p.goto('/');await p.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(p.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');}
+ s.delay=500;await a.getByRole('combobox',{name:'保存確認生徒の対応状況'}).selectOption('confirmed');await expect(a.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toBeDisabled();
+ await expect(a.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');await expect(a.getByText(/最終更新：/)).toBeVisible();
+ await b.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(b.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');
+ await b.getByRole('combobox',{name:'保存確認生徒の対応状況'}).selectOption('needs-review');await expect(b.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');
  let idleReads=0;a.on('request',r=>{if(r.method()==='GET'&&r.url().endsWith('/api/interview-surveys/confirmations'))idleReads++;});
- await a.clock.fastForward(120000);await expect(a.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();expect(idleReads).toBe(0);
- await a.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(a.getByRole('button',{name:'未対応',exact:true})).toBeVisible();
- await a.reload();await a.getByRole('button',{name:'工藤先生 1'}).click();await expect(a.getByRole('button',{name:'未対応',exact:true})).toBeVisible();expect(s.posts).toBe(2);
+ await a.clock.fastForward(120000);await expect(a.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');expect(idleReads).toBe(0);
+ await a.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(a.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');
+ await a.reload();await a.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(a.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');expect(s.posts).toBe(2);
  await Promise.all(contexts.map(c=>c.close()));
 });
 test('保存失敗は対応済みにせず再試行、競合は共有と操作を比較してから反映',async({page,context})=>{
- const s=server();s.fail=true;await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();
- await page.getByRole('button',{name:'未対応',exact:true}).click();await expect(page.locator('p[role=alert]')).toContainText('保存できません');await expect(page.getByRole('button',{name:'未対応',exact:true})).toBeEnabled();
+ const s=server();s.fail=true;await setup(context,s);await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');
+ await page.getByRole('combobox',{name:'保存確認生徒の対応状況'}).selectOption('confirmed');await expect(page.locator('p[role=alert]')).toContainText('保存できません');await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');
  s.fail=false;s.conflict=true;await page.getByRole('button',{name:'内容を確認して再試行'}).click();await expect(page.locator('p[role=alert]')).toContainText('他のPC');expect(s.posts).toBe(2);
- await page.getByRole('button',{name:'内容を確認して再試行'}).click();await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeEnabled();expect(s.states[0].version).toBe(3);
+ await page.getByRole('button',{name:'内容を確認して再試行'}).click();await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');expect(s.states[0].version).toBe(3);
 });
 test('共有記録がない旧端末記録を自動で引き継ぐ、スマホでも操作可能',async({page,context})=>{
  const s=server();await setup(context,s);await page.setViewportSize({width:390,height:844});await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
- await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();expect(s.posts).toBe(1);
+ await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');expect(s.posts).toBe(1);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 test('共有側に変更がある旧記録は自動で上書きしない',async({page,context})=>{
  const s=server();s.states=[{page_id:id,confirmed:false,version:2}];await setup(context,s);
  await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
- await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toBeEnabled();
- await expect(page.getByRole('button',{name:'未対応',exact:true})).toBeVisible();expect(s.posts).toBe(0);
+ await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toBeEnabled();
+ await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');expect(s.posts).toBe(0);
 });
 test('ログイン切れで共有状態を偽装せず再ログイン後に復帰',async({page,context})=>{
- const s=server();await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'未対応',exact:true})).toBeEnabled();
- s.unauthorized=true;await page.getByRole('button',{name:'未対応',exact:true}).click();await expect(page.getByRole('link',{name:'職員ログイン',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'未対応',exact:true})).toBeEnabled();
- s.unauthorized=false;await page.getByRole('button',{name:'対応状況を再取得'}).click();await expect(page.getByRole('button',{name:'内容を確認して再試行'})).toBeEnabled();
+ const s=server();await setup(context,s);await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');
+ s.unauthorized=true;await page.getByRole('combobox',{name:'保存確認生徒の対応状況'}).selectOption('confirmed');await expect(page.getByRole('link',{name:'職員ログイン',exact:true})).toBeVisible();await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('needs-review');
+ s.unauthorized=false;await page.getByRole('button',{name:'一覧を最新に更新'}).click();await expect(page.getByRole('button',{name:'内容を確認して再試行'})).toBeEnabled();
 });
 test('ログインを要求せず入力検証し、他サイトからの保存を拒否',async({request})=>{
  expect((await request.post('/api/interview-surveys/confirmations',{headers:{origin:'https://other.invalid'},data:{changes:[]}})).status()).toBe(403);
@@ -62,21 +62,21 @@ test('ログインを要求せず入力検証し、他サイトからの保存�
 });
 
 test('保存失敗した操作は再読込後も残り、自動では送信しない',async({page,context})=>{
- const s=server();s.fail=true;await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await page.getByRole('button',{name:'未対応',exact:true}).click();await expect(page.locator('p[role=alert]')).toBeVisible();
- await page.reload();await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toBeEnabled();await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();await expect(page.getByText('この端末の記録・共有待ち',{exact:true})).toBeVisible();expect(s.posts).toBe(1);
- s.fail=false;await page.getByRole('button',{name:'この端末の記録を共有'}).click();await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();
+ const s=server();s.fail=true;await setup(context,s);await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await page.getByRole('combobox',{name:'保存確認生徒の対応状況'}).selectOption('confirmed');await expect(page.locator('p[role=alert]')).toBeVisible();
+ await page.reload();await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toBeEnabled();await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');await expect(page.getByText('この端末の記録・共有待ち',{exact:true})).toBeVisible();expect(s.posts).toBe(1);
+ s.fail=false;await page.getByRole('button',{name:'この端末の記録を共有'}).click();await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');
 });
 test('取得失敗で前回の対応状況を未対応に戻さない',async({page,context})=>{
- const s=server();s.states=[{page_id:id,confirmed:true,version:1}];await setup(context,s);await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();
- await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({status:503,json:{error:'unavailable'}}));await page.getByRole('button',{name:'対応状況を再取得'}).click();await expect(page.getByText(/同期できません。前回の表示/)).toBeVisible();await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();
+ const s=server();s.states=[{page_id:id,confirmed:true,version:1}];await setup(context,s);await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');
+ await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({status:503,json:{error:'unavailable'}}));await page.getByRole('button',{name:'一覧を最新に更新'}).click();await expect(page.getByText(/同期できません。前回の表示/)).toBeVisible();await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');
 });
 
 test('共有への保存が未ログインでも旧端末の対応済み表示を維持し、原本を保全する',async({page,context})=>{
  const s=server();await setup(context,s);
  await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
  await page.route('**/api/interview-surveys/confirmations',r=>r.request().method()==='POST'?r.fulfill({status:401,json:{error:'ログインし直してください。'}}):r.fulfill({json:{states:[]}}));
- await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();
- await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeEnabled();await expect(page.getByText('この端末の記録・共有待ち',{exact:true})).toBeVisible();
+ await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');
+ await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');await expect(page.getByText('この端末の記録・共有待ち',{exact:true})).toBeVisible();
  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('bentan:2026-autumn-survey-confirmed')||'[]').length)).toBe(1);
  expect(await page.evaluate(()=>!!localStorage.getItem('bentan:2026-autumn-survey-before-sharing'))).toBe(true);
 });
@@ -84,7 +84,7 @@ test('共有への保存が未ログインでも旧端末の対応済み表示�
 test('同じ記録が共有済みなら旧端末の共有待ち表示を自動解消する',async({page,context})=>{
  const s=server();s.states=[{page_id:id,confirmed:true,version:1}];await setup(context,s);
  await page.addInitScript(u=>localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([u])),url);
- await page.goto('/');await page.getByRole('button',{name:'工藤先生 1'}).click();await expect(page.getByRole('button',{name:'対応済み',exact:true})).toBeVisible();
+ await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await expect(page.getByRole('combobox',{name:'保存確認生徒の対応状況'})).toHaveValue('confirmed');
  await expect(page.getByRole('button',{name:'この端末の記録を共有'})).toHaveCount(0);
  await expect.poll(()=>page.evaluate(()=>Object.keys(JSON.parse(localStorage.getItem('bentan:2026-autumn-survey-drafts-v1')||'{}')).length)).toBe(0);expect(s.posts).toBe(0);
 });

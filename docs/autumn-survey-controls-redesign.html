@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>秋アンケート操作欄 再設計</title>
+<style>
+body{margin:0;padding:28px;background:#eef4f2;color:#17332d;font-family:"Yu Gothic UI",sans-serif}.frame{max-width:760px;margin:auto;background:#fff;border:1px solid #d5e4df;border-radius:16px;padding:24px}.eyebrow{margin:0;color:#176b58;font-size:12px;font-weight:700}.head{display:flex;justify-content:space-between;gap:16px;align-items:start}.head h1{font-size:20px;margin:5px 0}.count{padding:6px 10px;border-radius:999px;background:#e6f4ef;color:#125f58;font-size:12px;font-weight:700}.filters{margin-top:20px;padding:16px;background:#f6faf8;border-radius:12px}.filters h2{margin:0 0 12px;font-size:15px}.grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px}label{display:grid;gap:5px;font-size:12px;font-weight:700}input,select,button{box-sizing:border-box;min-height:44px;border:1px solid #bdcec8;border-radius:8px;background:#fff;color:#17332d;font:inherit;padding:9px 11px}.actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}.primary{background:#176b58;color:#fff;border-color:#176b58}.result{margin-top:18px}.row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid #dbe5e1;border-radius:10px;margin-top:8px}.grade{padding:4px 7px;background:#e7eef5;border-radius:6px;font-size:11px;font-weight:700}.student strong,.student small{display:block}.student small{margin-top:4px;color:#63756f;font-size:11px}.status select{min-width:110px}.note{font-size:11px;color:#63756f}@media(max-width:620px){body{padding:12px}.frame{padding:16px}.grid{grid-template-columns:1fr 1fr}.search{grid-column:1/-1}.actions{justify-content:stretch;flex-wrap:wrap}.actions button{flex:1}.row{grid-template-columns:auto 1fr}.status{grid-column:1/-1}.status select{width:100%}}
+</style>
+</head>
+<body>
+<main class="frame">
+  <div class="head"><div><p class="eyebrow">2026年 秋のアンケート</p><h1>担当生徒の回答を確認</h1></div><span class="count">表示中 31件</span></div>
+  <section class="filters" aria-label="アンケート回答の絞り込み">
+    <h2>回答を探す</h2>
+    <div class="grid">
+      <label class="search">生徒名<input type="search" placeholder="氏名を入力"></label>
+      <label>担任<select><option>選択してください</option><option>工藤先生</option><option>金城先生</option></select></label>
+      <label>対応状況<select><option>すべて</option><option>要確認</option><option>対応済み</option></select></label>
+      <label>面談状況<select><option>すべて</option><option>未連絡</option><option>打診済み</option><option>面談日確定</option><option>要確認</option></select></label>
+    </div>
+    <div class="actions"><button>条件をクリア</button><button class="primary">一覧を最新に更新</button></div>
+  </section>
+  <section class="result"><strong>工藤先生の担当</strong> <span class="note">8件</span>
+    <article class="row"><span class="grade">中3</span><div class="student"><strong>表示例 生徒</strong><small>提出 9/12 10:14・回答を開く</small><small>面談：未連絡</small></div><label class="status">対応状況<select><option>要確認</option><option>対応済み</option></select></label></article>
+  </section>
+</main>
+</body>
+</html>

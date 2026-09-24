@@ -115,14 +115,21 @@
 .surveyInvitationButton:hover { background: #125544; }
 .surveyInvitationButton:focus-visible { outline: 3px solid #9b722f; outline-offset: 3px; }
 .surveyInvitation p { margin: 8px 0 0; color: var(--home-muted); font-size: 13px; }
-.surveyTools { display:flex; align-items:center; gap:8px; margin:20px 0 12px; flex-wrap:wrap; }
-.surveySearch { flex:1 1 200px; min-width:0; display:flex; align-items:center; gap:8px; padding:0 12px; border:1px solid #cbdad6; border-radius:9px; background:#f7faf9; }
+.surveyFilters { margin:20px 0 12px; padding:16px; border-radius:12px; background:#f5f9f7; }
+.surveyFilterHeading { display:flex; align-items:baseline; gap:10px; margin-bottom:12px; }
+.surveyFilterHeading strong { font-size:15px; }
+.surveyFilterHeading span { color:var(--home-muted); font-size:12px; }
+.surveyFilterGrid { display:grid; grid-template-columns:minmax(210px,2fr) repeat(3,minmax(130px,1fr)); gap:10px; align-items:end; }
+.surveySearch,.surveyFilterField { min-width:0; display:grid; gap:6px; color:#36564b; font-size:12px; font-weight:700; }
+.surveySearchControl { display:flex; align-items:center; gap:8px; min-height:44px; padding:0 12px; border:1px solid #bccfc8; border-radius:9px; background:#fff; }
 .surveySearch svg { width:18px; height:18px; flex-shrink:0; color:#627c75; }
-.surveySearch input { width:100%; min-width:0; padding:12px 0; border:0; background:transparent; color:var(--home-ink); font:inherit; font-size:14px; outline-offset:2px; }
-.surveyTools button { min-height:44px; padding:9px 12px; border:1px solid #cfddd8; border-radius:9px; background:#fff; color:#36564b; font-size:13px; cursor:pointer; }
-.surveyTools button[aria-pressed="true"] { background:#e6f4ef; color:#125f58; border-color:#69a78d; }
-.surveyTools button:disabled { opacity:.6; cursor:wait; }
-.surveyTools .surveySave { background:#176b58; color:#fff; border-color:#176b58; font-weight:700; }
+.surveySearch input { width:100%; min-width:0; padding:11px 0; border:0; background:transparent; color:var(--home-ink); font:inherit; font-size:14px; outline-offset:2px; }
+.surveyFilterField select { width:100%; min-height:44px; padding:8px 10px; border:1px solid #bccfc8; border-radius:9px; background:#fff; color:#193b35; font:inherit; font-size:13px; }
+.surveyFilterActions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; flex-wrap:wrap; }
+.surveyFilterActions button { min-height:44px; padding:9px 12px; border:1px solid #cfddd8; border-radius:9px; background:#fff; color:#36564b; font-size:13px; cursor:pointer; }
+.surveyFilterActions button[aria-pressed="true"] { background:#fff3d7; color:#72531f; border-color:#c8a76d; }
+.surveyFilterActions button:disabled { opacity:.55; cursor:not-allowed; }
+.surveyFilterActions .surveyRefreshButton { background:#176b58; color:#fff; border-color:#176b58; font-weight:700; }
 .surveyHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .surveyHeading h3 { margin: 2px 0 0; font-size: 17px; line-height: 1.55; }
 .surveyEyebrow { margin: 0; color: var(--home-accent); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
@@ -155,21 +162,25 @@
 .surveyStudents a small:first-of-type { color: var(--home-muted); }
 .surveyActions { display: flex; align-items: center; gap: 7px; }
 .surveyActions button { padding: 7px 10px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
-.surveyStatusButton { min-width: 70px; border: 1px solid #d7b36f; background: #fff8e8; color: #77531d; }
-.surveyStatusButton:hover { border-color: #bb8523; background: #fff1cf; }
-.surveyStatusButton[aria-pressed="true"] { border-color: #8fc7b4; background: #e6f4ef; color: #125f58; }
+.surveyStatusButton { min-width:70px; border:1px solid #d7b36f; background:#fff8e8; color:#77531d; }
+.surveyStatusButton:hover { border-color:#bb8523; background:#fff1cf; }
+.surveyStatusField { display:grid; gap:4px; min-width:104px; color:var(--home-muted); font-size:11px; font-weight:700; }
+.surveyStatusField select { min-height:38px; padding:7px 28px 7px 9px; border:1px solid #d7b36f; border-radius:7px; background:#fff8e8; color:#77531d; font:inherit; font-size:12px; font-weight:700; }
+.surveyStatusField select:has(option[value="confirmed"]:checked) { border-color:#8fc7b4; background:#e6f4ef; color:#125f58; }
+.surveyStatusField select:disabled { opacity:.65; cursor:wait; }
 .surveyHideButton { border: 1px solid #d5dde5; background: #fff; color: #52677a; }
 .surveyHideButton:hover { border-color: #99a9b8; background: #f1f4f7; color: #263e54; }
 .surveyRestoreButton { border: 1px solid #8fc7b4; background: #e6f4ef; color: #125f58; }
 .surveyRestoreButton:hover { border-color: #569c84; background: #d8eee5; }
 .surveyNote { margin: 10px 0 0; color: var(--home-muted); font-size: 11px; line-height: 1.7; }
-.scheduleFilter{display:flex;align-items:center;gap:8px;font-size:13px}.scheduleFilter select{font:inherit;min-height:44px;border:1px solid #bccfc8;border-radius:8px;padding:8px;background:white;color:#193b35}.scheduleStatus{display:grid;gap:5px;max-width:260px;font-size:12px;line-height:1.6}.scheduleStatus span{justify-self:start;padding:3px 10px;border-radius:15px;background:#e9edf0;color:#354a54;font-weight:700}.scheduleStatus span[data-status=invited]{background:#fff0c7;color:#715209}.scheduleStatus span[data-status=confirmed]{background:#d6f1e2;color:#156447}.scheduleStatus span[data-status=unknown]{background:#fbe7e1;color:#863a26}.scheduleStatus small{white-space:normal;overflow-wrap:anywhere}.scheduleStatus strong{font-size:12px}
+.scheduleStatus{display:grid;gap:5px;max-width:260px;font-size:12px;line-height:1.6}.scheduleStatus span{justify-self:start;padding:3px 10px;border-radius:15px;background:#e9edf0;color:#354a54;font-weight:700}.scheduleStatus span[data-status=invited]{background:#fff0c7;color:#715209}.scheduleStatus span[data-status=confirmed]{background:#d6f1e2;color:#156447}.scheduleStatus span[data-status=unknown]{background:#fbe7e1;color:#863a26}.scheduleStatus small{white-space:normal;overflow-wrap:anywhere}.scheduleStatus strong{font-size:12px}
 .quickLinks a { display: flex; align-items: center; gap: 10px; padding: 18px 14px; border: 1px solid #c8e1d8; border-radius: 10px; background: #e6f4ef; color: #125f58; font-size: 13px; font-weight: 600; }
 .quickLinks a span:last-child { margin-left: auto; }
 .quickLinks a:hover { background: #d8eee5; }
 @media (max-width: 1050px) { .quickLinks { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .hero h1 { font-size: 30px; } .navigation { grid-template-columns: repeat(3,minmax(0,1fr)); } .navigation button { gap: 6px; padding: 10px 8px; } }
-@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyStudents li { grid-template-columns: auto minmax(0,1fr); } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; } }
+@media (max-width: 850px) { .surveyFilterGrid { grid-template-columns:1fr 1fr; } .surveySearch { grid-column:1 / -1; } }
+@media (max-width: 600px) { .surveyPanel { padding: 16px; } .surveyHeading { display: block; } .surveyTotal { display: inline-block; margin-top: 9px; } .surveyFilterGrid { grid-template-columns:1fr; } .surveySearch { grid-column:auto; } .surveyFilterHeading { display:grid; gap:3px; } .surveyFilterActions { display:grid; grid-template-columns:1fr 1fr; } .surveyFilterActions .surveyRefreshButton { grid-column:1 / -1; } .surveyStudents li { grid-template-columns: auto minmax(0,1fr); } .surveyStudents a { display: block; } .surveyStudents a small { display: block; margin-top: 2px; } .surveyActions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; } .surveyStatusField { flex:1 1 120px; } .surveyStatusField select { width:100%; min-height:44px; } }
 @media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
 .scheduleStatus a.scheduleAction{display:inline-flex;align-items:center;min-height:44px;padding:8px 12px;border:1px solid #187d60;border-radius:8px;background:#e6f4ef;color:#125f58;font-weight:700;text-decoration:none;box-sizing:border-box}.scheduleStatus a.scheduleAction:focus-visible{outline:3px solid #13856c;outline-offset:3px}
