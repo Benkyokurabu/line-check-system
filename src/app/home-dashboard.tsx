@@ -148,7 +148,7 @@ export default function HomeDashboard({
   const surveyRows = visibleSurveyGroups.filter(item => !selectedSurveyTeacher || item.teacher === selectedSurveyTeacher)
     .flatMap(item => item.students.map(student => ({ ...student, teacher: item.teacher })))
     .filter(student => (!surveyName || student.name.normalize("NFKC").replace(/\s/g, "").includes(surveyName)) &&
-      (!progressFilter||surveyProgress(confirmation.isConfirmed(student.notionUrl),scheduling.get(student.notionUrl)).status===progressFilter))
+      (!progressFilter||surveyProgress(confirmation.isConfirmed(student.notionUrl),scheduling.get(student.notionUrl),confirmation.progress(student.notionUrl)).status===progressFilter))
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
   const hasSurveyFilters=!!selectedSurveyTeacher||!!surveyQuery||!!progressFilter;
   const clearSurveyFilters=()=>{setSelectedSurveyTeacher(null);setSurveyQuery('');setProgressFilter('');setShowHiddenSurveys(false);};
@@ -248,8 +248,7 @@ export default function HomeDashboard({
                     {surveyRows.map(student => {
                       const confirmed = confirmation.isConfirmed(student.notionUrl);
                       const schedule=scheduling.get(student.notionUrl);
-                      const progress=surveyProgress(confirmed,schedule);
-                      const canSetManualProgress=['uncontacted','unknown'].includes(schedule.status);
+                      const progress=surveyProgress(confirmed,schedule,confirmation.progress(student.notionUrl));
                       const isThirdGrade=/中(?:学)?\s*3/.test(student.grade);
                       return <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
                         <span className={styles.gradeBadge}>{student.grade}</span>
@@ -257,11 +256,11 @@ export default function HomeDashboard({
                         <div className={styles.surveyActions}>
                           <div className={styles.surveyProgressCell} data-status={progress.status}>
                             <span className={styles.surveyProgressLabel}>進捗</span>
-                            {canSetManualProgress?<select value={confirmed?'confirmed':'needs-review'} aria-label={`${student.name}の対応状況`} disabled={!confirmation.ready||!!confirmation.saving} onChange={e=>{if((e.target.value==='confirmed')!==confirmed)confirmation.toggle(student.notionUrl);}}><option value="needs-review">要確認</option><option value="confirmed">対応済み</option></select>:<strong>{progress.label}</strong>}
+                            <select value={progress.status} aria-label={`${student.name}の対応状況`} disabled={!confirmation.ready||!!confirmation.saving} onChange={e=>confirmation.setProgress(student.notionUrl,e.target.value as 'needs-review'|'handled'|'coordinating'|'scheduled'|'completed')}>{Object.entries(surveyProgressLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select>
                             {schedule.date&&<small className={styles.surveyAppointment}>{schedule.date} {schedule.start}〜{schedule.end}</small>}
                             {schedule.status!=='uncontacted'&&<small>{schedule.detail}</small>}
                           </div>
-                          {schedule.status==='uncontacted'&&surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：面談日程を案内`}>{isThirdGrade?'面談日程を案内':'面談希望あり → 日程を案内'}</Link>}
+                          {schedule.status==='uncontacted'&&['needs-review','handled'].includes(progress.status)&&surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：面談日程を案内`}>{isThirdGrade?'面談日程を案内':'面談希望あり → 日程を案内'}</Link>}
                           {confirmation.saving===surveyPageId(student.notionUrl)&&<small role="status">保存中…</small>}
                           {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
                           {confirmation.get(student.notionUrl)?.updated_at&&<small>最終更新：{submittedAtFormatter.format(new Date(confirmation.get(student.notionUrl)!.updated_at!))}</small>}
@@ -270,7 +269,7 @@ export default function HomeDashboard({
                       </li>;
                     })}
                   </ul>
-                  <p className={styles.surveyNote}>「要確認／対応済み」はプルダウンで変更すると自動保存します。日程調整中以降は面談記録から自動更新します。中3は全員「面談日程を案内」へ、その他の学年は面談希望がある場合のみ進めてください。「非表示」はこの端末だけに反映されます。</p>
+                  <p className={styles.surveyNote}>進捗は「要確認／対応済み／日程調整中／日程確定／面談終了」から選ぶと自動保存します。まだ一度も選んでいない場合は面談記録をもとに初期表示します。中3は全員「面談日程を案内」へ、その他の学年は面談希望がある場合のみ進めてください。「非表示」はこの端末だけに反映されます。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶか、生徒名で検索してください。</p>}
               </>}
             </div>

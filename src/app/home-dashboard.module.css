@@ -175,7 +175,10 @@
 .surveyProgressCell { display:grid; gap:4px; min-width:128px; max-width:230px; color:var(--home-muted); font-size:11px; font-weight:700; }
 .surveyProgressLabel { color:var(--home-muted); }
 .surveyProgressCell select { width:100%; min-height:38px; padding:7px 28px 7px 9px; border:1px solid #d7b36f; border-radius:7px; background:#fff8e8; color:#77531d; font:inherit; font-size:12px; font-weight:700; }
-.surveyProgressCell select:has(option[value="confirmed"]:checked) { border-color:#8fc7b4; background:#e6f4ef; color:#125f58; }
+.surveyProgressCell select:has(option[value="handled"]:checked) { border-color:#8fc7b4; background:#e6f4ef; color:#125f58; }
+.surveyProgressCell select:has(option[value="coordinating"]:checked) { border-color:#d9b75e; background:#fff0c7; color:#715209; }
+.surveyProgressCell select:has(option[value="scheduled"]:checked) { border-color:#9dbdd1; background:#dcecf7; color:#285979; }
+.surveyProgressCell select:has(option[value="completed"]:checked) { border-color:#8fc7b4; background:#d6f1e2; color:#156447; }
 .surveyProgressCell select:disabled { opacity:.65; cursor:wait; }
 .surveyProgressCell > strong { justify-self:start; padding:5px 10px; border-radius:15px; background:#e9edf0; color:#354a54; font-size:12px; }
 .surveyProgressCell[data-status="coordinating"] > strong { background:#fff0c7; color:#715209; }

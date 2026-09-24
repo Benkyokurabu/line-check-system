@@ -30,4 +30,6 @@ test('手動確認と面談記録を一つの業務進捗にまとめる',()=>{
  assert.equal(progress(false,{status:'confirmed'}).status,'scheduled');
  assert.equal(progress(false,{status:'completed'}).status,'completed');
  assert.equal(progress(true,{status:'unknown'}).status,'handled');
+ assert.equal(progress(false,{status:'uncontacted'},'coordinating').status,'coordinating');
+ assert.equal(progress(true,{status:'completed'},'scheduled').status,'scheduled');
 });

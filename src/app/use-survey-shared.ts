@@ -1,14 +1,15 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {surveyPageId} from '@/lib/survey-confirmations.mjs';
-type State={confirmed:boolean;version:number;updated_at?:string;updated_name?:string};
+export type SurveyProgress='needs-review'|'handled'|'coordinating'|'scheduled'|'completed';
+type State={confirmed:boolean;progress_status?:SurveyProgress|null;version:number;updated_at?:string;updated_name?:string};
 type States=Record<string,State>;
 const KEY='bentan:2026-autumn-survey-drafts-v1', LEGACY='bentan:2026-autumn-survey-confirmed';
 const ATTEMPTED='bentan:2026-autumn-survey-shared-migration-attempted-v2';
 function parse(rows:unknown):States {
  if(!Array.isArray(rows))throw Error('共有状態の応答を確認できません。');
  const next:States={};
- for(const s of rows){if(!s||!/^[a-f0-9]{32}$/.test(s.page_id)||typeof s.confirmed!=='boolean'||!Number.isSafeInteger(s.version)||s.version<1)throw Error('共有状態の応答を確認できません。');next[s.page_id]=s;}
+ for(const s of rows){if(!s||!/^[a-f0-9]{32}$/.test(s.page_id)||typeof s.confirmed!=='boolean'||(s.progress_status!=null&&!['needs-review','handled','coordinating','scheduled','completed'].includes(s.progress_status))||!Number.isSafeInteger(s.version)||s.version<1)throw Error('共有状態の応答を確認できません。');next[s.page_id]=s;}
  return next;
 }
 export function useSurveyConfirmations(answerUrls:string[]){
@@ -49,12 +50,13 @@ export function useSurveyConfirmations(answerUrls:string[]){
   return()=>{clearTimeout(initial);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);generationRef.current++;};
  },[load,store]);
  const discard=useCallback((id:string)=>{const next={...pending.current};delete next[id];store(next);setRestored(v=>{const n={...v};delete n[id];return n;});try{const old=JSON.parse(localStorage.getItem(LEGACY)||'[]');if(Array.isArray(old))localStorage.setItem(LEGACY,JSON.stringify(old.filter(url=>surveyPageId(url)!==id)));}catch{}setIssues(v=>{const n={...v};delete n[id];return n;});},[store]);
- const save=useCallback(async(id:string,confirmed:boolean,version:number)=>{
+ const save=useCallback(async(id:string,progress:SurveyProgress,version:number)=>{
   if(!ready||busy.current)return;
+  const confirmed=progress!=='needs-review';
   migrationAttempted.current.add(id);try{localStorage.setItem(ATTEMPTED,JSON.stringify([...migrationAttempted.current]));}catch{}
-  busy.current=true;epoch.current++;setSaving(id);setMessage('');store({...pending.current,[id]:{confirmed,version}});
+  busy.current=true;epoch.current++;setSaving(id);setMessage('');store({...pending.current,[id]:{confirmed,progress_status:progress,version}});
   try{
-   const r=await fetch('/api/interview-surveys/confirmations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientVersion:2,changes:[{pageId:id,confirmed,version}]}),signal:AbortSignal.timeout(60000)});
+   const r=await fetch('/api/interview-surveys/confirmations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientVersion:3,changes:[{pageId:id,progress,version}]}),signal:AbortSignal.timeout(60000)});
    const body=await r.json();if(r.status===401)setLoginNeeded(true);
    if(r.status===409&&body.states)accept(parse(body.states));
    if(!r.ok)throw Error(r.status===409?'他のPCで変更されています。共有状態と今回の操作を確認してください。':body.error||'保存できませんでした。再試行してください。');
@@ -65,18 +67,20 @@ export function useSurveyConfirmations(answerUrls:string[]){
  },[ready,store,accept,discard]);
  useEffect(()=>{
   if(!ready||saving)return;
-  const acknowledged=Object.entries(local).find(([id,s])=>states[id]?.confirmed===s.confirmed&&states[id].version>=s.version);
+  const acknowledged=Object.entries(local).find(([id,s])=>(states[id]?.progress_status??(states[id]?.confirmed?'handled':'needs-review'))===(s.progress_status??(s.confirmed?'handled':'needs-review'))&&states[id].version>=s.version);
   if(acknowledged){const timer=setTimeout(()=>discard(acknowledged[0]),0);return()=>clearTimeout(timer);}
   const allowed=new Set(answerUrls.map(url=>surveyPageId(url)));
   const candidate=Object.entries(local).find(([id,s])=>allowed.has(id)&&s.version===0&&!states[id]&&!migrationAttempted.current.has(id));
   if(!candidate)return;
   const [id,s]=candidate;
   // A single attempt; failures and concurrent shared edits require explicit review.
-  const timer=setTimeout(()=>void save(id,s.confirmed,0),0);
+  const timer=setTimeout(()=>void save(id,s.progress_status??(s.confirmed?'handled':'needs-review'),0),0);
   return()=>{clearTimeout(timer);};
  },[ready,saving,local,states,answerUrls,save,discard]);
  const get=(url:string)=>{const id=surveyPageId(url);return id?(states[id]??restored[id]):undefined;};
  return {ready,saving,message,loginNeeded,lastSync,local,issues,load,get,getShared:(url:string)=>{const id=surveyPageId(url);return id?states[id]:undefined;},isLocal:(url:string)=>{const id=surveyPageId(url);return !!(id&&!states[id]&&restored[id]);},isConfirmed:(url:string)=>!!get(url)?.confirmed,
-  toggle:(url:string)=>{const id=surveyPageId(url);if(id){const current=shared.current[id]??restored[id];void save(id,!current?.confirmed,current?.version??0);}},
-  retry:(id:string)=>{const s=pending.current[id];if(s)void save(id,s.confirmed,shared.current[id]?.version??0);},discard};
+  progress:(url:string)=>get(url)?.progress_status??undefined,
+  setProgress:(url:string,progress:SurveyProgress)=>{const id=surveyPageId(url);if(id){const current=shared.current[id]??restored[id];void save(id,progress,current?.version??0);}},
+  toggle:(url:string)=>{const id=surveyPageId(url);if(id){const current=shared.current[id]??restored[id];void save(id,current?.confirmed?'needs-review':'handled',current?.version??0);}},
+  retry:(id:string)=>{const s=pending.current[id];if(s)void save(id,s.progress_status??(s.confirmed?'handled':'needs-review'),shared.current[id]?.version??0);},discard};
 }

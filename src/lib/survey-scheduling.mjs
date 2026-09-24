@@ -1,7 +1,8 @@
 import {INTERVIEW_SURVEY_CAMPAIGN} from './interview-survey-campaign.mjs';
 export const schedulingLabels={uncontacted:'未連絡',invited:'日程調整中',confirmed:'日程確定',completed:'面談終了',unknown:'要確認'};
 export const surveyProgressLabels={'needs-review':'要確認',handled:'対応済み',coordinating:'日程調整中',scheduled:'日程確定',completed:'面談終了'};
-export function surveyProgress(isHandled,schedule){
+export function surveyProgress(isHandled,schedule,manualProgress){
+ if(Object.hasOwn(surveyProgressLabels,manualProgress))return {status:manualProgress,label:surveyProgressLabels[manualProgress]};
  if(schedule.status==='completed')return {status:'completed',label:surveyProgressLabels.completed};
  if(schedule.status==='confirmed')return {status:'scheduled',label:surveyProgressLabels.scheduled};
  if(schedule.status==='invited')return {status:'coordinating',label:surveyProgressLabels.coordinating};

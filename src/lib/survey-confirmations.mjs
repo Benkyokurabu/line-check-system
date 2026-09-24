@@ -7,7 +7,8 @@ export function validateSurveyChanges(changes){
  if(!Array.isArray(changes)||!changes.length||changes.length>200)throw Error('invalid_request');
  const ids=new Set();
  return changes.map(c=>{
-  if(!c||typeof c.pageId!=='string'||!/^[a-f0-9]{32}$/.test(c.pageId)||ids.has(c.pageId)||typeof c.confirmed!=='boolean'||!Number.isSafeInteger(c.version)||c.version<0)throw Error('invalid_request');
-  ids.add(c.pageId);return{pageId:c.pageId,confirmed:c.confirmed,version:c.version};
+  const progress=typeof c?.progress==='string'?c.progress:(typeof c?.confirmed==='boolean'?(c.confirmed?'handled':'needs-review'):null);
+  if(!c||typeof c.pageId!=='string'||!/^[a-f0-9]{32}$/.test(c.pageId)||ids.has(c.pageId)||!['needs-review','handled','coordinating','scheduled','completed'].includes(progress)||!Number.isSafeInteger(c.version)||c.version<0)throw Error('invalid_request');
+  ids.add(c.pageId);return{pageId:c.pageId,progress,confirmed:progress!=='needs-review',version:c.version};
  });
 }

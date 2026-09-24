@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-test.beforeEach(async({page})=>{let states:unknown[]=[];await page.route('**/api/interview-surveys/confirmations',r=>{if(r.request().method()==='POST'){const c=r.request().postDataJSON().changes[0];states=[{page_id:c.pageId,confirmed:c.confirmed,version:c.version+1}];}return r.fulfill({json:{states}});});});
+test.beforeEach(async({page})=>{let states:unknown[]=[];await page.route('**/api/interview-surveys/confirmations',r=>{if(r.request().method()==='POST'){const c=r.request().postDataJSON().changes[0];states=[{page_id:c.pageId,confirmed:c.progress!=='needs-review',progress_status:c.progress,version:c.version+1}];}return r.fulfill({json:{states}});});});
 
 test('スマホで生徒検索・担任・業務進捗を分かりやすく絞り込める',async({page})=>{
  await page.setViewportSize({width:390,height:844});
@@ -11,7 +11,7 @@ test('スマホで生徒検索・担任・業務進捗を分かりやすく絞�
  await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空花子');
  await expect(page.getByRole('link',{name:/架空\s*花子/})).toBeVisible();
  await expect(page.getByRole('link',{name:/架空\s*太郎/})).toHaveCount(0);
- await page.getByRole('combobox',{name:'架空　花子の対応状況'}).selectOption('confirmed');
+ await page.getByRole('combobox',{name:'架空　花子の対応状況'}).selectOption('handled');
  await page.getByRole('combobox',{name:'アンケートの進捗'}).selectOption('needs-review');
  await expect(page.getByText('条件に合う回答はありません。')).toBeVisible();
  await page.getByRole('combobox',{name:'アンケートの進捗'}).selectOption('');
@@ -31,7 +31,7 @@ test('古い担任未特定のキャッシュを自動更新し確認状態は�
  await page.goto('/');
  await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');
  await expect(page.getByRole('combobox',{name:'アンケートの担任'})).not.toContainText('担任未特定先生');
- await expect(page.getByRole('combobox',{name:'照合確認生徒の対応状況'})).toHaveValue('confirmed');
+ await expect(page.getByRole('combobox',{name:'照合確認生徒の対応状況'})).toHaveValue('handled');
 });
 
 test("確認状態の切替・行の非表示・提出日時の古い順表示ができる", async ({ page }) => {
@@ -52,8 +52,8 @@ test("確認状態の切替・行の非表示・提出日時の古い順表示�
 
   const sawadaRow = rows.filter({ hasText: "澤田青弥" });
   const status=sawadaRow.getByRole("combobox", { name: "澤田青弥の対応状況" });
-  await status.selectOption("confirmed");
-  await expect(status).toHaveValue("confirmed");
+  await status.selectOption("handled");
+  await expect(status).toHaveValue("handled");
   await status.selectOption("needs-review");
   await expect(status).toHaveValue("needs-review");
 

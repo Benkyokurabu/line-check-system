@@ -4,6 +4,8 @@ import './survey-scheduling.test.mjs';
 test('URL表記を同じ回答IDに統一し、不正な保存を拒否する',()=>{
  assert.equal(surveyPageId('https://app.notion.com/p/11111111-1111-4111-8111-111111111111'),'11111111111141118111111111111111');
  assert.equal(surveyPageId('bad'),null);
+ assert.deepEqual(validateSurveyChanges([{pageId:'a'.repeat(32),progress:'completed',version:0}]),[{pageId:'a'.repeat(32),progress:'completed',confirmed:true,version:0}]);
+ assert.throws(()=>validateSurveyChanges([{pageId:'a'.repeat(32),progress:'unknown',version:0}]));
  assert.throws(()=>validateSurveyChanges([{pageId:'a'.repeat(32),confirmed:true,version:-1}]));
  assert.throws(()=>validateSurveyChanges([{pageId:'a'.repeat(32),confirmed:true,version:0},{pageId:'a'.repeat(32),confirmed:false,version:0}]));
 });
@@ -18,10 +20,11 @@ test('確認状態共有・変更取消・再送・別回答の同時更新・�
   await save([{pageId:a,confirmed:true,version:0}]);assert.equal((await get(a)).version,1);
   await save([{pageId:b,confirmed:true,version:0}]);assert.equal((await get(a)).confirmed,true);
   await save([{pageId:a,confirmed:false,version:1}]);assert.equal((await get(a)).version,2);
-  await assert.rejects(()=>save([{pageId:b,confirmed:false,version:1},{pageId:a,confirmed:true,version:1}]),/survey_conflict/);
-  assert.equal((await get(b)).confirmed,true);assert.equal((await get(a)).confirmed,false);
-  await db.exec('update staff_accounts set active=false');await assert.rejects(()=>save([{pageId:a,confirmed:true,version:2}]),/staff_permission_denied/);
-  await db.exec('set role anon');await assert.rejects(()=>get(a),/permission denied/);await assert.rejects(()=>save([{pageId:a,confirmed:true,version:2}]),/permission denied/);
+  await save([{pageId:a,progress:'coordinating',version:2}]);assert.equal((await get(a)).progress_status,'coordinating');
+  await assert.rejects(()=>save([{pageId:b,confirmed:false,version:1},{pageId:a,confirmed:true,version:2}]),/survey_conflict/);
+  assert.equal((await get(b)).confirmed,true);assert.equal((await get(a)).progress_status,'coordinating');
+  await db.exec('update staff_accounts set active=false');await assert.rejects(()=>save([{pageId:a,confirmed:true,version:3}]),/staff_permission_denied/);
+  await db.exec('set role anon');await assert.rejects(()=>get(a),/permission denied/);await assert.rejects(()=>save([{pageId:a,confirmed:true,version:3}]),/permission denied/);
  }finally{await db.close();}
 });
 

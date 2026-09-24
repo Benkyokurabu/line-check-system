@@ -8,9 +8,9 @@ export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export const maxDuration=60;
 async function readStates(client:ReturnType<typeof createSupabaseAdminClient>,ids?:Set<string|null>){
- const {data,error}=await client.from('survey_confirmations').select('page_id,confirmed,version,updated_at,updated_by').order('page_id').limit(10000);
+ const {data,error}=await client.from('survey_confirmations').select('page_id,confirmed,progress_status,version,updated_at,updated_by').order('page_id').limit(10000);
  if(error)throw new Error('read_failed');
- return (data??[]).filter(s=>!ids||ids.has(s.page_id)).map(s=>({page_id:s.page_id,confirmed:s.confirmed,version:s.version,updated_at:s.updated_at,updated_name:s.updated_by?'職員による保存':'共有操作'}));
+ return (data??[]).filter(s=>!ids||ids.has(s.page_id)).map(s=>({page_id:s.page_id,confirmed:s.confirmed,progress_status:s.progress_status,version:s.version,updated_at:s.updated_at,updated_name:s.updated_by?'職員による保存':'共有操作'}));
 }
 let idsCache:{until:number;value:Promise<Set<string|null>>}|undefined;
 function answerIds(){
@@ -28,7 +28,7 @@ export async function POST(request:NextRequest){
  try{
   if(!isStaffSameOrigin(request,process.env.STAFF_AUTH_ORIGIN))throw new StaffAuthError('origin_denied',403);
   const body=await staffJsonBody(request,32768);
-  if(body.clientVersion!==2)return staffResponse({error:'共有方法が更新されました。画面を再読み込みしてください。端末の記録は残っています。'},undefined,409);
+  if(![2,3].includes(Number(body.clientVersion)))return staffResponse({error:'共有方法が更新されました。画面を再読み込みしてください。端末の記録は残っています。'},undefined,409);
   const changes=validateSurveyChanges(body.changes);
   const ids=await answerIds();
   if(changes.some(c=>!ids.has(c.pageId)))throw new StaffAuthError('invalid_request',400);
