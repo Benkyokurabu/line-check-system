@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>金城先生専用｜面談予約可能枠の設計</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f7f4;color:#183b30;font-family:system-ui,"Yu Gothic",sans-serif}main{max-width:940px;margin:auto;padding:24px 16px 56px}h1{font-size:clamp(24px,4vw,34px);margin-bottom:8px}h2{font-size:20px}p{line-height:1.65}.panel{background:#fff;border:1px solid #c9ddd0;border-radius:14px;padding:18px;margin:16px 0}.conditions{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:8px}.conditions label{display:flex;align-items:center;gap:8px;padding:12px;border:1px solid #c9ddd0;border-radius:9px;min-height:48px}.conditions input{width:19px;height:19px}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.slot{border:1px solid #bfdbcb;border-radius:10px;padding:14px;background:#eff8f2}.slot.off{opacity:.62;background:#f4f4f4;border-color:#ddd}.slot strong{display:block;font-size:19px}.slot small{display:block;line-height:1.6;margin-top:5px}.badge{display:inline-block;background:#177d63;color:#fff;border-radius:999px;padding:3px 10px;margin-bottom:7px;font-size:13px}.off .badge{background:#69746c}.note{background:#fff8e7;border-left:4px solid #d0a046;padding:12px}.summary{font-weight:700;color:#14654c}.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.flow div{background:#e9f5ee;border-radius:9px;padding:14px;line-height:1.55}
+</style>
+</head>
+<body><main>
+<h1>金城先生専用の面談予約可能枠</h1>
+<p>金城先生にだけ適用する時間設定です。ほかの先生の現在の枠の作り方は維持します。60分・50分はそれぞれ面談に使う時間全体で、枠と枠の間が休憩です。</p>
+<section class="panel"><h2>対象授業の有無を切り替える</h2><div class="conditions">
+<label><input type="checkbox" data-class="1455">14:55〜16:25の授業あり</label>
+<label><input type="checkbox" data-class="1645">16:45〜18:15の授業あり</label>
+<label><input type="checkbox" data-class="1835">18:35〜20:05の授業あり</label>
+<label><input type="checkbox" data-class="2025">20:25〜21:55の授業あり</label>
+</div><p class="summary" id="summary" aria-live="polite"></p></section>
+<section class="panel"><h2>この日の候補</h2><div class="list" id="slots"></div></section>
+<section class="panel"><h2>登録と予約の流れ</h2><div class="flow"><div>① 金城先生の勤務日と授業を読む</div><div>② 条件を満たし、ほかの授業・面談とも重ならない枠を候補にする</div><div>③ 金城先生のベンスケ「予約可」として、表示された開始・終了で登録する</div><div>④ 予約時も同じ時間全体を確保し、枠間の休憩を残す</div></div></section>
+<p class="note">⑪は20:25〜21:55の授業がある日に限り「22:05開始」で登録し、枠作成時には終了時刻を求めません。予約画面では終了未定と明示し、確定時に職員が終了を決める設計です。既存の予約APIは45分固定で、60分・50分・終了未定の予約に未対応のため、コード反映前に予約からNotion同期まで一緒に変更します。</p>
+</main><script>
+const rules=[
+ ['①','11:00','12:00','60分',''],['②','12:10','13:10','60分',''],['③','13:20','14:20','60分',''],
+ ['④','14:30','15:30','60分','1455'],['⑤','15:40','16:40','60分','1455'],['⑥','17:15','18:15','60分','1645'],
+ ['⑦','18:35','19:25','50分','1835'],['⑧','19:30','20:20','50分','1835'],
+ ['⑨','20:25','21:15','50分','2025'],['⑩','21:25','22:15','50分','2025'],['⑪','22:05',null,'終了未定','2025-present']
+];
+const labels={'1455':'14:55〜16:25','1645':'16:45〜18:15','1835':'18:35〜20:05','2025':'20:25〜21:55'};
+function render(){const checked=new Set([...document.querySelectorAll('[data-class]:checked')].map(x=>x.dataset.class));let count=0;document.getElementById('slots').innerHTML=rules.map(([number,start,end,duration,condition])=>{const allowed=!condition||(condition==='2025-present'?checked.has('2025'):!checked.has(condition));if(allowed)count++;const reason=!condition?'ほかの授業との重複も確認':condition==='2025-present'?'20:25〜21:55の授業がある場合のみ':`${labels[condition]}の授業がない場合のみ`;return `<article class="slot ${allowed?'':'off'}"><span class="badge">${allowed?'候補':'対象外'}</span><strong>${number} ${start}〜${end??'終了未定'}</strong><small>${duration}を面談に使用 ／ ${reason}</small></article>`}).join('');document.getElementById('summary').textContent=`条件上の候補 ${count}枠。ほかの授業・予定と重なる枠は登録前に除外します。`;}document.querySelectorAll('[data-class]').forEach(input=>input.addEventListener('change',render));render();
+</script></body></html>
