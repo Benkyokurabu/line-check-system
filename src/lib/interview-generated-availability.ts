@@ -84,6 +84,7 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
  if(!lessonDates.length&&managedMap.size){for(const date of [...new Set<string>([...managedMap.values()].filter((row:Row)=>row.status==='active').map((row:Row)=>String(row.slot_date)))]){reviewDates.add(date);items.push({key:`${date}|missing-lessons`,date,start:'',end:'',campus:'',action:'review',reason:`この月の${teacher}先生の授業を読み取れないため、既存枠を削除しません。`});}}
  for(const [key,row] of desired){
   const tracked=managedMap.get(key),expected=desiredValue(row,staff.id),card=tracked?.notion_page_id?byPage.get(pageKey(tracked.notion_page_id)):undefined;
+  if(tracked?.status==='archived'&&tracked.expected?.manuallyRemoved){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'skip',reason:'先生がこの予約可を削除済みです。'});continue;}
   if(tracked?.status==='active'){
    if(!card){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'review',reason:'自動作成したNotionカードが見つかりません。',pageId:tracked.notion_page_id});continue;}
    if(!equivalentSchedule(card.value,tracked.expected)){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'review',reason:'自動作成後にNotionで変更されています。',pageId:card.page.id});continue;}
