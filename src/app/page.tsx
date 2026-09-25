@@ -3,6 +3,13 @@ import { interviewSurveyGroups } from "@/lib/interview-surveys";
 
 const menuItems = [
   {
+    href: "/staff/interview-materials",
+    group: "reservation" as const,
+    icon: "calendar",
+    title: "面談資料を作る",
+    description: "秋のアンケートから生徒を選び、指導簿・志望校・模試の資料を表示して印刷します。",
+  },
+  {
     href: "/staff/interview-availability",
     group: "reservation" as const,
     icon: "calendar",

@@ -20,6 +20,20 @@
 
 # production
 /build
+/local_helper/build/
+/local_helper/dist/
+/local_helper/build_release/
+/local_helper/dist_release/
+/local_helper/build_final/
+/local_helper/dist_final/
+/local_helper/build_final2/
+/local_helper/dist_final2/
+/local_helper/build_final3/
+/local_helper/dist_final3/
+/local_helper/*.spec
+/local_helper/__pycache__/
+/local_helper/sources.txt
+/local_helper/guide-path.txt
 
 # misc
 .DS_Store

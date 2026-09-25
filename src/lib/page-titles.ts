@@ -22,6 +22,7 @@ export const pageTitles:Record<string,string>={
  '/staff/self-study-room':'自習室の申請管理',
  '/staff/self-study-room/trial':'自習室の申請管理',
  '/staff/interviews':'面談の予定・入力',
+ '/staff/interview-materials':'面談資料を作る',
  '/staff/interview-availability':'予約可能枠を作る',
  '/staff/interviews/trial':'面談予約の確認・承認',
  '/reservations/trial':'予約メニュー',
