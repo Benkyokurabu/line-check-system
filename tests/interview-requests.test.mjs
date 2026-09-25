@@ -47,6 +47,13 @@ test('自動取得は職員になりすまさず、非公開・変更版・削�
  assert.equal(await value('select published v from interview_public_slots where id=$1',[s.id]),false);
  await db.exec('set role anon');await assert.rejects(()=>refresh(offers),/permission denied/);await db.exec('reset role');
 });
+test('金城先生の終了時刻なし枠も公開保存でき、同時間帯の予約後は使えない',async()=>{
+ const source=await publish(40),open={...source.data,teacher:'金城',start:'22:05',end:'',busyStart:'22:05',busyEnd:'23:59',availabilityRule:'kinjo'};
+ await db.query('update interview_public_slots set data=$1 where id=$2',[JSON.stringify(open),source.id]);
+ assert.equal(await value('select interview_slot_available($1,$2) v',[source.id,'金城']),true);
+ await db.query("insert into interview_bookings(student_id,data,status,created_by) values($1,$2,'pending',$3)",[student,JSON.stringify({...open,start:'22:30',busyStart:'22:30'}),actor]);
+ assert.equal(await value('select interview_slot_available($1,$2) v',[source.id,'金城']),false);
+});
 const snapshot=()=>value('select interview_snapshot() v');
 const publish=async(n=4)=>{
  const page=randomUUID(),data={studentId:'00000000-0000-4000-8000-000000000000',teacher:'工藤',date:date(n),start:'13:00',end:'13:45',busyStart:'13:00',busyEnd:'14:00',campus:'本校',room:'',method:'Zoom',purpose:'保護者面談',participants:'保護者',channel:'LINE',note:''};

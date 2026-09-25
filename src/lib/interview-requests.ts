@@ -1,7 +1,9 @@
 import 'server-only';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {loadInterviewState,readAll,type InterviewState} from './interview-store';
-import {conflicts,InterviewError,normalizeTeacher,validateAppointment} from './interview-core.mjs';
+import {conflicts,InterviewError,minutes,normalizeTeacher,validateAppointment} from './interview-core.mjs';
+import {hasKinjoLateClass} from './bensuke-availability-auto.mjs';
+import {isKinjoSlot,isKinjoTeacher} from './kinjo-interview-slots.mjs';
 import {getJapanDate} from './reservation-date.mjs';
 import {BENSUKE_SOURCE,queryPages,staffDirectory,scheduleValue,checkedPage,prepareBinding,prepareBindings} from './bensuke-booking.mjs';
 import {bensukeAvailability} from './bensuke-reader.mjs';
@@ -11,10 +13,16 @@ export {dateOnly,parentRequest,parentSummary} from './parent-interview-summary.m
 type Row=Record<string,unknown>;
 export type Slot={id:string;notion_page_id:string;data:Record<string,string>;version:number;published:boolean;notion_edited_at:string;source_available?:boolean};
 const teacherKey=(s:unknown)=>normalizeTeacher(s).replace(/(?:先生|さん)$/u,'');
+const offerRule=(offer:{start:string;end:string},teacher:string)=>{
+ if(isKinjoTeacher(teacher))return isKinjoSlot(offer.start,offer.end)?'kinjo':null;
+ try{return minutes(offer.end)-minutes(offer.start)===45?'standard':null;}catch{return null;}
+};
+const needsMissingLateClass=(data:Record<string,string>,lessons:InterviewState['lessons'])=>data.availabilityRule==='kinjo'&&data.start==='22:05'&&!hasKinjoLateClass(lessons,data.date,data.teacher);
 const dayAfter=(n:number)=>new Date(Date.parse(getJapanDate()+'T12:00:00+09:00')+n*86400000).toISOString().slice(0,10);
 export function available(slot:Slot,state:InterviewState,teacher:unknown){
  return !!teacherKey(teacher)&&slot.published&&slot.source_available!==false&&slot.data.date>=dayAfter(1)&&slot.data.date<=dayAfter(60)&&teacherKey(slot.data.teacher)===teacherKey(teacher)
  &&!state.bookings.some(b=>b.notion_page_id===slot.notion_page_id)
+ &&!needsMissingLateClass(slot.data,state.lessons)
  &&conflicts(slot.data,state.lessons,state.bookings).length===0;
 }
 export async function parentView(db:SupabaseClient,lineUserId:string,invitationId=''){
@@ -42,11 +50,11 @@ export async function refreshHomeroomSlots(db:SupabaseClient,students:Row[],stat
  if(!teachers.length)return;
  const checked=new Date().toISOString();
  const offers=await notionOffers(); // A failed/partial read throws; never publish stale data.
- if(state.settings.data.duration!==45)throw new InterviewError('面談時間の設定を教室で確認してください。',503);
  const values=offers.filter(o=>teachers.includes(o.teacher)).flatMap(o=>{
   try{
+   if(o.availabilityRule!=='kinjo'&&state.settings.data.duration!==45)throw new InterviewError('面談時間の設定を教室で確認してください。',503);
    const data=validateAppointment({...o,studentId:'00000000-0000-4000-8000-000000000000',method:'Zoom',purpose:'保護者面談',participants:'保護者',channel:'LINE',note:''},state.settings.data);
-   if(conflicts(data,state.lessons,state.bookings).length||state.bookings.some(b=>b.notion_page_id===o.pageId))return [];
+   if(needsMissingLateClass(data,state.lessons)||conflicts(data,state.lessons,state.bookings).length||state.bookings.some(b=>b.notion_page_id===o.pageId))return [];
    return [{pageId:o.pageId,editedAt:o.editedAt,data}];
   }catch(error){if(error instanceof InterviewError&&error.status===422)return [];throw error;}
  });
@@ -75,7 +83,8 @@ export async function notionOffers(){
   const a=bensukeAvailability(page);if(!a?.usable||!('date' in a))return [];
   const value=scheduleValue(page,schema),teachers=value.teachers.map((id:string)=>directory.find(d=>d.id===id)?.name??'');
   if(teachers.length!==1||!teachers[0])return [];
-  return [{pageId:page.id,editedAt:page.last_edited_time,...a,teacher:teacherKey(teachers[0])}];
+  const teacher=teacherKey(teachers[0]),rule=offerRule(a,teacher);
+  return rule?[{pageId:page.id,editedAt:page.last_edited_time,...a,teacher,...(rule==='kinjo'?{availabilityRule:'kinjo'}:{})}]:[];
  }).sort((a:{date:string;start:string},b:{date:string;start:string})=>a.date.localeCompare(b.date)||a.start.localeCompare(b.start));
 }
 export async function publishData(pageId:string,state:InterviewState){
@@ -85,8 +94,11 @@ export async function publishData(pageId:string,state:InterviewState){
  if(value.teachers.length!==1)throw new InterviewError('Notionの予約可に担当講師を1人設定してください。');
  const teacher=teacherKey(directory.find(t=>t.id===value.teachers[0])?.name);
  if(!teacher)throw new InterviewError('担当講師を確認してください。');
- const data=validateAppointment({...a,teacher,studentId:'00000000-0000-4000-8000-000000000000',method:'Zoom',purpose:'保護者面談',participants:'保護者',channel:'LINE',note:''},state.settings.data);
- if(state.settings.data.duration!==45)throw new InterviewError('予約可の45分枠と面談時間の設定を合わせてください。');
+ const rule=offerRule(a,teacher);
+ if(!rule)throw new InterviewError('担当講師の予約可能枠の時刻を確認してください。');
+ if(rule!=='kinjo'&&state.settings.data.duration!==45)throw new InterviewError('予約可の45分枠と面談時間の設定を合わせてください。');
+ const data=validateAppointment({...a,teacher,...(rule==='kinjo'?{availabilityRule:'kinjo'}:{}),studentId:'00000000-0000-4000-8000-000000000000',method:'Zoom',purpose:'保護者面談',participants:'保護者',channel:'LINE',note:''},state.settings.data);
+ if(needsMissingLateClass(data,state.lessons))throw new InterviewError('22:05開始の枠は20:25〜21:55の授業がある日だけ公開できます。',409);
  if(conflicts(data,state.lessons,state.bookings).length||state.bookings.some(b=>b.notion_page_id===pageId))throw new InterviewError('授業または面談と重なるため公開できません。',409);
  await prepareBinding({request:bensukeRequest,pageId,editedAt:page.last_edited_time,data});
  return {data,editedAt:page.last_edited_time};

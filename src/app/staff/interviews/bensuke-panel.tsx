@@ -1,6 +1,6 @@
 'use client';
 import {useState} from 'react';
-export type BensukeInput={date:string;start:string;end:string;campus:string;room:string;teacher?:string;bensuke?:{pageId:string;editedAt:string}};
+export type BensukeInput={date:string;start:string;end:string;campus:string;room:string;teacher?:string;availabilityRule?:'kinjo';bensuke?:{pageId:string;editedAt:string}};
 type Result={date:string;checkedAt:string;rows:{id:string;editedAt:string;title:string;url:string;date:{start:string;end:string|null}|null;fields:{name:string;value:string}[];availability?:({usable:true}&BensukeInput)|{usable:false;reason:string}|null}[]};
 const time=(value:string)=>value.includes('T')?new Date(value).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'終日';
 export default function BensukePanel({date,onUse}:{date:string;onUse?:(input:BensukeInput)=>void}){

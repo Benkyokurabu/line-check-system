@@ -9,6 +9,13 @@ async function parent(page:Page,{lost=false}={}){
  });
  await page.goto('/interviews');return operations;
 }
+test('終了時刻なしの金城枠は保護者にも開始時刻だけを明示する',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ await page.route('**/api/parent/interviews',route=>route.fulfill({json:{students:[{id,name:'確認用生徒',teacher:'金城'}],slots:[{id:slots[0].id,studentId:id,date:'2030-01-02',start:'22:05',end:''}],requests:[]}}));
+ await page.goto('/interviews');
+ await expect(page.getByRole('button',{name:/22:05〜（終了時刻なし）/})).toBeVisible();
+ await expect(page.getByRole('main')).not.toContainText('オンライン・45分');
+});
 test('保護者は一覧から第3希望まで選び、順序変更・戻るで内容を保持して送信する',async({page})=>{
  const operations=await parent(page);await page.setViewportSize({width:390,height:844});
  await expect(page.getByRole('navigation',{name:'業務ナビゲーション'})).toHaveCount(0);
@@ -41,7 +48,7 @@ test('先生は承認後の予約をチェックなしの簡単な画面から�
   return route.fulfill({json:{snapshot:'snapshot',requests:approved?[]:[{id:'request',studentName:'確認用生徒',status:'pending',version:1,note:'学習の相談',choices:slots.slice(0,3).map(s=>({slotId:s.id,data:{...s,teacher:'確認用講師'},available:true}))}],bookings:approved&&!cancelled?[{id:'booking',status:'confirmed',version:2,notion_synced_version:2,notion_page_id:'test',data:{...slots[1],teacher:'確認用講師',studentName:'確認用生徒',method:'Zoom'}}]:[],slots:[],loginReady:true}});
  });
  await page.setViewportSize({width:390,height:844});await page.goto('/staff/interviews');
- await expect(page.getByRole('main').getByRole('button')).toHaveText(['アンケートから選ぶ','希望日時（返信）を確認']);
+ await expect(page.getByRole('main').getByRole('button')).toHaveText(['アンケートから選ぶ','希望日時（返信）を確認','受付日程']);
  await page.getByRole('button',{name:'希望日時（返信）を確認',exact:true}).click();
  const manage=page.getByRole('link',{name:'面談記録・取消・詳細管理'});
  await expect(manage).toBeVisible();await expect(manage).toHaveCSS('min-height','44px');await expect(manage).toHaveCSS('background-color','rgb(23, 125, 99)');

@@ -3,6 +3,8 @@ import { withAcademicGrade } from './student-academic-grade.mjs';
 import {validateRecord} from './interview-record.mjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { InterviewError, assertFutureAppointment, conflicts, validateAppointment, validateSettings, normalizeTeacher, generateSlots } from './interview-core.mjs';
+import {hasKinjoLateClass,planTeacherAvailability} from './bensuke-availability-auto.mjs';
+import {isKinjoTeacher} from './kinjo-interview-slots.mjs';
 
 type Row = Record<string, unknown>;
 export async function readAll(db: SupabaseClient, table: string) {
@@ -61,6 +63,7 @@ export function validateSave(body: Row,state: InterviewState) {
   else throw new InterviewError('対象の面談を再読込してください。',409);
   if(['create','update','confirm'].includes(action)){
     assertFutureAppointment(data);
+    if(data.availabilityRule==='kinjo'&&data.start==='22:05'&&!hasKinjoLateClass(state.lessons,data.date,data.teacher))throw new InterviewError('22:05開始の枠は20:25〜21:55の授業がある日だけ登録できます。');
     const reasons=conflicts({...data,id:existing?.id},state.lessons,state.bookings);
     if(reasons.length)throw new InterviewError(reasons.join('。'),409);
     const day=String(data.date);
@@ -68,7 +71,10 @@ export function validateSave(body: Row,state: InterviewState) {
     const hidden=state.slots.some(s=>s.key===[day,normalizeTeacher(data.teacher),data.campus,data.start].join('|')&&(s.data as Row)?.hidden);
     if(hidden)throw new InterviewError('非公開にした予約枠です。枠を戻してから登録してください。');
     // Allow explicitly reviewed manual bookings on non-teaching days; never infer a working day.
-    const auto=generateSlots({date:day,teacher:String(data.teacher),campus:String(data.campus),lessons:state.lessons,bookings:state.bookings.filter(r=>r.id!==existing?.id),settings});
+    let auto:Record<string,string>[]=[];
+    try{
+      auto=isKinjoTeacher(data.teacher)?planTeacherAvailability({date:day,teacher:String(data.teacher),campusChoice:String(data.campus),lessons:state.lessons as Array<{lesson_date:string;teacher_name?:string;campus?:string;start_time?:string}>,bookings:state.bookings.filter(r=>r.id!==existing?.id) as Array<{status:string;data?:Record<string,string>}>,settings,startTime:'11:00'}):generateSlots({date:day,teacher:String(data.teacher),campus:String(data.campus),lessons:state.lessons,bookings:state.bookings.filter(r=>r.id!==existing?.id),settings});
+    }catch{auto=[];}
     if(!auto.some(r=>r.start===data.start)&&body.manualReviewed!==true)throw new InterviewError('自動作成枠以外の日時です。担当講師の勤務・開校状況を確認してください。');
     if((action==='confirm'||(action==='update'&&existing?.status==='confirmed'))&&body.externalReviewed!==true)throw new InterviewError('Notionの既存予定との重複・担当講師の対応可否を確認してください。');
     data={...data,manualReviewed:body.manualReviewed===true,externalReviewed:body.externalReviewed===true};

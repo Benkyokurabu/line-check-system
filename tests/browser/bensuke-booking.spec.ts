@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {defaults} from '../../src/lib/interview-core.mjs';
-const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo'}).format(new Date());
+const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo'}).format(new Date(Date.now()+86400000));
 const studentId='00000000-0000-4000-8000-000000000001',pageId='11111111-1111-4111-8111-111111111111';
 const fixture=()=>({snapshot:'snapshot',students:[{id:studentId,student_name:'架空生徒',student_number:'test',grade:'中1',campus:'本校',homeroom_teacher:'金城'}],teachers:['工藤','金城'],lessons:[],bookings:[] as unknown[],slots:[],settings:{data:defaults,notion_status:'ベンスケ連携'},canEdit:true});
 test('予約可から登録し、生徒の校舎で枠を上書きせずカードと版を送る',async({page})=>{
@@ -9,7 +9,7 @@ test('予約可から登録し、生徒の校舎で枠を上書きせずカー�
  const operations:Record<string,unknown>[]=[];
  await page.route('**/api/staff/interviews',r=>{if(r.request().method()==='POST'){operations.push(r.request().postDataJSON());return r.fulfill({json:{saved:{}}});}return r.fulfill({json:fixture()});});
  await page.route('**/api/staff/interviews/bensuke?*',r=>r.fulfill({json:{date:today,checkedAt:new Date().toISOString(),rows:[{id:pageId,editedAt:'2026-09-16T00:00:00Z',title:'予約可',url:'https://www.notion.so/'+pageId,date:{start:today+'T13:00:00+09:00',end:today+'T13:45:00+09:00'},fields:[],availability:{usable:true,date:today,start:'13:00',end:'13:45',campus:'南教室',room:'1',teacher:'工藤'}}]}}));
- await page.goto('/staff/interviews/manage');await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();await page.getByRole('button',{name:'この予約可から面談を登録'}).click();
+ await page.goto('/staff/interviews/manage');await page.getByRole('textbox',{name:'日付'}).fill(today);await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();await page.getByRole('button',{name:'この予約可から面談を登録'}).click();
  const dialog=page.getByRole('dialog',{name:'面談予定の入力'});
  await dialog.getByRole('combobox',{name:/^生徒/}).selectOption(studentId);
  await expect(dialog.getByLabel('校舎')).toHaveValue('南教室');await expect(dialog.getByLabel('校舎')).toBeDisabled();
@@ -20,6 +20,19 @@ test('予約可から登録し、生徒の校舎で枠を上書きせずカー�
  expect(operations[0].bensuke).toEqual({pageId,editedAt:'2026-09-16T00:00:00Z'});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
 });
+test('金城先生の22:05開始を終了時刻の入力なしで予約する',async({page})=>{
+ const operations:Record<string,unknown>[]=[];
+ await page.route('**/api/staff/session',r=>r.fulfill({json:{staff:{staffCode:'KINJO',staffId:'staff',role:'admin',displayName:'金城正樹'}}}));
+ await page.route('**/api/staff/interviews',r=>{if(r.request().method()==='POST'){operations.push(r.request().postDataJSON());return r.fulfill({json:{saved:{}}});}return r.fulfill({json:fixture()});});
+ await page.route('**/api/staff/interviews/bensuke?*',r=>r.fulfill({json:{date:today,checkedAt:new Date().toISOString(),rows:[{id:pageId,editedAt:'2026-09-16T00:00:00Z',title:'金城予約可',url:'https://www.notion.so/'+pageId,date:{start:today+'T22:05:00+09:00',end:null},fields:[],availability:{usable:true,date:today,start:'22:05',end:'',campus:'本校',room:'',teacher:'金城',availabilityRule:'kinjo'}}]}}));
+ await page.goto('/staff/interviews/manage');await page.getByRole('textbox',{name:'日付'}).fill(today);
+ await page.getByRole('button',{name:'ベンスケから予定を取得'}).click();await page.getByRole('button',{name:'この予約可から面談を登録'}).click();
+ const dialog=page.getByRole('dialog',{name:'面談予定の入力'});
+ await dialog.getByRole('combobox',{name:/^生徒/}).selectOption(studentId);
+ await dialog.getByRole('button',{name:'内容を確認'}).click();
+ await page.getByRole('dialog',{name:'保存前の確認'}).getByRole('button',{name:'保存する'}).click();
+ expect((operations[0].data as Record<string,string>)).toMatchObject({teacher:'金城',start:'22:05',end:'',busyEnd:'23:59',availabilityRule:'kinjo'});
+});
 test('差分を表示し、確認後だけNotionの変更を取り込む',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  const data={studentId,studentName:'架空生徒',teacher:'工藤',date:today,start:'13:00',end:'13:45',campus:'本校',room:'1',method:'対面',purpose:'相談',participants:'母',note:'',channel:'職員入力',bensuke:{pageId,editedAt:'old'}};
@@ -28,7 +41,7 @@ test('差分を表示し、確認後だけNotionの変更を取り込む',async(
  await page.route('**/api/staff/session',r=>r.fulfill({json:{staff:{staffCode:'KINJO',staffId:'staff',role:'admin',displayName:'検証職員'}}}));
  await page.route('**/api/staff/interviews',r=>{if(r.request().method()==='POST'){operations.push(r.request().postDataJSON());return r.fulfill({json:{saved:{}}});}return r.fulfill({json:{...fixture(),bookings:[booking]}});});
  await page.route('**/api/staff/interviews/bensuke-review?*',r=>r.fulfill({json:{id:pageId,version:2,local:data,remote:{title:'面談：架空生徒（対面）',date:{start:today+'T14:00:00+09:00',end:today+'T14:45:00+09:00'},campuses:['本校'],room:'本①',tags:['面談(対面)']},teacherNames:['工藤先生'],editedAt:'new',canAdopt:true,issue:'',changed:true}}));
- await page.goto('/staff/interviews/manage');await page.getByText('その他の操作',{exact:true}).click();await page.getByRole('button',{name:'Notionとの差分を確認'}).click();
+ await page.goto('/staff/interviews/manage');await page.getByRole('textbox',{name:'日付'}).fill(today);await page.getByText('その他の操作',{exact:true}).click();await page.getByRole('button',{name:'Notionとの差分を確認'}).click();
  const dialog=page.getByRole('dialog',{name:'Notionとの差分',exact:true});await expect(dialog).toContainText('14:00');
  await expect(dialog.getByRole('button',{name:'Notionの変更を取り込む'})).toBeDisabled();
  await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'Notionの変更を取り込む'}).click();expect(operations).toHaveLength(0);

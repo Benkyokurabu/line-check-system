@@ -1,4 +1,5 @@
 import {clock,minutes,normalizeTeacher,overlaps} from './interview-core.mjs';
+import {isKinjoTeacher,kinjoInterviewSlots} from './kinjo-interview-slots.mjs';
 
 const teacherKey=value=>normalizeTeacher(value).replace(/(?:先生|さん)$/u,'');
 
@@ -20,6 +21,10 @@ export function schoolLessonInterval(value){
  const start=normalize(match[1]),end=normalize(match[2]);
  if(end<=start)throw Error('授業の終了時刻を確認してください。');
  return [start,end];
+}
+
+export function hasKinjoLateClass(lessons,date,teacher){
+ return lessons.filter(row=>row.lesson_date===date&&teacherKey(row.teacher_name)===teacherKey(teacher)).some(row=>{const [from,to]=schoolLessonInterval(row.start_time);return from===minutes('20:25')&&to===minutes('21:55');});
 }
 
 export class CampusChoiceNeeded extends Error {
@@ -49,8 +54,19 @@ export function availabilityStartTime(value='14:00'){
 /** @param {{date:string,teacher:string,lessons:Array<{lesson_date:string,teacher_name?:string,campus?:string,start_time?:string}>,bookings?:Array<{status:string,data?:Record<string,string>}>,settings:{duration:number,buffer:number,daytime:string[],evening:string[],flexibleStart:string,flexibleEnd:string},campusChoice?:string,startTime?:string}} input */
 export function planTeacherAvailability({date,teacher,lessons,bookings=[],settings,campusChoice='',startTime='14:00'}){
  availabilityStartTime(startTime);
- const key=normalizeTeacher(teacher),teacherLessons=lessons.filter(row=>row.lesson_date===date&&normalizeTeacher(row.teacher_name)===key);
+ const key=teacherKey(teacher),teacherLessons=lessons.filter(row=>row.lesson_date===date&&teacherKey(row.teacher_name)===key);
  const campus=resolveDayCampus(teacherLessons,campusChoice),duration=settings.duration,buffer=settings.buffer;
+ if(isKinjoTeacher(teacher)){
+  const intervals=teacherLessons.map(row=>schoolLessonInterval(row.start_time));
+  const lateClass=intervals.some(([from,to])=>from===minutes('20:25')&&to===minutes('21:55'));
+  return kinjoInterviewSlots.flatMap(slot=>{
+   if(slot.requiresLateClass&&!lateClass)return [];
+   const from=minutes(slot.start),to=slot.end?minutes(slot.end):minutes('23:59');
+   if(intervals.some(([a,b])=>overlaps(from,to,a,b)))return [];
+   if(bookings.some(row=>!['cancelled','rejected'].includes(row.status)&&row.data?.date===date&&teacherKey(row.data?.teacher)===key&&overlaps(from,to,minutes(row.data.busyStart),minutes(row.data.busyEnd))))return [];
+   return [{date,teacher,campus,start:slot.start,end:slot.end,busyStart:slot.start,busyEnd:clock(to),availabilityRule:'kinjo'}];
+  });
+ }
  const standard=settings.daytime.filter(start=>start!=='13:00').sort(),first=standard.length?minutes(standard[0]):minutes('14:00');
  const earlier=[];for(let time=minutes(startTime);time<first;time+=60)earlier.push(clock(time));
  const starts=[...earlier,...standard.filter(start=>minutes(start)>=minutes(startTime)),'18:40',...settings.evening];
@@ -58,7 +74,7 @@ export function planTeacherAvailability({date,teacher,lessons,bookings=[],settin
   const slotStart=minutes(start),flexible=slotStart>=minutes(settings.flexibleStart)&&slotStart<minutes(settings.flexibleEnd);
   const from=flexible?minutes(settings.flexibleStart):slotStart,to=flexible?minutes(settings.flexibleEnd):slotStart+duration+buffer;
   const lessonConflict=teacherLessons.some(row=>{const [a,b]=schoolLessonInterval(row.start_time);return overlaps(from,to,a,b);});
-  const bookingConflict=bookings.some(row=>!['cancelled','rejected'].includes(row.status)&&row.data?.date===date&&normalizeTeacher(row.data?.teacher)===key&&overlaps(from,to,minutes(row.data.busyStart),minutes(row.data.busyEnd)));
+  const bookingConflict=bookings.some(row=>!['cancelled','rejected'].includes(row.status)&&row.data?.date===date&&teacherKey(row.data?.teacher)===key&&overlaps(from,to,minutes(row.data.busyStart),minutes(row.data.busyEnd)));
   return lessonConflict||bookingConflict?[]:[{date,teacher,campus,start,end:clock(slotStart+duration),busyStart:clock(from),busyEnd:clock(to)}];
  });
 }

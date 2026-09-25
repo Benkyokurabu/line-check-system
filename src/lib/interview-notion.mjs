@@ -24,7 +24,7 @@ export function bookingProperties(booking,schema){
   const marker=['cancelled','rejected'].includes(booking.status)?'【取消】':'';
   const result={
     [p.title.id]:value(p.title,`${marker}面談：${d.studentName}（${mode}）`),
-    [p.date.id]:{date:{start:`${d.date}T${d.start}:00+09:00`,end:`${d.date}T${d.end}:00+09:00`}},
+    [p.date.id]:{date:{start:`${d.date}T${d.start}:00+09:00`,end:d.end?`${d.date}T${d.end}:00+09:00`:null}},
     [p.teacher.id]:value(p.teacher,d.teacher),[p.campus.id]:value(p.campus,d.campus),
     [p.content.id]:value(p.content,`面談(${mode})`),
     [p.booking.id]:value(p.booking,booking.id),[p.student.id]:value(p.student,d.studentId),

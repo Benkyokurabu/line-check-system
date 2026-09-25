@@ -66,9 +66,16 @@ test('独立メニューで翌月表を同期し、確認後だけ本人の予�
 });
 
 test('金城は独立メニューで自分の受付枠だけを確認する',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'00000000-0000-4000-8000-000000000002',staffCode:'KINJO',displayName:'金城正樹',role:'admin'}}}));
- await page.route('**/api/staff/interview-auto-availability?*',route=>new URL(route.request().url()).searchParams.get('overview')==='1'?route.fulfill({json:{month:'2026-10',teachers:[]}}):route.fulfill({json:{...base,teacher:'金城',summary:{create:0,update:0,archive:0,keep:0,skip:0,review:0},items:[]}}));
- await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'unchanged',message:'同期済み'}}));await page.goto('/staff/interview-availability');await expect(page.getByRole('heading',{name:'金城正樹さんの受付枠'})).toBeVisible();await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('金城先生');
+ await page.route('**/api/staff/interview-auto-availability?*',route=>new URL(route.request().url()).searchParams.get('overview')==='1'?route.fulfill({json:{month:'2026-10',teachers:[]}}):route.fulfill({json:{...base,teacher:'金城',startTime:'11:00',summary:{create:1,update:0,archive:0,keep:0,skip:0,review:0},items:[{key:'2026-10-03|22:05',date:'2026-10-03',start:'22:05',end:'',campus:'本校',action:'create',reason:'新しく作成'}]}}));
+ await page.route('**/api/schedule/sync?*',route=>route.fulfill({json:{status:'unchanged',message:'同期済み'}}));await page.goto('/staff/interview-availability');await expect(page.getByRole('heading',{name:'金城正樹さんの受付枠'})).toBeVisible();
+ await expect(page.getByLabel('候補の開始時間')).toHaveCount(0);
+ await expect(page.getByText(/22:05開始は20:25〜21:55の授業がある日だけ作成/)).toBeVisible();
+ await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();
+ await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('金城先生');
+ await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('22:05〜（終了時刻なし）');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 
 test('別月の同期と重なっても、原本と授業が一致していれば予約枠を確認できる',async({page})=>{

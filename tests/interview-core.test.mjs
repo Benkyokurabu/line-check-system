@@ -39,6 +39,16 @@ test('既決の45分・予備15分と13時以降を守り、授業と重なる�
  assert.ok(rows.some(r=>r.start==='20:30'&&r.end==='21:15'));
  assert.ok(rows.some(r=>r.start==='21:30'&&r.end==='22:15'));
 });
+test('金城先生だけ予約枠全体を面談に使い、22:05開始は終了時刻を求めない',()=>{
+ const kinjo={...base,teacher:'金城',availabilityRule:'kinjo'};
+ assert.deepEqual(((v)=>[v.end,v.busyEnd])(validateAppointment({...kinjo,start:'11:00',end:'12:00'})),['12:00','12:00']);
+ assert.deepEqual(((v)=>[v.end,v.busyEnd])(validateAppointment({...kinjo,start:'18:35',end:'19:25'})),['19:25','19:25']);
+ assert.deepEqual(((v)=>[v.end,v.busyEnd])(validateAppointment({...kinjo,start:'22:05',end:''})),['','23:59']);
+ assert.match(conflicts(validateAppointment({...kinjo,start:'20:25',end:'21:15'}),[{lesson_date:date,teacher_name:'金城',start_time:'8:25～9:55'}],[]).join(),/担当講師/);
+ assert.throws(()=>validateAppointment({...kinjo,start:'11:00',end:'11:45'}),/金城先生/);
+ assert.throws(()=>validateAppointment({...base,availabilityRule:'kinjo',start:'11:00'}),/金城先生/);
+ assert.equal(validateAppointment({...base,start:'11:00'}).end,'11:45');
+});
 test('18:35〜20:05は5分刻み、19:20が最後で1件が時間帯全体を占有',()=>{
  const row=validateAppointment({...base,start:'19:20'});
  assert.equal(row.end,'20:05');assert.equal(row.busyStart,'18:35');assert.equal(row.busyEnd,'20:05');

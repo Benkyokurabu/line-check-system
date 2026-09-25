@@ -22,6 +22,26 @@ test('授業コマの時間帯でも本人の授業がなければ作成する',
  assert.deepEqual(rows.map(row=>row.start),['14:00','15:00','16:00','17:00','18:40']);
 });
 
+test('金城先生だけに60分・50分の固定枠を作り、授業がない日は⑩を最終枠にする',()=>{
+ const date='2026-10-02',lessons=[{lesson_date:date,teacher_name:'金城',campus:'本校',start_time:'10:00～10:30'}];
+ const rows=planTeacherAvailability({date,teacher:'金城',settings:defaults,lessons});
+ assert.deepEqual(rows.map(row=>[row.start,row.end]),[
+  ['11:00','12:00'],['12:10','13:10'],['13:20','14:20'],['14:30','15:30'],['15:40','16:40'],
+  ['17:15','18:15'],['18:35','19:25'],['19:30','20:20'],['20:25','21:15'],['21:25','22:15'],
+ ]);
+ assert.ok(rows.every(row=>row.busyEnd===row.end&&row.availabilityRule==='kinjo'));
+ assert.deepEqual(planTeacherAvailability({date,teacher:'工藤',settings:defaults,lessons:lessons.map(row=>({...row,teacher_name:'工藤'}))}).map(row=>row.start).slice(0,2),['14:00','15:00']);
+});
+
+test('金城先生の20:25〜21:55授業日は⑨⑩を外し、終了なしの⑪だけを追加する',()=>{
+ const date='2026-10-03',lessons=['10:00～10:30','8:25～9:55','2:55～4:25'].map(start_time=>({lesson_date:date,teacher_name:'金城',campus:'本校',start_time}));
+ const rows=planTeacherAvailability({date,teacher:'金城',settings:defaults,lessons});
+ assert.deepEqual(rows.map(row=>row.start),['11:00','12:10','13:20','17:15','18:35','19:30','22:05']);
+ assert.deepEqual(rows.at(-1),{date,teacher:'金城',campus:'本校',start:'22:05',end:'',busyStart:'22:05',busyEnd:'23:59',availabilityRule:'kinjo'});
+ const booked={status:'confirmed',data:{date,teacher:'金城',busyStart:'18:35',busyEnd:'19:25'}};
+ assert.equal(planTeacherAvailability({date,teacher:'金城',settings:defaults,lessons,bookings:[booked]}).some(row=>row.start==='19:30'),true);
+});
+
 test('開始時間11:00なら11:00・12:00・13:00を追加し、14:00初期設定では13:00を除く',()=>{
  const options={date:'2026-10-02',teacher:'工藤',settings:defaults,lessons:[{lesson_date:'2026-10-02',teacher_name:'工藤',campus:'本校',start_time:'8:25～9:55'}]};
  assert.deepEqual(planTeacherAvailability({...options,startTime:'11:00'}).map(row=>row.start).slice(0,7),['11:00','12:00','13:00','14:00','15:00','16:00','17:00']);

@@ -1,4 +1,5 @@
 import {InterviewError} from './interview-core.mjs';
+import {isKinjoSlot} from './kinjo-interview-slots.mjs';
 
 const text = items => (items??[]).map(x=>x.plain_text??x.text?.content??'').join('');
 const uuid = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
@@ -18,12 +19,15 @@ export function bensukeAvailability(page){
  const campus=availability[0]==='本：予約可'?'本校':'南教室';
  if(campuses.length!==1||campuses[0]!==campus)return reject('校舎の設定を確認してください。');
  const date=props['日時']?.date;
- if(!date?.start?.includes('T')||!date.end?.includes('T'))return reject('開始・終了時刻の確認が必要です。');
- const startTime=new Date(date.start),endTime=new Date(date.end);
- if(!Number.isFinite(+startTime)||!Number.isFinite(+endTime)||+endTime-+startTime!==45*60000)return reject('面談45分の枠ではありません。日時を確認してください。');
+ if(!date?.start?.includes('T')||date.end&&!date.end.includes('T'))return reject('開始・終了時刻の確認が必要です。');
+ const startTime=new Date(date.start),endTime=date.end?new Date(date.end):null;
+ if(!Number.isFinite(+startTime)||endTime&&!Number.isFinite(+endTime))return reject('日時を確認してください。');
  const japan=value=>new Date(+value+9*3600000).toISOString();
- const start=japan(startTime),end=japan(endTime);
- if(start.slice(0,10)!==end.slice(0,10))return reject('日をまたぐ枠は個別に確認してください。');
+ const start=japan(startTime),end=endTime?japan(endTime):null;
+ if(end&&start.slice(0,10)!==end.slice(0,10))return reject('日をまたぐ枠は個別に確認してください。');
+ const begin=start.slice(11,16),finish=end?.slice(11,16)??'';
+ if(endTime){if(+endTime<=+startTime||+endTime-+startTime!==45*60000&&!isKinjoSlot(begin,finish))return reject('面談の予約可能枠の長さを確認してください。');}
+ else if(begin!=='22:05')return reject('終了時刻の確認が必要です。');
  const notionRoom=props['教室']?.select?.name??'';
  let room='';
  if(notionRoom){
@@ -32,7 +36,7 @@ export function bensukeAvailability(page){
   if(notionRoom.length!==2||notionRoom[0]!==prefix||number<0)return reject('教室の割り当てを個別に確認してください。');
   room=String(number+1);
  }
- return {usable:true,date:start.slice(0,10),start:start.slice(11,16),end:end.slice(11,16),campus,room};
+ return {usable:true,date:start.slice(0,10),start:begin,end:finish,campus,room};
 }
 
 // Read existing cards without requiring Bentan-specific properties or changing Notion.

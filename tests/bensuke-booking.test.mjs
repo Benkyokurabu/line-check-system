@@ -66,6 +66,28 @@ test('予約可を再取得して日時・担当・所属DB・版を確認する
  await assert.rejects(()=>prepareBinding({...args,data:{...data,start:'14:00'}}),/変更せず/);
  f.setPage({...card(),parent:{data_source_id:'other'}});await assert.rejects(()=>prepareBinding(args),/別のDB/);
 });
+test('金城先生の22:05開始はNotionでも終了なしで予約・照合する',async()=>{
+ const open={...original,date:{start:'2026-12-01T22:05:00+09:00',end:null}};
+ const kinjoData={...data,teacher:'金城',start:'22:05',end:'',busyStart:'22:05',busyEnd:'23:59',availabilityRule:'kinjo'};
+ const booking={id:'kinjo-booking',status:'confirmed',data:kinjoData,notion_page_id:pageId,notion_original:open,notion_baseline:open,notion_expected:null};
+ const scheduled=desiredSchedule(booking,teacherId);
+ assert.equal(scheduled.date.end,null);
+ const adopted=remoteAppointment(booking,scheduled,[{id:teacherId,name:'金城先生'}]);
+ assert.equal(adopted.end,'');assert.equal(adopted.busyEnd,'23:59');
+ let current=card(open);const patches=[];
+ const request=async(path,init)=>{
+  if(path===`/data_sources/${BENSUKE_SOURCE}`)return schema;
+  if(path==='/data_sources/staff/query')return {results:[{id:teacherId,properties:{名前:{type:'title',title:[{plain_text:'金城先生'}]}}}]};
+  if(path.endsWith('/query'))return {results:[]};
+  if(path===`/pages/${pageId}`&&init?.method==='PATCH'){patches.push(JSON.parse(init.body));current=card(scheduled);return current;}
+  if(path===`/pages/${pageId}`)return current;
+  assert.fail(`unexpected request ${path} ${init?.method}`);
+ };
+ const binding=await prepareBinding({request,pageId,editedAt:card(open).last_edited_time,data:kinjoData});
+ assert.equal(binding.baseline.date.end,null);
+ assert.equal((await syncBensukeBooking({booking,sourceId:BENSUKE_SOURCE,request,stage:async value=>{booking.notion_expected=value;}})).status,'synced');
+ assert.equal(patches[0].properties.日時.date.end,null);
+});
 test('前日から続く予定と終了不明・校舎をまたぐ同じ担当の予定を重複検査する',()=>{
  const other=card({...original,title:'既存面談',date:{start:'2026-11-30T22:00:00+09:00',end:'2026-12-01T14:00:00+09:00'},campuses:['南教室'],room:'南①',tags:['面談(対面)']},'other');
  assert.throws(()=>assertNoNotionConflicts([other],{schema,data,teacherId,excludeId:pageId}),/重なり/);

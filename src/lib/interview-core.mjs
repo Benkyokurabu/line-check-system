@@ -1,4 +1,5 @@
 import { isValidReservationDate } from './reservation-date.mjs';
+import {isKinjoTeacher,kinjoInterviewSlot} from './kinjo-interview-slots.mjs';
 
 export class InterviewError extends Error {
   constructor(message, status = 422) { super(message); this.status = status; }
@@ -35,7 +36,8 @@ export const overlaps = (a, b, c, d) => a < d && c < b;
 export function lessonInterval(lesson) {
   const times = String(lesson.start_time).normalize('NFKC').match(/(\d{1,2}:[0-5]\d)\s*[～〜~\-–－]\s*(\d{1,2}:[0-5]\d)/);
   if (!times) throw new InterviewError('授業時間を読み取れません。授業スケジュールを確認してください。');
-  const start = minutes(times[1].padStart(5, '0')), end = minutes(times[2].padStart(5, '0'));
+  const schoolTime=value=>{const time=minutes(value.padStart(5,'0'));return time<10*60?time+12*60:time;};
+  const start = schoolTime(times[1]), end = schoolTime(times[2]);
   if (end <= start) throw new InterviewError('授業の終了時刻を確認してください。');
   return [start, end];
 }
@@ -64,7 +66,17 @@ export function validateAppointment(input, settings = defaults) {
     || !['本校','南教室'].includes(value.campus) || !['対面','Zoom','電話','ハイブリッド'].includes(value.method)
     || !['LINE','電話','口頭','職員入力'].includes(value.channel) || !value.purpose || !value.participants
     || (value.room && !/^(?:[1-9]|1[0-9])$/.test(value.room))) throw new InterviewError('生徒・担当・日時・校舎・方法・目的・参加者・受付方法を確認してください。');
-  const start = minutes(value.start), end = start + settings.duration;
+  const start = minutes(value.start);
+  if(input?.availabilityRule==='kinjo'){
+    const slot=kinjoInterviewSlot(value.start);
+    if(!isKinjoTeacher(value.teacher)||!slot||input.end!==undefined&&input.end!==slot.end)throw new InterviewError('金城先生の予約可能枠の時刻を確認してください。');
+    value.availabilityRule='kinjo';
+    value.end=slot.end;
+    value.busyStart=value.start;
+    value.busyEnd=slot.end||'23:59';
+    return value;
+  }
+  const end = start + settings.duration;
   if (end + settings.buffer >= 1440) throw new InterviewError('面談は同日中に終了させてください。');
   value.end = clock(end);
   value.busyStart = value.start;

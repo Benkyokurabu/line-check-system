@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {InterviewError,normalizeTeacher,validateAppointment} from './interview-core.mjs';
 import {availabilityStartTime,CampusChoiceNeeded,planTeacherAvailability,resolveAvailabilityTeacher,resolveDayCampus} from './bensuke-availability-auto.mjs';
+import {isKinjoTeacher} from './kinjo-interview-slots.mjs';
 import {BENSUKE_SOURCE,assertNoNotionConflicts,bookingSchema,equivalentSchedule,queryPages,scheduleProperties,scheduleValue,staffDirectory,teacherMatch} from './bensuke-booking.mjs';
 import {bensukeRequest} from './interview-sync';
 import {readAll} from './interview-store';
@@ -32,8 +33,8 @@ const lastDay=(month:string)=>{const [year,n]=month.split('-').map(Number);retur
 function checkMonth(month:string){if(!/^\d{4}-\d{2}$/.test(month)||!scheduleSyncMonths().includes(month))throw new InterviewError('予約可を作成できるのは今月と翌月です。',422);}
 const managedKey=(date:string,start:string)=>`${date}|${start}`;
 const instant=(date:string,time:string)=>new Date(`${date}T${time}:00+09:00`).toISOString();
-const sameSlot=(value:Row,row:Row,staffId:string)=>value.teachers?.length===1&&value.teachers[0]===staffId&&value.date?.start&&value.date?.end&&new Date(value.date.start).toISOString()===instant(row.date,row.start)&&new Date(value.date.end).toISOString()===instant(row.date,row.end)&&value.campuses?.length===1&&value.campuses[0]===row.campus&&value.tags?.length===1&&['本：予約可','南：予約可'].includes(value.tags[0]);
-function desiredValue(row:Row,staffId:string){const prefix=row.campus==='本校'?'本':'南';return {title:`${prefix}：${row.teacher}予約可`,date:{start:`${row.date}T${row.start}:00+09:00`,end:`${row.date}T${row.end}:00+09:00`,time_zone:null},teachers:[staffId],campuses:[row.campus],room:'',tags:[`${prefix}：予約可`]};}
+const sameSlot=(value:Row,row:Row,staffId:string)=>value.teachers?.length===1&&value.teachers[0]===staffId&&value.date?.start&&new Date(value.date.start).toISOString()===instant(row.date,row.start)&&(value.date.end?new Date(value.date.end).toISOString():null)===(row.end?instant(row.date,row.end):null)&&value.campuses?.length===1&&value.campuses[0]===row.campus&&value.tags?.length===1&&['本：予約可','南：予約可'].includes(value.tags[0]);
+function desiredValue(row:Row,staffId:string){const prefix=row.campus==='本校'?'本':'南';return {title:`${prefix}：${row.teacher}予約可`,date:{start:`${row.date}T${row.start}:00+09:00`,end:row.end?`${row.date}T${row.end}:00+09:00`:null,time_zone:null},teachers:[staffId],campuses:[row.campus],room:'',tags:[`${prefix}：予約可`]};}
 async function monthRows(db:SupabaseClient,table:string,column:string,from:string,to:string){
  const rows:Row[]=[];for(let offset=0;offset<5000;offset+=500){const result=await db.from(table).select('*').gte(column,from).lt(column,to).range(offset,offset+499);if(result.error)throw new InterviewError('予約可の管理情報を読み込めません。',503);rows.push(...(result.data??[]));if((result.data?.length??0)<500)return rows;}throw new InterviewError('対象月のデータが多すぎます。',503);
 }
@@ -47,6 +48,7 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
  const settingsResult=await db.from('interview_settings').select('data').eq('id',true).single();if(settingsResult.error)throw new InterviewError('面談時間の設定を読み込めません。',503);const settings=(settingsResult.data as Row).data;
  const directory=await staffDirectory(bensukeRequest,schema);
  let teacher:string;try{const lessonCandidates=lessons.map((row:Row)=>row.teacher_name).filter(Boolean);teacher=resolveAvailabilityTeacher({displayName:actor.displayName,staffCode:actor.staffCode,candidates:lessonCandidates.length?lessonCandidates:directory.map((row:{name:string})=>row.name)});}catch(error){throw new InterviewError(error instanceof Error?error.message:'担当する先生を特定できません。',422);}
+ if(isKinjoTeacher(teacher))startTime='11:00';
  const staff=teacherMatch(teacher,directory),property:any=bookingSchema(schema); // eslint-disable-line @typescript-eslint/no-explicit-any
  const pages:Row[]=await queryPages(bensukeRequest,BENSUKE_SOURCE,{and:[{property:property.date.id,date:{on_or_after:from}},{property:property.date.id,date:{on_or_before:lastDay(month)}}]}) as Row[];
  const conflictMap=new Map<string,Row>(pages.map(page=>[pageKey(page.id),page]));
@@ -95,6 +97,13 @@ export async function previewGeneratedAvailability(db:SupabaseClient,month:strin
   if(tracked&&card){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'review',reason:'削除済みとして記録したカードがNotionで復元されています。',pageId:card.page.id});continue;}
   const manual=cards.find(({page,value})=>!managed.some((m:Row)=>pageKey(m.notion_page_id)===pageKey(page.id))&&sameSlot(value,row,staff.id));
   if(manual){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'skip',reason:'同じ時刻の手動予約可があります。'});continue;}
+  const existingOverlap=isKinjoTeacher(teacher)&&cards.some(({value})=>{
+   if(!value.teachers?.includes(staff.id)||value.tags?.length!==1||!['本：予約可','南：予約可'].includes(value.tags[0])||!value.date?.start)return false;
+   const start=Date.parse(value.date.start.includes('T')?value.date.start:`${value.date.start}T00:00:00+09:00`);
+   const end=value.date.end?Date.parse(value.date.end.includes('T')?value.date.end:`${value.date.end}T23:59:59+09:00`):Date.parse(`${row.date}T23:59:59+09:00`);
+   return !Number.isFinite(start)||!Number.isFinite(end)||start<Date.parse(instant(row.date,row.busyEnd))&&Date.parse(instant(row.date,row.busyStart))<end;
+  });
+  if(existingOverlap){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'skip',reason:'既存の予約可と時間が重なります。既存枠の処理後に再確認してください。'});continue;}
   try{assertNoNotionConflicts(conflictPages,{schema,data:row,teacherId:staff.id,excludeId:''});}
   catch(error){items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'skip',reason:error instanceof Error?error.message:'既存予定と重なります。'});continue;}
   items.push({key,date:row.date,start:row.start,end:row.end,campus:row.campus,action:'create',reason:'新しく作成',expected});

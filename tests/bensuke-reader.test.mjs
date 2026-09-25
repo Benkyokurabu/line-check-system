@@ -8,6 +8,14 @@ const slot=()=>({properties:{内容:{multi_select:[{name:'本：予約可'}]},�
 test('実DBの予約可から日本時間・校舎・教室を補完し、担当者は推測しない',()=>{
  assert.deepEqual(bensukeAvailability(slot()),{usable:true,date:'2026-09-30',start:'20:30',end:'21:15',campus:'本校',room:'3'});
 });
+test('金城先生の60分・50分と22:05終了時刻なしを読める',()=>{
+ const withTime=(start,end)=>({properties:{...slot().properties,日時:{date:{start:`2026-10-02T${start}:00+09:00`,end:end?`2026-10-02T${end}:00+09:00`:null}}}});
+ assert.equal(bensukeAvailability(withTime('11:00','12:00')).end,'12:00');
+ assert.equal(bensukeAvailability(withTime('18:35','19:25')).end,'19:25');
+ assert.deepEqual({start:bensukeAvailability(withTime('22:05','')).start,end:bensukeAvailability(withTime('22:05','')).end},{start:'22:05',end:''});
+ assert.equal(bensukeAvailability(withTime('22:00','')).usable,false);
+ assert.equal(bensukeAvailability(withTime('11:00','11:50')).usable,false);
+});
 test('予約可と診断テストの併記・時刻不足・校舎矛盾を自動入力しない',()=>{
  const mixed=slot();mixed.properties.内容.multi_select.push({name:'診断テスト'});assert.equal(bensukeAvailability(mixed).usable,false);
  const noEnd=slot();noEnd.properties.日時.date.end=null;assert.equal(bensukeAvailability(noEnd).usable,false);

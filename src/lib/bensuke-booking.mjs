@@ -100,7 +100,7 @@ export function desiredSchedule(booking,teacherId){
  const mode=d.method==='対面'?'対面':d.method==='電話'?'電話':'オンライン';
  const room=d.room?`${d.campus==='本校'?'本':'南'}${'①②③④⑤⑥⑦⑧⑨'[Number(d.room)-1]??''}`:'';
  if(d.room&&(Number(d.room)>9||!Number(d.room)))throw new InterviewError('ベンスケに対応する教室がありません。');
- return {title:`面談：${d.studentName}（${mode}）`,date:{start:`${d.date}T${d.start}:00+09:00`,end:`${d.date}T${d.end}:00+09:00`,time_zone:null},teachers:[teacherId],campuses:[d.campus],room,tags:[mode==='電話'?'電話':`面談(${mode})`]};
+ return {title:`面談：${d.studentName}（${mode}）`,date:{start:`${d.date}T${d.start}:00+09:00`,end:d.end?`${d.date}T${d.end}:00+09:00`:null,time_zone:null},teachers:[teacherId],campuses:[d.campus],room,tags:[mode==='電話'?'電話':`面談(${mode})`]};
 }
 export function scheduleProperties(value,schema){
  const p=bookingSchema(schema),option=(key,name)=>{
@@ -129,7 +129,7 @@ export function assertNoNotionConflicts(rows,{schema,data,teacherId,excludeId}){
   const timed=v.date.start.includes('T');
   const a=Date.parse(timed?v.date.start:`${v.date.start}T00:00:00+09:00`);
   let b=v.date.end?Date.parse(v.date.end.includes('T')?v.date.end:`${v.date.end}T00:00:00+09:00`)+(v.date.end.includes('T')?0:86400000):Date.parse(`${new Date(a+9*3600000).toISOString().slice(0,10)}T23:59:59+09:00`)+1000;
-  if(v.tags.some(t=>t.startsWith('面談'))&&v.date.end?.includes('T'))b+=15*60000;
+  if(data.availabilityRule!=='kinjo'&&v.tags.some(t=>t.startsWith('面談'))&&v.date.end?.includes('T'))b+=15*60000;
   if(!Number.isFinite(a)||!Number.isFinite(b))throw new InterviewError('既存予定の終了時刻を確認できません。',409);
   // Zero-length historical entries must not block every future day. Treat an
   // absent/invalid end as occupying the rest of its own start day.
@@ -153,13 +153,13 @@ export async function checkNotionConflicts({request,sourceId,schema,data,teacher
  assertNoNotionConflicts([...rows.values()],{schema,data,teacherId,excludeId});
 }
 export function remoteAppointment(booking,value,directory,settings=defaults){
- if(value.teachers.length!==1||value.campuses.length!==1||!value.date?.end||!value.date.start.includes('T')||!value.date.end.includes('T'))throw new InterviewError('Notionの日時・担当者・校舎を一つに確定してください。',409);
+ if(value.teachers.length!==1||value.campuses.length!==1||!value.date?.start?.includes('T')||value.date.end&&!value.date.end.includes('T')||!value.date.end&&booking.data.end)throw new InterviewError('Notionの日時・担当者・校舎を一つに確定してください。',409);
  const person=directory.find(x=>x.id===value.teachers[0]);if(!person)throw new InterviewError('Notionの担当者を確認できません。',409);
- const start=new Date(Date.parse(value.date.start)+9*3600000).toISOString(),end=new Date(Date.parse(value.date.end)+9*3600000).toISOString();
+ const start=new Date(Date.parse(value.date.start)+9*3600000).toISOString(),end=value.date.end?new Date(Date.parse(value.date.end)+9*3600000).toISOString():null;
  const room=value.room?String('①②③④⑤⑥⑦⑧⑨'.indexOf(value.room.slice(1))+1):'';
  if(value.room&&(value.room!==`${value.campuses[0]==='本校'?'本':'南'}${'①②③④⑤⑥⑦⑧⑨'[Number(room)-1]}`||room==='0'))throw new InterviewError('Notionの教室を対応付けできません。',409);
- const candidate=validateAppointment({...booking.data,date:start.slice(0,10),start:start.slice(11,16),teacher:teacherKey(person.name),campus:value.campuses[0],room},settings);
- if(end.slice(0,10)!==candidate.date||end.slice(11,16)!==candidate.end)throw new InterviewError('Notionの面談時間が予約設定と一致しません。',409);
+ const candidate=validateAppointment({...booking.data,date:start.slice(0,10),start:start.slice(11,16),end:end?.slice(11,16)??'',teacher:teacherKey(person.name),campus:value.campuses[0],room},settings);
+ if(end&&end.slice(0,10)!==candidate.date||(end?.slice(11,16)??'')!==candidate.end)throw new InterviewError('Notionの面談時間が予約設定と一致しません。',409);
  const expected=desiredSchedule({...booking,data:{...booking.data,...candidate}},person.id);
  if(value.title!==expected.title||JSON.stringify(value.tags)!==JSON.stringify(expected.tags))throw new InterviewError('氏名・方法・用途が変更されています。Notionで内容を確認してください。',409);
  return {...booking.data,...candidate};
