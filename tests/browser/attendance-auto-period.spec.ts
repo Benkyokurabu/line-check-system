@@ -62,6 +62,11 @@ test("an invalid proposed period clears the old selection and can be corrected",
 test("opening a period proposes actual lessons and a single action registers all selected lessons", async ({ page }) => {
   const state = await setup(page);
   await expect(page.getByRole("button", { name: "この2授業をまとめて欠席登録" })).toBeVisible();
+  const firstLesson = page.getByRole("group", { name: "期間の欠席をまとめて登録" }).getByRole("checkbox").first();
+  await expect(firstLesson.locator("..")).toHaveCSS("background-color", "rgb(220, 252, 231)");
+  await firstLesson.uncheck();
+  await expect(firstLesson.locator("..")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await firstLesson.check();
   expect(state.writes).toHaveLength(0); expect(state.confirms).toBe(0); expect(state.rangeReads).toBe(1);
   await expect(page.getByRole("button", { name: "確認してNotionへ登録", exact: true })).toHaveCount(0);
   await page.screenshot({ path: "test-results/auto-period-desktop.png", fullPage: true });

@@ -267,7 +267,7 @@ function initialItems(candidate: Candidate, initialCampus: string, fallbackStude
     event_date: item.event_date ?? "",
     campus: item.lessons?.campus ?? initialCampus,
     lesson_id: requiresStudentSelection ? "" : item.lesson_id ?? "",
-    auto_select: !requiresStudentSelection && !candidate.human_reviewed_at && !item.student_number,
+    auto_select: !requiresStudentSelection && !candidate.human_reviewed_at && !item.lesson_id,
     suggested_subject: item.suggested_subject,
     suggested_class_name: item.suggested_class_name,
     ai_summary: item.ai_summary ?? fallbackReason(item.event_type || candidate.event_type),
@@ -906,7 +906,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
       <span style={{ fontWeight: 700 }}>授業</span>
       {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
         <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === lessonId; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: selected ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === lessonId; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
       </div>)}
     </div>}
     {!periodMode && isCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
@@ -1116,7 +1116,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
             <span style={{ fontWeight: 700 }}>授業</span>
             {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
               <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === draft.lesson_id; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: selected ? "2px solid var(--accent)" : lesson.enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : lesson.enrolled ? "#f2fbf5" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === draft.lesson_id; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
             </div>)}
           </div>
           {isEditingCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
@@ -1272,6 +1272,8 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         .catch((error) => {
           if (error instanceof DOMException && error.name === "AbortError") return;
           setLessonLists((current) => ({ ...current, [requestKey]: [] }));
+          setItems((current) => current.map((item) => item.event_date === date && item.student_number === rowStudentNumber && item.auto_select
+            ? { ...item, auto_select: false } : item));
           setCardMessage(error instanceof Error ? error.message : String(error));
         });
     }
@@ -1282,6 +1284,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
 
   useEffect(() => {
     if (!manualRevision || closed || registering || busy) return;
+    if (!showAutoPeriod && items.some((item) => item.auto_select)) return;
     const snapshot = items.map((item) => ({ ...item }));
     const timer = window.setTimeout(() => {
       setDraftStatus("変更を保存中…");
@@ -1295,7 +1298,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       });
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [items, manualRevision, confirmedBy, closed, registering, busy]);
+  }, [items, manualRevision, confirmedBy, closed, registering, busy, showAutoPeriod]);
 
   function updateGroup(groupItems: EditableItem[], patch: Partial<EditableItem>, clearLessons = false) {
     setManualRevision((value) => value + 1);
@@ -1794,7 +1797,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
                 {timeGroup.lessons.map((lesson) => {
                   const selected = selectedLessonIds.has(lesson.id);
                   const enrolled = Boolean(lesson.enrolled);
-                  return <button key={lesson.id} type="button" aria-pressed={selected} disabled={rowClosed} onClick={() => toggleGroupLesson(registrationGroup.items, lesson)} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid var(--accent)" : enrolled ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : enrolled ? "#f2fbf5" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                  return <button key={lesson.id} type="button" aria-pressed={selected} disabled={rowClosed} onClick={() => toggleGroupLesson(registrationGroup.items, lesson)} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#dcfce7" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
                     <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
                   </button>;
                 })}

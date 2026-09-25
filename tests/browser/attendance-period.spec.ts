@@ -58,6 +58,11 @@ async function setup(page: Page, line = false) {
 
 test("manual period registration maps actual dates and lessons and retries only failed Notion entries", async ({ page }) => {
   const state = await setup(page);
+  const firstLesson = page.getByRole("group", { name: "期間内の授業を選択" }).getByRole("checkbox").first();
+  await expect(firstLesson.locator("..")).toHaveCSS("background-color", "rgb(220, 252, 231)");
+  await firstLesson.uncheck();
+  await expect(firstLesson.locator("..")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await firstLesson.check();
   await page.getByRole("combobox", { name: "種別", exact: true }).selectOption("late");
   state.failId = lessons[1].id;
   page.on("dialog", (dialog) => dialog.accept());

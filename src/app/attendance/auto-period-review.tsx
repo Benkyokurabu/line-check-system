@@ -62,7 +62,7 @@ export default function AutoPeriodReview({ studentNumber, studentName, proposal,
     <p style={{ margin: 0 }}>連絡の期間と受講クラスから、対象の授業を調べました。この内容でまとめて{kind}登録しますか？</p>
     {loading ? <p role="status">期間内の授業を確認しています…</p> : error ? <div role="alert">{error} <button type="button" onClick={() => setReload((value) => value + 1)}>再取得</button></div> : <>
       {!lessons.length ? <p role="status">対象の授業が見つかりません。選択した生徒・連絡の期間・受講クラスを確認してください。「日付・授業を自分で修正」からも設定できます。</p> : <>
-        <div style={{ display: "grid", gap: 8 }}>{lessons.map((lesson) => <label key={lesson.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "white", padding: 12, borderRadius: 8 }}>
+        <div style={{ display: "grid", gap: 8 }}>{lessons.map((lesson) => <label key={lesson.id} style={{ display: "flex", alignItems: "center", gap: 10, background: excluded.includes(lesson.id) ? "white" : "#dcfce7", border: excluded.includes(lesson.id) ? "1px solid var(--line)" : "2px solid #16a34a", padding: 12, borderRadius: 8 }}>
           <input type="checkbox" checked={!excluded.includes(lesson.id)} onChange={(event) => setExcluded((current) => event.target.checked ? current.filter((id) => id !== lesson.id) : [...current, lesson.id])} />
           <span><strong>{lesson.lesson_date}（{new Intl.DateTimeFormat("ja-JP", { weekday: "short", timeZone: "Asia/Tokyo" }).format(new Date(`${lesson.lesson_date}T00:00:00Z`))}）</strong><br />{lesson.label} / {lesson.campus} / {lesson.start_time}</span>
         </label>)}</div>

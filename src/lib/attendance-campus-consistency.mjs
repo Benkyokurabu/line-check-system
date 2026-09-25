@@ -32,6 +32,10 @@ export function normalizeLessonIdentityText(value) {
 function subjectMatches(enrollment, lesson) {
   const enrollmentSubject = normalizeLessonIdentityText(enrollment?.subject);
   const lessonSubject = normalizeLessonIdentityText(lesson?.subject);
+  const elementaryGrade = normalizeLessonIdentityText(enrollment?.grade).startsWith("小") &&
+    normalizeLessonIdentityText(lesson?.grade).startsWith("小");
+  if (elementaryGrade && [enrollmentSubject, lessonSubject].includes("数学") &&
+    [enrollmentSubject, lessonSubject].includes("算数")) return true;
   return Boolean(enrollmentSubject && lessonSubject) &&
     (enrollmentSubject.includes(lessonSubject) || lessonSubject.includes(enrollmentSubject));
 }

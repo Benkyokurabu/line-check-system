@@ -63,7 +63,7 @@ export default function PeriodLessonPicker({ studentNumber, initialDate, selecte
       {!lessons.length ? <p>期間内に受講中の授業が見つかりません。授業予定・受講クラスの登録を確認してください。</p> : <>
         <p style={{ fontSize: 13 }}>受講授業がない日は登録しません。未登録の授業や振替は、1日ずつの登録で授業を選択できます。</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}><button type="button" style={button} onClick={() => onChange(lessons)}>すべて選択</button><button type="button" style={button} onClick={() => onChange([])}>すべて解除</button></div>
-        <div style={{ display: "grid", gap: 6, maxHeight: 340, overflowY: "auto" }}>{lessons.map((lesson) => <label key={lesson.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "white", padding: 10, borderRadius: 6 }}>
+        <div style={{ display: "grid", gap: 6, maxHeight: 340, overflowY: "auto" }}>{lessons.map((lesson) => <label key={lesson.id} style={{ display: "flex", alignItems: "center", gap: 8, background: selected.some((row) => row.id === lesson.id) ? "#dcfce7" : "white", border: selected.some((row) => row.id === lesson.id) ? "2px solid #16a34a" : "1px solid var(--line)", padding: 10, borderRadius: 6 }}>
           <input type="checkbox" checked={selected.some((row) => row.id === lesson.id)} onChange={(event) => onChange(event.target.checked ? lessons.filter((row) => row.id === lesson.id || selected.some((item) => item.id === row.id)) : selected.filter((row) => row.id !== lesson.id))} />
           <span>{lesson.lesson_date}（{new Intl.DateTimeFormat("ja-JP", { weekday: "short", timeZone: "Asia/Tokyo" }).format(new Date(`${lesson.lesson_date}T00:00:00Z`))}） {lesson.start_time?.slice(0, 5)}　{lesson.label} / {lesson.campus}</span>
         </label>)}</div>

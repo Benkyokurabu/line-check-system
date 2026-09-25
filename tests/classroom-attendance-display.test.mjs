@@ -58,6 +58,14 @@ test("同名クラスでも南教室生徒に本校の授業を推薦しない",
   assert.equal(enrollmentMatchesLesson(enrollment, { grade: "中2", class_name: "B", subject: "英語", campus: "本校" }, "南教室"), false);
 });
 
+test("小学生の数学登録は同じクラスの算数授業として扱う", () => {
+  const enrollment = { grade: "小6", class_name: "Ａ", subject: "数学", classroom: null };
+  assert.equal(enrollmentMatchesLesson(enrollment, { grade: "小6", class_name: "A", subject: "算数", campus: "本校" }, "本校"), true);
+  assert.equal(enrollmentMatchesLesson(enrollment, { grade: "小6", class_name: "S", subject: "算数", campus: "本校" }, "本校"), false);
+  assert.equal(enrollmentMatchesLesson(enrollment, { grade: "小6", class_name: "A", subject: "算数", campus: "南教室" }, "本校"), false);
+  assert.equal(enrollmentMatchesLesson({ ...enrollment, grade: "中2" }, { grade: "中2", class_name: "A", subject: "算数", campus: "本校" }, "本校"), false);
+});
+
 test("両方所属は科目別の教室列から通常校舎を決める", () => {
   const math = { grade: "中1", class_name: "Ｂ", subject: "数学", classroom: "本" };
   const english = { grade: "中1", class_name: "Ａ", subject: "英語", classroom: "南" };
