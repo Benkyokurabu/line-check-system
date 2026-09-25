@@ -15,6 +15,7 @@ export default function MaterialsDesk() {
   const [students, setStudents] = useState<Student[]>([]), [query, setQuery] = useState('');
   const [number, setNumber] = useState(''), [answerId, setAnswerId] = useState('');
   const [busy, setBusy] = useState(false), [message, setMessage] = useState('');
+  const [generationMessage, setGenerationMessage] = useState('');
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
@@ -52,10 +53,15 @@ export default function MaterialsDesk() {
   }
   async function generate() {
     if (!selected || (selected.responses.length > 1 && !answer)) return;
-    setBusy(true); setMessage(''); setManifest(null);
+    setBusy(true); setGenerationMessage(''); setManifest(null);
     try {
-      const health = await fetch(`${helper}/health`, { cache: 'no-store' });
-      if (!health.ok) throw Error('このPCの面談資料アプリに接続できません。');
+      let health: Response;
+      try {
+        health = await fetch(`${helper}/health`, { cache: 'no-store', signal: AbortSignal.timeout(7000) });
+      } catch {
+        throw Error('このPCの面談資料アプリに接続できません。NASの「面談資料アプリ配布」にある install.ps1 をこのPCで一度実行してください。設置済みならブラウザのローカルネットワークへの接続を許可してください。');
+      }
+      if (!health.ok) throw Error('このPCの面談資料アプリが応答していません。アプリを起動し直してください。');
       const response = await fetch(`${helper}/generate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ number: selected.number, name: selected.name, grade: selected.grade, schools: answer?.schools ?? [] }),
@@ -63,7 +69,7 @@ export default function MaterialsDesk() {
       const body = await response.json();
       if (!response.ok) throw Error(body.error || '資料を作成できません。');
       setManifest(body);
-    } catch (error) { setMessage((error as Error).message || '面談資料アプリを確認してください。'); }
+    } catch (error) { setGenerationMessage((error as Error).message || '面談資料アプリを確認してください。'); }
     finally { setBusy(false); }
   }
   return <main className={styles.page}>
@@ -76,7 +82,7 @@ export default function MaterialsDesk() {
     </form> : <>
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
         <label>氏名・学籍番号・学年・担任で検索<input value={query} onChange={event => setQuery(event.target.value)} placeholder="例：中3　工藤" /></label>
-        <label>生徒<select value={number} onChange={event => { const student = students.find(s => s.number === event.target.value); setNumber(event.target.value); setAnswerId(student?.responses.length === 1 ? student.responses[0].id : ''); setManifest(null); }}>
+        <label>生徒<select value={number} onChange={event => { const student = students.find(s => s.number === event.target.value); setNumber(event.target.value); setAnswerId(student?.responses.length === 1 ? student.responses[0].id : ''); setManifest(null); setGenerationMessage(''); }}>
           <option value="">選択してください</option>{visible.map(s => <option key={s.number} value={s.number}>{s.grade} {s.name} ／ {s.number} ／ {s.teacher || '担任未設定'}</option>)}
         </select></label>
       </section>
@@ -84,12 +90,14 @@ export default function MaterialsDesk() {
         {!selected.responses.length ? <p>今回の回答はありません。指導簿と見つかった模試資料を作ります。</p> : <>
           <p>回答が複数ある場合は、使う回答を先生が選択してください。</p>
           <div className={styles.answers}>{selected.responses.map((response, index) => <label key={response.id} className={styles.answer}>
-            <input type="radio" name="answer" checked={answerId === response.id} onChange={() => { setAnswerId(response.id); setManifest(null); }} />
+            <input type="radio" name="answer" checked={answerId === response.id} onChange={() => { setAnswerId(response.id); setManifest(null); setGenerationMessage(''); }} />
             <span>{index === 0 ? '最新' : `${index + 1}件目`} ／ {response.date || '日時不明'}<br />志望校：{response.schools.join('、') || '記載なし'}</span>
           </label>)}</div>
           {answer && <details><summary>選んだ回答の内容を確認</summary><dl>{answer.fields.map((field, index) => <div key={index}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl><a href={answer.url} target="_blank" rel="noreferrer">Notionの回答原本</a></details>}
         </>}
         <button className={styles.primary} disabled={busy || selected.responses.length > 1 && !answer} onClick={() => void generate()}>{busy ? '資料を探して作成中…' : 'この生徒の資料を作る'}</button>
+        {selected.responses.length > 1 && !answer && <p className={styles.note}>上のアンケート回答を1つ選ぶと作成できます。</p>}
+        {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
         <p className={styles.note}>NASからその場で読み込みます。指導簿は毎回作成し、見つかった資料だけをまとめます。</p>
       </section>}
       {manifest && <section className={styles.card}><h2>3. 資料を確認・印刷</h2>
