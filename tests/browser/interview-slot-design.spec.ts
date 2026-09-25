@@ -16,7 +16,9 @@ test('金城先生専用の60分・50分枠と授業条件を表示する',async
  await page.setViewportSize({width:390,height:844});
  await page.goto(pathToFileURL(resolve('docs/kinjo-interview-slots-20260925.html')).href);
  await expect(page.getByRole('heading',{name:'金城先生専用の面談予約可能枠'})).toBeVisible();
- await expect(page.locator('#summary')).toContainText('10枠');
+ await expect(page.locator('#summary')).toContainText('11枠');
+ await expect(page.getByText('⑪ 22:05〜終了未定')).toBeVisible();
+ await expect(page.getByText('授業の有無に関係なく候補')).toBeVisible();
  await page.getByRole('checkbox',{name:'20:25〜21:55の授業あり'}).check();
  await expect(page.locator('#summary')).toContainText('9枠');
  await expect(page.getByText('⑪ 22:05〜終了未定')).toBeVisible();
