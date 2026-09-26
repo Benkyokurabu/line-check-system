@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 const student = { number: '2018998', name: '確認用 生徒', grade: '中3', teacher: '工藤', responses: [{
-  id: 'sample', date: '2026-09-12', schools: ['柏の葉', '国府台', 'えいめい'], fields: [
+  id: '11111111-1111-4111-8111-111111111111', date: '2026-09-12', schools: ['柏の葉', '国府台', 'えいめい'], fields: [
     { label: '第二志望校（任意回答）', value: '国府台' },
     { label: '現状の第一志望校（任意回答）', value: '柏の葉' },
     { label: '第三志望校（任意回答）', value: 'えいめい' },
@@ -19,6 +19,7 @@ test('central worker previews sources then builds and saves a PDF without browse
       const body = JSON.parse(route.request().postData() || '{}');
       jobs.push(body.kind);
       expect(body.schools).toEqual(['柏の葉', '国府台', '叡明']);
+      expect(body.answerId).toBe(body.kind === 'generate' ? student.responses[0].id : undefined);
       return route.fulfill({ status: 201, json: { id: body.kind === 'preview' ? 'preview-id' : 'generate-id' } });
     }
     if (!url.searchParams.has('id')) return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } });
@@ -120,4 +121,33 @@ test('filters by teacher, grade and contained name, and selects a linked survey 
   await page.goto('/staff/interview-materials?answer=11111111111141118111111111111111');
   await expect(page.getByText('選択中：中3 木村 美海', { exact: false })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
+});
+
+test('a student with multiple answers sends only the chosen answer to PDF generation', async ({ page }) => {
+  const older = { ...student.responses[0], id: '22222222-2222-4222-8222-222222222222', date: '2026-09-10' };
+  const multiple = { ...student, responses: [student.responses[0], older] };
+  const submitted: Array<{ kind: string; answerId?: string }> = [];
+  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [multiple] } }));
+  await page.route('**/api/staff/interview-material-jobs**', route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON();
+      submitted.push({ kind: body.kind, answerId: body.answerId });
+      return route.fulfill({ status: 201, json: { id: body.kind } });
+    }
+    if (!url.searchParams.has('id')) return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } });
+    return route.fulfill({ json: { job: { status: 'completed', result: url.searchParams.get('id') === 'preview'
+      ? { schools: [], hokushin: { found: false }, termReport: { found: false } }
+      : { items: [{ label: '面談アンケート回答：2026-09-10', source: 'survey', staffOnly: false }], missing: [], pages: 1 } } } });
+  });
+  await page.goto('/staff/interview-materials');
+  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
+  await expect(page.getByRole('button', { name: '資料を作る' })).toBeDisabled();
+  await page.getByRole('radio', { name: /2件目/ }).check();
+  await page.getByRole('button', { name: '資料を作る' }).click();
+  await page.getByRole('button', { name: 'PDFを作成' }).click();
+  await expect(page.getByText('面談アンケート回答：2026-09-10')).toBeVisible();
+  expect(submitted).toEqual([{ kind: 'preview', answerId: undefined }, { kind: 'generate', answerId: older.id }]);
 });

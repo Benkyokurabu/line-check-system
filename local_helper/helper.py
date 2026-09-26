@@ -611,6 +611,70 @@ def vmogi_pdf(book: Path, headers: list[str], row: tuple, output: Path):
     c.save()
 
 
+def survey_pdf(survey: dict, student: dict, output: Path) -> None:
+    """Render the selected Notion answer without dropping long fields or page breaks."""
+    fields = survey.get('fields')
+    if not isinstance(fields, list):
+        raise ValueError('アンケート回答の内容を確認してください')
+    pdfmetrics.registerFont(UnicodeCIDFont('HeiseiKakuGo-W5'))
+    font = 'HeiseiKakuGo-W5'
+    document = canvas.Canvas(str(output), pagesize=A4)
+    width, height = A4
+    margin = 42
+    y = 0.0
+    page_number = 0
+
+    def new_page() -> None:
+        nonlocal y, page_number
+        if page_number:
+            document.showPage()
+        page_number += 1
+        document.setFont(font, 14)
+        document.drawString(margin, height - margin, '面談アンケート回答' + ('（続き）' if page_number > 1 else ''))
+        document.setFont(font, 8)
+        document.drawRightString(width - margin, height - margin, str(page_number))
+        y = height - margin - 24
+
+    def line(text: str, size: int = 10, spacing: int = 16) -> None:
+        nonlocal y
+        for paragraph in text.replace('\r\n', '\n').replace('\r', '\n').split('\n'):
+            current = ''
+            current_width = 0.0
+            for character in paragraph:
+                character_width = pdfmetrics.stringWidth(character, font, size)
+                if current and current_width + character_width > width - margin * 2:
+                    if y < margin + spacing:
+                        new_page()
+                    document.setFont(font, size)
+                    document.drawString(margin, y, current)
+                    y -= spacing
+                    current, current_width = '', 0.0
+                current += character
+                current_width += character_width
+            if y < margin + spacing:
+                new_page()
+            if current:
+                document.setFont(font, size)
+                document.drawString(margin, y, current)
+            y -= spacing
+
+    new_page()
+    line(f"生徒：{student.get('grade', '')} {student.get('name', '')}（{student.get('number', '')}）")
+    line(f"回答日：{survey.get('date', '')}")
+    y -= 8
+    for field in fields:
+        if not isinstance(field, dict):
+            raise ValueError('アンケート回答の内容を確認してください')
+        label = str(field.get('label', '')).strip()
+        value = str(field.get('value', '')).strip()
+        if not label:
+            continue
+        line(label, 10, 17)
+        line(value or '（回答なし）', 10, 16)
+        y -= 8
+    document.save()
+
+
 def guide_pdf(number: str, name: str, output: Path):
     script = ROOT / 'export-guide.ps1'
     master = GUIDE_CONFIG.read_text(encoding='utf-8-sig').strip()
@@ -654,6 +718,13 @@ def make_bundle(payload: dict):
             add('指導簿', guide)
         except Exception as exc:
             missing.append(str(exc))
+        survey = payload.get('survey')
+        if survey is not None:
+            if not isinstance(survey, dict):
+                raise ValueError('アンケート回答の内容を確認してください')
+            survey_output = base / 'survey.pdf'
+            survey_pdf(survey, {'number': number, 'name': name, 'grade': grade}, survey_output)
+            add('面談アンケート回答：' + str(survey.get('date', '')), survey_output)
         if grade == '中3':
             common = [p for p in files(all_roots[0]) if p.parent == all_roots[0] and p.suffix.lower() == '.pdf']
             for path in common:

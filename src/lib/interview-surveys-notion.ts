@@ -16,7 +16,7 @@ type Property = {
   number?: number | null;
   formula?: { string?: string | null };
 };
-type Page = { id: string; url?: string; created_time?: string; properties?: Record<string, Property> };
+type Page = { id: string; url?: string; created_time?: string; parent?: { type?: string; data_source_id?: string }; properties?: Record<string, Property> };
 type QueryResult = { results?: Page[]; has_more?: boolean; next_cursor?: string | null };
 
 const STUDENT_DATA_SOURCE_ID = "19ef0120-80a7-80b7-9f23-000b21e0a53b";
@@ -73,6 +73,29 @@ export async function loadInvitationSurveyResponses(students:Record<string,unkno
   else {unmatched++;rows.push({...base,page_id:page.id,student_number:null,link_status:'needs_review',answered_at});for(const candidate of roster.filter(s=>s.number===number||normalizeSurveyName(s.name)===normalizeSurveyName(name)))rows.push({...base,student_number:candidate.number,link_status:'needs_review',answered_at});}
  }
  return {rows,unmatched};
+}
+
+/** Fetch one selected answer and verify its campaign, grade and roster identity before printing it. */
+export async function loadVerifiedSurveyAnswer(pageId: string, student: Record<string, unknown>, students: Record<string, unknown>[]) {
+ const grade=String(student.grade??'');
+ const source=SOURCES.find(([sourceGrade])=>sourceGrade===grade)?.[1];
+ if(!source||!/^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(pageId))throw Error('アンケート回答を確認してください。');
+ const normalized=pageId.replaceAll('-','');
+ const canonical=normalized.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,'$1-$2-$3-$4-$5');
+ const page=await notionRequest(`/pages/${canonical}`) as Page;
+ if(page.id.replaceAll('-','').toLowerCase()!==pageId.replaceAll('-','').toLowerCase()
+   ||page.parent?.type!=='data_source_id'||page.parent.data_source_id!==source
+   ||!page.created_time||page.created_time.slice(0,10)<SURVEY_STARTED_ON)throw Error('現在のアンケート回答ではありません。');
+ const properties=page.properties??{};
+ const name=propertyText(Object.values(properties).find(property=>property.type==='title'));
+ const number=propertyText(properties['学籍番号']);
+ const roster=students.filter(row=>row.enrollment_status==='current_roster').map(row=>({
+  name:String(row.student_name??''),number:String(row.student_number??''),grade:String(row.grade??''),teacher:String(row.homeroom_teacher??''),
+ }));
+ const matched=matchSurveyStudent({name,number,grade},roster);
+ if(!matched||matched.number!==String(student.student_number??''))throw Error('アンケート回答と生徒の照合に失敗しました。');
+ return {id:page.id,date:new Date(page.created_time).toLocaleString('sv-SE',{timeZone:'Asia/Tokyo'}),
+  fields:surveyAnswerFields(properties),url:`https://www.notion.so/${page.id.replaceAll('-','')}`};
 }
 
 export async function loadInterviewSurveyGroups(): Promise<InterviewSurveyTeacherGroup[]> {

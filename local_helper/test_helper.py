@@ -10,11 +10,44 @@ from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import fitz
 import helper
 from helper import hokushin, preview_schools, save_bundle_to_onedrive, school_name_matches, selected_schools, sync_bundle_to_cloud
 
 
 class MaterialSelectionTests(unittest.TestCase):
+    def test_selected_survey_answer_renders_all_fields_across_pages(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / 'survey.pdf'
+            helper.survey_pdf({'date': '2026-09-12', 'fields': [
+                {'label': '第一志望校', 'value': '柏の葉'},
+                {'label': '面談で相談したいこと', 'value': '長い回答です。' * 600},
+                {'label': '第三志望校', 'value': '叡明'},
+            ]}, {'grade': '中3', 'name': '架空 生徒', 'number': '2018998'}, output)
+            with fitz.open(output) as document:
+                self.assertGreater(document.page_count, 1)
+                text = ''.join(page.get_text() for page in document)
+                self.assertIn('柏の葉', text)
+                self.assertIn('叡明', text)
+                self.assertIn('長い回答です。', text)
+
+    def test_bundle_includes_selected_survey_answer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            roots = [Path(folder) / str(index) for index in range(9)]
+            for root in roots:
+                root.mkdir()
+            payload = {'number': '2018998', 'name': '架空 生徒', 'grade': '小4', 'schools': [],
+                       'survey': {'date': '2026-09-12', 'fields': [{'label': '相談内容', 'value': '進路について相談'}]}}
+            with patch('helper.roots', return_value=roots), patch('helper.guide_pdf', side_effect=RuntimeError('指導簿なし')), \
+                    patch('helper.term_report', return_value=(None, [], None)):
+                generated, manifest = helper.make_bundle(payload)
+                try:
+                    self.assertTrue(any(item['label'].startswith('面談アンケート回答') for item in manifest['items']))
+                    with fitz.open(Path(generated.name) / 'staff-bundle.pdf') as document:
+                        self.assertIn('進路について相談', ''.join(page.get_text() for page in document))
+                finally:
+                    generated.cleanup()
+
     def test_saves_only_requested_bundle_to_shared_folder_without_overwriting(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict('os.environ', {'OneDrive': folder}):
             source = Path(folder) / 'generated.pdf'

@@ -75,7 +75,9 @@ export default function MaterialsDesk() {
     } catch { setWorkerOnline(false); setWorkerStatus('作成PCの稼働状況を確認できません。'); }
   }, []);
   const load = useCallback(async () => {
-    const response = await fetch('/api/staff/interview-materials', { cache: 'no-store' });
+    const [response] = await Promise.all([
+      fetch('/api/staff/interview-materials', { cache: 'no-store' }), refreshWorkers(),
+    ]);
     const body = await response.json();
     if (!response.ok) throw Error(body.error || 'アンケートを取得できません。');
     setStudents(body.students);
@@ -85,14 +87,14 @@ export default function MaterialsDesk() {
       if (linkedStudent) chooseStudent(linkedStudent, linkedAnswer);
       else setMessage('このアンケート回答と生徒を照合できませんでした。担任・学年・氏名で生徒を探してください。');
     }
-    await refreshWorkers();
   }, [refreshWorkers, chooseStudent]);
   async function submitJob(kind: 'preview' | 'generate') {
     if (!selected) throw Error('生徒を選択してください。');
     const response = await fetch('/api/staff/interview-material-jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, number: selected.number, campus, schools: kind === 'preview'
-        ? schoolNames.map(name => name.trim()).filter(Boolean) : preview?.map(school => school.name) || [] }),
+        ? schoolNames.map(name => name.trim()).filter(Boolean) : preview?.map(school => school.name) || [],
+        ...(kind === 'generate' && answer ? { answerId: answer.id } : {}) }),
     });
     const created = await response.json();
     if (!response.ok) throw Error(created.error || '作成依頼を登録できません。');
@@ -216,7 +218,7 @@ export default function MaterialsDesk() {
           {previewHokushin?.indexing && <p className={styles.note}>索引の作成が終わったら「資料を作る」をもう一度押して確認してください。</p>}
         </div>}
         {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
-        <p className={styles.note}>NASで資料の有無と年度を確認してからPDFを作成します。指導簿は毎回作成します。</p>
+        <p className={styles.note}>NASで資料の有無と年度を確認してからPDFを作成します。指導簿と、選択したアンケート回答を一式PDFに入れます。</p>
       </section>}
       {manifest && <section className={styles.card}><h2>3. 資料を確認・印刷</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ</p>

@@ -3,6 +3,7 @@ import { assertStaffMutationOrigin, staffContext, staffErrorResponse, staffJsonB
 import { InterviewError } from '@/lib/interview-core.mjs';
 import { loadInterviewState } from '@/lib/interview-store';
 import { MATERIAL_BUCKET, online } from '@/lib/interview-material-worker';
+import { loadVerifiedSurveyAnswer } from '@/lib/interview-surveys-notion';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -67,6 +68,7 @@ export async function POST(request: NextRequest) {
     const number = String(body.number || '');
     const schools = body.schools;
     const campus = String(body.campus || '');
+    const answerId = typeof body.answerId === 'string' ? body.answerId : '';
     if (!['preview', 'generate'].includes(String(kind)) || !/^\d{5,12}$/.test(number)
       || !Array.isArray(schools) || schools.length > 6 || schools.some(name => typeof name !== 'string' || name.length > 80)
       || !['', '本校', '南教室'].includes(campus)) throw new InterviewError('入力内容を確認してください。', 400);
@@ -77,8 +79,13 @@ export async function POST(request: NextRequest) {
       .select('ready,last_seen_at');
     if (workerError) throw workerError;
     if (!(workers || []).some(online)) throw new InterviewError('作成PCは停止中です。起動後にもう一度お試しください。', 503);
+    let survey;
+    if (kind === 'generate' && answerId) {
+      try { survey = await loadVerifiedSurveyAnswer(answerId, student, state.students); }
+      catch { throw new InterviewError('選択したアンケート回答を確認できませんでした。回答を選び直して、もう一度お試しください。', 409); }
+    }
     const payload = { number, name: String(student.student_name), grade: String(student.grade), campus,
-      schools: schools.map(name => String(name).trim()).filter(Boolean) };
+      schools: schools.map(name => String(name).trim()).filter(Boolean), ...(survey ? { survey } : {}) };
     const { data: job, error } = await context.dataClient.from('interview_material_jobs')
       .insert({ kind, staff_code: context.staff.staffCode, payload }).select('id').single();
     if (error) throw error;
