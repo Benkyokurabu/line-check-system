@@ -5,6 +5,7 @@ import {
   isStaffSameOrigin, requireStaff, STAFF_ACCESS_COOKIE, STAFF_REFRESH_COOKIE,
   StaffAuthError, staffCookieOptions,
 } from "@/lib/staff-auth-core.mjs";
+import { teacherRouteAllowed } from "@/lib/staff-teacher-route-access.mjs";
 
 export function assertStaffAuthEnabled() {
   if (process.env.STAFF_AUTH_ENABLED !== "true" || !process.env.STAFF_AUTH_ORIGIN) {
@@ -57,9 +58,9 @@ export async function staffContext(request: NextRequest) {
     accessToken: request.cookies.get(STAFF_ACCESS_COOKIE)?.value,
     refreshToken: request.cookies.get(STAFF_REFRESH_COOKIE)?.value,
   });
-  // Common-password teacher accounts are limited to their own availability screen.
+  // Common-password teacher accounts can use availability and interview materials only.
   if (authenticated.staff.staffCode.startsWith('AVAIL_')
-    && !['/api/staff/session', '/api/staff/interview-auto-availability'].includes(request.nextUrl.pathname)) {
+    && !teacherRouteAllowed(request.nextUrl.pathname)) {
     throw new StaffAuthError('permission_denied', 403);
   }
   return { ...authenticated, dataClient };

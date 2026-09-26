@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
 
+const teacherId = '00000000-0000-4000-8000-000000000003';
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/admin/teachers', route => route.fulfill({ json: {
+    teachers: [{ id: teacherId, display_name: '工藤' },
+      { id: '00000000-0000-4000-8000-000000000004', display_name: '金城' }],
+  } }));
+});
+
 const student = { number: '2018998', name: '確認用 生徒', grade: '中3', teacher: '工藤', responses: [{
   id: '11111111-1111-4111-8111-111111111111', date: '2026-09-12', schools: ['柏の葉', '国府台', 'えいめい'], fields: [
     { label: '第二志望校（任意回答）', value: '国府台' },
@@ -13,6 +21,43 @@ const materials = [
   { id: 'school-3:aaaaaaaaaaaaaaaaaaaaaaaa', group: '志望校の資料', label: '柏の葉 ／ 高校案内', detail: '2027年度', staffOnly: false },
   { id: 'term-report', group: '生徒本人の資料', label: '成績通知の個人成績表', detail: '2026年度前期', staffOnly: false },
 ];
+
+test('teacher chooses a name and uses the existing password to open materials', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let submitted: { teacherId: string; password: string } | null = null;
+  await page.route('**/api/staff/session', route => route.fulfill({ status: 401, json: { error: 'ログインし直してください。' } }));
+  await page.route('**/api/staff/availability-login', route => {
+    submitted = route.request().postDataJSON();
+    return route.fulfill({ json: { staff: { role: 'teacher', displayName: '工藤' } } });
+  });
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
+  await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } }));
+  await page.goto('/staff/interview-materials');
+  await expect(page.getByRole('heading', { name: '先生ログイン' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '職員コード' })).toHaveCount(0);
+  await page.screenshot({ path: 'analysis_outputs/interview-materials-teacher-login-form-mobile.png', fullPage: true });
+  await page.getByRole('combobox', { name: '先生の名前' }).selectOption(teacherId);
+  await page.getByLabel('いつものパスワード').fill('test-password');
+  await page.getByRole('button', { name: 'ログイン' }).click();
+  await expect(page.getByRole('heading', { name: '1. 生徒を選ぶ' })).toBeVisible();
+  expect(submitted).toEqual({ teacherId, password: 'test-password' });
+  expect(await page.locator('body').evaluate(element => element.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: 'analysis_outputs/interview-materials-teacher-login-mobile.png', fullPage: true });
+});
+
+test('an incorrect teacher password keeps the material page locked', async ({ page }) => {
+  await page.route('**/api/staff/session', route => route.fulfill({ status: 401, json: { error: 'ログインし直してください。' } }));
+  await page.route('**/api/staff/availability-login', route => route.fulfill({ status: 401, json: {
+    code: 'invalid_credentials', error: '職員コードまたはパスワードを確認してください。',
+  } }));
+  await page.goto('/staff/interview-materials');
+  await page.getByRole('combobox', { name: '先生の名前' }).selectOption(teacherId);
+  await page.getByLabel('いつものパスワード').fill('wrong-password');
+  await page.getByRole('button', { name: 'ログイン' }).click();
+  await expect(page.getByText('先生の名前またはパスワードを確認してください。')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '先生ログイン' })).toBeVisible();
+  await expect(page.getByLabel('いつものパスワード')).toHaveValue('');
+});
 
 test('central worker previews sources then builds and saves a PDF without browser loopback access', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

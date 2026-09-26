@@ -10,7 +10,7 @@ export const maxDuration = 60;
 
 async function contextFor(request: NextRequest) {
   const context = await staffContext(request);
-  if (!['admin', 'office', 'employee'].includes(context.staff.role)) throw new InterviewError('職員の権限を確認してください。', 403);
+  if (!['admin', 'office', 'employee', 'teacher'].includes(context.staff.role)) throw new InterviewError('職員の権限を確認してください。', 403);
   return context;
 }
 

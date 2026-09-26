@@ -6,6 +6,7 @@ import styles from './workspace.module.css';
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
 type Student = { number: string; name: string; grade: string; teacher: string; responses: Answer[] };
+type Teacher = { id: string; display_name: string };
 type Manifest = { items: {label: string; source: string; staffOnly: boolean}[]; missing: string[]; pages: number; savedPath?: string | null; cloudSynced?: boolean; saveError?: string | null };
 type SchoolPreview = { rank: number; surveyName: string; name: string; found: boolean; files: {kind: string; year: string; filename: string}[] };
 type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; round?: string; filename?: string; message?: string };
@@ -21,7 +22,7 @@ const requestError = (error: unknown) => error instanceof TypeError
 
 export default function MaterialsDesk() {
   const [staff, setStaff] = useState(false), [ready, setReady] = useState(false);
-  const [code, setCode] = useState(''), [password, setPassword] = useState('');
+  const [loginTeachers, setLoginTeachers] = useState<Teacher[]>([]), [teacherId, setTeacherId] = useState(''), [password, setPassword] = useState('');
   const [students, setStudents] = useState<Student[]>([]), [query, setQuery] = useState('');
   const [teacherFilter, setTeacherFilter] = useState(''), [gradeFilter, setGradeFilter] = useState(''), [displayLimit, setDisplayLimit] = useState(30);
   const [number, setNumber] = useState(''), [answerId, setAnswerId] = useState('');
@@ -117,6 +118,18 @@ export default function MaterialsDesk() {
     let active = true;
     void (async () => {
       try {
+        const response = await fetch('/api/admin/teachers', { cache: 'no-store' });
+        const body = await response.json();
+        if (!response.ok) throw Error(body.error || '先生一覧を取得できません。');
+        if (active) setLoginTeachers(body.teachers ?? []);
+      } catch (error) { if (active) setMessage(requestError(error)); }
+    })();
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
         const response = await fetch('/api/staff/session', { cache: 'no-store' });
         if (response.ok) { if (active) setStaff(true); await load(); }
       } catch (error) { if (active) setMessage((error as Error).message); }
@@ -127,9 +140,10 @@ export default function MaterialsDesk() {
   async function login(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage('');
     try {
-      const response = await fetch('/api/staff/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staffCode: code.trim().toUpperCase(), password }) });
+      const response = await fetch('/api/staff/availability-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teacherId, password }) });
       const body = await response.json(); setPassword('');
-      if (!response.ok) throw Error(body.error || 'ログインできません。');
+      if (!response.ok) throw Error(body.code === 'invalid_credentials'
+        ? '先生の名前またはパスワードを確認してください。' : body.error || 'ログインできません。');
       setStaff(true); await load();
     } catch (error) { setMessage((error as Error).message); }
     finally { setBusy(false); }
@@ -180,9 +194,9 @@ export default function MaterialsDesk() {
     <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>
     {message && <p className={styles.error} role="status">{message}</p>}
     {!ready ? <p>読み込んでいます…</p> : !staff ? <form className={styles.card} onSubmit={login}>
-      <h2>職員ログイン</h2><label>職員コード<input value={code} onChange={event => setCode(event.target.value)} autoComplete="username" required /></label>
-      <label>パスワード<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></label>
-      <button disabled={busy}>ログイン</button>
+      <h2>先生ログイン</h2><label>先生の名前<select value={teacherId} onChange={event => setTeacherId(event.target.value)} required><option value="">選択してください</option>{loginTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.display_name}先生</option>)}</select></label>
+      <label>いつものパスワード<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></label>
+      <button disabled={busy || loginTeachers.length === 0}>ログイン</button>
     </form> : <>
       <p role="status" className={styles.note}>{workerStatus} <button type="button" onClick={() => void refreshWorkers()}>稼働状況を再確認</button></p>
       {recentJobs.length > 0 && <section className={styles.card}><h2>最近の作成依頼</h2>

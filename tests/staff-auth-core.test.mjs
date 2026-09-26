@@ -3,6 +3,18 @@ import { test } from "node:test";
 import { submitStaffStudyRoom } from "../src/lib/staff-study-room-intake.mjs";
 import { loginStaff, requireStaff, logoutStaff, isStaffSameOrigin, staffCookieOptions,
   transitionStaffStudyRoom, listStaffStudyRoom } from "../src/lib/staff-auth-core.mjs";
+import { teacherRouteAllowed } from "../src/lib/staff-teacher-route-access.mjs";
+
+test("teacher login is limited to its approved staff APIs", () => {
+  for (const path of ['/api/staff/session', '/api/staff/interview-auto-availability',
+    '/api/staff/interview-materials', '/api/staff/interview-material-jobs']) {
+    assert.equal(teacherRouteAllowed(path), true);
+  }
+  for (const path of ['/api/staff/interviews', '/api/staff/interview-material-jobs/other',
+    '/api/staff/study-room/requests', '/api/material-worker']) {
+    assert.equal(teacherRouteAllowed(path), false);
+  }
+});
 
 const user = "00000000-0000-0000-0000-000000000001";
 const sessionId = "00000000-0000-0000-0000-000000000002";

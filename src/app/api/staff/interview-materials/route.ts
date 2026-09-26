@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   let context;
   try {
     context = await staffContext(request);
-    if (!['admin', 'office', 'employee'].includes(context.staff.role)) throw new InterviewError('職員の権限を確認してください。', 403);
+    if (!['admin', 'office', 'employee', 'teacher'].includes(context.staff.role)) throw new InterviewError('職員の権限を確認してください。', 403);
     const state = await loadInterviewState(context.dataClient);
     const survey = await loadInvitationSurveyResponses(state.students);
     const byNumber = new Map<string, Array<{ id: string; date: string; schools: string[]; fields: unknown[]; url: string }>>();
