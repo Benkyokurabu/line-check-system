@@ -113,6 +113,28 @@ class MaterialSelectionTests(unittest.TestCase):
             self.assertEqual([index for index, _ in selected], [3, 5])
             self.assertIn('2027', selected[-1][1].name)
 
+    def test_hokushin_school_baseline_uses_2027_for_each_available_school(self):
+        with tempfile.TemporaryDirectory() as folder:
+            roots = [Path(folder) / str(index) for index in range(9)]
+            for root in roots:
+                root.mkdir()
+            old = Path(folder) / '2026年★高校別【北辰偏差値】基礎資料'
+            new = Path(folder) / '2027年★高校別【北辰偏差値】基礎資料'
+            old.mkdir()
+            new.mkdir()
+            (old / '叡明（北辰偏差値）.pdf').touch()
+            (old / '国府台（北辰偏差値）.pdf').touch()
+            (new / '叡明（北辰偏差値）.pdf').touch()
+            roots[6] = old
+            self.assertEqual(helper.school_deviation_roots(old)[0], new)
+            selected, missing = selected_schools(roots, ['叡明', '国府台'])
+            self.assertFalse(missing)
+            chosen = [path for source_id, path in selected if source_id == 6]
+            self.assertEqual([path.parent for path in chosen], [new, old])
+            preview = preview_schools(roots, ['叡明', '国府台'])
+            self.assertEqual([row['files'][0]['year'] for row in preview], ['2027年度', '2026年度'])
+            self.assertEqual(len(preview[0]['files']), 1)
+
     def test_selection_standards_are_included_only_for_confirmed_school(self):
         with tempfile.TemporaryDirectory() as folder:
             roots = [Path(folder) / str(index) for index in range(9)]

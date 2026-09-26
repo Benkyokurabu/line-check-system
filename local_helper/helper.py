@@ -111,7 +111,9 @@ def roots() -> list[Path]:
     lines = [line.strip() for line in CONFIG.read_text(encoding='utf-8-sig').splitlines() if line.strip()]
     if len(lines) != 9 or any(not line.startswith('\\\\TS3210\\benko\\') for line in lines):
         raise ValueError('資料の場所はNASの9行を指定してください。')
-    return [Path(line) for line in lines]
+    selected = [Path(line) for line in lines]
+    selected[6] = school_deviation_roots(selected[6])[0]
+    return selected
 
 
 def files(root: Path):
@@ -125,6 +127,42 @@ def files(root: Path):
             if path.suffix.lower() in SUFFIXES:
                 found.append(path)
     return found
+
+
+def school_deviation_roots(configured: Path) -> list[Path]:
+    """Include newer year folders beside the configured Hokushin baseline root."""
+    pattern = re.compile(r'(20\d{2})年★高校別【北辰偏差値】基礎資料')
+    try:
+        yearly = [(int(match[1]), path) for path in configured.parent.iterdir()
+                  if path.is_dir() and (match := pattern.fullmatch(path.name))]
+    except OSError:
+        yearly = []
+    ranked = [path for _, path in sorted(yearly, reverse=True)]
+    return ranked if configured in ranked else ranked + [configured]
+
+
+def school_source_files(root: Path, source_id: int) -> list[Path]:
+    if source_id == 6:
+        return [path for year_root in school_deviation_roots(root) for path in files(year_root)]
+    return files(root)
+
+
+def matching_school_files(candidates: list[Path], school: str, source_id: int) -> list[Path]:
+    matches = [path for path in candidates if school_name_matches(path.stem, school)]
+    if source_id == 5 and matches:
+        years = [(int(match[1]), path) for path in matches if (match := re.search(r'(20\d{2})年受験用', str(path)))]
+        return [path for year, path in years if year == max(y for y, _ in years)] if years else []
+    if source_id == 6 and matches:
+        pattern = re.compile(r'(20\d{2})年★高校別【北辰偏差値】基礎資料')
+        dated = []
+        for path in matches:
+            year = next((int(match[1]) for part in path.parts if (match := pattern.fullmatch(part))), None)
+            if year is not None:
+                dated.append((year, path))
+        if dated:
+            latest = max(year for year, _ in dated)
+            return [path for year, path in dated if year == latest]
+    return matches
 
 
 def display_label(path: Path, root: Path) -> str:
@@ -144,7 +182,7 @@ def source_pdf(path: Path, output: Path) -> Path:
 def selected_schools(all_roots: list[Path], names: list[str]):
     selected = []
     missing = []
-    indexed = {source_id: files(all_roots[source_id]) for source_id in (3, 4, 5, 6)}
+    indexed = {source_id: school_source_files(all_roots[source_id], source_id) for source_id in (3, 4, 5, 6)}
     for school in names:
         key = school_key(school)
         if len(key) < 2:
@@ -153,14 +191,7 @@ def selected_schools(all_roots: list[Path], names: list[str]):
         found_for_school = []
         for source_id in (3, 4, 5, 6):
             candidates = indexed[source_id]
-            matches = []
-            for path in candidates:
-                if not school_name_matches(path.stem, school):
-                    continue
-                matches.append(path)
-            if source_id == 5 and matches:
-                years = [(int(match[1]), path) for path in matches if (match := re.search(r'(20\d{2})年受験用', str(path)))]
-                matches = [path for year, path in years if year == max(y for y, _ in years)] if years else []
+            matches = matching_school_files(candidates, school, source_id)
             found_for_school.extend((source_id, path) for path in matches)
         if not found_for_school:
             missing.append(f'{school}：学校資料が見つかりません')
@@ -171,17 +202,14 @@ def selected_schools(all_roots: list[Path], names: list[str]):
 def preview_schools(all_roots: list[Path], names: list[str]) -> list[dict]:
     if not names:
         return []
-    indexed = {source_id: files(all_roots[source_id]) for source_id in (3, 4, 5, 6)}
+    indexed = {source_id: school_source_files(all_roots[source_id], source_id) for source_id in (3, 4, 5, 6)}
     result = []
     labels = {3: '高校案内', 4: '選抜基準', 5: '私立推薦基準', 6: '北辰偏差値資料'}
     for rank, raw_name in enumerate(names, 1):
         name = canonical_school_name(raw_name)
         found = []
         for source_id, candidates in indexed.items():
-            matches = [path for path in candidates if school_name_matches(path.stem, name)]
-            if source_id == 5 and matches:
-                years = [(int(match[1]), path) for path in matches if (match := re.search(r'(20\d{2})年受験用', str(path)))]
-                matches = [path for year, path in years if year == max(y for y, _ in years)] if years else []
+            matches = matching_school_files(candidates, name, source_id)
             for path in matches:
                 year_match = re.search(r'(20\d{2})年(?:度|受験用)?', str(path)) or re.search(r'(20\d{2})', str(path))
                 found.append({'kind': labels[source_id], 'year': f'{year_match[1]}年度' if year_match else '年度不明',
