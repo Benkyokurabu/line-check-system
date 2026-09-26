@@ -15,7 +15,7 @@
 
 ## 配布・設置
 
-配布フォルダに `BentanInterviewMaterials.exe`、`install.ps1`、`export-guide.ps1`、`sources.txt`、`guide-path.txt`、そのPC専用の `worker.json` と `ocr` フォルダを置き、各PCで `install.ps1` を一度実行します。主担当と予備の `worker.json` は交換しません。`sources.txt` は `ばしょ.txt` の9行（中学部・小学部の成績通知を含む）、`guide-path.txt` は指導簿原本のUNCパス1行です。成績通知は学年に対応する保存先から、本人の最新年度・最新学期の個人成績表を選びます。校舎・学年ごとの複数ページPDFでは、学籍番号か氏名が一致する本人のページだけを取り出します。繰り返し検索するため、参照した原本は各PCの `report-cache` に保持し、NASの更新時に差し替えます。現在のユーザーのローカルフォルダに設置し、Windowsログイン時の自動起動を登録します。ExcelとNASへのアクセスが必要です。
+配布フォルダに `BentanInterviewMaterials.exe`、`setup.cmd`、`install.ps1`、`export-guide.ps1`、`sources.txt`、`guide-path.txt`、そのPC専用の `worker.json` と `ocr` フォルダを置き、各PCで `setup.cmd` を一度実行します。主担当と予備の `worker.json` は交換しません。`sources.txt` は `ばしょ.txt` の9行（中学部・小学部の成績通知を含む）、`guide-path.txt` は指導簿原本のUNCパス1行です。成績通知は学年に対応する保存先から、本人の最新年度・最新学期の個人成績表を選びます。校舎・学年ごとの複数ページPDFでは、学籍番号か氏名が一致する本人のページだけを取り出します。繰り返し検索するため、参照した原本は各PCの `report-cache` に保持し、NASの更新時に差し替えます。現在のユーザーのローカルフォルダに設置し、Windowsログイン時の自動起動を登録します。ExcelとNASへのアクセスが必要です。
 
 ## 更新
 
