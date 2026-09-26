@@ -51,7 +51,10 @@ export default function MaterialsDesk() {
       const workerBody = await workers.json();
       const available = workers.ok && Boolean(workerBody.available?.length);
       setWorkerOnline(available);
-      setWorkerStatus(available ? '作成PCが稼働中です' : '作成PCは停止中です。起動後に利用できます。');
+      const primary = available && workerBody.available.some((worker: { priority: number }) => worker.priority === 1);
+      const standby = available && workerBody.available.some((worker: { priority: number }) => worker.priority === 2);
+      setWorkerStatus(primary && standby ? '主担当PCと予備PCが稼働中です' : primary ? '主担当PCが稼働中です' : standby
+        ? '予備PCが稼働中です。主担当PCの代わりに作成できます。' : '作成PCは停止中です。起動後に利用できます。');
       setRecentJobs(Array.isArray(workerBody.recent) ? workerBody.recent : []);
     } catch { setWorkerOnline(false); setWorkerStatus('作成PCの稼働状況を確認できません。'); }
   }, []);

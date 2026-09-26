@@ -37,7 +37,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   });
   await page.route('http://127.0.0.1:38473/**', route => { throw Error(`unexpected loopback request: ${route.request().url()}`); });
   await page.goto('/staff/interview-materials');
-  await expect(page.getByText('作成PCが稼働中です')).toBeVisible();
+  await expect(page.getByText('主担当PCが稼働中です')).toBeVisible();
   await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption(student.number);
   await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '第3志望' })).toHaveValue('叡明');
@@ -57,13 +57,14 @@ test('when both creation PCs are offline the page prevents new work and can refr
   let online = false;
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
-  await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: online ? [{ id: 'standby' }] : [] } }));
+  await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: online ? [{ id: 'standby', priority: 2 }] : [] } }));
   await page.goto('/staff/interview-materials');
   await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption(student.number);
   await expect(page.getByText('作成PCは停止中です。起動後に利用できます。')).toBeVisible();
   await expect(page.getByRole('button', { name: '資料を作る' })).toBeDisabled();
   online = true;
   await page.getByRole('button', { name: '稼働状況を再確認' }).click();
+  await expect(page.getByText('予備PCが稼働中です。主担当PCの代わりに作成できます。')).toBeVisible();
   await expect(page.getByRole('button', { name: '資料を作る' })).toBeEnabled();
 });
 
@@ -88,7 +89,7 @@ test('a same-origin network failure gives a usable message', async ({ page }) =>
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
   await page.route('**/api/staff/interview-material-jobs**', route => route.request().method() === 'POST'
-    ? route.abort() : route.fulfill({ json: { available: [{ id: 'primary' }] } }));
+    ? route.abort() : route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } }));
   await page.goto('/staff/interview-materials');
   await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption(student.number);
   await page.getByRole('button', { name: '資料を作る' }).click();
