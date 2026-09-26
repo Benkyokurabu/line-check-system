@@ -12,6 +12,9 @@ type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; roun
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
 type RecentJob = { id: string; status: string; number: string; name: string; createdAt: string };
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
+const requestError = (error: unknown) => error instanceof TypeError
+  ? '勉たんとの通信が切れました。ネット接続を確認してから、もう一度お試しください。'
+  : error instanceof Error ? error.message : '処理できませんでした。';
 
 export default function MaterialsDesk() {
   const [staff, setStaff] = useState(false), [ready, setReady] = useState(false);
@@ -107,7 +110,7 @@ export default function MaterialsDesk() {
       setPreview(job.result.schools);
       setPreviewHokushin(job.result.hokushin ?? null);
       setPreviewTermReport(job.result.termReport ?? null);
-    } catch (error) { setPreviewMessage((error as Error).message || 'NASの資料を確認できません。'); }
+    } catch (error) { setPreviewMessage(requestError(error)); }
     finally { setPreviewBusy(false); }
   }
   async function generate() {
@@ -121,7 +124,7 @@ export default function MaterialsDesk() {
       setCloudSynced(Boolean(job.result.cloudSynced));
       setSaveMessage(job.result.saveError || '');
       await refreshWorkers();
-    } catch (error) { setGenerationMessage((error as Error).message || '面談資料アプリを確認してください。'); }
+    } catch (error) { setGenerationMessage(requestError(error)); }
     finally { setBusy(false); }
   }
   async function restoreJob(id: string) {
@@ -135,7 +138,7 @@ export default function MaterialsDesk() {
       setSavedFile(body.job.result.savedPath || '');
       setCloudSynced(Boolean(body.job.result.cloudSynced));
       setSaveMessage(body.job.result.saveError || '');
-    } catch (error) { setMessage((error as Error).message || 'PDFを再表示できません。'); }
+    } catch (error) { setMessage(requestError(error)); }
   }
   return <main className={styles.page}>
     <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>

@@ -83,3 +83,16 @@ test('a completed job can be reopened after reloading the page', async ({ page }
   await page.getByRole('button', { name: 'PDFを再表示' }).click();
   await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/reopened.pdf');
 });
+
+test('a same-origin network failure gives a usable message', async ({ page }) => {
+  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
+  await page.route('**/api/staff/interview-material-jobs**', route => route.request().method() === 'POST'
+    ? route.abort() : route.fulfill({ json: { available: [{ id: 'primary' }] } }));
+  await page.goto('/staff/interview-materials');
+  await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption(student.number);
+  await page.getByRole('button', { name: '資料を作る' }).click();
+  const alert = page.getByRole('alert').filter({ hasText: '勉たんとの通信が切れました' });
+  await expect(alert).toBeVisible();
+  await expect(alert).not.toContainText('Failed to fetch');
+});
