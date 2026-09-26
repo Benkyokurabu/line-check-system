@@ -11,6 +11,8 @@ type SchoolPreview = { rank: number; surveyName: string; name: string; found: bo
 type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; round?: string; filename?: string; message?: string };
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
 type RecentJob = { id: string; status: string; number: string; name: string; createdAt: string };
+const searchable = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s/g, '');
+const answerKey = (value: string) => value.replaceAll('-', '').toLowerCase();
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
 const requestError = (error: unknown) => error instanceof TypeError
   ? '勉たんとの通信が切れました。ネット接続を確認してから、もう一度お試しください。'
@@ -20,6 +22,7 @@ export default function MaterialsDesk() {
   const [staff, setStaff] = useState(false), [ready, setReady] = useState(false);
   const [code, setCode] = useState(''), [password, setPassword] = useState('');
   const [students, setStudents] = useState<Student[]>([]), [query, setQuery] = useState('');
+  const [teacherFilter, setTeacherFilter] = useState(''), [gradeFilter, setGradeFilter] = useState(''), [displayLimit, setDisplayLimit] = useState(30);
   const [number, setNumber] = useState(''), [answerId, setAnswerId] = useState('');
   const [schoolNames, setSchoolNames] = useState<string[]>([]);
   const [preview, setPreview] = useState<SchoolPreview[] | null>(null);
@@ -40,10 +43,23 @@ export default function MaterialsDesk() {
   const answer = selected?.responses.find(r => r.id === answerId);
   const campusValue = answer?.fields.find(field => field.label === '所属校舎')?.value.trim() || '';
   const campus = campusValue === '本校' || campusValue === '南教室' ? campusValue : '';
-  const visible = useMemo(() => students.filter(s => {
-    const text = `${s.name} ${s.number} ${s.grade} ${s.teacher}`.normalize('NFKC').toLowerCase();
-    return query.trim().normalize('NFKC').toLowerCase().split(/\s+/).every(word => text.includes(word));
-  }).slice(0, 100), [students, query]);
+  const teachers = useMemo(() => [...new Set(students.map(s => s.teacher).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')), [students]);
+  const grades = useMemo(() => ['小4', '小5', '小6', '中1', '中2', '中3'].filter(grade => students.some(s => s.grade === grade)), [students]);
+  const matching = useMemo(() => students.filter(s => {
+    if (teacherFilter && s.teacher !== teacherFilter || gradeFilter && s.grade !== gradeFilter) return false;
+    const terms = query.trim().normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
+    const values = [s.name, s.number, s.grade, s.teacher].map(searchable);
+    return terms.every(term => values.some(value => value.includes(searchable(term))));
+  }), [students, query, teacherFilter, gradeFilter]);
+  const visible = matching.slice(0, displayLimit);
+  const chooseStudent = useCallback((student: Student, preferredAnswer = '') => {
+    const selectedAnswer = student.responses.find(response => answerKey(response.id) === answerKey(preferredAnswer))
+      ?? (student.responses.length === 1 ? student.responses[0] : undefined);
+    setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
+    setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
+    setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewMessage('');
+    setManifest(null); setPdfUrl(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
+  }, []);
 
   const refreshWorkers = useCallback(async () => {
     try {
@@ -63,8 +79,14 @@ export default function MaterialsDesk() {
     const body = await response.json();
     if (!response.ok) throw Error(body.error || 'アンケートを取得できません。');
     setStudents(body.students);
+    const linkedAnswer = new URLSearchParams(window.location.search).get('answer');
+    if (linkedAnswer && /^[a-f0-9-]{32,36}$/i.test(linkedAnswer)) {
+      const linkedStudent = (body.students as Student[]).find(student => student.responses.some(response => answerKey(response.id) === answerKey(linkedAnswer)));
+      if (linkedStudent) chooseStudent(linkedStudent, linkedAnswer);
+      else setMessage('このアンケート回答と生徒を照合できませんでした。担任・学年・氏名で生徒を探してください。');
+    }
     await refreshWorkers();
-  }, [refreshWorkers]);
+  }, [refreshWorkers, chooseStudent]);
   async function submitJob(kind: 'preview' | 'generate') {
     if (!selected) throw Error('生徒を選択してください。');
     const response = await fetch('/api/staff/interview-material-jobs', {
@@ -157,10 +179,15 @@ export default function MaterialsDesk() {
           {job.status === 'completed' && <button type="button" onClick={() => void restoreJob(job.id)}>PDFを再表示</button>}</li>)}</ul>
       </section>}
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
-        <label>氏名・学籍番号・学年・担任で検索<input value={query} onChange={event => setQuery(event.target.value)} placeholder="例：中3　工藤" /></label>
-        <label>生徒<select value={number} onChange={event => { const student = students.find(s => s.number === event.target.value); setNumber(event.target.value); setAnswerId(student?.responses.length === 1 ? student.responses[0].id : ''); setSchoolNames(suggestedSchools(student?.responses.length === 1 ? student.responses[0].schools : [])); setPreview(null); setPreviewMessage(''); setManifest(null); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); }}>
-          <option value="">選択してください</option>{visible.map(s => <option key={s.number} value={s.number}>{s.grade} {s.name} ／ {s.number} ／ {s.teacher || '担任未設定'}</option>)}
-        </select></label>
+        <div className={styles.studentFilters}>
+          <label>担任<select value={teacherFilter} onChange={event => { setTeacherFilter(event.target.value); setDisplayLimit(30); }}><option value="">すべての担任</option>{teachers.map(teacher => <option key={teacher} value={teacher}>{teacher}先生</option>)}</select></label>
+          <label>学年<select value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setDisplayLimit(30); }}><option value="">すべての学年</option>{grades.map(grade => <option key={grade} value={grade}>{grade}</option>)}</select></label>
+          <label className={styles.studentSearch}>氏名・学籍番号に含まれる文字<input type="search" value={query} onChange={event => { setQuery(event.target.value); setDisplayLimit(30); }} placeholder="例：木村、美海、2018" /></label>
+        </div>
+        {selected && <p className={styles.selectedStudent} role="status">選択中：{selected.grade} {selected.name} ／ {selected.number} ／ 担任：{selected.teacher || '未設定'}</p>}
+        <p className={styles.note}>該当 {matching.length}人{matching.length > displayLimit ? ` ／ 先頭${displayLimit}人を表示` : ''}</p>
+        {matching.length === 0 ? <p>条件に合う生徒はいません。担任・学年・検索文字を変更してください。</p> : <div className={styles.studentResults} aria-label="生徒の検索結果">{visible.map(student => <button type="button" className={styles.studentResult} aria-pressed={number === student.number} key={student.number} onClick={() => chooseStudent(student)}><strong>{student.grade} {student.name}</strong><span>{student.number} ／ 担任：{student.teacher || '未設定'} ／ 回答{student.responses.length}件</span></button>)}</div>}
+        {matching.length > displayLimit && <button type="button" onClick={() => setDisplayLimit(limit => limit + 30)}>さらに30人表示</button>}
       </section>
       {selected && <section className={styles.card}><h2>2. アンケート回答を選ぶ</h2>
         {!selected.responses.length ? <p>今回の回答はありません。指導簿と見つかった模試資料を作ります。</p> : <>

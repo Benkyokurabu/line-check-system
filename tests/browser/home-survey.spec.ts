@@ -9,7 +9,8 @@ test('スマホで生徒検索・担任・業務進捗を分かりやすく絞�
  ]}]}}));
  await page.goto('/');await expect(page.getByRole('combobox',{name:'アンケートの担任'})).toContainText('工藤先生（2件）');
  await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空花子');
- await expect(page.getByRole('link',{name:/架空\s*花子/})).toBeVisible();
+ await expect(page.locator('a[href^="https://app.notion.com/p/"]').filter({hasText:'架空　花子'})).toBeVisible();
+ await expect(page.getByRole('link',{name:'架空　花子：資料をつくる'})).toHaveAttribute('href','/staff/interview-materials?answer=11111111111141118111111111111111');
  await expect(page.getByRole('link',{name:/架空\s*太郎/})).toHaveCount(0);
  await page.getByRole('combobox',{name:'架空　花子の対応状況'}).selectOption('handled');
  await page.getByRole('combobox',{name:'アンケートの進捗'}).selectOption('needs-review');

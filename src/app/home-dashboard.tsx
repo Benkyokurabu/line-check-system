@@ -264,6 +264,7 @@ export default function HomeDashboard({
                             {schedule.status!=='uncontacted'&&<small>{schedule.detail}</small>}
                           </div>
                           <div className={styles.surveyRowDetails}>
+                            {surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interview-materials?answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：資料をつくる`}>資料をつくる</Link>}
                             {schedule.status==='uncontacted'&&['needs-review','handled'].includes(progress.status)&&surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：面談日程を案内`}>{isThirdGrade?'面談日程を案内':'面談希望あり → 日程を案内'}</Link>}
                             {confirmation.isSaving(student.notionUrl)&&<small role="status">保存中…</small>}
                             {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}

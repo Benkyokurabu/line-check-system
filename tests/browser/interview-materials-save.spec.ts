@@ -38,7 +38,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.route('http://127.0.0.1:38473/**', route => { throw Error(`unexpected loopback request: ${route.request().url()}`); });
   await page.goto('/staff/interview-materials');
   await expect(page.getByText('主担当PCが稼働中です')).toBeVisible();
-  await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption(student.number);
+  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
   await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '第3志望' })).toHaveValue('叡明');
   await page.getByRole('button', { name: '資料を作る' }).click();
@@ -59,7 +59,7 @@ test('when both creation PCs are offline the page prevents new work and can refr
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
   await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: online ? [{ id: 'standby', priority: 2 }] : [] } }));
   await page.goto('/staff/interview-materials');
-  await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption(student.number);
+  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
   await expect(page.getByText('作成PCは停止中です。起動後に利用できます。')).toBeVisible();
   await expect(page.getByRole('button', { name: '資料を作る' })).toBeDisabled();
   online = true;
@@ -91,9 +91,33 @@ test('a same-origin network failure gives a usable message', async ({ page }) =>
   await page.route('**/api/staff/interview-material-jobs**', route => route.request().method() === 'POST'
     ? route.abort() : route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } }));
   await page.goto('/staff/interview-materials');
-  await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption(student.number);
+  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
   await page.getByRole('button', { name: '資料を作る' }).click();
   const alert = page.getByRole('alert').filter({ hasText: '勉たんとの通信が切れました' });
   await expect(alert).toBeVisible();
   await expect(alert).not.toContainText('Failed to fetch');
+});
+
+test('filters by teacher, grade and contained name, and selects a linked survey answer', async ({ page }) => {
+  const linked = { ...student, name: '木村 美海', responses: [{ ...student.responses[0], id: '11111111-1111-4111-8111-111111111111' }] };
+  const others = [
+    { ...student, number: '2018997', name: '木村 花子', teacher: '佐藤' },
+    { ...student, number: '2018996', name: '佐藤 美海', grade: '中2' },
+  ];
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [linked, ...others] } }));
+  await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } }));
+  await page.goto('/staff/interview-materials');
+  await page.getByRole('combobox', { name: '担任' }).selectOption('工藤');
+  await page.getByRole('combobox', { name: '学年' }).selectOption('中3');
+  await page.getByRole('searchbox', { name: '氏名・学籍番号に含まれる文字' }).fill('木村美海');
+  await expect(page.getByText('該当 1人')).toBeVisible();
+  await page.getByRole('button', { name: /中3 木村 美海/ }).click();
+  await expect(page.getByText('選択中：中3 木村 美海', { exact: false })).toBeVisible();
+  expect(await page.locator('body').evaluate(element => element.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: 'analysis_outputs/interview-materials-selection-mobile.png', fullPage: true });
+  await page.goto('/staff/interview-materials?answer=11111111111141118111111111111111');
+  await expect(page.getByText('選択中：中3 木村 美海', { exact: false })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
 });
