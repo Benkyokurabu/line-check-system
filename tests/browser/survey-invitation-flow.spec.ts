@@ -47,6 +47,6 @@ test('アンケート取得失敗を未提出に見せず再取得できる',asy
 test('金城の直接URLでも工藤限定の送信画面・APIを開かない',async({page})=>{
  await auth(page,'KINJO');let called=false;await page.route('**/api/staff/interview-invitations*',r=>{called=true;return r.fulfill({json:state});});await page.goto('/staff/interviews?tab=invitations');await expect(page.getByText('現在の日程案内は工藤専用の検証中です。一般保護者への送信はまだ開始していません。')).toBeVisible();expect(called).toBe(false);
 });
-test('トップの秋アンケートからログイン状態を保ったまま対象回を開く',async({page})=>{
- await auth(page);await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[]}}));await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({json:{states:[]}}));await page.route('**/api/staff/interview-invitations*',r=>r.fulfill({json:state}));await page.setViewportSize({width:390,height:844});await page.goto('/');const entry=page.getByRole('link',{name:'アンケートから選ぶ'});await expect(entry).toHaveAttribute('href','/staff/interviews?tab=invitations&survey=2026-autumn');await entry.click();await expect(page.getByRole('heading',{name:'アンケートから生徒を選ぶ'})).toBeVisible();await expect(page.getByLabel('パスワード',{exact:true})).toHaveCount(0);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'analysis_outputs/interview-invitations/survey-entry-mobile.png',fullPage:true});
+test('トップのアンケートから日程打診への入口を表示しない',async({page})=>{
+ await auth(page);await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[]}}));await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({json:{states:[]}}));await page.setViewportSize({width:390,height:844});await page.goto('/');await expect(page.getByRole('link',{name:'アンケートから選ぶ'})).toHaveCount(0);await expect(page.getByText('面談の日程を打診')).toHaveCount(0);
 });

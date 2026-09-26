@@ -197,10 +197,6 @@ export default function HomeDashboard({
                 <div><p className={styles.surveyEyebrow}>2026年 秋のアンケート</p><h3>担当生徒の回答を確認してください</h3></div>
                 {!surveyError && <span className={styles.surveyTotal}>表示中 {visibleSurveyGroups.reduce((sum, item) => sum + item.students.length, 0)}件</span>}
               </div>
-              <div className={styles.surveyInvitation}>
-                <Link className={styles.surveyInvitationButton} href="/staff/interviews?tab=invitations&survey=2026-autumn" prefetch={false}>アンケートから選ぶ <span aria-hidden="true">→</span></Link>
-                <p>2026年 秋のアンケート → 生徒を選ぶ → 面談の日程を打診</p>
-              </div>
               {surveyError ? <p className={styles.surveyError} role="status">{surveyError}</p> : <>
                 <div className={styles.surveyWorkflow} aria-label="アンケート対応の進め方">
                   <p><strong>中3は全員面談</strong><span>その他の学年は希望者のみ面談へ進みます</span></p>
@@ -249,7 +245,6 @@ export default function HomeDashboard({
                       const confirmed = confirmation.isConfirmed(student.notionUrl);
                       const schedule=scheduling.get(student.notionUrl);
                       const progress=surveyProgress(confirmed,schedule,confirmation.progress(student.notionUrl));
-                      const isThirdGrade=/中(?:学)?\s*3/.test(student.grade);
                       return <li key={`${student.grade}-${student.name}-${student.notionUrl}`}>
                         <span className={styles.gradeBadge}>{student.grade}</span>
                         <div className={styles.surveyStudentSummary}>
@@ -265,7 +260,6 @@ export default function HomeDashboard({
                           </div>
                           <div className={styles.surveyRowDetails}>
                             {surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interview-materials?answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：資料をつくる`}>資料をつくる</Link>}
-                            {schedule.status==='uncontacted'&&['needs-review','handled'].includes(progress.status)&&surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interviews?tab=invitations&answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：面談日程を案内`}>{isThirdGrade?'面談日程を案内':'面談希望あり → 日程を案内'}</Link>}
                             {confirmation.isSaving(student.notionUrl)&&<small role="status">保存中…</small>}
                             {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
                           </div>
@@ -274,7 +268,7 @@ export default function HomeDashboard({
                       </li>;
                     })}
                   </ul>
-                  <p className={styles.surveyNote}>進捗は「要確認／対応済み／日程調整中／日程確定／面談終了」から選ぶと自動保存します。まだ一度も選んでいない場合は面談記録をもとに初期表示します。中3は全員「面談日程を案内」へ、その他の学年は面談希望がある場合のみ進めてください。「非表示」はこの端末だけに反映されます。</p>
+                  <p className={styles.surveyNote}>進捗は「要確認／対応済み／日程調整中／日程確定／面談終了」から選ぶと自動保存します。まだ一度も選んでいない場合は面談記録をもとに初期表示します。「非表示」はこの端末だけに反映されます。</p>
                 </div> : <p className={styles.surveyPrompt}>先生を選ぶか、生徒名で検索してください。</p>}
               </>}
             </div>

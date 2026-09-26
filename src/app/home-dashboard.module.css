@@ -110,11 +110,6 @@
 .badge { display: inline-block; margin-bottom: 6px; padding: 2px 7px; background: #fff3d9; color: #77531d; border-radius: 4px; font-size: 11px; }
 .quickLinks { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
 .surveyPanel { margin-bottom: 16px; padding: 24px; border: 1px solid #d5e4df; border-radius: 16px; background: #fff; }
-.surveyInvitation { margin-top: 18px; }
-.surveyInvitationButton { display: inline-flex; align-items: center; justify-content: center; gap: 16px; min-height: 48px; max-width: 100%; box-sizing: border-box; padding: 12px 18px; border-radius: 9px; background: #176b58; color: #fff; font-size: 15px; font-weight: 700; text-decoration: none; }
-.surveyInvitationButton:hover { background: #125544; }
-.surveyInvitationButton:focus-visible { outline: 3px solid #9b722f; outline-offset: 3px; }
-.surveyInvitation p { margin: 8px 0 0; color: var(--home-muted); font-size: 13px; }
 .surveyWorkflow { margin-top:18px; padding:14px 16px; border-left:4px solid #176b58; border-radius:8px; background:#eef7f4; }
 .surveyWorkflow p { display:flex; flex-wrap:wrap; gap:5px 12px; margin:0 0 12px; font-size:13px; }
 .surveyWorkflow p span { color:var(--home-muted); }

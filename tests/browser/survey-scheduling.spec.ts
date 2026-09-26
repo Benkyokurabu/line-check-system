@@ -8,7 +8,7 @@ test('回答確認から面談終了までを一つの進捗として表示・�
  await page.route('**/api/interview-surveys/scheduling',r=>failed?r.fulfill({status:503,json:{error:'unavailable'}}):r.fulfill({json:{states:{[ids[0]]:{status:'uncontacted',detail:'日程の打診はまだありません。'},[ids[1]]:{status:'invited',detail:answered?'返信あり・先生の承認待ち':'返信待ち'},[ids[2]]:{status:'confirmed',detail:'日程が確定しています。',date:'2026-09-30',start:'16:00',end:'16:45'}},updatedAt:'2026-09-23T12:00:00Z'}}));
  await page.setViewportSize({width:390,height:844});await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');
  const list=page.getByRole('list',{name:'工藤先生のアンケート回答'});
- const handled=list.getByRole('listitem').filter({hasText:'日程確認1'});const progress=handled.getByRole('combobox',{name:'日程確認1の対応状況'});await expect(progress).toHaveValue('handled');await expect(progress.locator('option')).toHaveText(['要確認','対応済み','日程調整中','日程確定','面談終了']);await expect(handled.getByRole('link',{name:'日程確認1：面談日程を案内'})).toHaveAttribute('href',`/staff/interviews?tab=invitations&answer=${ids[0]}`);
+ const handled=list.getByRole('listitem').filter({hasText:'日程確認1'});const progress=handled.getByRole('combobox',{name:'日程確認1の対応状況'});await expect(progress).toHaveValue('handled');await expect(progress.locator('option')).toHaveText(['要確認','対応済み','日程調整中','日程確定','面談終了']);await expect(handled.getByRole('link',{name:'日程確認1：資料をつくる'})).toHaveAttribute('href',`/staff/interview-materials?answer=${ids[0]}`);await expect(handled.getByRole('link',{name:/面談日程を案内|日程を案内/})).toHaveCount(0);
  await expect(list.getByRole('combobox',{name:'日程確認2の対応状況'})).toHaveValue('coordinating');await expect(list.getByRole('combobox',{name:'日程確認3の対応状況'})).toHaveValue('scheduled');await expect(list.getByText('2026-09-30 16:00〜16:45')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:'analysis_outputs/survey-scheduling-mobile.png',fullPage:true});
  await page.getByRole('combobox',{name:'アンケートの進捗',exact:true}).selectOption('coordinating');await expect(list.getByRole('listitem')).toHaveCount(1);
@@ -18,21 +18,4 @@ test('回答確認から面談終了までを一つの進捗として表示・�
 });
 test('日程状況APIは未ログインのアクセスを拒否する',async({request})=>{
  expect((await request.get('/api/interview-surveys/scheduling')).status()).toBe(401);
-});
-
-test('未連絡から対象生徒のNotion候補日時へ直接進み、送信制限は維持する',async({page})=>{
- const studentId='11111111-1111-4111-8111-111111111111';let slotReads=0;
- await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[{teacher:'工藤',students:[students[0]]}]}}));
- await page.route('**/api/interview-surveys/confirmations',r=>r.fulfill({json:{states:[]}}));
- await page.route('**/api/interview-surveys/scheduling',r=>r.fulfill({json:{states:{[ids[0]]:{status:'uncontacted',detail:'未連絡'}},updatedAt:'2026-09-23'}}));
- await page.route('**/api/staff/session',r=>r.fulfill({json:{staff:{staffId:'staff',staffCode:'KUDO',displayName:'工藤',role:'admin'}}}));
- await page.route('**/api/staff/interview-requests*',r=>r.fulfill({json:{requests:[],bookings:[],slots:[],snapshot:'s',loginReady:true}}));
- await page.route('**/api/staff/interview-invitations*',r=>{
-  if(r.request().url().includes('slots=1')){slotReads++;expect(new URL(r.request().url()).searchParams.get('studentId')).toBe(studentId);return r.fulfill({json:{slots:[{id:'slot',version:1,studentId,date:'2030-01-03',start:'13:00',end:'13:45',teacher:'工藤'}],fetchedAt:'2026-09-23'}});}
-  return r.fulfill({json:{students:[{id:studentId,number:'2018123',name:students[0].name,teacher:'工藤',grade:'中3',pilot:false,surveys:[{round:'2026-autumn',status:'submitted',responses:[{id:ids[0],date:'2026-09-23',url:students[0].notionUrl,fields:[]}]}]}],rounds:[{id:'2026-autumn',label:'2026年 秋のアンケート'}],invitations:[],notifications:[],pilotReady:true}});
- });
- await page.setViewportSize({width:390,height:844});await page.goto('/');await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');await page.getByRole('link',{name:'日程確認1：面談日程を案内'}).click();
- await expect(page.getByRole('heading',{name:'打診する候補日時を選ぶ'})).toBeVisible();await expect(page.getByRole('heading',{name:'日程確認1さん',exact:true})).toBeVisible();
- await page.getByRole('checkbox',{name:'13:00〜13:45',exact:true}).check();expect(slotReads).toBe(1);await expect(page.getByRole('button',{name:'LINEで日程を打診する（工藤のみ）'})).toHaveCount(0);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- await page.screenshot({path:'analysis_outputs/survey-direct-slots.png',fullPage:true});
 });
