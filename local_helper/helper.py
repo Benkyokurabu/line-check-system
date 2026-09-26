@@ -26,6 +26,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
+from remote_worker import RemoteWorker
 
 PORT = 38473
 ORIGIN = os.environ.get('BENTAN_ORIGIN', 'https://line-check-system.vercel.app')
@@ -835,4 +836,8 @@ if __name__ == '__main__':
                 for key in expired:
                     SESSIONS.pop(key)[1].cleanup()
     threading.Thread(target=cleanup_sessions, daemon=True).start()
+    worker = RemoteWorker(ROOT, roots, preview_schools, preview_hokushin,
+                          preview_term_report, make_bundle, save_bundle_to_onedrive,
+                          sync_bundle_to_cloud, INDEX_STATUS)
+    threading.Thread(target=worker.run, daemon=True).start()
     ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()

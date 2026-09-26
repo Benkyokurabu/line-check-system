@@ -1,23 +1,17 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import styles from './workspace.module.css';
 
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
 type Student = { number: string; name: string; grade: string; teacher: string; responses: Answer[] };
-type Manifest = { items: {label: string; source: string; staffOnly: boolean}[]; missing: string[]; pages: number; combinedUrl: string; guideUrl: string | null; saveUrl?: string };
+type Manifest = { items: {label: string; source: string; staffOnly: boolean}[]; missing: string[]; pages: number; savedPath?: string | null; cloudSynced?: boolean; saveError?: string | null };
 type SchoolPreview = { rank: number; surveyName: string; name: string; found: boolean; files: {kind: string; year: string; filename: string}[] };
 type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; round?: string; filename?: string; message?: string };
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
-const helper = 'http://127.0.0.1:38473';
+type RecentJob = { id: string; status: string; number: string; name: string; createdAt: string };
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
-const connectionError = (error: unknown) => {
-  if (error instanceof TypeError && /Failed to fetch|NetworkError|Load failed/i.test(error.message)) {
-    return 'このPCの資料アプリへの接続をブラウザが拒否しました。アドレスバー左のサイト情報 → サイトの設定で「ローカル ネットワークへのアクセス」または「このデバイス上のアプリへのアクセス」を許可し、画面を再読み込みしてください。';
-  }
-  return error instanceof Error ? error.message : '資料を確認できません。面談資料アプリの接続を確認してください。';
-};
 
 export default function MaterialsDesk() {
   const [staff, setStaff] = useState(false), [ready, setReady] = useState(false);
@@ -31,11 +25,14 @@ export default function MaterialsDesk() {
   const [previewBusy, setPreviewBusy] = useState(false), [previewMessage, setPreviewMessage] = useState('');
   const [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   const [generationMessage, setGenerationMessage] = useState('');
-  const [saveBusy, setSaveBusy] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [savedFile, setSavedFile] = useState('');
   const [cloudSynced, setCloudSynced] = useState(false);
   const [manifest, setManifest] = useState<Manifest | null>(null);
+  const [pdfUrl, setPdfUrl] = useState('');
+  const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
+  const [workerOnline, setWorkerOnline] = useState(false);
+  const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
   const campusValue = answer?.fields.find(field => field.label === '所属校舎')?.value.trim() || '';
@@ -45,11 +42,41 @@ export default function MaterialsDesk() {
     return query.trim().normalize('NFKC').toLowerCase().split(/\s+/).every(word => text.includes(word));
   }).slice(0, 100), [students, query]);
 
-  async function load() {
+  const refreshWorkers = useCallback(async () => {
+    try {
+      const workers = await fetch('/api/staff/interview-material-jobs', { cache: 'no-store' });
+      const workerBody = await workers.json();
+      const available = workers.ok && Boolean(workerBody.available?.length);
+      setWorkerOnline(available);
+      setWorkerStatus(available ? '作成PCが稼働中です' : '作成PCは停止中です。起動後に利用できます。');
+      setRecentJobs(Array.isArray(workerBody.recent) ? workerBody.recent : []);
+    } catch { setWorkerOnline(false); setWorkerStatus('作成PCの稼働状況を確認できません。'); }
+  }, []);
+  const load = useCallback(async () => {
     const response = await fetch('/api/staff/interview-materials', { cache: 'no-store' });
     const body = await response.json();
     if (!response.ok) throw Error(body.error || 'アンケートを取得できません。');
     setStudents(body.students);
+    await refreshWorkers();
+  }, [refreshWorkers]);
+  async function submitJob(kind: 'preview' | 'generate') {
+    if (!selected) throw Error('生徒を選択してください。');
+    const response = await fetch('/api/staff/interview-material-jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, number: selected.number, campus, schools: kind === 'preview'
+        ? schoolNames.map(name => name.trim()).filter(Boolean) : preview?.map(school => school.name) || [] }),
+    });
+    const created = await response.json();
+    if (!response.ok) throw Error(created.error || '作成依頼を登録できません。');
+    for (let attempt = 0; attempt < 300; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const status = await fetch(`/api/staff/interview-material-jobs?id=${created.id}`, { cache: 'no-store' });
+      const body = await status.json();
+      if (!status.ok) throw Error(body.error || '作成状況を確認できません。');
+      if (body.job.status === 'completed') return body.job;
+      if (body.job.status === 'failed') throw Error(body.job.error || '作成PCで処理できませんでした。');
+    }
+    throw Error('作成状況の確認が時間切れになりました。もう一度画面を開いて確認してください。');
   }
   useEffect(() => {
     let active = true;
@@ -61,7 +88,7 @@ export default function MaterialsDesk() {
       finally { if (active) setReady(true); }
     })();
     return () => { active = false; };
-  }, []);
+  }, [load]);
   async function login(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage('');
     try {
@@ -76,52 +103,39 @@ export default function MaterialsDesk() {
     if (!selected || (selected.responses.length > 1 && !answer)) return;
     setPreviewBusy(true); setPreviewMessage(''); setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setManifest(null);
     try {
-      const health = await fetch(`${helper}/health`, { cache: 'no-store', signal: AbortSignal.timeout(7000) });
-      if (!health.ok) throw Error('このPCの面談資料アプリが応答していません。');
-      const response = await fetch(`${helper}/preview`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: selected.number, name: selected.name, grade: selected.grade, campus, schools: schoolNames.map(name => name.trim()).filter(Boolean) }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw Error(body.error || 'NASの資料を確認できません。');
-      setPreview(body.schools);
-      setPreviewHokushin(body.hokushin ?? null);
-      setPreviewTermReport(body.termReport ?? null);
-    } catch (error) { setPreviewMessage(connectionError(error)); }
+      const job = await submitJob('preview');
+      setPreview(job.result.schools);
+      setPreviewHokushin(job.result.hokushin ?? null);
+      setPreviewTermReport(job.result.termReport ?? null);
+    } catch (error) { setPreviewMessage((error as Error).message || 'NASの資料を確認できません。'); }
     finally { setPreviewBusy(false); }
   }
   async function generate() {
     if (!selected || !preview || (selected.responses.length > 1 && !answer)) return;
     setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null);
     try {
-      let health: Response;
-      try {
-        health = await fetch(`${helper}/health`, { cache: 'no-store', signal: AbortSignal.timeout(7000) });
-      } catch (error) {
-        throw Error(connectionError(error));
-      }
-      if (!health.ok) throw Error('このPCの面談資料アプリが応答していません。アプリを起動し直してください。');
-      const response = await fetch(`${helper}/generate`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: selected.number, name: selected.name, grade: selected.grade, campus, schools: preview.map(school => school.name) }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw Error(body.error || '資料を作成できません。');
-      setManifest(body);
+      const job = await submitJob('generate');
+      setManifest(job.result);
+      setPdfUrl(job.pdfUrl || '');
+      setSavedFile(job.result.savedPath || '');
+      setCloudSynced(Boolean(job.result.cloudSynced));
+      setSaveMessage(job.result.saveError || '');
+      await refreshWorkers();
     } catch (error) { setGenerationMessage((error as Error).message || '面談資料アプリを確認してください。'); }
     finally { setBusy(false); }
   }
-  async function saveToOneDrive() {
-    if (!manifest?.saveUrl) return;
-    setSaveBusy(true); setSaveMessage('');
+  async function restoreJob(id: string) {
+    setMessage('');
     try {
-      const response = await fetch(`${helper}${manifest.saveUrl}`, { method: 'POST' });
+      const response = await fetch(`/api/staff/interview-material-jobs?id=${id}`, { cache: 'no-store' });
       const body = await response.json();
-      if (!response.ok) throw Error(body.error || 'OneDriveに保存できません。');
-      setSavedFile(`${body.folder}\\${body.filename}`);
-      setCloudSynced(Boolean(body.cloudSynced));
-    } catch (error) { setSaveMessage((error as Error).message || 'OneDriveへの保存を確認してください。'); }
-    finally { setSaveBusy(false); }
+      if (!response.ok || body.job?.status !== 'completed') throw Error(body.error || body.job?.error || 'まだPDFを開けません。');
+      setManifest(body.job.result);
+      setPdfUrl(body.job.pdfUrl || '');
+      setSavedFile(body.job.result.savedPath || '');
+      setCloudSynced(Boolean(body.job.result.cloudSynced));
+      setSaveMessage(body.job.result.saveError || '');
+    } catch (error) { setMessage((error as Error).message || 'PDFを再表示できません。'); }
   }
   return <main className={styles.page}>
     <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>
@@ -131,6 +145,11 @@ export default function MaterialsDesk() {
       <label>パスワード<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></label>
       <button disabled={busy}>ログイン</button>
     </form> : <>
+      <p role="status" className={styles.note}>{workerStatus} <button type="button" onClick={() => void refreshWorkers()}>稼働状況を再確認</button></p>
+      {recentJobs.length > 0 && <section className={styles.card}><h2>最近の作成依頼</h2>
+        <ul>{recentJobs.map(job => <li key={job.id}>{job.name}（{job.number}）／{job.status === 'completed' ? '完成' : job.status === 'failed' ? '失敗' : '作成中'}{' '}
+          {job.status === 'completed' && <button type="button" onClick={() => void restoreJob(job.id)}>PDFを再表示</button>}</li>)}</ul>
+      </section>}
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
         <label>氏名・学籍番号・学年・担任で検索<input value={query} onChange={event => setQuery(event.target.value)} placeholder="例：中3　工藤" /></label>
         <label>生徒<select value={number} onChange={event => { const student = students.find(s => s.number === event.target.value); setNumber(event.target.value); setAnswerId(student?.responses.length === 1 ? student.responses[0].id : ''); setSchoolNames(suggestedSchools(student?.responses.length === 1 ? student.responses[0].schools : [])); setPreview(null); setPreviewMessage(''); setManifest(null); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); }}>
@@ -153,14 +172,14 @@ export default function MaterialsDesk() {
             </div>
           </div>}
         </>}
-        <div className={styles.actions}><button className={styles.primary} disabled={previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
+        <div className={styles.actions}><button className={styles.primary} disabled={!workerOnline || previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
         {selected.responses.length > 1 && !answer && <p className={styles.note}>上のアンケート回答を1つ選ぶと資料を確認できます。</p>}
         {previewMessage && <p className={styles.error} role="alert">{previewMessage}</p>}
         {preview && <div className={styles.preview}><h3>見つかった資料と年度</h3>
           {preview.length === 0 ? <p>志望校の回答はありません。指導簿・模試資料を作成します。</p> : <ol>{preview.map(school => <li key={school.rank}><strong>第{school.rank}志望：{school.name}</strong> — {school.found ? school.files.map(file => `${file.kind} ${file.year}`).join('、') : '該当資料なし'}</li>)}</ol>}
           {previewHokushin && selected.grade.match(/^中[23]$/) && <p>北辰の個人成績票：{previewHokushin.found ? `${previewHokushin.year} ${previewHokushin.round} が見つかりました` : previewHokushin.message || '該当資料なし'}</p>}
           {previewTermReport && <p>成績通知の個人成績表：{previewTermReport.found ? `${previewTermReport.year}年度${previewTermReport.term} ${previewTermReport.filename} の本人ページ（${previewTermReport.pages?.join('、') || '番号不明'}）が見つかりました` : previewTermReport.message || '該当資料なし'}</p>}
-          <button className={styles.primary} disabled={busy || Boolean(previewHokushin?.indexing)} onClick={() => void generate()}>{busy ? 'PDFを作成中…' : 'PDFを作成'}</button>
+          <button className={styles.primary} disabled={!workerOnline || busy || Boolean(previewHokushin?.indexing)} onClick={() => void generate()}>{busy ? 'PDFを作成中…' : 'PDFを作成'}</button>
           {previewHokushin?.indexing && <p className={styles.note}>索引の作成が終わったら「資料を作る」をもう一度押して確認してください。</p>}
         </div>}
         {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
@@ -168,17 +187,14 @@ export default function MaterialsDesk() {
       </section>}
       {manifest && <section className={styles.card}><h2>3. 資料を確認・印刷</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ</p>
-        <div className={styles.actions}><button className={styles.primary} disabled={saveBusy || Boolean(savedFile) || !manifest.saveUrl} onClick={() => void saveToOneDrive()}>{saveBusy ? 'OneDriveに保存中…' : savedFile ? 'OneDriveに保存済み' : 'OneDriveに保存'}</button>
-          <a href={`${helper}${manifest.combinedUrl}`} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a>
-          <a href={`${helper}${manifest.combinedUrl}?download=1`}>一式PDFを保存</a>
-          {manifest.guideUrl && <><a href={`${helper}${manifest.guideUrl}`} target="_blank" rel="noreferrer">指導簿PDFを表示・印刷</a><a href={`${helper}${manifest.guideUrl}?download=1`}>指導簿PDFを保存</a></>}
+        <div className={styles.actions}>
+          {pdfUrl && <><a href={pdfUrl} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a><a href={pdfUrl} download>一式PDFを保存</a></>}
         </div>
-        {!manifest.saveUrl && <p className={styles.note}>このPCの面談資料アプリを更新するとOneDriveへ直接保存できます。</p>}
-        {savedFile && <p role="status">{cloudSynced ? 'このPCとOneDriveのクラウドに保存しました' : 'このPCのOneDriveフォルダに保存しました'}：{savedFile}。{cloudSynced ? '別PC側の同期が完了すると開けます。' : '別PCで使う前にOneDriveの同期完了を確認してください。'}</p>}
+        {savedFile && <p role="status">{cloudSynced ? '作成PCとOneDriveのクラウドに保存しました' : '作成PCのOneDriveフォルダに保存しました'}：{savedFile}。別PCで開く前にOneDriveの同期完了を確認してください。</p>}
         {saveMessage && <p className={styles.error} role="alert">{saveMessage}</p>}
         <ol>{manifest.items.map((item, index) => <li key={index}>{item.label}{item.staffOnly && <strong className={styles.caution}>生徒には渡さない</strong>}</li>)}</ol>
         {manifest.missing.length > 0 && <div className={styles.missing}><h3>見つからなかった資料</h3><ul>{manifest.missing.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-        <p className={styles.note}>表示用PDFはこのPC内で約15分間だけ利用できます。残す資料はOneDriveに保存してください。</p>
+        <p className={styles.note}>表示リンクは約10分間有効です。完成PDFは非公開で1日保管し、OneDriveにも保存します。</p>
       </section>}
     </>}
   </main>;

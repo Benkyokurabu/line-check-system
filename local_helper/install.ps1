@@ -19,6 +19,10 @@ foreach ($name in @('sources.txt', 'guide-path.txt', 'export-guide.ps1')) {
   if (-not (Test-Path -LiteralPath $file)) { throw "$name が見つかりません。" }
   Copy-Item -LiteralPath $file -Destination (Join-Path $target $name) -Force
 }
+$workerConfig = Join-Path $PSScriptRoot 'worker.json'
+if (Test-Path -LiteralPath $workerConfig) {
+  Copy-Item -LiteralPath $workerConfig -Destination (Join-Path $target 'worker.json') -Force
+}
 $ocrSource = Join-Path $PSScriptRoot 'ocr'
 if (Test-Path -LiteralPath (Join-Path $ocrSource 'tesseract.exe')) {
   $ocrTarget = Join-Path $target 'ocr'

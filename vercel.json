@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/line-identity-candidates",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/interview-material-cleanup",
+      "schedule": "15 22 * * *"
     }
   ],
   "env": {

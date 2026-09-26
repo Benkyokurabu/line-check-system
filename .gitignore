@@ -34,6 +34,7 @@
 /local_helper/__pycache__/
 /local_helper/sources.txt
 /local_helper/guide-path.txt
+/local_helper/worker.json
 
 # misc
 .DS_Store
