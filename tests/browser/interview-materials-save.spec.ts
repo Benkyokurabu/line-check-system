@@ -94,3 +94,17 @@ test('survey and ranked schools stay visible while checking years before PDF cre
   await expect(page.getByRole('heading', { name: '3. 資料を確認・印刷' })).toBeVisible();
   expect(generated).toBe(1);
 });
+
+test('a blocked browser connection explains how to allow local app access', async ({ page }) => {
+  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [
+    { number: '2018998', name: '確認用生徒', grade: '中3', teacher: '工藤', responses: [] },
+  ] } }));
+  await page.route('http://127.0.0.1:38473/health', route => route.abort());
+  await page.goto('/staff/interview-materials');
+  await page.getByRole('combobox', { name: '生徒', exact: true }).selectOption('2018998');
+  await page.getByRole('button', { name: '資料を作る' }).click();
+  const connectionAlert = page.getByRole('alert').filter({ hasText: 'このPCの資料アプリへの接続' });
+  await expect(connectionAlert).toContainText('ローカル ネットワークへのアクセス');
+  await expect(connectionAlert).not.toContainText('Failed to fetch');
+});

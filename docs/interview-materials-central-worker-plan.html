@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>勉たん｜面談資料の中央作成構成</title>
+<style>
+  :root{font-family:"Yu Gothic","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;color:#17324b;background:#f4f7fa}
+  *{box-sizing:border-box}body{margin:0}main{max-width:1080px;margin:auto;padding:32px 22px 56px}
+  h1{font-size:2rem;margin:5px 0 12px}h2{font-size:1.25rem;margin:0 0 16px}h3{font-size:1rem;margin:0 0 8px}
+  p{line-height:1.7;margin:8px 0}small,.muted{color:#52677a}.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.16em;color:#006e80}
+  .lead{font-size:1.07rem}.card{background:#fff;border:1px solid #dce6ed;border-radius:16px;padding:23px;margin-top:20px;box-shadow:0 3px 12px #17324b0b}
+  .status{padding:16px 18px;border-radius:12px;background:#e6f8ee;border:1px solid #8cd7aa;font-weight:700}
+  .status.off{background:#fff2e8;border-color:#f0b685}.controls{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0}
+  button{border:1px solid #236a86;border-radius:9px;background:#fff;color:#174c62;padding:11px 16px;font-weight:700;cursor:pointer}
+  button[aria-pressed=true]{background:#116980;color:#fff}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:#116980;color:white}
+  .flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;align-items:stretch;margin-top:22px}
+  .node{border:1px solid #c5dce6;border-radius:12px;padding:14px 12px;background:#f8fcfe;min-height:112px}
+  .node strong{display:block;margin-bottom:7px}.node .num{display:inline-block;background:#dff3f6;color:#006e80;border-radius:99px;font-size:.72rem;padding:3px 9px;margin-bottom:8px}
+  .arrow{text-align:center;color:#3193a6;font-weight:900;margin:10px 0}.two{display:grid;grid-template-columns:1fr 1fr;gap:17px}
+  ul,ol{padding-left:1.45em;line-height:1.75;margin:8px 0}li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:.95rem}th,td{border-bottom:1px solid #dce6ed;text-align:left;padding:11px 8px;vertical-align:top}th{background:#edf5f8;width:25%}
+  .tag{display:inline-block;border-radius:99px;background:#e6f0ff;color:#205480;font-weight:700;padding:3px 9px;font-size:.76rem}
+  .warn{border-left:4px solid #df8b3c;padding:7px 13px;background:#fff8ef}.foot{font-size:.83rem;color:#52677a;margin-top:24px}
+  @media(max-width:760px){main{padding:22px 13px 40px}h1{font-size:1.55rem}.card{padding:18px}.flow{grid-template-columns:1fr}.node{min-height:0}.arrow{margin:0;transform:rotate(90deg)}.two{grid-template-columns:1fr}th,td{display:block;width:100%}th{border-bottom:0;padding-bottom:4px}td{padding-top:4px}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">BENTAN · PRODUCTION DESIGN</div>
+<h1>面談資料を、どのPCからでも作る</h1>
+<p class="lead">このPCを主担当、もう1台を予備の「作成PC」にします。火曜・日曜など両方が停止している日は作成画面に休止を表示し、依頼を受け付けません。</p>
+
+<section class="card" aria-labelledby="flow-title">
+<h2 id="flow-title">作成の流れ</h2>
+<div class="flow">
+  <div class="node"><span class="num">1 操作</span><strong>任意のPCのブラウザ</strong>職員ログイン、アンケートと志望順位を確認して「PDFを作成」</div>
+  <div class="node"><span class="num">2 依頼</span><strong>勉たん＋既存DB</strong>依頼を登録し、進捗・担当PC・失敗理由を記録</div>
+  <div class="node"><span class="num">3 作成</span><strong>起動中の作成PC</strong>NASの原本とExcelを読み、本人のページを抽出して結合</div>
+  <div class="node"><span class="num">4 受け渡し</span><strong>非公開のPDF保管先</strong>完成PDFを短期間置き、職員だけに期限付きで表示</div>
+  <div class="node"><span class="num">5 保存</span><strong>OneDrive</strong>保存を選んだ完成PDFだけを同期。原本はNASのまま</div>
+</div>
+<p class="muted">ブラウザから作成PCの <code>127.0.0.1</code> へ直接接続しないため、「Failed to fetch」の原因となったブラウザのローカル接続制限を避けられます。</p>
+</section>
+
+<section class="card" aria-labelledby="demo-title">
+<h2 id="demo-title">2台の稼働例</h2>
+<p>ボタンで稼働状態を切り替え、画面の表示を確認できます。実際の画面は作成PCからの定期連絡で判定し、主担当が止まったときだけ予備が引き継ぎます。</p>
+<div class="controls"><button id="worker-a" aria-pressed="true">このPC：起動中</button><button id="worker-b" aria-pressed="true">もう1台：起動中</button><button id="closed">火曜・日曜の休止例</button></div>
+<div id="availability" class="status" role="status"></div>
+<p><button id="create" class="primary">PDFを作成</button> <span id="action" class="muted" aria-live="polite"></span></p>
+</section>
+
+<div class="two">
+<section class="card"><h2>すでにあるもの</h2><ul>
+  <li>勉たんの職員ログイン、アンケート確認・志望順位確認画面</li>
+  <li>Vercelの本番サイト、SupabaseのDB・非公開ファイル保存機能</li>
+  <li>NASを読む補助アプリ、北辰の索引、成績通知の本人ページ抽出</li>
+  <li>完成PDFをOneDriveへ保存する仕組み</li>
+</ul></section>
+<section class="card"><h2>追加で作るもの</h2><ol>
+  <li>作成依頼・進捗・担当PC・有効期限を記録するDB</li>
+  <li>両PCに固有の認証鍵と、起動状態を知らせる作成プログラム</li>
+  <li>主担当が優先して作成し、停止・失敗時だけ予備が引き継ぐ処理。1件を二重作成しない仕組み</li>
+  <li>完成PDF専用の非公開保存先、職員限定の表示・保存API、定期削除</li>
+  <li>ブラウザ画面の作成待ち・作成中・完了・休止表示</li>
+</ol></section>
+</div>
+
+<section class="card"><h2>運用条件と止まった場合</h2>
+<table><tbody>
+  <tr><th>作成PCの条件</th><td>少なくとも1台が起動してWindowsにログインし、NAS・Excel・インターネット・OneDriveを使えること。指導簿の出力にはExcelの自動操作を使うため、ログインしていないWindowsサービスとしては動かしません。</td></tr>
+  <tr><th>両PCが停止</th><td>「現在、作成PCは停止中です」と表示し、新しいPDF作成は受け付けません。火曜・日曜はこの状態で問題ありません。</td></tr>
+  <tr><th>片方が作成中に停止</th><td>一定時間後に依頼を回復し、もう1台が動いていれば引き継ぎます。同じ依頼の二重完成を防ぐため、完了登録は一度だけ認めます。両方停止なら失敗を表示し、勝手に後日作成しません。</td></tr>
+  <tr><th>NASや通信が停止</th><td>作成前に接続を確認し、失敗理由を画面に表示します。原本が読めない状態で「成功」と扱いません。PDFのアップロードは再開可能な方式を採用します。</td></tr>
+  <tr><th>起動後の確認</th><td>作成PCの自動起動、定期連絡、索引の準備状態を表示します。通常の使用日はPCのスリープを抑制し、Windows再起動後もログインして復旧できるようにします。</td></tr>
+  <tr><th>生徒情報</th><td>職員認証を必須にし、作成PCごとに別の鍵を使います。原本を外部へ一括同期せず、完成PDFだけを短期間の非公開保存先に置きます。</td></tr>
+</tbody></table>
+<p class="warn">これは実装する構成の設計資料です。現行版は各PCの補助アプリにブラウザが直接接続するため、中央作成方式はまだ利用できません。</p>
+</section>
+
+<p class="foot">作成日：2026年9月26日。構成は現在の勉たんのVercel・Supabase・NAS・OneDriveを前提とします。</p>
+</main>
+<script>
+const a=document.getElementById('worker-a'), b=document.getElementById('worker-b'), status=document.getElementById('availability'), create=document.getElementById('create'), action=document.getElementById('action');
+function render(){const primary=a.getAttribute('aria-pressed')==='true', backup=b.getAttribute('aria-pressed')==='true', online=primary||backup;status.textContent=primary?'主担当が稼働中です。PDFを作成できます。'+(backup?' 予備も待機中です。':' 予備は停止中です。'):backup?'予備のPCが稼働中です。主担当の代わりにPDFを作成できます。':'作成PCは停止中です。PDF作成はお休みです。';status.classList.toggle('off',!online);create.disabled=!online;action.textContent='';}
+for(const button of [a,b])button.addEventListener('click',()=>{const next=button.getAttribute('aria-pressed')!=='true';button.setAttribute('aria-pressed',String(next));button.textContent=(button===a?'このPC':'もう1台')+ (next?'：起動中':'：停止中');render()});
+document.getElementById('closed').addEventListener('click',()=>{for(const button of [a,b]){button.setAttribute('aria-pressed','false');button.textContent=(button===a?'このPC':'もう1台')+'：停止中'}render()});
+create.addEventListener('click',()=>{action.textContent='設計上は、起動中の作成PCへ依頼を送ります。'});render();
+</script></body></html>

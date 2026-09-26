@@ -12,6 +12,12 @@ type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; roun
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
 const helper = 'http://127.0.0.1:38473';
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
+const connectionError = (error: unknown) => {
+  if (error instanceof TypeError && /Failed to fetch|NetworkError|Load failed/i.test(error.message)) {
+    return 'このPCの資料アプリへの接続をブラウザが拒否しました。アドレスバー左のサイト情報 → サイトの設定で「ローカル ネットワークへのアクセス」または「このデバイス上のアプリへのアクセス」を許可し、画面を再読み込みしてください。';
+  }
+  return error instanceof Error ? error.message : '資料を確認できません。面談資料アプリの接続を確認してください。';
+};
 
 export default function MaterialsDesk() {
   const [staff, setStaff] = useState(false), [ready, setReady] = useState(false);
@@ -81,7 +87,7 @@ export default function MaterialsDesk() {
       setPreview(body.schools);
       setPreviewHokushin(body.hokushin ?? null);
       setPreviewTermReport(body.termReport ?? null);
-    } catch (error) { setPreviewMessage((error as Error).message || '資料を確認できません。面談資料アプリの接続を確認してください。'); }
+    } catch (error) { setPreviewMessage(connectionError(error)); }
     finally { setPreviewBusy(false); }
   }
   async function generate() {
@@ -91,8 +97,8 @@ export default function MaterialsDesk() {
       let health: Response;
       try {
         health = await fetch(`${helper}/health`, { cache: 'no-store', signal: AbortSignal.timeout(7000) });
-      } catch {
-        throw Error('このPCの面談資料アプリに接続できません。NASの「面談資料アプリ配布」にある install.ps1 をこのPCで一度実行してください。設置済みならブラウザのローカルネットワークへの接続を許可してください。');
+      } catch (error) {
+        throw Error(connectionError(error));
       }
       if (!health.ok) throw Error('このPCの面談資料アプリが応答していません。アプリを起動し直してください。');
       const response = await fetch(`${helper}/generate`, {
