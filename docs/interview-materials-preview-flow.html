@@ -9,7 +9,7 @@ body{font-family:system-ui,sans-serif;max-width:980px;margin:auto;padding:24px;b
 <div class="layout"><section class="card"><h2>アンケート回答</h2><dl><dt>現状の第一志望校</dt><dd>柏の葉</dd><dt>第二志望校</dt><dd>国府台</dd><dt>第三志望校</dt><dd>えいめい</dd></dl><p>原本は画面から開けます。</p></section>
 <section class="card"><h2>志望順位の確認</h2><label>第1志望<input value="柏の葉"></label><label>第2志望<input value="国府台"></label><label>第3志望<input value="叡明"></label><p>「えいめい」は「叡明」として検索します。</p><button id="check">資料を作る</button><div id="result" role="status">ボタンを押すとNAS上の資料と年度を確認します。</div><p>高校入試選抜基準は該当する志望校の資料を加えます。北辰個人成績票は各PCで事前に索引化し、最新年度・最新回の本人のPDFだけを加えます。成績通知は学年に応じた最新年度・最新学期の本人の資料を加えます。</p><button id="create" disabled>PDFを作成</button></section></div>
 <script>
-document.getElementById('check').addEventListener('click',()=>{document.getElementById('result').innerHTML='第1 柏の葉：高校案内 2027年度、北辰偏差値資料 2026年度<br>第2 国府台：該当資料なし<br>第3 叡明：高校案内・高校入試選抜基準・推薦基準 2027年度、北辰偏差値資料 2026年度<br>北辰個人成績票：2026年度の最新回<br>成績通知：2026年度前期';document.getElementById('create').disabled=false});
+document.getElementById('check').addEventListener('click',()=>{document.getElementById('result').innerHTML='第1 柏の葉：高校案内 2027年度、北辰偏差値資料 2026年度<br>第2 国府台：該当資料なし<br>第3 叡明：高校案内・私立推薦基準 2027年度、北辰偏差値資料 2026年度<br>北辰個人成績票：2026年度の最新回<br>成績通知：2026年度前期・南教室中3の43ページ';document.getElementById('create').disabled=false});
 document.getElementById('create').addEventListener('click',()=>{document.getElementById('result').textContent='PDFを作成しました。次にOneDriveへ保存します。'});
 </script>
 </html>
