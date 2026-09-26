@@ -6,7 +6,7 @@ import styles from './workspace.module.css';
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
 type Student = { number: string; name: string; grade: string; teacher: string; responses: Answer[] };
-type Manifest = { items: {label: string; source: string; staffOnly: boolean}[]; missing: string[]; pages: number; combinedUrl: string; guideUrl: string | null };
+type Manifest = { items: {label: string; source: string; staffOnly: boolean}[]; missing: string[]; pages: number; combinedUrl: string; guideUrl: string | null; saveUrl?: string };
 const helper = 'http://127.0.0.1:38473';
 
 export default function MaterialsDesk() {
@@ -16,6 +16,10 @@ export default function MaterialsDesk() {
   const [number, setNumber] = useState(''), [answerId, setAnswerId] = useState('');
   const [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   const [generationMessage, setGenerationMessage] = useState('');
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [savedFile, setSavedFile] = useState('');
+  const [cloudSynced, setCloudSynced] = useState(false);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
@@ -53,7 +57,7 @@ export default function MaterialsDesk() {
   }
   async function generate() {
     if (!selected || (selected.responses.length > 1 && !answer)) return;
-    setBusy(true); setGenerationMessage(''); setManifest(null);
+    setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null);
     try {
       let health: Response;
       try {
@@ -72,6 +76,18 @@ export default function MaterialsDesk() {
     } catch (error) { setGenerationMessage((error as Error).message || '面談資料アプリを確認してください。'); }
     finally { setBusy(false); }
   }
+  async function saveToOneDrive() {
+    if (!manifest?.saveUrl) return;
+    setSaveBusy(true); setSaveMessage('');
+    try {
+      const response = await fetch(`${helper}${manifest.saveUrl}`, { method: 'POST' });
+      const body = await response.json();
+      if (!response.ok) throw Error(body.error || 'OneDriveに保存できません。');
+      setSavedFile(`${body.folder}\\${body.filename}`);
+      setCloudSynced(Boolean(body.cloudSynced));
+    } catch (error) { setSaveMessage((error as Error).message || 'OneDriveへの保存を確認してください。'); }
+    finally { setSaveBusy(false); }
+  }
   return <main className={styles.page}>
     <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>
     {message && <p className={styles.error} role="status">{message}</p>}
@@ -82,7 +98,7 @@ export default function MaterialsDesk() {
     </form> : <>
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
         <label>氏名・学籍番号・学年・担任で検索<input value={query} onChange={event => setQuery(event.target.value)} placeholder="例：中3　工藤" /></label>
-        <label>生徒<select value={number} onChange={event => { const student = students.find(s => s.number === event.target.value); setNumber(event.target.value); setAnswerId(student?.responses.length === 1 ? student.responses[0].id : ''); setManifest(null); setGenerationMessage(''); }}>
+        <label>生徒<select value={number} onChange={event => { const student = students.find(s => s.number === event.target.value); setNumber(event.target.value); setAnswerId(student?.responses.length === 1 ? student.responses[0].id : ''); setManifest(null); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); }}>
           <option value="">選択してください</option>{visible.map(s => <option key={s.number} value={s.number}>{s.grade} {s.name} ／ {s.number} ／ {s.teacher || '担任未設定'}</option>)}
         </select></label>
       </section>
@@ -90,7 +106,7 @@ export default function MaterialsDesk() {
         {!selected.responses.length ? <p>今回の回答はありません。指導簿と見つかった模試資料を作ります。</p> : <>
           <p>回答が複数ある場合は、使う回答を先生が選択してください。</p>
           <div className={styles.answers}>{selected.responses.map((response, index) => <label key={response.id} className={styles.answer}>
-            <input type="radio" name="answer" checked={answerId === response.id} onChange={() => { setAnswerId(response.id); setManifest(null); setGenerationMessage(''); }} />
+            <input type="radio" name="answer" checked={answerId === response.id} onChange={() => { setAnswerId(response.id); setManifest(null); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); }} />
             <span>{index === 0 ? '最新' : `${index + 1}件目`} ／ {response.date || '日時不明'}<br />志望校：{response.schools.join('、') || '記載なし'}</span>
           </label>)}</div>
           {answer && <details><summary>選んだ回答の内容を確認</summary><dl>{answer.fields.map((field, index) => <div key={index}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl><a href={answer.url} target="_blank" rel="noreferrer">Notionの回答原本</a></details>}
@@ -102,13 +118,17 @@ export default function MaterialsDesk() {
       </section>}
       {manifest && <section className={styles.card}><h2>3. 資料を確認・印刷</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ</p>
-        <div className={styles.actions}><a className={styles.primary} href={`${helper}${manifest.combinedUrl}`} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a>
+        <div className={styles.actions}><button className={styles.primary} disabled={saveBusy || Boolean(savedFile) || !manifest.saveUrl} onClick={() => void saveToOneDrive()}>{saveBusy ? 'OneDriveに保存中…' : savedFile ? 'OneDriveに保存済み' : 'OneDriveに保存'}</button>
+          <a href={`${helper}${manifest.combinedUrl}`} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a>
           <a href={`${helper}${manifest.combinedUrl}?download=1`}>一式PDFを保存</a>
           {manifest.guideUrl && <><a href={`${helper}${manifest.guideUrl}`} target="_blank" rel="noreferrer">指導簿PDFを表示・印刷</a><a href={`${helper}${manifest.guideUrl}?download=1`}>指導簿PDFを保存</a></>}
         </div>
+        {!manifest.saveUrl && <p className={styles.note}>このPCの面談資料アプリを更新するとOneDriveへ直接保存できます。</p>}
+        {savedFile && <p role="status">{cloudSynced ? 'このPCとOneDriveのクラウドに保存しました' : 'このPCのOneDriveフォルダに保存しました'}：{savedFile}。{cloudSynced ? '別PC側の同期が完了すると開けます。' : '別PCで使う前にOneDriveの同期完了を確認してください。'}</p>}
+        {saveMessage && <p className={styles.error} role="alert">{saveMessage}</p>}
         <ol>{manifest.items.map((item, index) => <li key={index}>{item.label}{item.staffOnly && <strong className={styles.caution}>生徒には渡さない</strong>}</li>)}</ol>
         {manifest.missing.length > 0 && <div className={styles.missing}><h3>見つからなかった資料</h3><ul>{manifest.missing.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
-        <p className={styles.note}>PDFはこのPC内で約15分間だけ表示できます。必要な場合は保存してください。</p>
+        <p className={styles.note}>表示用PDFはこのPC内で約15分間だけ利用できます。残す資料はOneDriveに保存してください。</p>
       </section>}
     </>}
   </main>;

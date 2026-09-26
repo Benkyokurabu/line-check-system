@@ -5,7 +5,15 @@ $target = Join-Path $env:LOCALAPPDATA 'BentanInterviewMaterials'
 New-Item -ItemType Directory -Path $target -Force | Out-Null
 $destination = Join-Path $target 'BentanInterviewMaterials.exe'
 Get-Process -Name 'BentanInterviewMaterials' -ErrorAction SilentlyContinue | Stop-Process -Force
-Copy-Item -LiteralPath $source -Destination $destination -Force
+for ($attempt = 0; $attempt -lt 15; $attempt++) {
+  try {
+    Copy-Item -LiteralPath $source -Destination $destination -Force -ErrorAction Stop
+    break
+  } catch {
+    if ($attempt -eq 14) { throw }
+    Start-Sleep -Seconds 1
+  }
+}
 foreach ($name in @('sources.txt', 'guide-path.txt', 'export-guide.ps1')) {
   $file = Join-Path $PSScriptRoot $name
   if (-not (Test-Path -LiteralPath $file)) { throw "$name が見つかりません。" }

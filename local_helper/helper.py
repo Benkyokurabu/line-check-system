@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,8 +30,45 @@ ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) el
 CONFIG = ROOT / 'sources.txt'
 GUIDE_CONFIG = ROOT / 'guide-path.txt'
 SUFFIXES = {'.pdf', '.jpg', '.jpeg', '.png'}
-SESSIONS: dict[str, tuple[float, tempfile.TemporaryDirectory, dict]] = {}
+SESSIONS: dict[str, tuple[float, tempfile.TemporaryDirectory, dict, str]] = {}
 LOCK = threading.Lock()
+
+
+def save_bundle_to_onedrive(source: Path, student_number: str) -> Path:
+    onedrive = os.environ.get('OneDrive') or os.environ.get('OneDriveConsumer') or os.environ.get('OneDriveCommercial')
+    if not onedrive or not Path(onedrive).is_dir():
+        raise RuntimeError('このPCのOneDriveフォルダが見つかりません。OneDriveの接続を確認してください。')
+    destination = Path(onedrive) / '面談準備' / '保存済み資料'
+    destination.mkdir(parents=True, exist_ok=True)
+    filename = f'{time.strftime("%Y%m%d_%H%M%S")}_{student_number}_面談資料_{uuid.uuid4().hex[:8]}.pdf'
+    saved = destination / filename
+    partial = destination / f'.{filename}.partial'
+    try:
+        with source.open('rb') as incoming, partial.open('xb') as outgoing:
+            shutil.copyfileobj(incoming, outgoing)
+        os.replace(partial, saved)
+    finally:
+        partial.unlink(missing_ok=True)
+    return saved
+
+
+def sync_bundle_to_cloud(saved: Path) -> bool:
+    rclone = shutil.which('rclone')
+    if not rclone:
+        return False  # The OneDrive desktop app can sync the local folder instead.
+    try:
+        remotes = subprocess.run([rclone, 'listremotes'], capture_output=True, text=True, timeout=10,
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
+        if remotes.returncode or 'onedrive:' not in remotes.stdout.splitlines():
+            return False
+        upload = subprocess.run([rclone, 'copyto', str(saved), f'onedrive:面談準備/保存済み資料/{saved.name}'],
+                                capture_output=True, text=True, timeout=300,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+        if upload.returncode:
+            raise RuntimeError('OneDriveのクラウドへ送れませんでした。このPCの保存済みPDFは残っています。もう一度「OneDriveに保存」を押してください。')
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError('OneDriveのクラウドへの送信が時間切れになりました。もう一度「OneDriveに保存」を押してください。') from exc
+    return True
 
 
 def norm(value: str) -> str:
@@ -245,6 +283,8 @@ def make_bundle(payload: dict):
         if grade == '中3':
             common = [p for p in files(all_roots[0]) if p.parent == all_roots[0] and p.suffix.lower() == '.pdf']
             for path in common:
+                if any(term in norm(path.stem) for term in ('偏差値段階表', '偏差値基準')):
+                    continue
                 add('中3共通資料：' + path.name, path)
         school_files, school_missing = selected_schools(all_roots, schools)
         missing.extend(school_missing)
@@ -340,6 +380,36 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
+        save_match = re.fullmatch(r'/save/([a-f0-9]{32})', self.path)
+        if save_match:
+            if not self.allowed():
+                self.send_error(403)
+                return
+            with LOCK:
+                session = SESSIONS.get(save_match[1])
+                if not session or session[0] < time.time():
+                    self.reply(404, {'error': '資料の表示期限が切れました。もう一度作成してください。'})
+                    return
+                try:
+                    saved = session[2].get('savedPath')
+                    if not saved:
+                        saved = str(save_bundle_to_onedrive(Path(session[1].name) / 'staff-bundle.pdf', session[3]))
+                        session[2]['savedPath'] = saved
+                except Exception as exc:
+                    self.reply(422, {'error': str(exc)[:200]})
+                    return
+                cloud_synced = bool(session[2].get('cloudSynced'))
+            if not cloud_synced:
+                try:
+                    cloud_synced = sync_bundle_to_cloud(Path(saved))
+                except Exception as exc:
+                    self.reply(422, {'error': str(exc)[:200]})
+                    return
+                with LOCK:
+                    session[2]['cloudSynced'] = cloud_synced
+            self.reply(200, {'folder': str(Path(saved).parent), 'filename': Path(saved).name,
+                             'cloudSynced': cloud_synced})
+            return
         if self.path != '/generate' or not self.allowed() or self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
             self.send_error(403)
             return
@@ -354,9 +424,10 @@ class Handler(BaseHTTPRequestHandler):
                 expired = [key for key, value in SESSIONS.items() if value[0] < time.time()]
                 for key in expired:
                     SESSIONS.pop(key)[1].cleanup()
-                SESSIONS[token] = (time.time() + 900, folder, manifest)
+                SESSIONS[token] = (time.time() + 900, folder, manifest, str(payload['number']))
             self.reply(200, {**manifest, 'combinedUrl': f'/pdf/{token}/staff-bundle.pdf',
-                             'guideUrl': f'/pdf/{token}/guide.pdf' if manifest['hasGuide'] else None})
+                             'guideUrl': f'/pdf/{token}/guide.pdf' if manifest['hasGuide'] else None,
+                             'saveUrl': f'/save/{token}'})
         except Exception as exc:
             self.reply(422, {'error': str(exc)[:200]})
 
