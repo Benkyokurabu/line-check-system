@@ -16,6 +16,58 @@ from helper import hokushin, preview_schools, save_bundle_to_onedrive, school_na
 
 
 class MaterialSelectionTests(unittest.TestCase):
+    def test_preview_and_bundle_use_same_document_ids_and_only_selected_pages(self):
+        with tempfile.TemporaryDirectory() as folder:
+            roots = [Path(folder) / str(index) for index in range(9)]
+            for root in roots:
+                root.mkdir()
+            school = roots[3] / '2027年 叡明高校案内.pdf'
+            common = roots[0] / '中3共通.pdf'
+            for path in (school, common):
+                with fitz.open() as document:
+                    document.new_page().insert_text((50, 50), path.stem)
+                    document.save(path)
+            payload = {'number': '2018998', 'name': '架空 生徒', 'grade': '中3', 'schools': ['叡明'],
+                       'surveyExpected': True,
+                       'survey': {'date': '2026-09-12', 'fields': [{'label': '相談内容', 'value': '進路相談'}]}}
+            with patch('helper.roots', return_value=roots), \
+                    patch('helper.preview_hokushin', return_value={'found': False}), \
+                    patch('helper.preview_term_report', return_value={'found': False}), \
+                    patch('helper.vmogi', return_value=(None, None, None, None)):
+                preview = helper.preview_bundle(roots, payload)
+            ids = {item['id'] for item in preview['materials']}
+            self.assertIn('survey', ids)
+            self.assertIn(helper.material_id('school-3', school), ids)
+            self.assertIn(helper.material_id('common', common), ids)
+            payload['selectedMaterialIds'] = ['survey', helper.material_id('school-3', school)]
+            with patch('helper.roots', return_value=roots), patch('helper.guide_pdf') as guide, \
+                    patch('helper.hokushin') as north, patch('helper.vmogi') as vmogi_result, \
+                    patch('helper.term_report') as report:
+                generated, manifest = helper.make_bundle(payload)
+                try:
+                    labels = [item['label'] for item in manifest['items']]
+                    self.assertEqual(len(labels), 2)
+                    self.assertTrue(labels[0].startswith('面談アンケート回答'))
+                    self.assertIn('叡明', labels[1])
+                    self.assertEqual(manifest['pages'], 2)
+                    guide.assert_not_called()
+                    north.assert_not_called()
+                    vmogi_result.assert_not_called()
+                    report.assert_not_called()
+                finally:
+                    generated.cleanup()
+
+    def test_changed_or_unlisted_material_is_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            roots = [Path(folder) / str(index) for index in range(9)]
+            for root in roots:
+                root.mkdir()
+            payload = {'number': '2018998', 'name': '架空 生徒', 'grade': '小4', 'schools': [],
+                       'selectedMaterialIds': ['school-3:' + 'a' * 24]}
+            with patch('helper.roots', return_value=roots):
+                with self.assertRaisesRegex(RuntimeError, '再確認'):
+                    helper.make_bundle(payload)
+
     def test_selected_survey_answer_renders_all_fields_across_pages(self):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder) / 'survey.pdf'

@@ -199,6 +199,22 @@ def selected_schools(all_roots: list[Path], names: list[str]):
     return list(dict.fromkeys(selected)), missing
 
 
+def material_id(kind: str, path: Path) -> str:
+    """Opaque, stable identifier; never accept a browser-provided filesystem path."""
+    stat = path.stat()
+    identity = f'{kind}\0{str(path).casefold()}\0{stat.st_size}\0{stat.st_mtime_ns}'
+    digest = hashlib.sha256(identity.encode('utf-8')).hexdigest()[:24]
+    return kind + ':' + digest
+
+
+def common_materials(all_roots: list[Path], grade: str) -> list[Path]:
+    if grade != '中3':
+        return []
+    return [path for path in files(all_roots[0]) if path.parent == all_roots[0]
+            and path.suffix.lower() == '.pdf'
+            and not any(term in norm(path.stem) for term in ('偏差値段階表', '偏差値基準'))]
+
+
 def preview_schools(all_roots: list[Path], names: list[str]) -> list[dict]:
     if not names:
         return []
@@ -212,10 +228,49 @@ def preview_schools(all_roots: list[Path], names: list[str]) -> list[dict]:
             matches = matching_school_files(candidates, name, source_id)
             for path in matches:
                 year_match = re.search(r'(20\d{2})年(?:度|受験用)?', str(path)) or re.search(r'(20\d{2})', str(path))
-                found.append({'kind': labels[source_id], 'year': f'{year_match[1]}年度' if year_match else '年度不明',
-                              'filename': path.name})
+                found.append({'id': material_id(f'school-{source_id}', path), 'kind': labels[source_id],
+                              'year': f'{year_match[1]}年度' if year_match else '年度不明',
+                              'filename': path.name, 'staffOnly': source_id == 5})
         result.append({'rank': rank, 'surveyName': raw_name, 'name': name, 'found': bool(found), 'files': found})
     return result
+
+
+def preview_bundle(all_roots: list[Path], payload: dict) -> dict:
+    grade, name, number = (str(payload.get(key, '')) for key in ('grade', 'name', 'number'))
+    campus = str(payload.get('campus', ''))
+    schools = preview_schools(all_roots, payload['schools'])
+    materials = [{'id': 'guide', 'group': '生徒本人の資料', 'label': '指導簿', 'detail': 'この生徒のページを作成', 'staffOnly': False}]
+    if payload.get('surveyExpected'):
+        materials.append({'id': 'survey', 'group': '生徒本人の資料', 'label': '面談アンケート回答',
+                          'detail': '選択した回答を収録', 'staffOnly': False})
+    for path in common_materials(all_roots, grade):
+        materials.append({'id': material_id('common', path), 'group': '共通資料',
+                          'label': path.name, 'detail': '中3共通資料', 'staffOnly': False})
+    for school in schools:
+        for item in school['files']:
+            if any(existing['id'] == item['id'] for existing in materials):
+                continue
+            materials.append({'id': item['id'], 'group': '志望校の資料',
+                              'label': f"第{school['rank']}志望 {school['name']} ／ {item['kind']}",
+                              'detail': f"{item['year']} ／ {item['filename']}", 'staffOnly': item['staffOnly']})
+    north = preview_hokushin(all_roots, grade, name, number, campus)
+    if north['found']:
+        materials.append({'id': north['id'], 'group': '生徒本人の資料', 'label': '北辰の個人成績票',
+                          'detail': f"{north['year']} ／ {north['round']} ／ {north['filename']}", 'staffOnly': False})
+    report = preview_term_report(all_roots, grade, name, number, campus)
+    if report['found']:
+        materials.append({'id': report['id'], 'group': '生徒本人の資料', 'label': '成績通知の個人成績表',
+                          'detail': f"{report['year']}年度{report['term']} ／ {report['filename']} ／ 本人のページ",
+                          'staffOnly': False})
+    vmogi_result = {'found': False}
+    if grade in ('中2', '中3'):
+        book, _, _, error = vmogi(all_roots, number, name, grade)
+        vmogi_result = {'found': bool(book), 'filename': book.name if book else '', 'message': error}
+        if book:
+            materials.append({'id': material_id('vmogi', book), 'group': '生徒本人の資料', 'label': 'Vもぎの個人成績',
+                              'detail': book.name, 'staffOnly': False})
+    return {'schools': schools, 'hokushin': north, 'termReport': report, 'vmogi': vmogi_result,
+            'materials': materials}
 
 
 def latest_year_root(configured: Path) -> Path:
@@ -439,7 +494,7 @@ def preview_hokushin(all_roots: list[Path], grade: str, name: str, number: str, 
                 'message': error}
     source = hokushin_source(path)
     year = re.search(r'20\d{2}', str(source))
-    return {'found': True, 'year': f'{year[0]}年度' if year else '年度不明',
+    return {'found': True, 'id': material_id('hokushin', source), 'year': f'{year[0]}年度' if year else '年度不明',
             'round': source.parent.name, 'filename': source.name}
 
 
@@ -543,7 +598,7 @@ def preview_term_report(all_roots: list[Path], grade: str, name: str, number: st
     if not path:
         return {'found': False, 'message': error}
     match = re.search(r'(20\d{2})年度(前期|後期)成績通知', str(path))
-    return {'found': True, 'year': match[1] if match else '', 'term': match[2] if match else '',
+    return {'found': True, 'id': material_id('term-report', path), 'year': match[1] if match else '', 'term': match[2] if match else '',
             'filename': path.name, 'pages': [page + 1 for page in pages]}
 
 
@@ -697,6 +752,15 @@ def make_bundle(payload: dict):
         raise ValueError('生徒情報を確認してください。')
     if not isinstance(schools, list) or len(schools) > 6 or any(not isinstance(s, str) or len(s) > 80 for s in schools):
         raise ValueError('志望校を確認してください。')
+    selected_ids = payload.get('selectedMaterialIds')
+    if selected_ids is not None and (not isinstance(selected_ids, list) or not 1 <= len(selected_ids) <= 300
+                                     or any(not isinstance(value, str) or not re.fullmatch(r'[a-z0-9:-]{1,64}', value)
+                                            for value in selected_ids) or len(set(selected_ids)) != len(selected_ids)):
+        raise ValueError('印刷する資料の選択を確認してください。')
+    selected = set(selected_ids) if selected_ids is not None else None
+    added_ids = set()
+    wants = lambda item_id: selected is None or item_id in selected
+    wants_kind = lambda kind: selected is None or any(item.startswith(kind + ':') for item in selected)
     all_roots = roots()
     folder = tempfile.TemporaryDirectory(prefix='bentan-materials-')
     base = Path(folder.name)
@@ -704,66 +768,77 @@ def make_bundle(payload: dict):
     missing = []
     pdfs = []
 
-    def add(label, source, sensitive=False):
+    def add(label, source, sensitive=False, item_id=None):
         index = len(items)
         pdf = source_pdf(source, base / f'converted-{index}.pdf')
         PdfReader(str(pdf))  # Fail a damaged source before returning a successful bundle.
         pdfs.append(pdf)
         items.append({'label': label, 'source': str(source), 'staffOnly': sensitive})
+        if item_id:
+            added_ids.add(item_id)
 
     try:
         guide = base / 'guide.pdf'
-        try:
-            guide_pdf(number, name, guide)
-            add('指導簿', guide)
-        except Exception as exc:
-            missing.append(str(exc))
+        if wants('guide'):
+            try:
+                guide_pdf(number, name, guide)
+                add('指導簿', guide, item_id='guide')
+            except Exception as exc:
+                missing.append(str(exc))
         survey = payload.get('survey')
-        if survey is not None:
+        if survey is not None and wants('survey'):
             if not isinstance(survey, dict):
                 raise ValueError('アンケート回答の内容を確認してください')
             survey_output = base / 'survey.pdf'
             survey_pdf(survey, {'number': number, 'name': name, 'grade': grade}, survey_output)
-            add('面談アンケート回答：' + str(survey.get('date', '')), survey_output)
-        if grade == '中3':
-            common = [p for p in files(all_roots[0]) if p.parent == all_roots[0] and p.suffix.lower() == '.pdf']
-            for path in common:
-                if any(term in norm(path.stem) for term in ('偏差値段階表', '偏差値基準')):
-                    continue
-                add('中3共通資料：' + path.name, path)
+            add('面談アンケート回答：' + str(survey.get('date', '')), survey_output, item_id='survey')
+        for path in common_materials(all_roots, grade):
+            item_id = material_id('common', path)
+            if wants(item_id):
+                add('中3共通資料：' + path.name, path, item_id=item_id)
         school_files, school_missing = selected_schools(all_roots, schools)
         missing.extend(school_missing)
         for source_id, path in school_files:
+            item_id = material_id(f'school-{source_id}', path)
+            if not wants(item_id):
+                continue
             sensitive = source_id == 5
             label = f'{["", "", "", "高校案内", "選抜基準", "私立推薦基準", "北辰偏差値資料"][source_id]}：{path.name}'
             try:
-                add(label, path, sensitive)
+                add(label, path, sensitive, item_id=item_id)
             except Exception:
                 missing.append(label + '：PDF化できません')
-        if grade in ('中2', '中3'):
+        if grade in ('中2', '中3') and wants_kind('hokushin'):
             path, error = hokushin(all_roots, grade, name, number, str(payload.get('campus', '')))
             if path:
-                add('北辰：' + hokushin_source(path).parent.name, path)
+                item_id = material_id('hokushin', hokushin_source(path))
+                if wants(item_id):
+                    add('北辰：' + hokushin_source(path).parent.name, path, item_id=item_id)
             elif error:
                 if '索引を作成中' in error or '索引準備に失敗' in error:
                     raise RuntimeError(error)
                 missing.append(error)
+        if grade in ('中2', '中3') and wants_kind('vmogi'):
             book, headers, row, error = vmogi(all_roots, number, name, grade)
-            if book:
+            if book and wants(material_id('vmogi', book)):
                 target = base / 'vmogi.pdf'
                 vmogi_pdf(book, headers, row, target)
-                add('Vもぎ：' + book.name, target)
+                add('Vもぎ：' + book.name, target, item_id=material_id('vmogi', book))
             elif error:
                 missing.append(error)
-        report, report_pages_found, report_error = term_report(all_roots, grade, name, number, str(payload.get('campus', '')))
-        if report:
-            try:
-                selected_report = extract_report_pages(report, report_pages_found, base / 'term-report.pdf')
-                add('成績通知：' + report.parent.parent.name + '／' + report.name + '（本人のページ）', selected_report)
-            except Exception:
-                missing.append('成績通知：個人成績表をPDFにできませんでした')
-        elif report_error:
-            missing.append(report_error)
+        if wants_kind('term-report'):
+            report, report_pages_found, report_error = term_report(all_roots, grade, name, number, str(payload.get('campus', '')))
+            if report and wants(material_id('term-report', report)):
+                try:
+                    selected_report = extract_report_pages(report, report_pages_found, base / 'term-report.pdf')
+                    add('成績通知：' + report.parent.parent.name + '／' + report.name + '（本人のページ）', selected_report,
+                        item_id=material_id('term-report', report))
+                except Exception:
+                    missing.append('成績通知：個人成績表をPDFにできませんでした')
+            elif report_error:
+                missing.append(report_error)
+        if selected is not None and not selected.issubset(added_ids):
+            raise RuntimeError('選択した資料が更新・移動されたか、PDF化できませんでした。資料を再確認してください。')
         if not pdfs:
             raise RuntimeError('印刷できる資料が見つかりません')
         writer = PdfWriter()
@@ -851,14 +926,10 @@ class Handler(BaseHTTPRequestHandler):
                 all_roots = roots()
                 grade, name, number = (str(payload.get(key, '')) for key in ('grade', 'name', 'number'))
                 campus = str(payload.get('campus', ''))
-                INDEX_STATUS['previewStage'] = 'schools'
-                schools = preview_schools(all_roots, names)
-                INDEX_STATUS['previewStage'] = 'hokushin'
-                north = preview_hokushin(all_roots, grade, name, number, campus)
-                INDEX_STATUS['previewStage'] = 'termReport'
-                report = preview_term_report(all_roots, grade, name, number, campus)
+                INDEX_STATUS['previewStage'] = 'materials'
+                result = preview_bundle(all_roots, payload)
                 INDEX_STATUS['previewStage'] = 'done'
-                self.reply(200, {'schools': schools, 'hokushin': north, 'termReport': report})
+                self.reply(200, result)
             except Exception as exc:
                 self.reply(422, {'error': str(exc)[:200]})
             return
@@ -935,8 +1006,7 @@ if __name__ == '__main__':
                 for key in expired:
                     SESSIONS.pop(key)[1].cleanup()
     threading.Thread(target=cleanup_sessions, daemon=True).start()
-    worker = RemoteWorker(ROOT, roots, preview_schools, preview_hokushin,
-                          preview_term_report, make_bundle, save_bundle_to_onedrive,
+    worker = RemoteWorker(ROOT, roots, preview_bundle, make_bundle, save_bundle_to_onedrive,
                           sync_bundle_to_cloud, INDEX_STATUS)
     threading.Thread(target=worker.run, daemon=True).start()
     ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()

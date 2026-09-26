@@ -9,8 +9,8 @@ class RemoteWorkerTests(unittest.TestCase):
     def worker(self, root, make_bundle=None):
         return RemoteWorker(
             Path(root), lambda: [Path(root)],
-            lambda paths, schools: [{'rank': 1, 'name': schools[0], 'found': True, 'files': []}],
-            lambda *args: {'found': False}, lambda *args: {'found': False},
+            lambda paths, payload: {'schools': [{'rank': 1, 'name': payload['schools'][0], 'found': True, 'files': []}],
+                                    'materials': []},
             make_bundle or (lambda payload: None), lambda source, number: Path(root) / 'saved.pdf',
             lambda path: False, {'completed': 1},
         )

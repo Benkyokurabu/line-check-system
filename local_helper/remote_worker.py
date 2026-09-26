@@ -9,13 +9,10 @@ from urllib.request import Request, urlopen
 
 
 class RemoteWorker:
-    def __init__(self, root: Path, roots, preview_schools, preview_hokushin,
-                 preview_term_report, make_bundle, save_bundle, sync_bundle, index_status):
+    def __init__(self, root: Path, roots, preview_bundle, make_bundle, save_bundle, sync_bundle, index_status):
         self.config_path = root / 'worker.json'
         self.roots = roots
-        self.preview_schools = preview_schools
-        self.preview_hokushin = preview_hokushin
-        self.preview_term_report = preview_term_report
+        self.preview_bundle = preview_bundle
         self.make_bundle = make_bundle
         self.save_bundle = save_bundle
         self.sync_bundle = sync_bundle
@@ -82,13 +79,7 @@ class RemoteWorker:
         try:
             if job['kind'] == 'preview':
                 paths = self.roots()
-                grade, name, number = (str(payload.get(key, '')) for key in ('grade', 'name', 'number'))
-                campus = str(payload.get('campus', ''))
-                result = {
-                    'schools': self.preview_schools(paths, payload['schools']),
-                    'hokushin': self.preview_hokushin(paths, grade, name, number, campus),
-                    'termReport': self.preview_term_report(paths, grade, name, number, campus),
-                }
+                result = self.preview_bundle(paths, payload)
             else:
                 folder, manifest = self.make_bundle(payload)
                 try:
