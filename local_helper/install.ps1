@@ -19,6 +19,12 @@ foreach ($name in @('sources.txt', 'guide-path.txt', 'export-guide.ps1')) {
   if (-not (Test-Path -LiteralPath $file)) { throw "$name が見つかりません。" }
   Copy-Item -LiteralPath $file -Destination (Join-Path $target $name) -Force
 }
+$ocrSource = Join-Path $PSScriptRoot 'ocr'
+if (Test-Path -LiteralPath (Join-Path $ocrSource 'tesseract.exe')) {
+  $ocrTarget = Join-Path $target 'ocr'
+  New-Item -ItemType Directory -Path $ocrTarget -Force | Out-Null
+  Copy-Item -Path (Join-Path $ocrSource '*') -Destination $ocrTarget -Recurse -Force
+}
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 Set-ItemProperty -Path $runKey -Name 'BentanInterviewMaterials' -Value ('"' + $destination + '"')
 Start-Process -FilePath $destination -WindowStyle Hidden

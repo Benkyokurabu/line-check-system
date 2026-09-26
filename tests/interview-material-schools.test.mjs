@@ -13,3 +13,11 @@ test('extracts schools only from school answers and removes duplicates', () => {
 test('empty or undecided schools yield guide-only material selection', () => {
   assert.deepEqual(schoolsFromAnswer([{ label: '志望校', value: '未定、特になし' }]), []);
 });
+
+test('sorts shuffled survey fields by first, second, third choice and resolves Eimei', () => {
+  assert.deepEqual(schoolsFromAnswer([
+    { label: '第二志望校（任意回答）', value: '国府台' },
+    { label: '現状の第一志望校（任意回答）', value: '柏の葉' },
+    { label: '第三志望校（任意回答）', value: 'えいめい' },
+  ]), ['柏の葉', '国府台', '叡明']);
+});

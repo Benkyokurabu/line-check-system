@@ -9,10 +9,11 @@
 「一式PDFを保存」は従来どおりブラウザのダウンロード先へ保存します。資料の原本、実行ファイル、一時PDFはOneDriveの保存済み資料フォルダへコピーしません。
 
 中3共通資料のうち、一太郎の偏差値段階表（3ページの北辰偏差値基準資料）は面談用PDFに含めません。
+北辰個人成績票はNASの最新年度フォルダから各PC内の `hokushin-cache` にコピーし、日本語OCRの索引を起動時に作成・更新します。初回準備中はPDF作成を待ち、完了後は索引から最新回の本人のPDFを選びます。原本の一括コピーや索引はOneDriveへ送りません。もう一方のPCでも同じ準備が独立して走ります。
 
 ## 配布・設置
 
-配布フォルダに `BentanInterviewMaterials.exe`、`install.ps1`、`export-guide.ps1`、`sources.txt`、`guide-path.txt` を置き、各PCで `install.ps1` を一度実行します。`sources.txt` は `ばしょ.txt` の7行、`guide-path.txt` は指導簿原本のUNCパス1行です。現在のユーザーのローカルフォルダに設置し、Windowsログイン時の自動起動を登録します。ExcelとNASへのアクセスが必要です。
+配布フォルダに `BentanInterviewMaterials.exe`、`install.ps1`、`export-guide.ps1`、`sources.txt`、`guide-path.txt` を置き、各PCで `install.ps1` を一度実行します。`sources.txt` は `ばしょ.txt` の9行（中学部・小学部の成績通知を含む）、`guide-path.txt` は指導簿原本のUNCパス1行です。成績通知は学年に対応する保存先から、本人の最新年度・最新学期の個人成績表を選びます。校舎・学年ごとの複数ページPDFでは、学籍番号か氏名が一致する本人のページだけを取り出します。繰り返し検索するため、参照した原本は各PCの `report-cache` に保持し、NASの更新時に差し替えます。現在のユーザーのローカルフォルダに設置し、Windowsログイン時の自動起動を登録します。ExcelとNASへのアクセスが必要です。
 
 ## 更新
 
