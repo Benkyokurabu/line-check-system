@@ -2,19 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import styles from './workspace.module.css';
+import { materialDockLabel } from './material-dock-label';
 
-type Item = { label: string; previewUrl?: string };
+type Item = { label: string; source?: string; previewUrl?: string };
 type Props = { items: Item[]; pdfUrl: string; open: boolean; onClose: () => void };
-const dockLabel = (label: string) => /アンケート/.test(label) ? 'アンケート'
-  : /指導簿/.test(label) ? '指導簿'
-  : /晶文社|高校案内/.test(label) ? '晶文社'
-  : /実施内容|選抜基準|推薦基準/.test(label) ? '実施内容'
-  : /併願校|併願状況/.test(label) ? '併願校'
-  : /北辰基礎資料|北辰偏差値資料/.test(label) ? '北辰基礎資料'
-  : /北辰/.test(label) ? '北辰成績'
-  : /成績通知/.test(label) ? '塾内成績'
-  : /志望校/.test(label) ? '志望校'
-  : /Vもぎ/.test(label) ? 'Vもぎ' : '資料';
 const viewerUrl = (url: string) => `${url.split('#')[0]}#zoom=100&navpanes=0`;
 
 export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Props) {
@@ -50,7 +41,7 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Prop
           const next = (index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
           select(next);
           event.currentTarget.parentElement?.querySelectorAll('button')[next]?.focus();
-        }}><strong aria-hidden="true">{dockLabel(item.label)}</strong></button>)}
+        }}><strong aria-hidden="true">{materialDockLabel(item)}</strong></button>)}
       </nav>}
     </div>
     {!separate && items.length > 1 && <p className={styles.viewerLegacyNote}>このPDFは旧形式のため資料別の表示に対応していません。資料を作成し直すと、資料ごとに表示できます。</p>}

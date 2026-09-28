@@ -177,6 +177,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(saved[`${folderName}/面談資料.html`]).toContain('material-${index}.pdf#zoom=100&navpanes=0');
   expect(saved[`${folderName}/面談資料.html`]).toContain('staff-bundle.pdf#zoom=100&navpanes=0');
   expect(saved[`${folderName}/面談資料.html`]).toContain('面談アンケート回答');
+  expect(saved[`${folderName}/面談資料.html`]).toContain('"kind":"塾内成績"');
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);
 });

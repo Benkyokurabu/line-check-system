@@ -1,3 +1,5 @@
+import { materialDockLabel } from './material-dock-label';
+
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
 type FileHandle = { createWritable(): Promise<WritableFile> };
 type DirectoryHandle = {
@@ -7,7 +9,7 @@ type DirectoryHandle = {
 type DirectoryPicker = Window & {
   showDirectoryPicker?: (options: { mode: 'readwrite'; startIn: 'downloads'; id: string }) => Promise<DirectoryHandle>;
 };
-type Material = { label: string; previewUrl?: string };
+type Material = { label: string; source?: string; previewUrl?: string };
 
 export const canSaveOfflineFolder = () => typeof window !== 'undefined'
   && typeof (window as DirectoryPicker).showDirectoryPicker === 'function';
@@ -70,7 +72,7 @@ export async function saveInterviewFolder(
   const template = await templateResponse.text();
   if (!template.includes('__ITEMS_JSON__') || !template.includes('__STUDENT_NAME_JSON__'))
     throw Error('面談用画面を作成できませんでした。');
-  const html = template.replace('__ITEMS_JSON__', safeJson(items.map(item => ({ label: item.label }))))
+  const html = template.replace('__ITEMS_JSON__', safeJson(items.map(item => ({ label: item.label, kind: materialDockLabel(item) }))))
     .replace('__STUDENT_NAME_JSON__', safeJson(studentName));
   if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
   const folderName = `面談資料_${studentNumber}_${jobId.slice(0, 8)}_${Date.now().toString(36)}`;
