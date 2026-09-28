@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { assertStaffMutationOrigin, staffContext, staffErrorResponse, staffJsonBody, staffResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
-import { loadInterviewState } from '@/lib/interview-store';
+import { loadMaterialStudents } from '@/lib/interview-material-students';
 import { MATERIAL_BUCKET, online } from '@/lib/interview-material-worker';
 import { loadVerifiedSurveyAnswer } from '@/lib/interview-surveys-notion';
 
@@ -78,8 +78,8 @@ export async function POST(request: NextRequest) {
         || selectedMaterialIds.length > 300 || selectedMaterialIds.some(id => typeof id !== 'string' || !/^[a-z0-9:-]{1,64}$/.test(id))
         || new Set(selectedMaterialIds).size !== selectedMaterialIds.length))
       throw new InterviewError('入力内容を確認してください。', 400);
-    const state = await loadInterviewState(context.dataClient);
-    const student = state.students.find(row => String(row.student_number) === number && row.enrollment_status === 'current_roster');
+    const roster = await loadMaterialStudents(context.dataClient);
+    const student = roster.find(row => String(row.student_number) === number);
     if (!student || !/^(小[4-6]|中[1-3])$/.test(String(student.grade || ''))) throw new InterviewError('生徒を確認してください。', 404);
     const { data: workers, error: workerError } = await context.dataClient.from('interview_material_workers')
       .select('ready,last_seen_at');
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     if (!(workers || []).some(online)) throw new InterviewError('作成PCは停止中です。起動後にもう一度お試しください。', 503);
     let survey;
     if (kind === 'generate' && answerId && selectedMaterialIds?.includes('survey')) {
-      try { survey = await loadVerifiedSurveyAnswer(answerId, student, state.students); }
+      try { survey = await loadVerifiedSurveyAnswer(answerId, student, roster); }
       catch { throw new InterviewError('選択したアンケート回答を確認できませんでした。回答を選び直して、もう一度お試しください。', 409); }
     }
     const payload = { number, name: String(student.student_name), grade: String(student.grade), campus,

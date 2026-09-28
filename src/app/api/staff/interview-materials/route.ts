@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { staffContext, staffResponse, staffErrorResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
-import { loadInterviewState } from '@/lib/interview-store';
+import { loadMaterialStudents } from '@/lib/interview-material-students';
 import { loadInvitationSurveyResponses } from '@/lib/interview-surveys-notion';
 import { schoolsFromAnswer } from '@/lib/interview-material-schools.mjs';
 
@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
   try {
     context = await staffContext(request);
     if (!['admin', 'office', 'employee', 'teacher'].includes(context.staff.role)) throw new InterviewError('職員の権限を確認してください。', 403);
-    const state = await loadInterviewState(context.dataClient);
-    const survey = await loadInvitationSurveyResponses(state.students);
+    const roster = await loadMaterialStudents(context.dataClient);
+    const survey = await loadInvitationSurveyResponses(roster);
     const byNumber = new Map<string, Array<{ id: string; date: string; schools: string[]; fields: unknown[]; url: string }>>();
     for (const row of survey.rows) {
       if (row.link_status !== 'linked' || !row.student_number || !row.page_id) continue;
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       responses.push({ id: String(row.page_id), date: String(row.answered_at ?? ''), schools: schoolsFromAnswer(fields), fields, url: String(row.notion_url ?? '') });
       byNumber.set(number, responses);
     }
-    const students = state.students.filter(s => s.enrollment_status === 'current_roster' && /^(小[4-6]|中[1-3])$/.test(String(s.grade ?? ''))).map(s => ({
+    const students = roster.map(s => ({
       number: String(s.student_number ?? ''), name: String(s.student_name ?? ''), grade: String(s.grade ?? ''),
       teacher: String(s.homeroom_teacher ?? ''),
       responses: (byNumber.get(String(s.student_number ?? '')) ?? []).sort((a, b) => b.date.localeCompare(a.date)),

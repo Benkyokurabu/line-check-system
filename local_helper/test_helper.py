@@ -399,6 +399,24 @@ class MaterialSelectionTests(unittest.TestCase):
             self.assertEqual(path, target)
             self.assertEqual(pages, [0])
 
+    def test_report_page_match_is_reused_until_source_changes(self):
+        from reportlab.pdfgen import canvas
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            source = base / 'class.pdf'
+            document = canvas.Canvas(str(source))
+            document.drawString(40, 800, '2018999')
+            document.save()
+            with patch('helper.ROOT', base / 'app'), patch('helper.fitz.open', wraps=fitz.open) as opened:
+                self.assertEqual(helper.report_pages(source, '山田太郎', '2018999'), [0])
+                self.assertEqual(helper.report_pages(source, '山田太郎', '2018999'), [0])
+                self.assertEqual(opened.call_count, 1)
+                document = canvas.Canvas(str(source))
+                document.drawString(40, 800, '2018000 changed')
+                document.save()
+                self.assertEqual(helper.report_pages(source, '山田太郎', '2018999'), [])
+                self.assertEqual(opened.call_count, 2)
+
     def test_term_report_extracts_only_matching_student_page_from_class_pdf(self):
         from reportlab.pdfgen import canvas
         with tempfile.TemporaryDirectory() as folder:

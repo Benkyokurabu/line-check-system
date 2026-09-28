@@ -37,6 +37,7 @@ SUFFIXES = {'.pdf', '.jpg', '.jpeg', '.png'}
 SESSIONS: dict[str, tuple[float, tempfile.TemporaryDirectory, dict, str]] = {}
 LOCK = threading.Lock()
 OCR_CACHE: dict[str, tuple[int, float, str]] = {}
+REPORT_PAGE_CACHE: dict[tuple[str, int, int, str, str], tuple[int, ...]] = {}
 INDEX_FILE = ROOT / 'hokushin-index.json'
 INDEX_STATUS = {'running': False, 'completed': 0, 'total': 0, 'year': ''}
 
@@ -531,6 +532,23 @@ def local_report(path: Path) -> Path:
 
 
 def report_pages(path: Path, name: str, number: str) -> list[int]:
+    # A preview and its subsequent PDF job examine the same source. Cache both
+    # matches and misses in this process, but never reuse them after a NAS update.
+    stat = path.stat()
+    key = (str(path).casefold(), stat.st_size, stat.st_mtime_ns, norm(name), number)
+    with LOCK:
+        cached = REPORT_PAGE_CACHE.get(key)
+    if cached is not None:
+        return list(cached)
+    pages = _scan_report_pages(path, name, number)
+    with LOCK:
+        if len(REPORT_PAGE_CACHE) >= 1024:
+            REPORT_PAGE_CACHE.pop(next(iter(REPORT_PAGE_CACHE)))
+        REPORT_PAGE_CACHE[key] = tuple(pages)
+    return pages
+
+
+def _scan_report_pages(path: Path, name: str, number: str) -> list[int]:
     local = local_report(path)
     name_key = norm(name)
     if local.suffix.lower() != '.pdf':
