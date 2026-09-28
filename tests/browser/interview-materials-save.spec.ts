@@ -181,21 +181,15 @@ test('when both creation PCs are offline the page prevents new work and can refr
   await expect(page.getByRole('button', { name: '資料を作る' })).toBeEnabled();
 });
 
-test('a completed job can be reopened after reloading the page', async ({ page }) => {
+test('recent creation requests are hidden from the materials page', async ({ page }) => {
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
-  await page.route('**/api/staff/interview-material-jobs**', route => {
-    const url = new URL(route.request().url());
-    if (!url.searchParams.has('id')) return route.fulfill({ json: { available: [], recent: [
+  await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: [], recent: [
       { id: 'saved-id', status: 'completed', number: student.number, name: student.name, createdAt: '2026-09-26' },
-    ] } });
-    return route.fulfill({ json: { job: { status: 'completed', pdfUrl: 'https://example.com/reopened.pdf', result: {
-      items: [], missing: [], pages: 12, savedPath: 'C:\\OneDrive\\sample.pdf', cloudSynced: false,
-    } } } });
-  });
+    ] } }));
   await page.goto('/staff/interview-materials');
-  await page.getByRole('button', { name: 'PDFを再表示' }).click();
-  await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/reopened.pdf#zoom=100&navpanes=0');
+  await expect(page.getByRole('heading', { name: '1. 生徒を選ぶ' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '最近の作成依頼' })).toHaveCount(0);
 });
 
 test('a same-origin network failure gives a usable message', async ({ page }) => {

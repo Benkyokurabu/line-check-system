@@ -14,7 +14,6 @@ type SchoolPreview = { rank: number; surveyName: string; name: string; found: bo
 type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; round?: string; filename?: string; message?: string };
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
 type MaterialChoice = { id: string; group: string; label: string; detail: string; staffOnly: boolean };
-type RecentJob = { id: string; status: string; number: string; name: string; createdAt: string };
 const searchable = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s/g, '');
 const answerKey = (value: string) => value.replaceAll('-', '').toLowerCase();
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
@@ -52,7 +51,6 @@ export default function MaterialsDesk() {
   const [folderFailed, setFolderFailed] = useState(false);
   const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
   const [workerOnline, setWorkerOnline] = useState(false);
-  const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
   const campusValue = answer?.fields.find(field => field.label === '所属校舎')?.value.trim() || '';
@@ -85,7 +83,6 @@ export default function MaterialsDesk() {
       const standby = available && workerBody.available.some((worker: { priority: number }) => worker.priority === 2);
       setWorkerStatus(primary && standby ? '主担当PCと予備PCが稼働中です' : primary ? '主担当PCが稼働中です' : standby
         ? '予備PCが稼働中です。主担当PCの代わりに作成できます。' : '作成PCは停止中です。起動後に利用できます。');
-      setRecentJobs(Array.isArray(workerBody.recent) ? workerBody.recent : []);
     } catch { setWorkerOnline(false); setWorkerStatus('作成PCの稼働状況を確認できません。'); }
   }, []);
   const load = useCallback(async () => {
@@ -188,23 +185,6 @@ export default function MaterialsDesk() {
     } catch (error) { setGenerationMessage(requestError(error)); }
     finally { setBusy(false); }
   }
-  async function restoreJob(id: string) {
-    setMessage('');
-    try {
-      const response = await fetch(`/api/staff/interview-material-jobs?id=${id}`, { cache: 'no-store' });
-      const body = await response.json();
-      if (!response.ok || body.job?.status !== 'completed') throw Error(body.error || body.job?.error || 'まだPDFを開けません。');
-      setManifest(body.job.result);
-      setViewerOpen(Boolean(body.job.pdfUrl));
-      setPdfUrl(body.job.pdfUrl || '');
-      const recent = recentJobs.find(job => job.id === id);
-      setFolderJob(recent ? { id, number: recent.number, name: recent.name } : null);
-      setFolderMessage('');
-      setSavedFile(body.job.result.savedPath || '');
-      setCloudSynced(Boolean(body.job.result.cloudSynced));
-      setSaveMessage(body.job.result.saveError || '');
-    } catch (error) { setMessage(requestError(error)); }
-  }
   async function saveFolder() {
     if (!folderJob || folderBusy) return;
     setFolderBusy(true); setFolderFailed(false); setFolderMessage('');
@@ -225,10 +205,6 @@ export default function MaterialsDesk() {
       <button disabled={busy || loginTeachers.length === 0}>ログイン</button>
     </form> : <>
       <p role="status" className={styles.note}>{workerStatus} <button type="button" onClick={() => void refreshWorkers()}>稼働状況を再確認</button></p>
-      {recentJobs.length > 0 && <section className={styles.card}><h2>最近の作成依頼</h2>
-        <ul>{recentJobs.map(job => <li key={job.id}>{job.name}（{job.number}）／{job.status === 'completed' ? '完成' : job.status === 'failed' ? '失敗' : '作成中'}{' '}
-          {job.status === 'completed' && <button type="button" onClick={() => void restoreJob(job.id)}>PDFを再表示</button>}</li>)}</ul>
-      </section>}
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
         <div className={styles.studentFilters}>
           <label>担任<select value={teacherFilter} onChange={event => { setTeacherFilter(event.target.value); setDisplayLimit(30); }}><option value="">すべての担任</option>{teachers.map(teacher => <option key={teacher} value={teacher}>{teacher}先生</option>)}</select></label>
