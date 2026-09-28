@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>面談資料・完成後の操作</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:24px 16px;background:#f3f7f6;color:#172735;font-family:system-ui,"Yu Gothic",sans-serif}.card{max-width:760px;margin:auto;padding:24px;border:1px solid #d5e2e3;border-radius:14px;background:#fff;box-shadow:0 3px 16px #17333d0a}h1{font-size:1.25rem;margin:0 0 12px}p{line-height:1.6}.choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0}.choices button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;min-height:86px;padding:10px 6px;border:2px solid #07586b;border-radius:12px;background:#fff;color:#07586b;font:inherit;cursor:pointer}.choices button:hover,.choices button[aria-expanded=true]{background:#e6f4ef}.choices strong{font-size:1.1rem}.choices span{font-size:.73rem}.menu{padding:15px;border:1px solid #b6d0ca;border-radius:12px;background:#f4faf8}.menu[hidden]{display:none}.menu>strong{display:block;margin-bottom:10px}.menu div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.menu button{display:flex;flex-direction:column;gap:4px;min-height:70px;padding:11px 16px;border:1px solid #07586b;border-radius:8px;background:#fff;color:#07586b;font:inherit;font-weight:700;text-align:left;cursor:pointer}.menu small{font-weight:400}.note{color:#536870;font-size:.9rem}button:focus-visible{outline:3px solid #147b83;outline-offset:2px}@media(max-width:560px){.card{padding:18px}.choices{gap:6px}.choices button{min-height:78px;padding:8px 3px}.choices strong{font-size:.93rem}.choices span{font-size:.68rem}.menu div{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <section class="card" aria-label="面談資料の完成後の操作">
+    <h1>3. 完成した資料を使う</h1>
+    <p>4点 ／ 計6ページ。使い方を選んでください。</p>
+    <div class="choices" role="group" aria-label="完成した面談資料の使い方">
+      <button type="button" data-action="print"><strong>印刷</strong><span>一式PDFを開く</span></button>
+      <button type="button" data-action="screen"><strong>画面で見る</strong><span>資料を切り替える</span></button>
+      <button type="button" id="download" aria-controls="options" aria-expanded="false"><strong>DL</strong><span>PDF・フォルダ</span></button>
+    </div>
+    <div id="options" class="menu" hidden>
+      <strong>保存する形式を選ぶ</strong>
+      <div><button type="button" data-action="pdf">一式PDFをダウンロード<small>印刷にも使える1つのPDF</small></button><button type="button" data-action="folder">面談用フォルダを保存<small>面談資料.html とPDF一式</small></button></div>
+      <p class="note">フォルダ保存では保存先を選びます。面談中はフォルダ内の「面談資料.html」を開きます。</p>
+    </div>
+    <p id="message" class="note" role="status">この画面は操作配置を確認するための見本です。</p>
+  </section>
+  <script>
+    const button=document.getElementById('download'),options=document.getElementById('options'),message=document.getElementById('message');
+    button.addEventListener('click',()=>{options.hidden=!options.hidden;button.setAttribute('aria-expanded',String(!options.hidden));});
+    document.querySelectorAll('[data-action]').forEach(item=>item.addEventListener('click',()=>{message.textContent=`「${item.textContent.trim()}」を選びました。実際の画面では資料が開くか保存されます。`;}));
+  </script>
+</body>
+</html>

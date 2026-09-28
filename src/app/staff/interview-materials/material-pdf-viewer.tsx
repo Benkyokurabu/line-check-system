@@ -5,7 +5,16 @@ import styles from './workspace.module.css';
 
 type Item = { label: string; previewUrl?: string };
 type Props = { items: Item[]; pdfUrl: string; open: boolean; onClose: () => void };
-const dockLabel = (label: string) => /アンケート/.test(label) ? 'アンケート' : /指導簿/.test(label) ? '指導簿' : /北辰/.test(label) ? '北辰' : /成績通知/.test(label) ? '塾内成績' : /高校案内|基準|志望校/.test(label) ? '志望校' : /Vもぎ/.test(label) ? 'Vもぎ' : '資料';
+const dockLabel = (label: string) => /アンケート/.test(label) ? 'アンケート'
+  : /指導簿/.test(label) ? '指導簿'
+  : /晶文社|高校案内/.test(label) ? '晶文社'
+  : /実施内容|選抜基準|推薦基準/.test(label) ? '実施内容'
+  : /併願校|併願状況/.test(label) ? '併願校'
+  : /北辰基礎資料|北辰偏差値資料/.test(label) ? '北辰基礎資料'
+  : /北辰/.test(label) ? '北辰成績'
+  : /成績通知/.test(label) ? '塾内成績'
+  : /志望校/.test(label) ? '志望校'
+  : /Vもぎ/.test(label) ? 'Vもぎ' : '資料';
 const viewerUrl = (url: string) => `${url.split('#')[0]}#zoom=100&navpanes=0`;
 
 export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Props) {
@@ -35,7 +44,7 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Prop
     <div className={styles.viewerBody}>
       {separate ? items.map((item, index) => cached.includes(index) && <iframe key={index} className={styles.viewerFrame} data-active={active === index ? 'true' : 'false'} src={viewerUrl(item.previewUrl!)} title={`${item.label}のPDFプレビュー`} tabIndex={active === index && open ? 0 : -1} aria-hidden={active !== index || !open} />) : <iframe className={styles.viewerFrame} data-active="true" src={viewerUrl(pdfUrl)} title="一式PDFプレビュー" tabIndex={open ? 0 : -1} />}
       {separate && items.length > 1 && <nav className={styles.viewerDock} aria-label="資料を切り替える">
-        {items.map((item, index) => <button key={index} type="button" className={styles.viewerDockButton} data-label={item.label} data-near={hovered !== null && Math.abs(index - hovered) === 1 ? 'true' : undefined} title={item.label} aria-label={`${item.label}を表示`} aria-pressed={active === index} onMouseEnter={() => { setHovered(index); select(index); }} onMouseLeave={() => setHovered(null)} onFocus={() => select(index)} onClick={() => select(index)} onKeyDown={event => {
+        {items.map((item, index) => <button key={index} type="button" className={styles.viewerDockButton} data-label={item.label} data-near={hovered !== null && Math.abs(index - hovered) === 1 ? 'true' : undefined} title={item.label} aria-label={`${item.label}を表示`} aria-pressed={active === index} onMouseMove={() => { setHovered(index); select(index); }} onMouseLeave={() => setHovered(null)} onFocus={() => select(index)} onClick={() => select(index)} onKeyDown={event => {
           if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
           event.preventDefault();
           const next = (index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;

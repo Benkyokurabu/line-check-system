@@ -245,6 +245,31 @@ class MaterialSelectionTests(unittest.TestCase):
             self.assertEqual([row['files'][0]['year'] for row in preview], ['2027年度', '2026年度'])
             self.assertEqual(len(preview[0]['files']), 1)
 
+    def test_concurrent_school_pdf_is_a_separate_material(self):
+        with tempfile.TemporaryDirectory() as folder:
+            roots = [Path(folder) / str(index) for index in range(9)]
+            for root in roots:
+                root.mkdir()
+            roots[6] = Path(folder) / '2026年★高校別【北辰偏差値】基礎資料'
+            roots[6].mkdir()
+            (roots[6] / '浦和西（偏差値）.jpg').touch()
+            concurrent = Path(folder) / '2027年★高校別【北辰併願状況】基礎資料'
+            concurrent.mkdir()
+            (concurrent / '浦和西_共学.pdf').touch()
+            (concurrent / '浦和北_共学.pdf').touch()
+            (concurrent / '市立浦和_共学.pdf').touch()
+            with patch.object(helper, 'files', wraps=helper.files) as scan:
+                preview = preview_schools(roots, ['浦和西'])
+                scans_after_preview = scan.call_count
+                selected, missing = selected_schools(roots, ['浦和西'])
+                self.assertEqual(scan.call_count, scans_after_preview)
+            self.assertFalse(missing)
+            self.assertEqual([source_id for source_id, _ in selected], [6, 7])
+            self.assertEqual([item['kind'] for item in preview[0]['files']], ['北辰基礎資料', '併願校'])
+            self.assertEqual(preview[0]['files'][1]['year'], '2027年度')
+            self.assertEqual([path.name for path in helper.matching_school_files(
+                helper.school_source_files(roots[6], 7), '浦和', 7)], [])
+
     def test_selection_standards_are_included_only_for_confirmed_school(self):
         with tempfile.TemporaryDirectory() as folder:
             roots = [Path(folder) / str(index) for index in range(9)]

@@ -1,9 +1,9 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import styles from './workspace.module.css';
 import MaterialPdfViewer from './material-pdf-viewer';
-import { canSaveOfflineFolder, saveInterviewFolder } from './save-offline-folder';
+import { canSaveOfflineFolder, downloadInterviewPdf, saveInterviewFolder } from './save-offline-folder';
 
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
@@ -44,11 +44,14 @@ export default function MaterialsDesk() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
+  const resultRef = useRef<HTMLElement>(null);
   const folderSupported = useSyncExternalStore(subscribeToBrowserSupport, canSaveOfflineFolder, () => false);
   const [folderJob, setFolderJob] = useState<{ id: string; number: string; name: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
-  const [folderMessage, setFolderMessage] = useState('');
-  const [folderFailed, setFolderFailed] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState('');
+  const [downloadFailed, setDownloadFailed] = useState(false);
   const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
   const [workerOnline, setWorkerOnline] = useState(false);
   const selected = students.find(s => s.number === number);
@@ -70,8 +73,12 @@ export default function MaterialsDesk() {
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
     setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
     setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setPreviewMessage('');
-    setManifest(null); setPdfUrl(''); setViewerOpen(false); setFolderJob(null); setFolderMessage(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
+    setManifest(null); setPdfUrl(''); setViewerOpen(false); setFolderJob(null); setDownloadOpen(false); setDownloadMessage(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
   }, []);
+
+  useEffect(() => {
+    if (manifest && pdfUrl) resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [manifest, pdfUrl]);
 
   const refreshWorkers = useCallback(async () => {
     try {
@@ -156,7 +163,7 @@ export default function MaterialsDesk() {
   }
   async function checkMaterials() {
     if (!selected || (selected.responses.length > 1 && !answer)) return;
-    setPreviewBusy(true); setPreviewMessage(''); setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null);
+    setPreviewBusy(true); setPreviewMessage(''); setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); setPdfUrl(''); setFolderJob(null); setDownloadOpen(false); setDownloadMessage('');
     try {
       const job = await submitJob('preview');
       setPreview(job.result.schools);
@@ -171,11 +178,11 @@ export default function MaterialsDesk() {
   }
   async function generate() {
     if (!selected || !preview || selectedMaterialIds.length === 0 || (selected.responses.length > 1 && !answer)) return;
-    setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null); setFolderJob(null); setFolderMessage('');
+    setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null); setFolderJob(null); setDownloadOpen(false); setDownloadMessage('');
     try {
       const job = await submitJob('generate');
       setManifest(job.result);
-      setViewerOpen(Boolean(job.pdfUrl));
+      setViewerOpen(false);
       setPdfUrl(job.pdfUrl || '');
       setFolderJob({ id: job.id, number: selected.number, name: selected.name });
       setSavedFile(job.result.savedPath || '');
@@ -185,15 +192,24 @@ export default function MaterialsDesk() {
     } catch (error) { setGenerationMessage(requestError(error)); }
     finally { setBusy(false); }
   }
-  async function saveFolder() {
-    if (!folderJob || folderBusy) return;
-    setFolderBusy(true); setFolderFailed(false); setFolderMessage('');
+  async function savePdf() {
+    if (!folderJob || downloadBusy || folderBusy) return;
+    setDownloadBusy(true); setDownloadFailed(false); setDownloadMessage('一式PDFを保存しています…');
     try {
-      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, setFolderMessage);
-      setFolderMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
+      const name = await downloadInterviewPdf(folderJob.id, folderJob.number);
+      setDownloadMessage(`「${name}」をダウンロードしました。`);
+    } catch (error) { setDownloadFailed(true); setDownloadMessage(requestError(error)); }
+    finally { setDownloadBusy(false); }
+  }
+  async function saveFolder() {
+    if (!folderJob || folderBusy || downloadBusy) return;
+    setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
+    try {
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, setDownloadMessage);
+      setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') setFolderMessage('保存を取り消しました。');
-      else { setFolderFailed(true); setFolderMessage(requestError(error)); }
+      if (error instanceof DOMException && error.name === 'AbortError') setDownloadMessage('保存を取り消しました。');
+      else { setDownloadFailed(true); setDownloadMessage(requestError(error)); }
     } finally { setFolderBusy(false); }
   }
   return <main className={styles.page}>
@@ -220,7 +236,7 @@ export default function MaterialsDesk() {
         {!selected.responses.length ? <p>今回の回答はありません。指導簿と見つかった模試資料を作ります。</p> : <>
           <p>回答が複数ある場合は、使う回答を先生が選択してください。</p>
           <div className={styles.answers}>{selected.responses.map((response, index) => <label key={response.id} className={styles.answer}>
-            <input type="radio" name="answer" checked={answerId === response.id} onChange={() => { setAnswerId(response.id); setSchoolNames(suggestedSchools(response.schools)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setPreviewMessage(''); setManifest(null); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); }} />
+            <input type="radio" name="answer" checked={answerId === response.id} onChange={() => { setAnswerId(response.id); setSchoolNames(suggestedSchools(response.schools)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setPreviewMessage(''); setManifest(null); setPdfUrl(''); setFolderJob(null); setDownloadOpen(false); setDownloadMessage(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); }} />
             <span>{index === 0 ? '最新' : `${index + 1}件目`} ／ {response.date || '日時不明'}<br />志望校：{response.schools.join('、') || '記載なし'}</span>
           </label>)}</div>
           {answer && <div className={styles.reviewGrid}>
@@ -261,16 +277,22 @@ export default function MaterialsDesk() {
         {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
         <p className={styles.note}>NASで資料の有無と年度を確認してからPDFを作成します。アンケート回答も最初から印刷対象に選ばれています。</p>
       </section>}
-      {manifest && <section className={styles.card}><h2>3. 資料を確認・印刷</h2>
-        <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ</p>
-        {pdfUrl && <button type="button" className={styles.primary} onClick={() => setViewerOpen(true)}>画面いっぱいでPDFを確認</button>}
-        <div className={styles.actions}>
-          {pdfUrl && <><a href={`${pdfUrl.split('#')[0]}#zoom=100&navpanes=0`} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a><a href={pdfUrl} download>一式PDFを保存</a></>}
-          {pdfUrl && folderJob && manifest.items.every(item => item.previewUrl) && <button type="button" disabled={!folderSupported || folderBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダに保存'}</button>}
-        </div>
-        {pdfUrl && folderJob && manifest.items.every(item => item.previewUrl) && folderSupported && <p className={styles.note}>「面談用フォルダに保存」を押して保存先を選ぶと、その中に資料一式のフォルダができます。面談中はフォルダ内の「面談資料.html」を開いてください。</p>}
-        {pdfUrl && folderJob && manifest.items.every(item => item.previewUrl) && !folderSupported && <p className={styles.note}>フォルダ保存はChromeまたはEdgeで利用できます。</p>}
-        {folderMessage && <p role="status" className={folderFailed ? styles.error : styles.note}>{folderMessage}</p>}
+      {manifest && <section className={`${styles.card} ${styles.resultCard}`} ref={resultRef}><h2>3. 完成した資料を使う</h2>
+        <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ。使い方を選んでください。</p>
+        {pdfUrl && <div className={styles.resultChoices} role="group" aria-label="完成した面談資料の使い方">
+          <a className={styles.resultChoice} href={`${pdfUrl.split('#')[0]}#zoom=100&navpanes=0`} target="_blank" rel="noreferrer" aria-label="印刷用の一式PDFを開く"><strong>印刷</strong><span>一式PDFを開く</span></a>
+          <button type="button" className={styles.resultChoice} onClick={() => { setDownloadOpen(false); setViewerOpen(true); }}><strong>画面で見る</strong><span>資料を切り替える</span></button>
+          <button type="button" className={styles.resultChoice} aria-expanded={downloadOpen} aria-controls="interview-download-options" onClick={() => setDownloadOpen(open => !open)}><strong>DL</strong><span>PDF・フォルダ</span></button>
+        </div>}
+        {pdfUrl && downloadOpen && <div id="interview-download-options" className={styles.downloadOptions}>
+          <strong>保存する形式を選ぶ</strong>
+          <div className={styles.downloadActions}>
+            <button type="button" disabled={!folderJob || downloadBusy || folderBusy} onClick={() => void savePdf()}>{downloadBusy ? '一式PDFを保存中…' : '一式PDFをダウンロード'}<small>印刷にも使える1つのPDF</small></button>
+            <button type="button" disabled={!folderJob || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダを保存'}<small>面談資料.html とPDF一式</small></button>
+          </div>
+          <p className={styles.note}>{folderSupported ? 'フォルダ保存では保存先を選びます。面談中はフォルダ内の「面談資料.html」を開いてください。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
+        </div>}
+        {downloadMessage && <p role="status" className={downloadFailed ? styles.error : styles.note}>{downloadMessage}</p>}
         {savedFile && <p role="status">{cloudSynced ? '作成PCとOneDriveのクラウドに保存しました' : '作成PCのOneDriveフォルダに保存しました'}：{savedFile}。別PCで開く前にOneDriveの同期完了を確認してください。</p>}
         {saveMessage && <p className={styles.error} role="alert">{saveMessage}</p>}
         <ol>{manifest.items.map((item, index) => <li key={index}>{item.label}{item.staffOnly && <strong className={styles.caution}>生徒には渡さない</strong>}</li>)}</ol>

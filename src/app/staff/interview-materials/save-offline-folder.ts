@@ -31,6 +31,25 @@ async function fetchPdf(url: string): Promise<Blob> {
   return pdf;
 }
 
+export async function downloadInterviewPdf(jobId: string, studentNumber: string): Promise<string> {
+  if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
+  const response = await fetch(`/api/staff/interview-material-jobs?id=${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+  if (!response.ok) throw Error('一式PDFを取得できませんでした。もう一度お試しください。');
+  const { job } = await response.json();
+  if (job?.status !== 'completed' || !job.pdfUrl) throw Error('一式PDFを取得できませんでした。資料を作成し直してください。');
+  const pdf = await fetchPdf(job.pdfUrl);
+  const name = `面談資料_${studentNumber}_${jobId.slice(0, 8)}.pdf`;
+  const objectUrl = URL.createObjectURL(pdf);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  return name;
+}
+
 export async function saveInterviewFolder(
   jobId: string, studentNumber: string, studentName: string, onProgress: (message: string) => void,
 ): Promise<string> {

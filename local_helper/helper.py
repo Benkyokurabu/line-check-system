@@ -38,6 +38,9 @@ SESSIONS: dict[str, tuple[float, tempfile.TemporaryDirectory, dict, str]] = {}
 LOCK = threading.Lock()
 OCR_CACHE: dict[str, tuple[int, float, str]] = {}
 REPORT_PAGE_CACHE: dict[tuple[str, int, int, str, str], tuple[int, ...]] = {}
+SCHOOL_FILE_CACHE: dict[tuple[int, str], tuple[float, list[Path]]] = {}
+SCHOOL_FILE_CACHE_LOCK = threading.Lock()
+SCHOOL_FILE_CACHE_SECONDS = 120
 INDEX_FILE = ROOT / 'hokushin-index.json'
 INDEX_STATUS = {'running': False, 'completed': 0, 'total': 0, 'year': ''}
 
@@ -142,19 +145,53 @@ def school_deviation_roots(configured: Path) -> list[Path]:
     return ranked if configured in ranked else ranked + [configured]
 
 
+def concurrent_school_roots(configured: Path) -> list[Path]:
+    """Find the prepared concurrent-school PDFs beside the Hokushin baseline."""
+    pattern = re.compile(r'(20\d{2})年★高校別【北辰併願状況】基礎資料')
+    try:
+        yearly = [(int(match[1]), path) for path in configured.parent.iterdir()
+                  if path.is_dir() and (match := pattern.fullmatch(path.name))]
+    except OSError:
+        return []
+    return [path for _, path in sorted(yearly, reverse=True)]
+
+
 def school_source_files(root: Path, source_id: int) -> list[Path]:
+    key = (source_id, str(root).casefold())
+    now = time.monotonic()
+    with SCHOOL_FILE_CACHE_LOCK:
+        cached = SCHOOL_FILE_CACHE.get(key)
+        if cached and now - cached[0] < SCHOOL_FILE_CACHE_SECONDS:
+            return cached[1]
     if source_id == 6:
-        return [path for year_root in school_deviation_roots(root) for path in files(year_root)]
-    return files(root)
+        found = [path for year_root in school_deviation_roots(root) for path in files(year_root)]
+    elif source_id == 7:
+        found = [path for year_root in concurrent_school_roots(root) for path in files(year_root)
+                 if path.suffix.lower() == '.pdf']
+    else:
+        found = files(root)
+    with SCHOOL_FILE_CACHE_LOCK:
+        SCHOOL_FILE_CACHE[key] = (time.monotonic(), found)
+    return found
+
+
+def indexed_school_files(all_roots: list[Path]) -> dict[int, list[Path]]:
+    ids = (3, 4, 5, 6, 7)
+    with ThreadPoolExecutor(max_workers=len(ids)) as executor:
+        found = list(executor.map(
+            lambda source_id: school_source_files(all_roots[6] if source_id == 7 else all_roots[source_id], source_id),
+            ids))
+    return dict(zip(ids, found))
 
 
 def matching_school_files(candidates: list[Path], school: str, source_id: int) -> list[Path]:
-    matches = [path for path in candidates if school_name_matches(path.stem, school)]
+    matches = ([path for path in candidates if school_key(path.stem.split('_', 1)[0]) == school_key(school)]
+               if source_id == 7 else [path for path in candidates if school_name_matches(path.stem, school)])
     if source_id == 5 and matches:
         years = [(int(match[1]), path) for path in matches if (match := re.search(r'(20\d{2})年受験用', str(path)))]
         return [path for year, path in years if year == max(y for y, _ in years)] if years else []
-    if source_id == 6 and matches:
-        pattern = re.compile(r'(20\d{2})年★高校別【北辰偏差値】基礎資料')
+    if source_id in (6, 7) and matches:
+        pattern = re.compile(r'(20\d{2})年★高校別【北辰(?:偏差値|併願状況)】基礎資料')
         dated = []
         for path in matches:
             year = next((int(match[1]) for part in path.parts if (match := pattern.fullmatch(part))), None)
@@ -183,14 +220,14 @@ def source_pdf(path: Path, output: Path) -> Path:
 def selected_schools(all_roots: list[Path], names: list[str]):
     selected = []
     missing = []
-    indexed = {source_id: school_source_files(all_roots[source_id], source_id) for source_id in (3, 4, 5, 6)}
+    indexed = indexed_school_files(all_roots)
     for school in names:
         key = school_key(school)
         if len(key) < 2:
             missing.append(f'{school}：学校名を確認してください')
             continue
         found_for_school = []
-        for source_id in (3, 4, 5, 6):
+        for source_id in (3, 4, 5, 6, 7):
             candidates = indexed[source_id]
             matches = matching_school_files(candidates, school, source_id)
             found_for_school.extend((source_id, path) for path in matches)
@@ -219,9 +256,9 @@ def common_materials(all_roots: list[Path], grade: str) -> list[Path]:
 def preview_schools(all_roots: list[Path], names: list[str]) -> list[dict]:
     if not names:
         return []
-    indexed = {source_id: school_source_files(all_roots[source_id], source_id) for source_id in (3, 4, 5, 6)}
+    indexed = indexed_school_files(all_roots)
     result = []
-    labels = {3: '高校案内', 4: '選抜基準', 5: '私立推薦基準', 6: '北辰偏差値資料'}
+    labels = {3: '晶文社', 4: '実施内容', 5: '私立推薦基準', 6: '北辰基礎資料', 7: '併願校'}
     for rank, raw_name in enumerate(names, 1):
         name = canonical_school_name(raw_name)
         found = []
@@ -256,7 +293,7 @@ def preview_bundle(all_roots: list[Path], payload: dict) -> dict:
                               'detail': f"{item['year']} ／ {item['filename']}", 'staffOnly': item['staffOnly']})
     north = preview_hokushin(all_roots, grade, name, number, campus)
     if north['found']:
-        materials.append({'id': north['id'], 'group': '生徒本人の資料', 'label': '北辰の個人成績票',
+        materials.append({'id': north['id'], 'group': '生徒本人の資料', 'label': '北辰成績',
                           'detail': f"{north['year']} ／ {north['round']} ／ {north['filename']}", 'staffOnly': False})
     report = preview_term_report(all_roots, grade, name, number, campus)
     if report['found']:
@@ -860,7 +897,7 @@ def make_bundle(payload: dict):
             if not wants(item_id):
                 continue
             sensitive = source_id == 5
-            label = f'{["", "", "", "高校案内", "選抜基準", "私立推薦基準", "北辰偏差値資料"][source_id]}：{path.name}'
+            label = f'{["", "", "", "晶文社", "実施内容", "私立推薦基準", "北辰基礎資料", "併願校"][source_id]}：{path.name}'
             try:
                 add(label, path, sensitive, item_id=item_id)
             except Exception:
@@ -870,7 +907,7 @@ def make_bundle(payload: dict):
             if path:
                 item_id = material_id('hokushin', hokushin_source(path))
                 if wants(item_id):
-                    add('北辰：' + hokushin_source(path).parent.name, path, item_id=item_id)
+                    add('北辰成績：' + hokushin_source(path).parent.name, path, item_id=item_id)
             elif error:
                 if '索引を作成中' in error or '索引準備に失敗' in error:
                     raise RuntimeError(error)
