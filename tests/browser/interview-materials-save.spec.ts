@@ -61,8 +61,9 @@ test('an incorrect teacher password keeps the material page locked', async ({ pa
 
 test('central worker previews sources then builds and saves a PDF without browser loopback access', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.route('https://example.com/signed.pdf', route => route.fulfill({ body: '', contentType: 'text/html' }));
-  await page.route('https://example.com/material-*.pdf', route => route.fulfill({ body: '', contentType: 'text/html' }));
+  const pdfResponse = { body: '%PDF-1.4\n%%EOF', contentType: 'application/pdf', headers: { 'Access-Control-Allow-Origin': '*' } };
+  await page.route('https://example.com/signed.pdf', route => route.fulfill(pdfResponse));
+  await page.route('https://example.com/material-*.pdf', route => route.fulfill(pdfResponse));
   const jobs: string[] = [];
   let generatedIds: string[] = [];
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
@@ -96,6 +97,20 @@ test('central worker previews sources then builds and saves a PDF without browse
     } } } });
   });
   await page.route('http://127.0.0.1:38473/**', route => { throw Error(`unexpected loopback request: ${route.request().url()}`); });
+  await page.addInitScript(() => {
+    const saved: Record<string, string> = {};
+    Object.defineProperty(window, '__savedFiles', { value: saved });
+    Object.defineProperty(window, 'showDirectoryPicker', { value: async () => ({
+      getDirectoryHandle: async (folderName: string) => ({
+        getFileHandle: async (fileName: string) => ({
+          createWritable: async () => ({
+            write: async (data: Blob | string) => { saved[`${folderName}/${fileName}`] = typeof data === 'string' ? data : await data.text(); },
+            close: async () => {},
+          }),
+        }),
+      }),
+    }) });
+  });
   await page.goto('/staff/interview-materials');
   await expect(page.getByText('主担当PCが稼働中です')).toBeVisible();
   await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
@@ -112,25 +127,41 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(jobs).toEqual(['preview']);
   await page.getByRole('button', { name: '選んだ3点でPDFを作成' }).click();
   await expect(page.getByRole('heading', { name: '3. 資料を確認・印刷' })).toBeVisible();
-  await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/signed.pdf');
-  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-0.pdf#view=FitH&navpanes=0');
+  await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/signed.pdf#zoom=100&navpanes=0');
+  await expect(page.getByRole('link', { name: '一式PDFを保存' })).toHaveAttribute('href', 'https://example.com/signed.pdf');
+  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-0.pdf#zoom=100&navpanes=0');
+  await expect(page.getByRole('link', { name: 'このPDFを別画面で開く' })).toHaveAttribute('href', 'https://example.com/material-0.pdf#zoom=100&navpanes=0');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'true');
   await expect(page.getByRole('button', { name: '指導簿を表示' })).toHaveText('指導簿');
   await expect(page.getByRole('button', { name: '面談アンケート回答を表示' })).toHaveText('アンケート');
   await expect(page.getByRole('button', { name: '成績通知を表示' })).toHaveText('塾内成績');
   await page.getByRole('button', { name: '面談アンケート回答を表示' }).click();
-  await expect(page.getByTitle('面談アンケート回答のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-1.pdf#view=FitH&navpanes=0');
+  await expect(page.getByTitle('面談アンケート回答のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-1.pdf#zoom=100&navpanes=0');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'false');
   expect(await page.locator('body').evaluate(element => element.scrollWidth <= innerWidth)).toBeTruthy();
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.getByRole('button', { name: '成績通知を表示' }).hover();
-  await expect(page.getByTitle('成績通知のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-2.pdf#view=FitH&navpanes=0');
+  await expect(page.getByTitle('成績通知のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-2.pdf#zoom=100&navpanes=0');
   await expect(page.getByTitle('成績通知のPDFプレビュー')).toHaveAttribute('data-active', 'true');
   await page.getByRole('button', { name: '指導簿を表示' }).hover();
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'true');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveCount(1);
   await expect(page.getByRole('dialog', { name: '面談資料のPDFプレビュー' })).toHaveCSS('position', 'fixed');
   await expect(page.getByText('作成PCとOneDriveのクラウドに保存しました', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'プレビューを閉じる' }).click();
+  await page.getByRole('button', { name: '面談用フォルダに保存' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '面談資料.html' })).toBeVisible();
+  const saved = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
+  const folderName = Object.keys(saved)[0].split('/')[0];
+  expect(folderName).toMatch(/^面談資料_2018998_generate_[a-z0-9]+$/);
+  expect(Object.keys(saved).sort()).toEqual([
+    `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
+    `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,
+    `${folderName}/面談資料.html`,
+  ].sort());
+  expect(saved[`${folderName}/面談資料.html`]).toContain('material-${index}.pdf#zoom=100&navpanes=0');
+  expect(saved[`${folderName}/面談資料.html`]).toContain('staff-bundle.pdf#zoom=100&navpanes=0');
+  expect(saved[`${folderName}/面談資料.html`]).toContain('面談アンケート回答');
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);
 });
@@ -164,7 +195,7 @@ test('a completed job can be reopened after reloading the page', async ({ page }
   });
   await page.goto('/staff/interview-materials');
   await page.getByRole('button', { name: 'PDFを再表示' }).click();
-  await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/reopened.pdf');
+  await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/reopened.pdf#zoom=100&navpanes=0');
 });
 
 test('a same-origin network failure gives a usable message', async ({ page }) => {

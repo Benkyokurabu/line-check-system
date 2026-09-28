@@ -6,7 +6,7 @@ import styles from './workspace.module.css';
 type Item = { label: string; previewUrl?: string };
 type Props = { items: Item[]; pdfUrl: string; open: boolean; onClose: () => void };
 const dockLabel = (label: string) => /アンケート/.test(label) ? 'アンケート' : /指導簿/.test(label) ? '指導簿' : /北辰/.test(label) ? '北辰' : /成績通知/.test(label) ? '塾内成績' : /高校案内|基準|志望校/.test(label) ? '志望校' : /Vもぎ/.test(label) ? 'Vもぎ' : '資料';
-const viewerUrl = (url: string) => `${url.split('#')[0]}#view=FitH&navpanes=0`;
+const viewerUrl = (url: string) => `${url.split('#')[0]}#zoom=100&navpanes=0`;
 
 export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Props) {
   const separate = items.length > 0 && items.every(item => Boolean(item.previewUrl));
@@ -30,7 +30,7 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Prop
   return <div className={styles.viewerOverlay} role="dialog" aria-modal={open ? 'true' : undefined} aria-label="面談資料のPDFプレビュー" aria-hidden={!open} style={{ display: open ? undefined : 'none' }}>
     <header className={styles.viewerHeader}>
       <strong>{selected?.label || '一式PDF'}</strong>
-      <div><a href={selectedUrl} target="_blank" rel="noreferrer">このPDFを別画面で開く</a><button type="button" onClick={onClose} aria-label="プレビューを閉じる">閉じる ×</button></div>
+      <div><a href={viewerUrl(selectedUrl)} target="_blank" rel="noreferrer">このPDFを別画面で開く</a><button type="button" onClick={onClose} aria-label="プレビューを閉じる">閉じる ×</button></div>
     </header>
     <div className={styles.viewerBody}>
       {separate ? items.map((item, index) => cached.includes(index) && <iframe key={index} className={styles.viewerFrame} data-active={active === index ? 'true' : 'false'} src={viewerUrl(item.previewUrl!)} title={`${item.label}のPDFプレビュー`} tabIndex={active === index && open ? 0 : -1} aria-hidden={active !== index || !open} />) : <iframe className={styles.viewerFrame} data-active="true" src={viewerUrl(pdfUrl)} title="一式PDFプレビュー" tabIndex={open ? 0 : -1} />}

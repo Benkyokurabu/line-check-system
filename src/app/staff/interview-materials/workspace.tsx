@@ -1,8 +1,9 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react';
 import styles from './workspace.module.css';
 import MaterialPdfViewer from './material-pdf-viewer';
+import { canSaveOfflineFolder, saveInterviewFolder } from './save-offline-folder';
 
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
@@ -20,6 +21,7 @@ const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめ�
 const requestError = (error: unknown) => error instanceof TypeError
   ? '勉たんとの通信が切れました。ネット接続を確認してから、もう一度お試しください。'
   : error instanceof Error ? error.message : '処理できませんでした。';
+const subscribeToBrowserSupport = () => () => {};
 
 export default function MaterialsDesk() {
   const [staff, setStaff] = useState(false), [ready, setReady] = useState(false);
@@ -43,6 +45,11 @@ export default function MaterialsDesk() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
+  const folderSupported = useSyncExternalStore(subscribeToBrowserSupport, canSaveOfflineFolder, () => false);
+  const [folderJob, setFolderJob] = useState<{ id: string; number: string; name: string } | null>(null);
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderMessage, setFolderMessage] = useState('');
+  const [folderFailed, setFolderFailed] = useState(false);
   const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
   const [workerOnline, setWorkerOnline] = useState(false);
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
@@ -65,7 +72,7 @@ export default function MaterialsDesk() {
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
     setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
     setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setPreviewMessage('');
-    setManifest(null); setPdfUrl(''); setViewerOpen(false); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
+    setManifest(null); setPdfUrl(''); setViewerOpen(false); setFolderJob(null); setFolderMessage(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
   }, []);
 
   const refreshWorkers = useCallback(async () => {
@@ -111,7 +118,7 @@ export default function MaterialsDesk() {
       const status = await fetch(`/api/staff/interview-material-jobs?id=${created.id}`, { cache: 'no-store' });
       const body = await status.json();
       if (!status.ok) throw Error(body.error || '作成状況を確認できません。');
-      if (body.job.status === 'completed') return body.job;
+      if (body.job.status === 'completed') return { ...body.job, id: created.id };
       if (body.job.status === 'failed') throw Error(body.job.error || '作成PCで処理できませんでした。');
     }
     throw Error('作成状況の確認が時間切れになりました。もう一度画面を開いて確認してください。');
@@ -167,12 +174,13 @@ export default function MaterialsDesk() {
   }
   async function generate() {
     if (!selected || !preview || selectedMaterialIds.length === 0 || (selected.responses.length > 1 && !answer)) return;
-    setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null);
+    setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null); setFolderJob(null); setFolderMessage('');
     try {
       const job = await submitJob('generate');
       setManifest(job.result);
       setViewerOpen(Boolean(job.pdfUrl));
       setPdfUrl(job.pdfUrl || '');
+      setFolderJob({ id: job.id, number: selected.number, name: selected.name });
       setSavedFile(job.result.savedPath || '');
       setCloudSynced(Boolean(job.result.cloudSynced));
       setSaveMessage(job.result.saveError || '');
@@ -189,10 +197,24 @@ export default function MaterialsDesk() {
       setManifest(body.job.result);
       setViewerOpen(Boolean(body.job.pdfUrl));
       setPdfUrl(body.job.pdfUrl || '');
+      const recent = recentJobs.find(job => job.id === id);
+      setFolderJob(recent ? { id, number: recent.number, name: recent.name } : null);
+      setFolderMessage('');
       setSavedFile(body.job.result.savedPath || '');
       setCloudSynced(Boolean(body.job.result.cloudSynced));
       setSaveMessage(body.job.result.saveError || '');
     } catch (error) { setMessage(requestError(error)); }
+  }
+  async function saveFolder() {
+    if (!folderJob || folderBusy) return;
+    setFolderBusy(true); setFolderFailed(false); setFolderMessage('');
+    try {
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, setFolderMessage);
+      setFolderMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') setFolderMessage('保存を取り消しました。');
+      else { setFolderFailed(true); setFolderMessage(requestError(error)); }
+    } finally { setFolderBusy(false); }
   }
   return <main className={styles.page}>
     <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>
@@ -267,8 +289,12 @@ export default function MaterialsDesk() {
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ</p>
         {pdfUrl && <button type="button" className={styles.primary} onClick={() => setViewerOpen(true)}>画面いっぱいでPDFを確認</button>}
         <div className={styles.actions}>
-          {pdfUrl && <><a href={pdfUrl} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a><a href={pdfUrl} download>一式PDFを保存</a></>}
+          {pdfUrl && <><a href={`${pdfUrl.split('#')[0]}#zoom=100&navpanes=0`} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a><a href={pdfUrl} download>一式PDFを保存</a></>}
+          {pdfUrl && folderJob && manifest.items.every(item => item.previewUrl) && <button type="button" disabled={!folderSupported || folderBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダに保存'}</button>}
         </div>
+        {pdfUrl && folderJob && manifest.items.every(item => item.previewUrl) && folderSupported && <p className={styles.note}>「面談用フォルダに保存」を押して保存先を選ぶと、その中に資料一式のフォルダができます。面談中はフォルダ内の「面談資料.html」を開いてください。</p>}
+        {pdfUrl && folderJob && manifest.items.every(item => item.previewUrl) && !folderSupported && <p className={styles.note}>フォルダ保存はChromeまたはEdgeで利用できます。</p>}
+        {folderMessage && <p role="status" className={folderFailed ? styles.error : styles.note}>{folderMessage}</p>}
         {savedFile && <p role="status">{cloudSynced ? '作成PCとOneDriveのクラウドに保存しました' : '作成PCのOneDriveフォルダに保存しました'}：{savedFile}。別PCで開く前にOneDriveの同期完了を確認してください。</p>}
         {saveMessage && <p className={styles.error} role="alert">{saveMessage}</p>}
         <ol>{manifest.items.map((item, index) => <li key={index}>{item.label}{item.staffOnly && <strong className={styles.caution}>生徒には渡さない</strong>}</li>)}</ol>
