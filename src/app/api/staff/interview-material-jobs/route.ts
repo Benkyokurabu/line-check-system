@@ -46,13 +46,25 @@ export async function GET(request: NextRequest) {
       status = 'failed'; message = '作成PCが途中で停止しました。もう一度依頼してください。';
     }
     let pdfUrl: string | null = null;
+    let result = job.result;
     if (status === 'completed' && job.kind === 'generate' && job.result?.storagePath) {
       const { data, error: signedError } = await context.dataClient.storage.from(MATERIAL_BUCKET)
         .createSignedUrl(String(job.result.storagePath), 600);
       if (signedError) throw signedError;
       pdfUrl = data.signedUrl;
+      const items = Array.isArray(job.result.items) ? job.result.items : [];
+      const paths = items.map((item: { storagePath?: string }) => item.storagePath);
+      if (items.length && paths.every((path: unknown) => typeof path === 'string' && path.startsWith(`jobs/${jobId}/material-`))) {
+        const { data: signedParts, error: partsError } = await context.dataClient.storage.from(MATERIAL_BUCKET)
+          .createSignedUrls(paths as string[], 600);
+        if (partsError) throw partsError;
+        if (signedParts?.length === items.length && signedParts.every(part => part.signedUrl && !part.error)) {
+          result = { ...job.result, items: items.map((item: Record<string, unknown>, index: number) =>
+            ({ ...item, previewUrl: signedParts[index].signedUrl })) };
+        }
+      }
     }
-    return staffResponse({ available, job: { ...job, status, error: message, pdfUrl } }, context);
+    return staffResponse({ available, job: { ...job, result, status, error: message, pdfUrl } }, context);
   } catch (error) {
     return error instanceof InterviewError ? staffResponse({ error: error.message }, context, error.status) : staffErrorResponse(error, context);
   }

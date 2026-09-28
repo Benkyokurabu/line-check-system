@@ -62,6 +62,7 @@ test('an incorrect teacher password keeps the material page locked', async ({ pa
 test('central worker previews sources then builds and saves a PDF without browser loopback access', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('https://example.com/signed.pdf', route => route.fulfill({ body: '', contentType: 'text/html' }));
+  await page.route('https://example.com/material-*.pdf', route => route.fulfill({ body: '', contentType: 'text/html' }));
   const jobs: string[] = [];
   let generatedIds: string[] = [];
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
@@ -87,9 +88,9 @@ test('central worker previews sources then builds and saves a PDF without browse
     } } });
     return route.fulfill({ json: { job: { status: 'completed', pdfUrl: 'https://example.com/signed.pdf', result: {
       items: [
-        { label: '指導簿', source: 'guide', staffOnly: false, startPage: 1, endPage: 2 },
-        { label: '面談アンケート回答', source: 'survey', staffOnly: false, startPage: 3, endPage: 4 },
-        { label: '成績通知', source: 'term-report', staffOnly: false, startPage: 5, endPage: 12 },
+        { label: '指導簿', source: 'guide', staffOnly: false, startPage: 1, endPage: 2, previewUrl: 'https://example.com/material-0.pdf' },
+        { label: '面談アンケート回答', source: 'survey', staffOnly: false, startPage: 3, endPage: 4, previewUrl: 'https://example.com/material-1.pdf' },
+        { label: '成績通知', source: 'term-report', staffOnly: false, startPage: 5, endPage: 12, previewUrl: 'https://example.com/material-2.pdf' },
       ], missing: [], pages: 12,
       savedPath: 'C:\\Users\\test\\OneDrive\\面談準備\\保存済み資料\\sample.pdf', cloudSynced: true,
     } } } });
@@ -112,10 +113,20 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.getByRole('button', { name: '選んだ3点でPDFを作成' }).click();
   await expect(page.getByRole('heading', { name: '3. 資料を確認・印刷' })).toBeVisible();
   await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/signed.pdf');
-  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/signed.pdf#page=1&view=FitH');
-  await page.getByRole('button', { name: '面談アンケート回答、3ページから表示' }).click();
-  await expect(page.getByTitle('面談アンケート回答のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/signed.pdf#page=3&view=FitH');
+  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-0.pdf#view=FitH&navpanes=0');
+  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'true');
+  await page.getByRole('button', { name: '面談アンケート回答を表示' }).click();
+  await expect(page.getByTitle('面談アンケート回答のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-1.pdf#view=FitH&navpanes=0');
+  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'false');
   expect(await page.locator('body').evaluate(element => element.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.getByRole('button', { name: '成績通知を表示' }).hover();
+  await expect(page.getByTitle('成績通知のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-2.pdf#view=FitH&navpanes=0');
+  await expect(page.getByTitle('成績通知のPDFプレビュー')).toHaveAttribute('data-active', 'true');
+  await page.getByRole('button', { name: '指導簿を表示' }).hover();
+  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: '面談資料のPDFプレビュー' })).toHaveCSS('position', 'fixed');
   await expect(page.getByText('作成PCとOneDriveのクラウドに保存しました', { exact: false })).toBeVisible();
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);

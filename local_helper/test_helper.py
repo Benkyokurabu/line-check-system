@@ -53,6 +53,10 @@ class MaterialSelectionTests(unittest.TestCase):
                     self.assertIn('叡明', labels[1])
                     self.assertEqual(manifest['pages'], 3)
                     self.assertEqual([(item['startPage'], item['endPage']) for item in manifest['items']], [(1, 1), (2, 3)])
+                    with fitz.open(Path(generated.name) / 'material-0.pdf') as first, \
+                            fitz.open(Path(generated.name) / 'material-1.pdf') as second:
+                        self.assertEqual((first.page_count, second.page_count), (1, 2))
+                        self.assertIn('school page 2', second[1].get_text())
                     guide.assert_not_called()
                     north.assert_not_called()
                     vmogi_result.assert_not_called()

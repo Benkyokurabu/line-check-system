@@ -42,10 +42,19 @@ export async function POST(request: NextRequest) {
     }
     if (action === 'upload') {
       if (job.kind !== 'generate') return response({ error: 'PDFの作成依頼ではありません。' }, 400);
+      const parts = body.parts === undefined ? 0 : body.parts;
+      if (!Number.isInteger(parts) || Number(parts) < 0 || Number(parts) > 300) return response({ error: '資料の件数を確認してください。' }, 400);
       const path = `jobs/${id}/bundle.pdf`;
       const { data, error } = await context.client.storage.from(MATERIAL_BUCKET).createSignedUploadUrl(path, { upsert: true });
       if (error) throw error;
-      return response({ url: data.signedUrl, path });
+      const uploads = await Promise.all(Array.from({ length: Number(parts) }, async (_, index) => {
+        const materialPath = `jobs/${id}/material-${index}.pdf`;
+        const { data: material, error: materialError } = await context.client.storage.from(MATERIAL_BUCKET)
+          .createSignedUploadUrl(materialPath, { upsert: true });
+        if (materialError) throw materialError;
+        return { url: material.signedUrl, path: materialPath };
+      }));
+      return response({ url: data.signedUrl, path, parts: uploads });
     }
     if (action === 'complete') {
       if (!body.result || typeof body.result !== 'object' || Array.isArray(body.result)) return response({ error: '作成結果を確認してください。' }, 400);
@@ -54,6 +63,15 @@ export async function POST(request: NextRequest) {
         const path = `jobs/${id}/bundle.pdf`;
         const { data, error } = await context.client.storage.from(MATERIAL_BUCKET).info(path);
         if (error || !data || result.storagePath !== path) return response({ error: '完成PDFが見つかりません。' }, 409);
+        const items = Array.isArray(result.items) ? result.items : [];
+        if (items.length > 300) return response({ error: '資料の件数を確認してください。' }, 400);
+        if (items.some(item => item?.storagePath)) {
+          if (items.some((item, index) => item?.storagePath !== `jobs/${id}/material-${index}.pdf`))
+            return response({ error: '資料ごとのPDFを確認してください。' }, 409);
+          const checks = await Promise.all(items.map((_, index) => context.client.storage.from(MATERIAL_BUCKET)
+            .info(`jobs/${id}/material-${index}.pdf`)));
+          if (checks.some(check => check.error || !check.data)) return response({ error: '資料ごとのPDFが見つかりません。' }, 409);
+        }
       }
       const { data, error } = await context.client.rpc('interview_material_finish', {
         p_job: id, p_worker: context.id, p_lease: lease, p_status: 'completed', p_result: result, p_error: null,

@@ -93,13 +93,23 @@ class RemoteWorker:
                         except Exception as exc:
                             return saved, False, str(exc)[:200]
 
-                    # The local OneDrive copy and the private PDF upload use
-                    # independent destinations; wait for both before completion.
-                    with ThreadPoolExecutor(max_workers=1) as pool:
+                    # Keep the printable bundle and each material separate in private storage.
+                    # Uploads and the local OneDrive copy can run at the same time.
+                    with ThreadPoolExecutor(max_workers=3) as pool:
                         local_copy = pool.submit(save_and_sync)
-                        upload = self.request({'action': 'upload', 'id': id_, 'lease': lease})
-                        self.upload(upload['url'], source)
+                        upload = self.request({'action': 'upload', 'id': id_, 'lease': lease,
+                                               'parts': len(manifest['items'])})
+                        part_uploads = upload.get('parts', [])
+                        if len(part_uploads) != len(manifest['items']):
+                            raise RuntimeError('資料ごとのPDF保存先を取得できませんでした')
+                        transfers = [pool.submit(self.upload, upload['url'], source)]
+                        for index, part in enumerate(part_uploads):
+                            transfers.append(pool.submit(self.upload, part['url'], Path(folder.name) / f'material-{index}.pdf'))
+                        for transfer in transfers:
+                            transfer.result()
                         saved, cloud_synced, save_error = local_copy.result()
+                    for item, part in zip(manifest['items'], part_uploads):
+                        item['storagePath'] = part['path']
                     result = {**manifest, 'storagePath': upload['path'],
                               'savedPath': str(saved) if saved else None, 'cloudSynced': cloud_synced,
                               'saveError': save_error}

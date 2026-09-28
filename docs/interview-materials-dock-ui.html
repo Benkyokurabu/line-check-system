@@ -1,51 +1,19 @@
 <!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>面談資料のPDFプレビュー</title>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>面談資料のPDFプレビュー操作見本</title>
 <style>
-:root{font-family:system-ui,-apple-system,"Yu Gothic",sans-serif;color:#183039;background:#edf3f2}
-*{box-sizing:border-box}body{margin:0}button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid #147b83;outline-offset:3px}
-.shell{max-width:1240px;margin:0 auto;padding:28px 24px 70px}.top{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:20px}
-.eyebrow{margin:0 0 5px;color:#0a6970;font-size:12px;font-weight:800;letter-spacing:.1em}h1{margin:0;font-size:clamp(24px,3vw,35px)}.top p:last-child{margin:7px 0 0;color:#526b72;line-height:1.55}
-.demo-tag{flex:none;padding:8px 12px;border:1px solid #b9d8d3;border-radius:999px;color:#17655d;background:#e5f5ef;font-size:12px;font-weight:800}
-.workspace{display:grid;grid-template-columns:minmax(0,1fr) 88px;gap:18px;align-items:start}.viewer{min-width:0;border:1px solid #cbdcda;border-radius:20px;background:#fff;box-shadow:0 15px 36px #17333d12;overflow:hidden}
-.viewer-head{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:15px 22px;border-bottom:1px solid #d7e5e2}.viewer-head strong{display:block}.viewer-head small{display:block;margin-top:3px;color:#597078}.viewer-head a{color:#07586b;font-size:13px;font-weight:700}.pdf{display:block;width:100%;height:min(78vh,900px);min-height:640px;border:0;background:#e5eceb}
-.dock{position:sticky;top:18px;display:grid;justify-items:center;gap:12px;padding:17px 10px;border:1px solid #b8d2ce;border-radius:22px;background:#e3eeeb;box-shadow:0 12px 30px #183b3a16}.dock-title{font-size:11px;color:#526b70;font-weight:800;writing-mode:vertical-rl;letter-spacing:.15em;margin-bottom:5px}
-.dock-item{position:relative;display:grid;place-items:center;width:56px;height:56px;border:1px solid #b9d0cc;border-radius:15px;background:#fff;color:#1c5962;box-shadow:0 3px 9px #12384014;cursor:pointer;transform-origin:right center;transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease,background .22s ease;z-index:1}
-.dock-item:hover,.dock-item:focus-visible{transform:translateX(-7px) scale(1.24);box-shadow:0 8px 20px #0e484333;z-index:3}.dock-item.near{transform:translateX(-2px) scale(1.08);z-index:2}.dock-item[aria-pressed="true"]{background:#145f67;color:#fff;border-color:#145f67}.dock-icon{font-size:22px;font-weight:900}
-.dock-item::after{content:attr(data-label);position:absolute;right:calc(100% + 15px);top:50%;transform:translate(6px,-50%);opacity:0;pointer-events:none;white-space:nowrap;border-radius:7px;padding:8px 11px;background:#193e45;color:#fff;font-size:12px;font-weight:700;box-shadow:0 5px 14px #17333d30;transition:opacity .18s ease,transform .18s ease}.dock-item:hover::after,.dock-item:focus-visible::after{opacity:1;transform:translate(0,-50%)}.dock-item[aria-pressed="true"]::before{content:"";position:absolute;right:-15px;width:5px;height:23px;border-radius:5px;background:#147b83}
-.note{margin:18px 0 0;color:#526b72;font-size:13px;line-height:1.7}.note strong{color:#183039}
-@media(max-width:760px){.shell{padding:18px 10px 95px}.top{padding:0 5px}.workspace{display:flex;flex-direction:column;gap:0}.viewer{width:100%;border-radius:15px}.viewer-head{padding:13px}.pdf{min-height:580px;height:72vh}.dock{position:sticky;bottom:8px;top:auto;z-index:5;display:flex;justify-content:space-around;gap:5px;order:2;width:min(100%,560px);margin:10px auto 0;padding:9px;border-radius:18px}.dock-title{display:none}.dock-item{width:48px;height:48px;flex:none;border-radius:12px;transform-origin:center bottom}.dock-item:hover,.dock-item:focus-visible{transform:translateY(-5px) scale(1.1)}.dock-item.near{transform:none}.dock-item::after{display:none}.dock-item[aria-pressed="true"]::before{right:auto;bottom:-6px;width:20px;height:3px}.dock-icon{font-size:19px}}
-@media(max-width:430px){.demo-tag{display:none}.dock-item{width:44px;height:44px}}
-@media(prefers-reduced-motion:reduce){.dock-item,.dock-item::after{transition:none}}
-</style>
-</head>
-<body>
-<main class="shell">
-  <header class="top"><div><p class="eyebrow">INTERVIEW MATERIALS</p><h1>PDFをそのまま画面で確認</h1><p>右側のボタンで資料の先頭ページへ移動します。マウスを置くとボタンが拡大します。</p></div><span class="demo-tag">操作見本・架空データ</span></header>
-  <div class="workspace">
-    <section class="viewer" aria-label="一式PDFのプレビュー">
-      <div class="viewer-head"><div><strong id="current-title">面談アンケート回答</strong><small id="current-page">一式PDFの1ページ目</small></div><a id="open-pdf" href="interview-materials-dock-sample.pdf#page=1&view=FitH" target="_blank" rel="noopener">PDFを別画面で開く</a></div>
-      <iframe class="pdf" id="pdf" title="元の形式のPDFプレビュー" src="interview-materials-dock-sample.pdf#page=1&view=FitH"></iframe>
-    </section>
-    <nav class="dock" aria-label="PDFの資料を切り替える">
-      <span class="dock-title" aria-hidden="true">資料ドック</span>
-      <button class="dock-item" type="button" data-page="1" data-label="面談アンケート回答" aria-label="面談アンケート回答、1ページから表示" aria-pressed="true"><span class="dock-icon" aria-hidden="true">問</span></button>
-      <button class="dock-item" type="button" data-page="2" data-label="指導簿" aria-label="指導簿、2ページから表示" aria-pressed="false"><span class="dock-icon" aria-hidden="true">記</span></button>
-      <button class="dock-item" type="button" data-page="3" data-label="北辰の個人成績" aria-label="北辰の個人成績、3ページから表示" aria-pressed="false"><span class="dock-icon" aria-hidden="true">北</span></button>
-      <button class="dock-item" type="button" data-page="4" data-label="成績通知" aria-label="成績通知、4ページから表示" aria-pressed="false"><span class="dock-icon" aria-hidden="true">績</span></button>
-      <button class="dock-item" type="button" data-page="5" data-label="志望校資料" aria-label="志望校資料、5ページから表示" aria-pressed="false"><span class="dock-icon" aria-hidden="true">校</span></button>
-    </nav>
-  </div>
-  <p class="note"><strong>この見本は架空データです。</strong>実際の画面では、作成した一式PDFを表示します。資料の見た目はPDFの元の形式のままです。</p>
-</main>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Yu Gothic",sans-serif;color:#173d43}.viewer{position:fixed;inset:0;display:flex;flex-direction:column;background:#e5eeec}.viewer[hidden]{display:none}.head{min-height:55px;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 16px;background:white;border-bottom:1px solid #bed3cf}.head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.head div{display:flex;align-items:center;gap:12px}.head a{color:#07586b;font-size:13px}.head button,.closed button{padding:7px 12px;border:1px solid #a9c6c0;border-radius:8px;background:white;cursor:pointer}.area{position:relative;flex:1;min-height:0}.pdf{position:absolute;inset:0;width:100%;height:100%;border:0;background:white;visibility:hidden;pointer-events:none}.pdf.active{visibility:visible;pointer-events:auto}.dock{position:absolute;right:15px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid #b9d0cc;border-radius:18px;background:#e3eeebed;box-shadow:0 8px 24px #17333d2b}.dock-item{position:relative;width:50px;height:50px;border:1px solid #b9d0cc;border-radius:12px;background:white;color:#1c5962;box-shadow:0 3px 9px #12384014;cursor:pointer;transform-origin:right center;transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s,background .22s}.dock-item:hover,.dock-item:focus-visible{transform:translateX(-7px) scale(1.22);box-shadow:0 8px 20px #0e484333;z-index:3}.dock-item.near{transform:translateX(-2px) scale(1.07);z-index:2}.dock-item[aria-pressed=true]{background:#145f67;color:white;border-color:#145f67}.dock-item::after{content:attr(data-label);position:absolute;right:calc(100% + 14px);top:50%;transform:translate(5px,-50%);opacity:0;pointer-events:none;white-space:normal;width:max-content;max-width:200px;border-radius:7px;padding:8px 11px;background:#193e45;color:white;font-size:12px;line-height:1.4;transition:opacity .18s,transform .18s}.dock-item:hover::after,.dock-item:focus-visible::after{opacity:1;transform:translate(0,-50%)}.closed{padding:24px}button:focus-visible,a:focus-visible{outline:3px solid #147b83;outline-offset:3px}@media(max-width:700px){.head{padding:5px 8px;gap:6px}.head a{font-size:11px}.head button{font-size:12px;padding:6px}.dock{top:auto;right:8px;bottom:8px;left:8px;transform:none;flex-direction:row;overflow-x:auto;gap:6px}.dock-item{width:43px;height:43px;flex:none;transform-origin:center bottom}.dock-item:hover,.dock-item:focus-visible{transform:translateY(-3px) scale(1.1)}.dock-item::after{display:none}}@media(prefers-reduced-motion:reduce){.dock-item,.dock-item::after{transition:none}}
+</style></head><body>
+<div class="closed"><h1>面談資料の操作見本</h1><button id="reopen" type="button">PDFプレビューを開く</button><p>架空データです。資料ごとに独立したPDFを表示します。</p></div>
+<main class="viewer" id="viewer" aria-label="PDFプレビュー"><div class="head"><strong id="title">面談アンケート回答</strong><div><a id="open-pdf" href="interview-materials-dock-sample-1.pdf" target="_blank" rel="noopener">このPDFを別画面で開く</a><button id="close" type="button">閉じる ×</button></div></div>
+<div class="area" id="area"><nav class="dock" aria-label="資料を切り替える">
+<button class="dock-item" data-label="面談アンケート回答" aria-label="面談アンケート回答を表示" aria-pressed="true">問</button>
+<button class="dock-item" data-label="指導簿" aria-label="指導簿を表示" aria-pressed="false">簿</button>
+<button class="dock-item" data-label="北辰の個人成績" aria-label="北辰の個人成績を表示" aria-pressed="false">北</button>
+<button class="dock-item" data-label="成績通知" aria-label="成績通知を表示" aria-pressed="false">績</button>
+<button class="dock-item" data-label="志望校資料" aria-label="志望校資料を表示" aria-pressed="false">校</button>
+</nav></div></main>
 <script>
-const buttons=[...document.querySelectorAll('.dock-item')];
-let frame=document.getElementById('pdf');
-function show(button){const src=`interview-materials-dock-sample.pdf#page=${button.dataset.page}&view=FitH`;const next=frame.cloneNode(false);next.src=src;frame.replaceWith(next);frame=next;document.getElementById('open-pdf').href=src;document.getElementById('current-title').textContent=button.dataset.label;document.getElementById('current-page').textContent=`一式PDFの${button.dataset.page}ページ目`;buttons.forEach(item=>item.setAttribute('aria-pressed',String(item===button)));}
-buttons.forEach((button,index)=>{button.addEventListener('click',()=>show(button));button.addEventListener('pointerenter',()=>{buttons.forEach(item=>item.classList.remove('near'));if(index>0)buttons[index-1].classList.add('near');if(index<buttons.length-1)buttons[index+1].classList.add('near');});button.addEventListener('pointerleave',()=>buttons.forEach(item=>item.classList.remove('near')));button.addEventListener('keydown',event=>{if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();const next=(index+(event.key==='ArrowDown'||event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;buttons[next].focus();show(buttons[next]);});});
-</script>
-</body>
-</html>
+const buttons=[...document.querySelectorAll('.dock-item')],area=document.getElementById('area'),viewer=document.getElementById('viewer'),frames=[];
+function select(index){const button=buttons[index],url=`interview-materials-dock-sample-${index+1}.pdf`;if(!frames[index]){const frame=document.createElement('iframe');frame.className='pdf';frame.title=`${button.dataset.label}のPDFプレビュー`;frame.src=`${url}#view=FitH&navpanes=0`;area.prepend(frame);frames[index]=frame;}frames.forEach((frame,i)=>frame.classList.toggle('active',i===index));buttons.forEach((item,i)=>item.setAttribute('aria-pressed',String(i===index)));document.getElementById('title').textContent=button.dataset.label;document.getElementById('open-pdf').href=url;}
+buttons.forEach((button,index)=>{button.addEventListener('click',()=>select(index));button.addEventListener('pointerenter',()=>{buttons.forEach(item=>item.classList.remove('near'));if(index>0)buttons[index-1].classList.add('near');if(index<buttons.length-1)buttons[index+1].classList.add('near');select(index)});button.addEventListener('pointerleave',()=>buttons.forEach(item=>item.classList.remove('near')));button.addEventListener('focus',()=>select(index));button.addEventListener('keydown',event=>{if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();buttons[(index+(event.key==='ArrowDown'||event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length].focus()})});document.getElementById('close').onclick=()=>viewer.hidden=true;document.getElementById('reopen').onclick=()=>viewer.hidden=false;document.addEventListener('keydown',event=>{if(event.key==='Escape')viewer.hidden=true});select(0);
+</script></body></html>

@@ -41,6 +41,30 @@ class RemoteWorkerTests(unittest.TestCase):
             self.assertEqual(calls[-1]['result']['storagePath'], 'jobs/job-id/bundle.pdf')
             self.assertIn('saved.pdf', calls[-1]['result']['savedPath'])
 
+    def test_generation_uploads_each_material_as_its_own_pdf(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = tempfile.TemporaryDirectory(dir=root)
+            base = Path(folder.name)
+            (base / 'staff-bundle.pdf').write_bytes(b'bundle')
+            (base / 'material-0.pdf').write_bytes(b'guide')
+            (base / 'material-1.pdf').write_bytes(b'survey')
+            worker = self.worker(root, lambda payload: (folder, {'items': [
+                {'label': '指導簿'}, {'label': '面談アンケート回答'}], 'missing': [], 'pages': 2}))
+            calls = []
+            worker.request = lambda body: calls.append(body) or ({
+                'url': 'https://example.test/bundle', 'path': 'jobs/job-id/bundle.pdf',
+                'parts': [{'url': f'https://example.test/{index}', 'path': f'jobs/job-id/material-{index}.pdf'}
+                          for index in range(2)],
+            } if body['action'] == 'upload' else {'ok': True})
+            uploaded = {}
+            worker.upload = lambda url, source: uploaded.update({url: source.read_bytes()})
+            worker.execute({'id': 'job-id', 'lease': 'lease-id', 'kind': 'generate', 'payload': {'number': '2018998'}})
+            self.assertEqual(calls[0]['parts'], 2)
+            self.assertEqual(uploaded, {'https://example.test/bundle': b'bundle',
+                                        'https://example.test/0': b'guide', 'https://example.test/1': b'survey'})
+            self.assertEqual([item['storagePath'] for item in calls[-1]['result']['items']],
+                             ['jobs/job-id/material-0.pdf', 'jobs/job-id/material-1.pdf'])
+
     def test_private_upload_runs_while_onedrive_copy_is_in_progress(self):
         with tempfile.TemporaryDirectory() as root:
             folder = tempfile.TemporaryDirectory(dir=root)

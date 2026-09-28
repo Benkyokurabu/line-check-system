@@ -16,9 +16,13 @@ export async function GET(request: Request) {
     if (error) throw error;
     let removed = 0;
     for (const job of jobs || []) {
-      const path = job.result?.storagePath;
-      if (path) {
-        const { error: storageError } = await client.storage.from(MATERIAL_BUCKET).remove([String(path)]);
+      const folder = `jobs/${job.id}`;
+      const storage = client.storage.from(MATERIAL_BUCKET);
+      const { data: files, error: listError } = await storage.list(folder, { limit: 1000 });
+      if (listError) throw listError;
+      const paths = (files || []).filter(file => file.name).map(file => `${folder}/${file.name}`);
+      if (paths.length) {
+        const { error: storageError } = await storage.remove(paths);
         if (storageError) throw storageError;
       }
       const { error: deleteError } = await client.from('interview_material_jobs').delete().eq('id', job.id);
