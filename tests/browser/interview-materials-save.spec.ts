@@ -61,6 +61,7 @@ test('an incorrect teacher password keeps the material page locked', async ({ pa
 
 test('central worker previews sources then builds and saves a PDF without browser loopback access', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('https://example.com/signed.pdf', route => route.fulfill({ body: '', contentType: 'text/html' }));
   const jobs: string[] = [];
   let generatedIds: string[] = [];
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
@@ -85,7 +86,11 @@ test('central worker previews sources then builds and saves a PDF without browse
         termReport: { found: true, year: '2026', term: '前期', filename: '通知.pdf', pages: [10] } },
     } } });
     return route.fulfill({ json: { job: { status: 'completed', pdfUrl: 'https://example.com/signed.pdf', result: {
-      items: [{ label: '指導簿', source: 'guide', staffOnly: false }], missing: [], pages: 12,
+      items: [
+        { label: '指導簿', source: 'guide', staffOnly: false, startPage: 1, endPage: 2 },
+        { label: '面談アンケート回答', source: 'survey', staffOnly: false, startPage: 3, endPage: 4 },
+        { label: '成績通知', source: 'term-report', staffOnly: false, startPage: 5, endPage: 12 },
+      ], missing: [], pages: 12,
       savedPath: 'C:\\Users\\test\\OneDrive\\面談準備\\保存済み資料\\sample.pdf', cloudSynced: true,
     } } } });
   });
@@ -107,6 +112,10 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.getByRole('button', { name: '選んだ3点でPDFを作成' }).click();
   await expect(page.getByRole('heading', { name: '3. 資料を確認・印刷' })).toBeVisible();
   await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/signed.pdf');
+  await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/signed.pdf#page=1&view=FitH');
+  await page.getByRole('button', { name: '面談アンケート回答、3ページから表示' }).click();
+  await expect(page.getByTitle('面談アンケート回答のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/signed.pdf#page=3&view=FitH');
+  expect(await page.locator('body').evaluate(element => element.scrollWidth <= innerWidth)).toBeTruthy();
   await expect(page.getByText('作成PCとOneDriveのクラウドに保存しました', { exact: false })).toBeVisible();
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);

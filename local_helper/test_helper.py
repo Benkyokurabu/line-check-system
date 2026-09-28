@@ -26,6 +26,8 @@ class MaterialSelectionTests(unittest.TestCase):
             for path in (school, common):
                 with fitz.open() as document:
                     document.new_page().insert_text((50, 50), path.stem)
+                    if path == school:
+                        document.new_page().insert_text((50, 50), 'school page 2')
                     document.save(path)
             payload = {'number': '2018998', 'name': '架空 生徒', 'grade': '中3', 'schools': ['叡明'],
                        'surveyExpected': True,
@@ -49,7 +51,8 @@ class MaterialSelectionTests(unittest.TestCase):
                     self.assertEqual(len(labels), 2)
                     self.assertTrue(labels[0].startswith('面談アンケート回答'))
                     self.assertIn('叡明', labels[1])
-                    self.assertEqual(manifest['pages'], 2)
+                    self.assertEqual(manifest['pages'], 3)
+                    self.assertEqual([(item['startPage'], item['endPage']) for item in manifest['items']], [(1, 1), (2, 3)])
                     guide.assert_not_called()
                     north.assert_not_called()
                     vmogi_result.assert_not_called()

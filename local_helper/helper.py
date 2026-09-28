@@ -816,13 +816,19 @@ def make_bundle(payload: dict):
     items = []
     missing = []
     pdfs = []
+    next_page = 1
 
     def add(label, source, sensitive=False, item_id=None):
+        nonlocal next_page
         index = len(items)
         pdf = source_pdf(source, base / f'converted-{index}.pdf')
-        PdfReader(str(pdf))  # Fail a damaged source before returning a successful bundle.
+        page_count = len(PdfReader(str(pdf)).pages)  # Fail a damaged source before returning a successful bundle.
+        if not page_count:
+            raise ValueError('空のPDFは面談資料に追加できません')
         pdfs.append(pdf)
-        items.append({'label': label, 'source': str(source), 'staffOnly': sensitive})
+        items.append({'label': label, 'source': str(source), 'staffOnly': sensitive,
+                      'startPage': next_page, 'endPage': next_page + page_count - 1})
+        next_page += page_count
         if item_id:
             added_ids.add(item_id)
 

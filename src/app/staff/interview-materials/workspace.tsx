@@ -7,7 +7,7 @@ type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
 type Student = { number: string; name: string; grade: string; teacher: string; responses: Answer[] };
 type Teacher = { id: string; display_name: string };
-type Manifest = { items: {label: string; source: string; staffOnly: boolean}[]; missing: string[]; pages: number; savedPath?: string | null; cloudSynced?: boolean; saveError?: string | null };
+type Manifest = { items: {label: string; source: string; staffOnly: boolean; startPage?: number; endPage?: number}[]; missing: string[]; pages: number; savedPath?: string | null; cloudSynced?: boolean; saveError?: string | null };
 type SchoolPreview = { rank: number; surveyName: string; name: string; found: boolean; files: {kind: string; year: string; filename: string}[] };
 type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; round?: string; filename?: string; message?: string };
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
@@ -16,6 +16,7 @@ type RecentJob = { id: string; status: string; number: string; name: string; cre
 const searchable = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s/g, '');
 const answerKey = (value: string) => value.replaceAll('-', '').toLowerCase();
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
+const materialBadge = (label: string) => /アンケート/.test(label) ? '問' : /指導簿/.test(label) ? '簿' : /北辰/.test(label) ? '北' : /成績通知/.test(label) ? '績' : /Vもぎ/.test(label) ? 'V' : /高校案内/.test(label) ? '校' : /基準/.test(label) ? '基' : 'PDF';
 const requestError = (error: unknown) => error instanceof TypeError
   ? '勉たんとの通信が切れました。ネット接続を確認してから、もう一度お試しください。'
   : error instanceof Error ? error.message : '処理できませんでした。';
@@ -41,11 +42,19 @@ export default function MaterialsDesk() {
   const [cloudSynced, setCloudSynced] = useState(false);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [pdfUrl, setPdfUrl] = useState('');
+  const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
   const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
   const [workerOnline, setWorkerOnline] = useState(false);
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
+  const activeMaterial = manifest?.items[activeMaterialIndex];
+  const hasPageMap = Boolean(manifest?.items.length && manifest.items.every(item =>
+    Number.isInteger(item.startPage) && Number.isInteger(item.endPage) &&
+    (item.startPage ?? 0) >= 1 && (item.endPage ?? 0) >= (item.startPage ?? 0) &&
+    (item.endPage ?? 0) <= manifest.pages));
+  const pdfPreviewUrl = pdfUrl && hasPageMap && activeMaterial?.startPage
+    ? `${pdfUrl.split('#')[0]}#page=${activeMaterial.startPage}&view=FitH` : pdfUrl;
   const campusValue = answer?.fields.find(field => field.label === '所属校舎')?.value.trim() || '';
   const campus = campusValue === '本校' || campusValue === '南教室' ? campusValue : '';
   const teachers = useMemo(() => [...new Set(students.map(s => s.teacher).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')), [students]);
@@ -63,7 +72,7 @@ export default function MaterialsDesk() {
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
     setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
     setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setPreviewMessage('');
-    setManifest(null); setPdfUrl(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
+    setManifest(null); setPdfUrl(''); setActiveMaterialIndex(0); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
   }, []);
 
   const refreshWorkers = useCallback(async () => {
@@ -169,6 +178,7 @@ export default function MaterialsDesk() {
     try {
       const job = await submitJob('generate');
       setManifest(job.result);
+      setActiveMaterialIndex(0);
       setPdfUrl(job.pdfUrl || '');
       setSavedFile(job.result.savedPath || '');
       setCloudSynced(Boolean(job.result.cloudSynced));
@@ -184,13 +194,14 @@ export default function MaterialsDesk() {
       const body = await response.json();
       if (!response.ok || body.job?.status !== 'completed') throw Error(body.error || body.job?.error || 'まだPDFを開けません。');
       setManifest(body.job.result);
+      setActiveMaterialIndex(0);
       setPdfUrl(body.job.pdfUrl || '');
       setSavedFile(body.job.result.savedPath || '');
       setCloudSynced(Boolean(body.job.result.cloudSynced));
       setSaveMessage(body.job.result.saveError || '');
     } catch (error) { setMessage(requestError(error)); }
   }
-  return <main className={styles.page}>
+  return <main className={manifest && pdfUrl ? `${styles.page} ${styles.pageWithPdf}` : styles.page}>
     <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>
     {message && <p className={styles.error} role="status">{message}</p>}
     {!ready ? <p>読み込んでいます…</p> : !staff ? <form className={styles.card} onSubmit={login}>
@@ -261,6 +272,21 @@ export default function MaterialsDesk() {
       </section>}
       {manifest && <section className={styles.card}><h2>3. 資料を確認・印刷</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ</p>
+        {pdfUrl && <div className={styles.pdfWorkspace}>
+          <div className={styles.pdfPane}>
+            <div className={styles.pdfPaneHeading}><strong>{activeMaterial?.label || '一式PDF'}</strong>{hasPageMap && activeMaterial && <span>{activeMaterial.startPage}〜{activeMaterial.endPage}ページ</span>}<a href={pdfPreviewUrl} target="_blank" rel="noreferrer">PDFを別画面で開く</a></div>
+            <iframe key={hasPageMap ? activeMaterialIndex : 'all'} className={styles.pdfFrame} src={pdfPreviewUrl} title={`${activeMaterial?.label || '一式'}のPDFプレビュー`} />
+          </div>
+          {hasPageMap && manifest.items.length > 1 && <nav className={styles.pdfDock} aria-label="PDF内の資料を切り替える">
+            {manifest.items.map((item, index) => <button key={`${item.startPage}-${index}`} type="button" className={styles.pdfDockButton} data-label={item.label} title={item.label} aria-label={`${item.label}、${item.startPage}ページから表示`} aria-pressed={activeMaterialIndex === index} onClick={() => setActiveMaterialIndex(index)} onKeyDown={event => {
+              if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+              event.preventDefault();
+              const next = (index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + manifest.items.length) % manifest.items.length;
+              setActiveMaterialIndex(next);
+              event.currentTarget.parentElement?.querySelectorAll('button')[next]?.focus();
+            }}><strong aria-hidden="true">{materialBadge(item.label)}</strong><small aria-hidden="true">{index + 1}</small></button>)}
+          </nav>}
+        </div>}
         <div className={styles.actions}>
           {pdfUrl && <><a href={pdfUrl} target="_blank" rel="noreferrer">先生用の一式PDFを表示・印刷</a><a href={pdfUrl} download>一式PDFを保存</a></>}
         </div>
