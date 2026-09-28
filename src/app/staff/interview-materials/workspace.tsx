@@ -222,7 +222,7 @@ export default function MaterialsDesk() {
             <span>{index === 0 ? '最新' : `${index + 1}件目`} ／ {response.date || '日時不明'}<br />志望校：{response.schools.join('、') || '記載なし'}</span>
           </label>)}</div>
           {answer && <div className={styles.reviewGrid}>
-            <div className={styles.survey}><h3>アンケート回答</h3><p>回答日：{answer.date || '日時不明'}</p><dl>{answer.fields.map((field, index) => <div key={index}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl><a href={answer.url} target="_blank" rel="noreferrer">Notionの回答原本</a></div>
+            <div className={styles.survey}><div className={styles.surveyHeading}><h3>アンケート回答</h3><span>回答日：{answer.date || '日時不明'}</span></div><dl>{answer.fields.map((field, index) => <div className={styles.surveyField} key={index}><dt>{field.label}</dt><dd>{field.value || '（回答なし）'}</dd></div>)}</dl><a href={answer.url} target="_blank" rel="noreferrer">Notionの回答原本</a></div>
             <div><h3>志望順位の確認</h3><p>アンケートの第1・第2・第3志望を確認してください。違う場合はここで直せます。</p>
               {schoolNames.map((school, index) => <label key={index}>第{index + 1}志望<input value={school} onChange={event => { setSchoolNames(names => names.map((name, position) => position === index ? event.target.value : name)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }} /></label>)}
               {schoolNames.length < 6 && <button type="button" onClick={() => { setSchoolNames(names => [...names, '']); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }}>志望校を追加</button>}

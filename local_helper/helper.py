@@ -676,6 +676,7 @@ def survey_pdf(survey: dict, student: dict, output: Path) -> None:
     document = canvas.Canvas(str(output), pagesize=A4)
     width, height = A4
     margin = 42
+    content_width = width - margin * 2
     y = 0.0
     page_number = 0
 
@@ -684,49 +685,79 @@ def survey_pdf(survey: dict, student: dict, output: Path) -> None:
         if page_number:
             document.showPage()
         page_number += 1
+        document.setFillColor(colors.HexColor('#123C4A'))
+        document.rect(0, height - 9, width, 9, fill=1, stroke=0)
+        document.setFillColor(colors.HexColor('#172735'))
         document.setFont(font, 14)
         document.drawString(margin, height - margin, '面談アンケート回答' + ('（続き）' if page_number > 1 else ''))
+        document.setFillColor(colors.HexColor('#657780'))
         document.setFont(font, 8)
-        document.drawRightString(width - margin, height - margin, str(page_number))
-        y = height - margin - 24
+        document.drawRightString(width - margin, height - margin, f'{page_number}ページ')
+        document.setStrokeColor(colors.HexColor('#D5E2E3'))
+        document.line(margin, height - margin - 11, width - margin, height - margin - 11)
+        y = height - margin - 30
 
-    def line(text: str, size: int = 10, spacing: int = 16) -> None:
-        nonlocal y
+    def wrapped_lines(text: str, size: int, max_width: float) -> list[str]:
+        lines = []
         for paragraph in text.replace('\r\n', '\n').replace('\r', '\n').split('\n'):
             current = ''
             current_width = 0.0
             for character in paragraph:
                 character_width = pdfmetrics.stringWidth(character, font, size)
-                if current and current_width + character_width > width - margin * 2:
-                    if y < margin + spacing:
-                        new_page()
-                    document.setFont(font, size)
-                    document.drawString(margin, y, current)
-                    y -= spacing
+                if current and current_width + character_width > max_width:
+                    lines.append(current)
                     current, current_width = '', 0.0
                 current += character
                 current_width += character_width
-            if y < margin + spacing:
-                new_page()
-            if current:
-                document.setFont(font, size)
-                document.drawString(margin, y, current)
-            y -= spacing
+            lines.append(current)
+        return lines
 
     new_page()
-    line(f"生徒：{student.get('grade', '')} {student.get('name', '')}（{student.get('number', '')}）")
-    line(f"回答日：{survey.get('date', '')}")
-    y -= 8
-    for field in fields:
+    document.setFillColor(colors.HexColor('#F0F7F6'))
+    document.roundRect(margin, y - 42, content_width, 48, 7, fill=1, stroke=0)
+    document.setFillColor(colors.HexColor('#172735'))
+    document.setFont(font, 11)
+    document.drawString(margin + 12, y - 12, f"{student.get('grade', '')}  {student.get('name', '')}")
+    document.setFont(font, 8)
+    document.setFillColor(colors.HexColor('#536870'))
+    document.drawString(margin + 12, y - 31, f"学籍番号：{student.get('number', '')}     回答日：{survey.get('date', '')}")
+    y -= 62
+    for index, field in enumerate(fields):
         if not isinstance(field, dict):
             raise ValueError('アンケート回答の内容を確認してください')
         label = str(field.get('label', '')).strip()
         value = str(field.get('value', '')).strip()
         if not label:
             continue
-        line(label, 10, 17)
-        line(value or '（回答なし）', 10, 16)
-        y -= 8
+        label_lines = wrapped_lines(label, 9, content_width - 30)
+        answer_lines = wrapped_lines(value or '（回答なし）', 10, content_width - 30)
+        label_height = len(label_lines) * 14
+        # Keep a question and the first answer line together at a page boundary.
+        if y - label_height - 32 < margin:
+            new_page()
+        document.setFillColor(colors.HexColor('#EAF4F2') if index % 2 == 0 else colors.HexColor('#F5F8F8'))
+        document.roundRect(margin, y - label_height - 7, content_width, label_height + 14, 5, fill=1, stroke=0)
+        document.setFillColor(colors.HexColor('#07586B'))
+        document.setFont(font, 9)
+        for label_line in label_lines:
+            document.drawString(margin + 12, y - 4, label_line)
+            y -= 14
+        y -= 13
+        document.setFillColor(colors.HexColor('#172735'))
+        document.setFont(font, 10)
+        for answer_line in answer_lines:
+            if y - 15 < margin:
+                new_page()
+                document.setFillColor(colors.HexColor('#657780'))
+                document.setFont(font, 8)
+                document.drawString(margin + 12, y, '前の回答の続き')
+                y -= 19
+                document.setFillColor(colors.HexColor('#172735'))
+                document.setFont(font, 10)
+            if answer_line:
+                document.drawString(margin + 12, y, answer_line)
+            y -= 16
+        y -= 12
     document.save()
 
 

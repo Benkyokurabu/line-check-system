@@ -83,6 +83,24 @@ class MaterialSelectionTests(unittest.TestCase):
                 self.assertIn('叡明', text)
                 self.assertIn('長い回答です。', text)
 
+    def test_survey_layout_keeps_questions_and_answers_inside_pages(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / 'survey.pdf'
+            fields = [{'label': f'質問{index:02d}', 'value': f'回答{index:02d}'} for index in range(45)]
+            helper.survey_pdf({'date': '2026-09-12', 'fields': fields},
+                              {'grade': '中3', 'name': '架空 生徒', 'number': '2018998'}, output)
+            with fitz.open(output) as document:
+                self.assertGreater(document.page_count, 1)
+                text = ''.join(page.get_text() for page in document)
+                for index in range(45):
+                    self.assertEqual(text.count(f'質問{index:02d}'), 1)
+                    self.assertEqual(text.count(f'回答{index:02d}'), 1)
+                for page in document:
+                    for word in page.get_text('words'):
+                        self.assertGreaterEqual(word[0], 0)
+                        self.assertLessEqual(word[2], page.rect.width)
+                        self.assertLessEqual(word[3], page.rect.height)
+
     def test_bundle_includes_selected_survey_answer(self):
         with tempfile.TemporaryDirectory() as folder:
             roots = [Path(folder) / str(index) for index in range(9)]
