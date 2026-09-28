@@ -115,6 +115,9 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('link', { name: '先生用の一式PDFを表示・印刷' })).toHaveAttribute('href', 'https://example.com/signed.pdf');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-0.pdf#view=FitH&navpanes=0');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'true');
+  await expect(page.getByRole('button', { name: '指導簿を表示' })).toHaveText('指導簿');
+  await expect(page.getByRole('button', { name: '面談アンケート回答を表示' })).toHaveText('アンケート');
+  await expect(page.getByRole('button', { name: '成績通知を表示' })).toHaveText('塾内成績');
   await page.getByRole('button', { name: '面談アンケート回答を表示' }).click();
   await expect(page.getByTitle('面談アンケート回答のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-1.pdf#view=FitH&navpanes=0');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'false');

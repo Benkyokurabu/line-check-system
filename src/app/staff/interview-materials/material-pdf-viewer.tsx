@@ -5,7 +5,7 @@ import styles from './workspace.module.css';
 
 type Item = { label: string; previewUrl?: string };
 type Props = { items: Item[]; pdfUrl: string; open: boolean; onClose: () => void };
-const badge = (label: string) => /アンケート/.test(label) ? '問' : /指導簿/.test(label) ? '簿' : /北辰/.test(label) ? '北' : /成績通知/.test(label) ? '績' : /Vもぎ/.test(label) ? 'V' : /高校案内/.test(label) ? '校' : /基準/.test(label) ? '基' : 'PDF';
+const dockLabel = (label: string) => /アンケート/.test(label) ? 'アンケート' : /指導簿/.test(label) ? '指導簿' : /北辰/.test(label) ? '北辰' : /成績通知/.test(label) ? '塾内成績' : /高校案内|基準|志望校/.test(label) ? '志望校' : /Vもぎ/.test(label) ? 'Vもぎ' : '資料';
 const viewerUrl = (url: string) => `${url.split('#')[0]}#view=FitH&navpanes=0`;
 
 export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Props) {
@@ -41,7 +41,7 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose }: Prop
           const next = (index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
           select(next);
           event.currentTarget.parentElement?.querySelectorAll('button')[next]?.focus();
-        }}><strong aria-hidden="true">{badge(item.label)}</strong><small aria-hidden="true">{index + 1}</small></button>)}
+        }}><strong aria-hidden="true">{dockLabel(item.label)}</strong></button>)}
       </nav>}
     </div>
     {!separate && items.length > 1 && <p className={styles.viewerLegacyNote}>このPDFは旧形式のため資料別の表示に対応していません。資料を作成し直すと、資料ごとに表示できます。</p>}
