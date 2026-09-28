@@ -1,11 +1,25 @@
 import { expect, test } from '@playwright/test';
 
 const teacherId = '00000000-0000-4000-8000-000000000003';
+let summaryRequests = 0;
 test.beforeEach(async ({ page }) => {
+  summaryRequests = 0;
   await page.route('**/api/admin/teachers', route => route.fulfill({ json: {
     teachers: [{ id: teacherId, display_name: '工藤' },
       { id: '00000000-0000-4000-8000-000000000004', display_name: '金城' }],
   } }));
+  await page.route('**/api/staff/interview-material-context**', route => route.fulfill({ json: {
+    records: [{ id: 'record-1', date: '2026-05-23', title: '進路相談', body: '志望校を確認した。', url: 'https://notion.so/record' }],
+    info: [{ source: '連絡先　備考', value: '面談連絡は保護者へ。' }],
+    summary: { status: 'prepared', items: [] },
+    studentUrl: 'https://notion.so/student', source: 'notion',
+  } }));
+  await page.route('**/api/staff/interview-material-info**', route => {
+    if (route.request().method() === 'POST') { summaryRequests++; return route.fulfill({ json: { status: 'queued' } }); }
+    return route.fulfill({ json: { summary: { status: 'completed', items: [
+      { source: '連絡先　備考', note: '面談連絡は保護者へ。', original: '面談連絡は保護者へ。' },
+    ] } } });
+  });
 });
 
 const student = { number: '2018998', name: '確認用 生徒', grade: '中3', teacher: '工藤', responses: [{
@@ -131,7 +145,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   const screen = page.getByRole('button', { name: /画面で見る/ });
   const downloadButton = page.getByRole('button', { name: /DL/ });
   await expect(print).toHaveAttribute('href', 'https://example.com/signed.pdf#zoom=100&navpanes=0');
-  await expect(page.getByRole('dialog', { name: '面談資料のPDFプレビュー' })).toBeHidden();
+  await expect(page.getByRole('dialog', { name: '面談資料のプレビュー' })).toBeHidden();
   const positions = await Promise.all([print, screen, downloadButton].map(element => element.boundingBox()));
   expect(positions.every(Boolean)).toBeTruthy();
   expect(Math.abs(positions[0]!.y - positions[1]!.y)).toBeLessThanOrEqual(1);
@@ -145,6 +159,15 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('button', { name: '指導簿を表示' })).toHaveText('指導簿');
   await expect(page.getByRole('button', { name: '面談アンケート回答を表示' })).toHaveText('アンケート');
   await expect(page.getByRole('button', { name: '成績通知を表示' })).toHaveText('塾内成績');
+  await expect(page.getByRole('button', { name: '面談記録を表示' })).toHaveText('面談記録');
+  await expect(page.getByRole('button', { name: '情報を表示' })).toHaveText('情報');
+  expect(summaryRequests).toBe(0);
+  await page.getByRole('button', { name: '面談記録を表示' }).click();
+  await expect(page.getByRole('article').filter({ hasText: '進路相談' })).toContainText('志望校を確認した。');
+  await page.getByRole('button', { name: '情報を表示' }).click();
+  await expect(page.getByText('AIが選んだ特記事項')).toBeVisible();
+  expect(summaryRequests).toBe(1);
+  await expect(page.getByRole('dialog').getByText('面談連絡は保護者へ。').first()).toBeVisible();
   await page.getByRole('button', { name: '面談アンケート回答を表示' }).click();
   await expect(page.getByTitle('面談アンケート回答のPDFプレビュー')).toHaveAttribute('src', 'https://example.com/material-1.pdf#zoom=100&navpanes=0');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'false');
@@ -156,7 +179,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.getByRole('button', { name: '指導簿を表示' }).hover();
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveAttribute('data-active', 'true');
   await expect(page.getByTitle('指導簿のPDFプレビュー')).toHaveCount(1);
-  await expect(page.getByRole('dialog', { name: '面談資料のPDFプレビュー' })).toHaveCSS('position', 'fixed');
+  await expect(page.getByRole('dialog', { name: '面談資料のプレビュー' })).toHaveCSS('position', 'fixed');
   await expect(page.getByText('作成PCとOneDriveのクラウドに保存しました', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'プレビューを閉じる' }).click();
   await downloadButton.click();
@@ -178,6 +201,8 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(saved[`${folderName}/面談資料.html`]).toContain('staff-bundle.pdf#zoom=100&navpanes=0');
   expect(saved[`${folderName}/面談資料.html`]).toContain('面談アンケート回答');
   expect(saved[`${folderName}/面談資料.html`]).toContain('"kind":"塾内成績"');
+  expect(saved[`${folderName}/面談資料.html`]).toContain('志望校を確認した。');
+  expect(saved[`${folderName}/面談資料.html`]).toContain('面談連絡は保護者へ。');
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);
 });

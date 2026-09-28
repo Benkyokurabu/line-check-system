@@ -7,7 +7,8 @@ import { teacherRouteAllowed } from "../src/lib/staff-teacher-route-access.mjs";
 
 test("teacher login is limited to its approved staff APIs", () => {
   for (const path of ['/api/staff/session', '/api/staff/interview-auto-availability',
-    '/api/staff/interview-materials', '/api/staff/interview-material-jobs']) {
+    '/api/staff/interview-materials', '/api/staff/interview-material-context',
+    '/api/staff/interview-material-info', '/api/staff/interview-material-jobs']) {
     assert.equal(teacherRouteAllowed(path), true);
   }
   for (const path of ['/api/staff/interviews', '/api/staff/interview-material-jobs/other',

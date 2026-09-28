@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import styles from './workspace.module.css';
 import MaterialPdfViewer from './material-pdf-viewer';
+import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
 import { canSaveOfflineFolder, downloadInterviewPdf, saveInterviewFolder } from './save-offline-folder';
 
 type Field = { label: string; value: string };
@@ -44,6 +45,11 @@ export default function MaterialsDesk() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [materialContext, setMaterialContext] = useState<MaterialContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState('');
+  const contextCache = useRef(new Map<string, MaterialContext>());
+  const summaryRequesting = useRef(false);
   const resultRef = useRef<HTMLElement>(null);
   const folderSupported = useSyncExternalStore(subscribeToBrowserSupport, canSaveOfflineFolder, () => false);
   const [folderJob, setFolderJob] = useState<{ id: string; number: string; name: string } | null>(null);
@@ -67,10 +73,50 @@ export default function MaterialsDesk() {
     return terms.every(term => values.some(value => value.includes(searchable(term))));
   }), [students, query, teacherFilter, gradeFilter]);
   const visible = matching.slice(0, displayLimit);
+  useEffect(() => {
+    let active = true;
+    if (!number || !staff) return;
+    const cached = contextCache.current.get(number);
+    void (cached ? Promise.resolve(cached) : fetchMaterialContext(number)).then(result => {
+      contextCache.current.set(number, result);
+      if (active) setMaterialContext(result);
+    }).catch(error => { if (active) setContextError(requestError(error)); })
+      .finally(() => { if (active) setContextLoading(false); });
+    return () => { active = false; };
+  }, [number, staff]);
+  useEffect(() => {
+    if (!number || !materialContext || !['queued', 'running'].includes(materialContext.summary.status)) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void fetchInfoSummary(number).then(summary => {
+        if (!active) return;
+        setMaterialContext(previous => previous ? { ...previous, summary } : previous);
+        const cached = contextCache.current.get(number);
+        if (cached) contextCache.current.set(number, { ...cached, summary });
+      }).catch(() => {});
+    }, 10000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [number, materialContext]);
+  const needInfoSummary = useCallback(async () => {
+    if (!number || materialContext?.summary.status !== 'prepared' || summaryRequesting.current) return;
+    summaryRequesting.current = true;
+    try {
+      await requestInfoSummary(number);
+      setMaterialContext(previous => previous ? { ...previous, summary: { ...previous.summary, status: 'queued' } } : previous);
+      try {
+        const summary = await fetchInfoSummary(number);
+        setMaterialContext(previous => previous ? { ...previous, summary } : previous);
+      } catch { /* The regular polling will retry. */ }
+    } catch {
+      setMaterialContext(previous => previous ? { ...previous, summary: { ...previous.summary, status: 'failed' } } : previous);
+    } finally { summaryRequesting.current = false; }
+  }, [number, materialContext]);
   const chooseStudent = useCallback((student: Student, preferredAnswer = '') => {
     const selectedAnswer = student.responses.find(response => answerKey(response.id) === answerKey(preferredAnswer))
       ?? (student.responses.length === 1 ? student.responses[0] : undefined);
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
+    summaryRequesting.current = false;
+    setMaterialContext(null); setContextError(''); setContextLoading(true);
     setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
     setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setPreviewMessage('');
     setManifest(null); setPdfUrl(''); setViewerOpen(false); setFolderJob(null); setDownloadOpen(false); setDownloadMessage(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
@@ -205,7 +251,7 @@ export default function MaterialsDesk() {
     if (!folderJob || folderBusy || downloadBusy) return;
     setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
     try {
-      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, setDownloadMessage);
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, materialContext, setDownloadMessage);
       setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setDownloadMessage('保存を取り消しました。');
@@ -299,7 +345,7 @@ export default function MaterialsDesk() {
         {manifest.missing.length > 0 && <div className={styles.missing}><h3>見つからなかった資料</h3><ul>{manifest.missing.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
         <p className={styles.note}>表示リンクは約10分間有効です。完成PDFは非公開で1日保管し、OneDriveにも保存します。</p>
       </section>}
-      {manifest && pdfUrl && <MaterialPdfViewer key={pdfUrl} items={manifest.items} pdfUrl={pdfUrl} open={viewerOpen} onClose={() => setViewerOpen(false)} />}
+      {manifest && pdfUrl && <MaterialPdfViewer key={pdfUrl} items={manifest.items} pdfUrl={pdfUrl} open={viewerOpen} onClose={() => setViewerOpen(false)} context={materialContext} contextLoading={contextLoading} contextError={contextError} onNeedInfoSummary={needInfoSummary} />}
     </>}
   </main>;
 }

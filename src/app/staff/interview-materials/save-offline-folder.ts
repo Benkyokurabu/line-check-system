@@ -1,4 +1,5 @@
 import { materialDockLabel } from './material-dock-label';
+import { fetchInfoSummary, fetchMaterialContext, type MaterialContext } from './material-context';
 
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
 type FileHandle = { createWritable(): Promise<WritableFile> };
@@ -53,16 +54,19 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 }
 
 export async function saveInterviewFolder(
-  jobId: string, studentNumber: string, studentName: string, onProgress: (message: string) => void,
+  jobId: string, studentNumber: string, studentName: string, context: MaterialContext | null,
+  onProgress: (message: string) => void,
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
   if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
   // The picker must be the first asynchronous action after the button click.
   const parent = await pick({ mode: 'readwrite', startIn: 'downloads', id: 'interview-material-folder' });
   onProgress('資料を確認しています…');
-  const [jobResponse, templateResponse] = await Promise.all([
+  const [jobResponse, templateResponse, details] = await Promise.all([
     fetch(`/api/staff/interview-material-jobs?id=${encodeURIComponent(jobId)}`, { cache: 'no-store' }),
     fetch('/interview-material-offline-template.html'),
+    context ? fetchInfoSummary(studentNumber).then(summary => ({ ...context, summary })).catch(() => context)
+      : fetchMaterialContext(studentNumber),
   ]);
   if (!jobResponse.ok || !templateResponse.ok) throw Error('資料を取得できませんでした。もう一度お試しください。');
   const { job } = await jobResponse.json();
@@ -70,10 +74,10 @@ export async function saveInterviewFolder(
   if (job?.status !== 'completed' || !job.pdfUrl || !Array.isArray(items) || !items.length
     || items.some(item => !item.previewUrl)) throw Error('資料ごとのPDFがありません。資料を作成し直してください。');
   const template = await templateResponse.text();
-  if (!template.includes('__ITEMS_JSON__') || !template.includes('__STUDENT_NAME_JSON__'))
+  if (!template.includes('__ITEMS_JSON__') || !template.includes('__STUDENT_NAME_JSON__') || !template.includes('__CONTEXT_JSON__'))
     throw Error('面談用画面を作成できませんでした。');
   const html = template.replace('__ITEMS_JSON__', safeJson(items.map(item => ({ label: item.label, kind: materialDockLabel(item) }))))
-    .replace('__STUDENT_NAME_JSON__', safeJson(studentName));
+    .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson(details));
   if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
   const folderName = `面談資料_${studentNumber}_${jobId.slice(0, 8)}_${Date.now().toString(36)}`;
   const folder = await parent.getDirectoryHandle(folderName, { create: true });
