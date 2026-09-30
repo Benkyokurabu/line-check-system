@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { pickClassroomLessonByEndBoundary } from "@/lib/classroom-lesson-picker.mjs";
-import { shouldDisplayAttendanceEvent } from "@/lib/attendance-campus-consistency.mjs";
+import { sharedOnlineLessons, shouldDisplayAttendanceEvent } from "@/lib/attendance-campus-consistency.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -365,12 +365,11 @@ export async function GET(request: Request) {
     .from("lessons")
     .select("id,lesson_date,start_time,grade,class_name,subject,campus,classroom,teacher_name,label,source_payload")
     .eq("lesson_date", date)
-    .eq("campus", campus)
-    .eq("classroom", classroom)
     .order("start_time", { ascending: true });
 
   if (lessonError) return NextResponse.json({ error: lessonError.message }, { status: 500 });
-  const lessons = (lessonData ?? []) as LessonRow[];
+  const dayLessons = (lessonData ?? []) as LessonRow[];
+  const lessons = dayLessons.filter((lesson) => lesson.campus === campus && lesson.classroom === classroom);
   const selectedLesson = pickLesson(lessons, lessonId);
   const classroomMessages = await fetchClassroomMessages({ supabase, campus, classroom })
     .catch(() => [] as ClassroomMessage[]);
@@ -390,20 +389,23 @@ export async function GET(request: Request) {
     });
   }
 
+  const linkedLessons = sharedOnlineLessons(selectedLesson, dayLessons) as LessonRow[];
+  const linkedLessonById = new Map(linkedLessons.map((lesson) => [lesson.id, lesson]));
   const eventRequest = supabase
     .from("attendance_events")
     .select("id,lesson_id,student_number,event_type,reason,arrival_expected_time,note_for_classroom,cross_campus_override,cross_campus_reason,confirmed_at,student_roster(student_name,grade,campus)")
-    .eq("lesson_id", selectedLesson.id)
-    .eq("status", "confirmed");
+    .in("lesson_id", linkedLessons.map((lesson) => lesson.id))
+    .eq("status", "confirmed")
+    .order("confirmed_at", { ascending: false });
 
-  const [eventResult, notionResult] = await Promise.all([
+  const [eventResult, notionResults] = await Promise.all([
     eventRequest,
-    fetchNotionClassroomEvents({ supabase, date, selectedLesson })
+    Promise.all(linkedLessons.map((lesson) => fetchNotionClassroomEvents({ supabase, date, selectedLesson: lesson })
       .then((events) => ({ events, warning: null as string | null }))
       .catch((error) => ({
         events: [] as ClassroomEvent[],
-        warning: error instanceof Error ? `Notionの欠席連絡を取得できませんでした: ${error.message}` : "Notionの欠席連絡を取得できませんでした",
-      })),
+        warning: error instanceof Error ? `Notionの欠席連絡を取得できませんでした（${lesson.campus}）: ${error.message}` : `Notionの欠席連絡を取得できませんでした（${lesson.campus}）`,
+      })))),
   ]);
   const { data: eventData, error: eventError } = eventResult;
   if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
@@ -412,18 +414,24 @@ export async function GET(request: Request) {
     const roster = firstRoster(event.student_roster);
     return !shouldDisplayAttendanceEvent({
       studentCampus: roster?.campus,
-      lessonCampus: selectedLesson.campus,
+      lessonCampus: linkedLessonById.get(event.lesson_id)?.campus,
       crossCampusOverride: event.cross_campus_override,
       crossCampusReason: event.cross_campus_reason,
     });
   });
+  const displayedStudentNumbers = new Set<string>();
   const dbEvents = ((eventData ?? []) as EventRow[])
     .filter((event) => !unsafeDbEvents.some((unsafeEvent) => unsafeEvent.id === event.id))
+    .filter((event) => {
+      if (displayedStudentNumbers.has(event.student_number)) return false;
+      displayedStudentNumbers.add(event.student_number);
+      return true;
+    })
     .map((event) => {
       const roster = firstRoster(event.student_roster);
       return {
         id: event.id,
-        lesson_id: event.lesson_id,
+        lesson_id: selectedLesson.id,
         student_number: event.student_number,
         student_name: roster?.student_name ?? "名前未取得",
         grade: roster?.grade ?? null,
@@ -436,8 +444,15 @@ export async function GET(request: Request) {
       };
     });
 
-  const dbEventKeys = new Set(dbEvents.map((event) => `${event.student_number}:${event.lesson_id}`));
-  const notionEvents = notionResult.events.filter((event) => !dbEventKeys.has(`${event.student_number}:${event.lesson_id}`));
+  const notionStudentNumbers = new Set<string>();
+  const notionEvents = notionResults.flatMap((result) => result.events)
+    .sort((a, b) => (b.confirmed_at ?? "").localeCompare(a.confirmed_at ?? ""))
+    .filter((event) => {
+      if (displayedStudentNumbers.has(event.student_number) || notionStudentNumbers.has(event.student_number)) return false;
+      notionStudentNumbers.add(event.student_number);
+      return true;
+    })
+    .map((event) => ({ ...event, lesson_id: selectedLesson.id }));
   const events = [...dbEvents, ...notionEvents]
     .sort((a, b) => eventTypeRank(a.event_type) - eventTypeRank(b.event_type) || a.student_name.localeCompare(b.student_name, "ja"));
 
@@ -451,7 +466,7 @@ export async function GET(request: Request) {
     messages: classroomMessages,
     message: events.length === 0 ? "欠席・遅刻連絡はありません" : null,
     notion_warning: [
-      notionResult.warning,
+      ...notionResults.map((result) => result.warning),
       unsafeDbEvents.length > 0 ? `校舎が一致しない欠席連絡${unsafeDbEvents.length}件を安全のため非表示にしました。事務画面で確認してください。` : null,
     ].filter(Boolean).join(" ") || null,
     fetched_at: new Date().toISOString(),

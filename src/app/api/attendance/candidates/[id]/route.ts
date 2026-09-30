@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { attendanceCrossCampusReason } from "@/lib/attendance-campus-consistency.mjs";
 
 const eventTypes = new Set(["absence", "late", "early_leave", "reschedule_request", "other"]);
 
@@ -45,7 +46,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     note_internal: cleanText(item.note_internal),
     note_for_classroom: cleanText(item.note_for_classroom),
     cross_campus_override: item.cross_campus_override === true,
-    cross_campus_reason: cleanText(item.cross_campus_reason),
+    cross_campus_reason: attendanceCrossCampusReason(item.cross_campus_override, cleanText(item.cross_campus_reason)),
   }));
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase.rpc("save_attendance_candidate_review", {

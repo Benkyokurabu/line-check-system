@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { attendanceCrossCampusReason, enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -193,7 +193,7 @@ async function upsertAttendanceEvent(input: {
     note_internal: input.item.note_internal?.trim() || null,
     note_for_classroom: input.item.note_for_classroom?.trim() || null,
     cross_campus_override: input.item.cross_campus_override === true,
-    cross_campus_reason: input.item.cross_campus_reason?.trim() || null,
+    cross_campus_reason: attendanceCrossCampusReason(input.item.cross_campus_override, input.item.cross_campus_reason),
     status: "confirmed",
     confirmed_by: input.confirmedBy,
     confirmed_at: input.confirmedAt,

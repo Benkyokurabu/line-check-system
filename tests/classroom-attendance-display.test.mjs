@@ -10,9 +10,11 @@ import {
 import {
   enrollmentCampusForLesson,
   enrollmentMatchesLesson,
+  attendanceCrossCampusReason,
   isAttendanceCrossCampus,
   resolveNotionLesson,
   shouldDisplayAttendanceEvent,
+  sharedOnlineLessons,
   studentCampusIncludesLesson,
   validateAttendanceCampusSelection,
 } from "../src/lib/attendance-campus-consistency.mjs";
@@ -83,16 +85,18 @@ test("両方所属は両校舎を含むが、科目別通常校舎があれば�
   assert.equal(isAttendanceCrossCampus({ studentCampus: "両方", lessonCampus: "南教室", enrollmentCampus: "本" }), true);
 });
 
-test("校舎不一致は拒否し、明示的な別校舎受講と理由がある場合だけ許可する", () => {
+test("校舎不一致は拒否し、明示的な別校舎受講のチェックで許可する", () => {
   assert.equal(validateAttendanceCampusSelection({ studentCampus: "本校", lessonCampus: "南教室" }).ok, false);
-  assert.equal(validateAttendanceCampusSelection({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true }).ok, false);
+  assert.equal(validateAttendanceCampusSelection({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true }).ok, true);
   assert.equal(validateAttendanceCampusSelection({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true, crossCampusReason: "振替受講" }).ok, true);
+  assert.equal(attendanceCrossCampusReason(true, null), "別校舎での振替・受講として登録");
+  assert.equal(attendanceCrossCampusReason(false, "既存値"), null);
 });
 
-test("両方所属でも科目別通常校舎と異なる授業だけ理由を要求する", () => {
+test("両方所属でも科目別通常校舎と異なる授業だけチェックを要求する", () => {
   assert.equal(validateAttendanceCampusSelection({ studentCampus: "両方", lessonCampus: "本校", enrollmentCampus: "本" }).ok, true);
   assert.equal(validateAttendanceCampusSelection({ studentCampus: "両方", lessonCampus: "南教室", enrollmentCampus: "本" }).ok, false);
-  assert.equal(validateAttendanceCampusSelection({ studentCampus: "両方", lessonCampus: "南教室", enrollmentCampus: "本", crossCampusOverride: true, crossCampusReason: "振替受講" }).ok, true);
+  assert.equal(validateAttendanceCampusSelection({ studentCampus: "両方", lessonCampus: "南教室", enrollmentCampus: "本", crossCampusOverride: true }).ok, true);
 });
 
 test("Notionの日付・授業校舎・授業名から授業を一意に解決する", () => {
@@ -107,7 +111,18 @@ test("Notionの日付・授業校舎・授業名から授業を一意に解決�
 
 test("教室表示は校舎不一致を隠し、明示的な別校舎受講は表示する", () => {
   assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "本校", lessonCampus: "南教室" }), false);
-  assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true, crossCampusReason: "振替受講" }), true);
+  assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "本校", lessonCampus: "南教室", crossCampusOverride: true }), true);
+});
+
+test("同じオンライン授業だけを両校舎で共有する", () => {
+  const base = { lesson_date: "2026-10-29", start_time: "6:35～8:05", grade: "中2", class_name: "X", subject: "数学", teacher_name: "工藤", source_payload: { faceToFace: false } };
+  const main = { ...base, id: "main", campus: "本校", classroom: "4" };
+  const south = { ...base, id: "south", campus: "南教室", classroom: "5" };
+  assert.deepEqual(sharedOnlineLessons(main, [main, south]).map((lesson) => lesson.id), ["main", "south"]);
+  assert.deepEqual(sharedOnlineLessons(south, [main, south]).map((lesson) => lesson.id), ["south", "main"]);
+  assert.deepEqual(sharedOnlineLessons(main, [main, { ...south, teacher_name: "別の先生" }]).map((lesson) => lesson.id), ["main"]);
+  assert.deepEqual(sharedOnlineLessons({ ...main, source_payload: { faceToFace: true } }, [main, south]).map((lesson) => lesson.id), ["main"]);
+  assert.deepEqual(sharedOnlineLessons(main, [main, south, { ...south, id: "duplicate" }]).map((lesson) => lesson.id), ["main"]);
 });
 
 test("教室表示は両方所属の通常授業を表示する", () => {

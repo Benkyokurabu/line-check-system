@@ -80,7 +80,6 @@ export function validateAttendanceCampusSelection(input) {
   const requestedCampus = normalizeCampus(input?.requestedCampus);
   const enrollmentCampus = normalizeCampus(input?.enrollmentCampus);
   const override = input?.crossCampusOverride === true;
-  const reason = String(input?.crossCampusReason ?? "").trim();
 
   if (!studentCampus && !enrollmentCampus) return { ok: false, crossCampus: false, error: "生徒の所属校舎を確認できません" };
   if (!lessonCampus) return { ok: false, crossCampus: false, error: "選択した授業の校舎を確認できません" };
@@ -97,16 +96,29 @@ export function validateAttendanceCampusSelection(input) {
       : `所属校舎（${studentCampus}）`;
     return { ok: false, crossCampus: true, error: `${basis}と授業校舎（${lessonCampus}）が一致しません` };
   }
-  if (crossCampus && !reason) {
-    return { ok: false, crossCampus: true, error: "別校舎受講を登録する理由を入力してください" };
-  }
   return { ok: true, crossCampus, error: null };
+}
+
+export function attendanceCrossCampusReason(override, value) {
+  if (override !== true) return null;
+  return String(value ?? "").trim() || "別校舎での振替・受講として登録";
 }
 
 export function shouldDisplayAttendanceEvent(input) {
   const crossCampus = isAttendanceCrossCampus(input);
   if (!crossCampus) return Boolean(normalizeCampus(input?.lessonCampus));
-  return input?.crossCampusOverride === true && Boolean(String(input?.crossCampusReason ?? "").trim());
+  return input?.crossCampusOverride === true;
+}
+
+export function sharedOnlineLessons(selectedLesson, lessons) {
+  if (!selectedLesson?.id || selectedLesson.source_payload?.faceToFace !== false) return [selectedLesson].filter(Boolean);
+  const fields = ["lesson_date", "start_time", "grade", "class_name", "subject", "teacher_name"];
+  if (fields.some((field) => !String(selectedLesson[field] ?? "").trim())) return [selectedLesson];
+  const matches = (lessons ?? []).filter((lesson) => lesson.source_payload?.faceToFace === false &&
+    fields.every((field) => String(lesson[field] ?? "").trim() === String(selectedLesson[field] ?? "").trim()) &&
+    ["本校", "南教室"].includes(lesson.campus));
+  if (matches.length !== 2 || new Set(matches.map((lesson) => lesson.campus)).size !== 2) return [selectedLesson];
+  return [selectedLesson, ...matches.filter((lesson) => lesson.id !== selectedLesson.id)];
 }
 
 const gradeAliases = new Map([

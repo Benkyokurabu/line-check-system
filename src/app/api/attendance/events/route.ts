@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { attendanceCrossCampusReason, enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,7 +63,7 @@ function parseEvent(input: ManualEventInput, common: Record<string, unknown>) {
     note_internal: cleanText(input.note_internal),
     note_for_classroom: cleanText(input.note_for_classroom),
     cross_campus_override: input.cross_campus_override === true,
-    cross_campus_reason: cleanText(input.cross_campus_reason),
+    cross_campus_reason: attendanceCrossCampusReason(input.cross_campus_override, cleanText(input.cross_campus_reason)),
     status: "confirmed",
     confirmed_by: receivedBy,
     confirmed_at: new Date().toISOString(),

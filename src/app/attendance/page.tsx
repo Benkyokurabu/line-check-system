@@ -783,7 +783,6 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
   const [noteInternal, setNoteInternal] = useState("");
   const [noteForClassroom, setNoteForClassroom] = useState("");
   const [crossCampusOverride, setCrossCampusOverride] = useState(false);
-  const [crossCampusReason, setCrossCampusReason] = useState("");
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -822,7 +821,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
     if (!studentNumber) { setMessage("生徒を選択してください。"); return; }
     if (!eventDate) { setMessage("対象日を入力してください。"); return; }
     if (periodMode ? !periodLessons.length : !lessonId) { setMessage("授業を選択してください。"); return; }
-    if (!periodMode && isCrossCampus && (!crossCampusOverride || !crossCampusReason.trim())) { setMessage("別校舎受講として登録するチェックと理由が必要です。"); return; }
+    if (!periodMode && isCrossCampus && !crossCampusOverride) { setMessage("別校舎受講として登録するチェックが必要です。"); return; }
     if (periodMode && !window.confirm(`${selectedStudent?.student_name}：選択した${periodLessons.length}授業を「${eventTypeLabel(eventType)}」として登録します。\n理由：${reason}\n\n同じ生徒・授業の登録がある場合は今回の内容に更新します。よろしいですか？`)) return;
     setSaving(true);
     onSavingChange(true);
@@ -849,7 +848,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
           note_internal: noteInternal,
           note_for_classroom: noteForClassroom,
           cross_campus_override: !periodMode && isCrossCampus && crossCampusOverride,
-          cross_campus_reason: !periodMode && isCrossCampus ? crossCampusReason : null,
+          cross_campus_reason: null,
         }),
       });
       const body = await response.json();
@@ -875,7 +874,6 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
       setNoteInternal("");
       setNoteForClassroom("");
       setCrossCampusOverride(false);
-      setCrossCampusReason("");
       await onSaved();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -911,7 +909,6 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
     </div>}
     {!periodMode && isCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
       <label style={{ fontWeight: 800 }}><input type="checkbox" checked={crossCampusOverride} onChange={(event) => setCrossCampusOverride(event.target.checked)} /> 別校舎での振替・受講として登録する</label>
-      <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={crossCampusReason} onChange={(event) => setCrossCampusReason(event.target.value)} placeholder="例：本日のみ南教室へ振替" /></label>
     </div>}
     <div><button type="button" style={buttonStyle} disabled={saving || (periodMode && !periodLessons.length)} onClick={saveManualEvent}>{saving ? "保存中..." : periodMode ? `選択した${periodLessons.length}授業を登録` : "確定データとして保存"}</button></div>
     </fieldset>
@@ -1018,8 +1015,8 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
     if (!draft.student_number) { setMessage("生徒を選択してください。"); return; }
     if (!draft.event_date) { setMessage("対象日を入力してください。"); return; }
     if (!draft.lesson_id) { setMessage("授業を選択してください。"); return; }
-    if (isEditingCrossCampus && (!draft.cross_campus_override || !draft.cross_campus_reason.trim())) {
-      setMessage("別校舎受講として登録するチェックと理由が必要です。");
+    if (isEditingCrossCampus && !draft.cross_campus_override) {
+      setMessage("別校舎受講として登録するチェックが必要です。");
       return;
     }
     const busyKey = `edit:${editingId}`;
@@ -1121,7 +1118,6 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
           </div>
           {isEditingCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
             <label style={{ fontWeight: 800 }}><input type="checkbox" checked={draft.cross_campus_override} onChange={(event) => setDraft((value) => ({ ...value, cross_campus_override: event.target.checked }))} /> 別校舎での振替・受講として登録する</label>
-            <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={draft.cross_campus_reason} onChange={(event) => setDraft((value) => ({ ...value, cross_campus_reason: event.target.value }))} placeholder="例：本日のみ南教室へ振替" /></label>
           </div>}
           <div style={{ display: "flex", gap: 8 }}><button type="button" style={buttonStyle} disabled={Boolean(actionBusy)} onClick={() => void saveEdit()}>{actionBusy === `edit:${event.id}` ? "保存中..." : "保存してNotion反映"}</button><button type="button" style={ghostButtonStyle} disabled={Boolean(actionBusy)} onClick={() => setEditingId(null)}>閉じる</button></div>
         </div>}
@@ -1490,9 +1486,9 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       const student = studentOptions.find((entry) => entry.student_number === item.student_number);
       const lesson = proposedLessons.find((entry) => entry.id === item.lesson_id) ?? (lessonLists[candidateLessonListKey(item.event_date, item.student_number)] ?? []).find((entry) => entry.id === item.lesson_id) ?? candidateLesson(candidate, item);
       const crossCampus = lessonIsCrossCampus(student, lesson, item.campus);
-      return crossCampus && (!item.cross_campus_override || !item.cross_campus_reason.trim());
+      return crossCampus && !item.cross_campus_override;
     });
-    if (invalidCampus) { setCardMessage("別校舎の授業を選ぶ場合は、別校舎受講のチェックと理由が必要です。"); return; }
+    if (invalidCampus) { setCardMessage("別校舎の授業を選ぶ場合は、別校舎受講のチェックが必要です。"); return; }
     setBusy(true);
     setCardMessage("Notionへ登録しています...");
     try {
@@ -1785,7 +1781,6 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           {crossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
             <div style={{ color: "#9a3412", fontWeight: 800 }}>所属校舎は{rowStudent?.campus}、選択中の授業は{item.campus}です。</div>
             <label style={{ fontWeight: 800 }}><input type="checkbox" checked={item.cross_campus_override} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { cross_campus_override: event.target.checked })} /> 別校舎での振替・受講として登録する</label>
-            <label style={fieldStyle}>別校舎受講の理由<input style={inputStyle} value={item.cross_campus_reason} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { cross_campus_reason: event.target.value })} placeholder="例：本日のみ南教室へ振替" /></label>
           </div>}
           
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {selectionSummary}</div>
