@@ -1,4 +1,4 @@
-export type InterviewRecord = { id: string; date: string; title: string; body: string; url: string };
+export type InterviewRecord = { id: string; date: string; title: string; method?: string; purpose?: string; attachments?: string[]; body: string; url: string };
 export type StudentInfo = { source: string; value: string };
 export type InfoSummary = { status: 'empty' | 'prepared' | 'queued' | 'running' | 'completed' | 'failed';
   items: { source: string; note: string; original: string }[]; sourceHash?: string };

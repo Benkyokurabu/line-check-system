@@ -40,7 +40,17 @@ export function materialRecord(page, body) {
     id: page.id,
     date: properties['面談日']?.date?.start ?? page.created_time?.slice(0, 10) ?? '',
     title,
-    body: body.trim().slice(0, 16000),
+    method: notionPropertyText(properties['方法']),
+    purpose: notionPropertyText(properties['面談目的']),
+    attachments: (properties['添付ファイル']?.files ?? []).map(file => file.name).filter(Boolean),
+    body: body.trim(),
     url: page.url ?? `https://www.notion.so/${page.id.replaceAll('-', '')}`,
   };
+}
+
+export function recentRecordCandidates(records) {
+  return records.filter(record => record.body).map((record, index) => ({
+    source: `過去の面談記録${index + 1}（${record.date || '日付なし'}・${record.title}）`,
+    value: record.body,
+  }));
 }

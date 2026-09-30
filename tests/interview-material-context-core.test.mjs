@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { materialRecord, notionBlockText, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, recentRecordCandidates, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
 
 test('student context includes notes and avoids contact numbers', () => {
   const fields = studentInfoCandidates({
@@ -23,4 +23,12 @@ test('interview records read the written page body, including code blocks', () =
   assert.equal(record.title, '進路相談');
   assert.equal(record.date, '2026-05-23');
   assert.equal(record.body, '本人の希望を確認した。');
+});
+
+test('recent records keep their entire text and become cited AI sources', () => {
+  const longBody = '前回の約束。'.repeat(2500);
+  const record = materialRecord({ id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    properties: { '面談内容': { type: 'title', title: [{ plain_text: '進路相談' }] }, '面談日': { date: { start: '2026-05-23' } } } }, longBody);
+  assert.equal(record.body, longBody);
+  assert.deepEqual(recentRecordCandidates([record]), [{ source: '過去の面談記録1（2026-05-23・進路相談）', value: longBody }]);
 });

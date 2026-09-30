@@ -2,29 +2,31 @@ import { NextRequest } from 'next/server';
 import { staffContext, staffResponse, staffErrorResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
 import { notionRequest } from '@/lib/notion';
-import { materialRecord, notionBlockText, notionPropertyText, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
 import { infoSourceHash } from '@/lib/interview-material-info-summary.mjs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const interviewSource = '19ef0120-80a7-808a-8992-000b85713577';
+const recentRecordCount = 3;
 type NotionPage = { id: string; url?: string; created_time?: string; parent?: { data_source_id?: string }; properties: Record<string, unknown> };
 type NotionBlock = { id: string; type: string; has_children?: boolean; [key: string]: unknown };
 
-async function allBlocks(pageId: string) {
+async function allBlocks(pageId: string, budget = { pages: 0 }) {
   const lines: string[] = [];
   let cursor = '';
-  for (let page = 0; page < 10; page++) {
+  do {
+    if (++budget.pages > 100) throw new InterviewError('面談記録が長いため全文を取得できません。Notionの原本を確認してください。', 503);
     const result = await notionRequest(`/blocks/${pageId}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
     for (const block of (result.results ?? []) as NotionBlock[]) {
       const line = notionBlockText(block);
       if (line) lines.push(line);
-      if (block.has_children && lines.join('\n').length < 16000) lines.push(...await allBlocks(block.id));
+      if (block.has_children) lines.push(...await allBlocks(block.id, budget));
     }
-    if (!result.has_more || !result.next_cursor) break;
-    cursor = result.next_cursor;
-  }
+    if (result.has_more && !result.next_cursor) throw new InterviewError('Notionの面談記録を最後まで取得できません。', 503);
+    cursor = result.has_more ? result.next_cursor : '';
+  } while (cursor);
   return lines;
 }
 
@@ -66,28 +68,36 @@ export async function GET(request: NextRequest) {
     const page = await notionRequest(`/pages/${pageId}`) as NotionPage;
     if (notionPropertyText(page.properties['学籍番号']) !== number) throw new InterviewError('Notionの生徒番号が一致しません。', 409);
     const ids = await interviewIds(page);
-    const records = [];
+    const recordPages: NotionPage[] = [];
     for (const id of ids) {
       const record = await notionRequest(`/pages/${id}`) as NotionPage;
       if (record.parent?.data_source_id !== interviewSource) continue;
-      const body = (await allBlocks(id)).join('\n\n');
-      records.push(materialRecord(record, body));
+      recordPages.push(record);
     }
-    records.sort((a, b) => b.date.localeCompare(a.date));
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    recordPages.sort((a, b) => materialRecord(b, '').date.localeCompare(materialRecord(a, '').date));
+    const records = [];
+    for (const record of recordPages) {
+      if (materialRecord(record, '').date.slice(0, 10) > today) continue;
+      const body = (await allBlocks(record.id)).join('\n\n');
+      records.push(materialRecord(record, body));
+      if (records.length === recentRecordCount) break;
+    }
     const info = studentInfoCandidates(page.properties);
-    let summary: { status: string; items: unknown[] } = { status: 'empty', items: [] };
-    if (info.length) {
-      const sourceHash = infoSourceHash(info);
+    const summaryFields = [...recentRecordCandidates(records), ...info];
+    let summary: { status: string; items: unknown[]; sourceHash?: string } = { status: 'empty', items: [] };
+    if (summaryFields.length) {
+      const sourceHash = infoSourceHash(summaryFields);
       const { data: existing, error: readError } = await context.dataClient.from('interview_material_info_summaries')
         .select('source_hash,status,requested,result').eq('student_number', number).maybeSingle();
       if (readError) throw new InterviewError('情報の要約を確認できません。', 503);
       if (!existing || existing.source_hash !== sourceHash) {
         const { error: queueError } = await context.dataClient.from('interview_material_info_summaries')
-          .upsert({ student_number: number, source_hash: sourceHash, fields: info, status: 'queued', requested: false,
+          .upsert({ student_number: number, source_hash: sourceHash, fields: summaryFields, status: 'queued', requested: false,
             result: [], error: null, attempts: 0, claimed_at: null, updated_at: new Date().toISOString() }, { onConflict: 'student_number' });
         if (queueError) throw new InterviewError('情報の要約を依頼できません。', 503);
-        summary = { status: 'prepared', items: [] };
-      } else summary = { status: existing.status === 'queued' && !existing.requested ? 'prepared' : existing.status,
+        summary = { status: 'prepared', items: [], sourceHash };
+      } else summary = { sourceHash, status: existing.status === 'queued' && !existing.requested ? 'prepared' : existing.status,
         items: Array.isArray(existing.result) ? existing.result : [] };
     }
     return staffResponse({ records, info, summary, studentUrl: page.url ?? '', source: 'notion' }, context);

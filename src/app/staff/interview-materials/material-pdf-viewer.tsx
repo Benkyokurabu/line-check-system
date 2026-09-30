@@ -26,7 +26,7 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
     return () => { document.body.style.overflow = oldOverflow; window.removeEventListener('keydown', keydown); };
   }, [open, onClose]);
   useEffect(() => {
-    if (open && active === 'info' && context?.summary.status === 'prepared') onNeedInfoSummary();
+    if (open && (active === 'info' || active === 'records') && context?.summary.status === 'prepared') onNeedInfoSummary();
   }, [open, active, context, onNeedInfoSummary]);
   function select(tab: Active) {
     setActive(tab);
@@ -44,16 +44,25 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
     <div className={styles.viewerBody}>
       {separate ? items.map((item, index) => cached.includes(index) && <iframe key={index} className={styles.viewerFrame} data-active={active === index ? 'true' : 'false'} src={viewerUrl(item.previewUrl!)} title={`${item.label}のPDFプレビュー`} tabIndex={active === index && open ? 0 : -1} aria-hidden={active !== index || !open} />) : <iframe className={styles.viewerFrame} data-active={typeof active === 'number' ? 'true' : 'false'} src={viewerUrl(pdfUrl)} title="一式PDFのプレビュー" tabIndex={typeof active === 'number' && open ? 0 : -1} />}
       {active === 'records' && <section className={styles.viewerTextPanel} aria-label="面談記録">
-        <h2>面談記録</h2><p>Notionの面談DBから取得した記録です。</p>
+        <h2>面談記録</h2><p>Notionの面談DBから取得した直近3回の記録を全文で表示します。</p>
+        {!contextLoading && !contextError && context?.summary.status === 'completed' && <div className={styles.viewerSummary}>
+          <h3>面談前に確認したい点（AI）</h3>
+          {context.summary.items.length ? <ul>{context.summary.items.map((item, index) => <li key={`${item.source}-${index}`}><strong>{item.note}</strong><small>出典：{item.source}</small></li>)}</ul>
+            : <p>特記する項目はありませんでした。</p>}
+        </div>}
+        {!contextLoading && !contextError && context && ['prepared', 'queued', 'running'].includes(context.summary.status) && <p role="status">AIが過去の記録と生徒情報を確認中です。記録本文は下に表示しています。</p>}
+        {!contextLoading && !contextError && context?.summary.status === 'failed' && <p>AIによる注意点の抽出は完了していません。記録本文を確認してください。</p>}
         {contextLoading ? <p role="status">読み込み中…</p> : contextError ? <p role="alert">{contextError}</p>
           : !context?.records.length ? <p>面談記録は見つかりませんでした。</p>
             : context.records.map(record => <article key={record.id} className={styles.viewerRecord}>
               <h3>{record.title}</h3><p className={styles.viewerDate}>{record.date || '日付なし'} <a href={record.url} target="_blank" rel="noreferrer">原本</a></p>
+              {(record.method || record.purpose) && <p>方法：{record.method || '記載なし'} ／ 目的：{record.purpose || '記載なし'}</p>}
               <div className={styles.viewerRecordBody}>{record.body || '本文はありません。'}</div>
+              {!!record.attachments?.length && <p>添付ファイル：{record.attachments.join('、')}（原本から確認）</p>}
             </article>)}
       </section>}
       {active === 'info' && <section className={styles.viewerTextPanel} aria-label="生徒情報">
-        <h2>情報</h2><p>生徒情報DBから、面談で知っておきたい内容を表示します。</p>
+        <h2>情報</h2><p>生徒情報DBの原文と、過去の面談記録も踏まえた注意点を表示します。</p>
         {contextLoading ? <p role="status">読み込み中…</p> : contextError ? <p role="alert">{contextError}</p>
           : !context?.info.length ? <p>該当する記載はありません。</p>
             : <>

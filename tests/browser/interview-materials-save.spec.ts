@@ -117,6 +117,7 @@ test('central worker previews sources then builds and saves a PDF without browse
     Object.defineProperty(window, 'showDirectoryPicker', { value: async () => ({
       getDirectoryHandle: async (folderName: string) => ({
         getFileHandle: async (fileName: string) => ({
+          getFile: async () => new Blob([saved[`${folderName}/${fileName}`] ?? '']),
           createWritable: async () => ({
             write: async (data: Blob | string) => { saved[`${folderName}/${fileName}`] = typeof data === 'string' ? data : await data.text(); },
             close: async () => {},
@@ -164,6 +165,8 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(summaryRequests).toBe(0);
   await page.getByRole('button', { name: '面談記録を表示' }).click();
   await expect(page.getByRole('article').filter({ hasText: '進路相談' })).toContainText('志望校を確認した。');
+  await expect(page.getByText('面談前に確認したい点（AI）')).toBeVisible();
+  expect(summaryRequests).toBe(1);
   await page.getByRole('button', { name: '情報を表示' }).click();
   await expect(page.getByText('AIが選んだ特記事項')).toBeVisible();
   expect(summaryRequests).toBe(1);
@@ -195,6 +198,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(Object.keys(saved).sort()).toEqual([
     `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
     `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,
+    `${folderName}/面談記録.txt`, `${folderName}/生徒情報・注意点.txt`, `${folderName}/資料一覧.txt`,
     `${folderName}/面談資料.html`,
   ].sort());
   expect(saved[`${folderName}/面談資料.html`]).toContain('material-${index}.pdf#zoom=100&navpanes=0');
@@ -203,6 +207,8 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(saved[`${folderName}/面談資料.html`]).toContain('"kind":"塾内成績"');
   expect(saved[`${folderName}/面談資料.html`]).toContain('志望校を確認した。');
   expect(saved[`${folderName}/面談資料.html`]).toContain('面談連絡は保護者へ。');
+  expect(saved[`${folderName}/面談記録.txt`]).toContain('志望校を確認した。');
+  expect(saved[`${folderName}/生徒情報・注意点.txt`]).toContain('面談連絡は保護者へ。');
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);
 });

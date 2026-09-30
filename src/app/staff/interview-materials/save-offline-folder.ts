@@ -1,8 +1,8 @@
 import { materialDockLabel } from './material-dock-label';
-import { fetchInfoSummary, fetchMaterialContext, type MaterialContext } from './material-context';
+import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
 
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
-type FileHandle = { createWritable(): Promise<WritableFile> };
+type FileHandle = { createWritable(): Promise<WritableFile>; getFile(): Promise<Blob> };
 type DirectoryHandle = {
   getDirectoryHandle(name: string, options: { create: true }): Promise<DirectoryHandle>;
   getFileHandle(name: string, options: { create: true }): Promise<FileHandle>;
@@ -24,6 +24,37 @@ async function writeFile(folder: DirectoryHandle, name: string, contents: Blob |
   const writable = await file.createWritable();
   await writable.write(contents);
   await writable.close();
+  const saved = await file.getFile();
+  const expectedSize = typeof contents === 'string' ? new Blob([contents]).size : contents.size;
+  if (saved.size !== expectedSize) throw Error(`${name}を完全に保存できませんでした。`);
+}
+
+async function completeMaterialContext(number: string): Promise<MaterialContext> {
+  let details = await fetchMaterialContext(number);
+  if (details.summary.status === 'prepared') await requestInfoSummary(number);
+  for (let attempt = 0; attempt < 12 && ['prepared', 'queued', 'running'].includes(details.summary.status); attempt++) {
+    if (attempt) await new Promise(resolve => window.setTimeout(resolve, 5000));
+    const summary = await fetchInfoSummary(number);
+    if (details.summary.sourceHash && summary.sourceHash && details.summary.sourceHash !== summary.sourceHash)
+      throw Error('面談記録が更新されました。資料を開き直して保存してください。');
+    details = { ...details, summary };
+  }
+  if (details.summary.status !== 'completed' && details.summary.status !== 'empty')
+    throw Error('AIによる注意点の確認が完了していません。少し待ってから保存し直してください。');
+  return details;
+}
+
+function recordText(context: MaterialContext) {
+  return ['Notionの直近3回の面談記録（保存時点）', ...context.records.map(record =>
+    `${record.date || '日付なし'}　${record.title}\n方法：${record.method || '記載なし'} ／ 目的：${record.purpose || '記載なし'}\n原本：${record.url}\n\n${record.body || '本文なし'}${record.attachments?.length ? `\n\n添付ファイル：${record.attachments.join('、')}（原本から確認）` : ''}`)].join('\n\n━━━━━━━━━━━━━━━━\n\n');
+}
+
+function informationText(context: MaterialContext) {
+  const notes = context.summary.status === 'completed'
+    ? context.summary.items.map(item => `・${item.note}\n  出典：${item.source}`)
+    : ['AIによる注意点の抽出は保存時点で完了していません。面談記録と生徒情報の原文を確認してください。'];
+  return ['面談前に確認したい点（AI）', ...(notes.length ? notes : ['特記する項目なし']),
+    '', '生徒情報DBの原文', ...context.info.map(item => `${item.source}\n${item.value}`)].join('\n\n');
 }
 
 async function fetchPdf(url: string): Promise<Blob> {
@@ -54,7 +85,7 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 }
 
 export async function saveInterviewFolder(
-  jobId: string, studentNumber: string, studentName: string, context: MaterialContext | null,
+  jobId: string, studentNumber: string, studentName: string, _context: MaterialContext | null,
   onProgress: (message: string) => void,
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
@@ -65,8 +96,7 @@ export async function saveInterviewFolder(
   const [jobResponse, templateResponse, details] = await Promise.all([
     fetch(`/api/staff/interview-material-jobs?id=${encodeURIComponent(jobId)}`, { cache: 'no-store' }),
     fetch('/interview-material-offline-template.html'),
-    context ? fetchInfoSummary(studentNumber).then(summary => ({ ...context, summary })).catch(() => context)
-      : fetchMaterialContext(studentNumber),
+    completeMaterialContext(studentNumber),
   ]);
   if (!jobResponse.ok || !templateResponse.ok) throw Error('資料を取得できませんでした。もう一度お試しください。');
   const { job } = await jobResponse.json();
@@ -94,6 +124,13 @@ export async function saveInterviewFolder(
       onProgress(`PDFを保存しています… ${saved}/${files.length}`);
     }
   }));
+  await writeFile(folder, '面談記録.txt', recordText(details));
+  await writeFile(folder, '生徒情報・注意点.txt', informationText(details));
+  await writeFile(folder, '資料一覧.txt', ['面談資料.html：資料の入口',
+    'staff-bundle.pdf：印刷用の一式PDF',
+    ...items.map((item, index) => `material-${index}.pdf：${item.label}`),
+    '面談記録.txt：Notionの直近3回の面談記録の全文',
+    '生徒情報・注意点.txt：生徒情報とAIによる確認点'].join('\n'));
   await writeFile(folder, '面談資料.html', html);
   return folderName;
 }
