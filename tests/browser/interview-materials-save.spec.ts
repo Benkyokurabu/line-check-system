@@ -194,7 +194,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('status').filter({ hasText: '面談資料.html' })).toBeVisible();
   const saved = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
   const folderName = Object.keys(saved)[0].split('/')[0];
-  expect(folderName).toMatch(/^面談資料_2018998_generate_[a-z0-9]+$/);
+  expect(folderName).toBe('中3_確認用 生徒');
   expect(Object.keys(saved).sort()).toEqual([
     `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
     `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,

@@ -251,7 +251,7 @@ export default function MaterialsDesk() {
     if (!folderJob || folderBusy || downloadBusy) return;
     setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
     try {
-      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, materialContext, setDownloadMessage);
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, selected?.grade || '', materialContext, setDownloadMessage);
       setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setDownloadMessage('保存を取り消しました。');

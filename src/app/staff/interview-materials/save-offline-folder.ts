@@ -85,7 +85,7 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 }
 
 export async function saveInterviewFolder(
-  jobId: string, studentNumber: string, studentName: string, _context: MaterialContext | null,
+  jobId: string, studentNumber: string, studentName: string, studentGrade: string, _context: MaterialContext | null,
   onProgress: (message: string) => void,
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
@@ -109,7 +109,8 @@ export async function saveInterviewFolder(
   const html = template.replace('__ITEMS_JSON__', safeJson(items.map(item => ({ label: item.label, kind: materialDockLabel(item) }))))
     .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson(details));
   if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
-  const folderName = `面談資料_${studentNumber}_${jobId.slice(0, 8)}_${Date.now().toString(36)}`;
+  const folderPart = (value: string) => value.trim().replace(/\s+/g, ' ').replace(/[<>:"/\\|?*]/g, '_').replace(/[. ]+$/g, '').slice(0, 60);
+  const folderName = `${folderPart(studentGrade) || '学年不明'}_${folderPart(studentName) || '氏名不明'}`;
   const folder = await parent.getDirectoryHandle(folderName, { create: true });
   const files = [{ name: 'staff-bundle.pdf', url: job.pdfUrl },
     ...items.map((item, index) => ({ name: `material-${index}.pdf`, url: item.previewUrl! }))];
