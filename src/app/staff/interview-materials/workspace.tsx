@@ -111,6 +111,11 @@ export default function MaterialsDesk() {
       setMaterialContext(previous => previous ? { ...previous, summary: { ...previous.summary, status: 'failed' } } : previous);
     } finally { summaryRequesting.current = false; }
   }, [number, materialContext]);
+  useEffect(() => {
+    if (!preview || materialContext?.summary.status !== 'prepared') return;
+    const timer = window.setTimeout(() => { void needInfoSummary(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [preview, materialContext?.summary.status, needInfoSummary]);
   const chooseStudent = useCallback((student: Student, preferredAnswer = '') => {
     const selectedAnswer = student.responses.find(response => answerKey(response.id) === answerKey(preferredAnswer))
       ?? (student.responses.length === 1 ? student.responses[0] : undefined);
@@ -313,6 +318,34 @@ export default function MaterialsDesk() {
               </label>)}
             </div>)}
           </> : <p className={styles.error}>作成PCの資料一覧を取得できませんでした。作成アプリを更新し、もう一度「資料を作る」を押してください。</p>}
+          <section className={styles.materialContextPreview} aria-label="面談記録とAIのまとめ">
+            <h4>面談記録とAIのまとめ</h4>
+            <p className={styles.note}>PDFを作成する前に先生が確認する情報です。印刷用の一式PDFには入りません。</p>
+            {contextLoading ? <p role="status">Notionの面談記録を読み込み中…</p>
+              : contextError ? <p className={styles.error} role="alert">{contextError}</p>
+                : !materialContext ? <p>面談記録を取得できませんでした。</p> : <>
+                  <div className={styles.materialContextSummary}>
+                    <h5>面談前の確認点（AI）</h5>
+                    {materialContext.summary.status === 'completed'
+                      ? materialContext.summary.items.length
+                        ? <ul>{materialContext.summary.items.map((item, index) => <li key={`${item.source}-${index}`}><strong>{item.note}</strong><small>出典：{item.source}</small></li>)}</ul>
+                        : <p>特記する項目はありません。</p>
+                      : materialContext.summary.status === 'failed' ? <p>AIのまとめを取得できませんでした。下の記録本文を確認してください。</p>
+                        : materialContext.summary.status === 'empty' ? <p>まとめる記録や生徒情報はありません。</p>
+                          : <p role="status">過去の面談記録と生徒情報を確認中です。</p>}
+                  </div>
+                  <div className={styles.materialContextRecords}>
+                    <h5>面談記録（Notionの直近3回）</h5>
+                    {materialContext.records.length ? materialContext.records.map(record => <details key={record.id}>
+                      <summary>{record.date || '日付なし'}　{record.title}</summary>
+                      {(record.method || record.purpose) && <p>方法：{record.method || '記載なし'} ／ 目的：{record.purpose || '記載なし'}</p>}
+                      <div className={styles.materialContextBody}>{record.body || '本文はありません。'}</div>
+                      {!!record.attachments?.length && <p>添付ファイル：{record.attachments.join('、')}（原本から確認）</p>}
+                      <a href={record.url} target="_blank" rel="noreferrer">Notionの原本を開く</a>
+                    </details>) : <p>過去の面談記録は見つかりませんでした。</p>}
+                  </div>
+                </>}
+          </section>
           {preview.some(school => !school.found) && <div className={styles.unavailable}><h4>見つからなかった志望校資料</h4><ol>{preview.filter(school => !school.found).map(school => <li key={school.rank}>第{school.rank}志望：{school.name} — 該当資料なし・選択不可</li>)}</ol></div>}
           {previewHokushin && !previewHokushin.found && selected.grade.match(/^中[23]$/) && <p>北辰の個人成績票：{previewHokushin.message || '該当資料なし'}</p>}
           {previewTermReport && !previewTermReport.found && <p>成績通知の個人成績表：{previewTermReport.message || '該当資料なし'}</p>}

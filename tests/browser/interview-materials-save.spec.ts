@@ -132,6 +132,12 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '第3志望' })).toHaveValue('叡明');
   await page.getByRole('button', { name: '資料を作る' }).click();
+  const contextPreview = page.getByRole('region', { name: '面談記録とAIのまとめ' });
+  await expect(contextPreview.getByText('面談前の確認点（AI）')).toBeVisible();
+  await expect(contextPreview.getByText('面談連絡は保護者へ。')).toBeVisible();
+  await contextPreview.getByText('2026-05-23　進路相談').click();
+  await expect(contextPreview.getByText('志望校を確認した。')).toBeVisible();
+  expect(summaryRequests).toBe(1);
   await expect(page.locator('li').filter({ hasText: '第2志望：国府台' })).toContainText('該当資料なし');
   await expect(page.getByRole('checkbox', { name: /面談アンケート回答/ })).toBeChecked();
   await expect(page.getByText('選択中 4点 ／ 見つかった資料 4点')).toBeVisible();
@@ -162,7 +168,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('button', { name: '成績通知を表示' })).toHaveText('塾内成績');
   await expect(page.getByRole('button', { name: '面談記録を表示' })).toHaveText('面談記録');
   await expect(page.getByRole('button', { name: '情報を表示' })).toHaveText('情報');
-  expect(summaryRequests).toBe(0);
+  expect(summaryRequests).toBe(1);
   await page.getByRole('button', { name: '面談記録を表示' }).click();
   await expect(page.getByRole('article').filter({ hasText: '進路相談' })).toContainText('志望校を確認した。');
   await expect(page.getByText('面談前に確認したい点（AI）')).toBeVisible();
