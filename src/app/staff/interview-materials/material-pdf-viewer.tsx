@@ -38,8 +38,9 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
   const sourceUrl = active === 'records' ? context?.records[0]?.url : active === 'info' ? context?.studentUrl : viewerUrl(selectedUrl);
   return <div className={styles.viewerOverlay} role="dialog" aria-modal={open ? 'true' : undefined} aria-label="面談資料のプレビュー" aria-hidden={!open} style={{ display: open ? undefined : 'none' }}>
     <header className={styles.viewerHeader}>
+      <button className={styles.viewerBack} type="button" onClick={onClose}>← 完成した資料に戻る</button>
       <strong>{title}</strong>
-      <div>{sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer">{typeof active === 'number' ? 'このPDFを別画面で開く' : 'Notionの原本を開く'}</a>}<button type="button" onClick={onClose} aria-label="プレビューを閉じる">閉じる ×</button></div>
+      <div>{sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer">{typeof active === 'number' ? 'このPDFを別画面で開く' : 'Notionの原本を開く'}</a>}</div>
     </header>
     <div className={styles.viewerBody}>
       {separate ? items.map((item, index) => cached.includes(index) && <iframe key={index} className={styles.viewerFrame} data-active={active === index ? 'true' : 'false'} src={viewerUrl(item.previewUrl!)} title={`${item.label}のPDFプレビュー`} tabIndex={active === index && open ? 0 : -1} aria-hidden={active !== index || !open} />) : <iframe className={styles.viewerFrame} data-active={typeof active === 'number' ? 'true' : 'false'} src={viewerUrl(pdfUrl)} title="一式PDFのプレビュー" tabIndex={typeof active === 'number' && open ? 0 : -1} />}

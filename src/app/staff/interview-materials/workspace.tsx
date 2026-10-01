@@ -50,6 +50,8 @@ export default function MaterialsDesk() {
   const [contextError, setContextError] = useState('');
   const contextCache = useRef(new Map<string, MaterialContext>());
   const summaryRequesting = useRef(false);
+  const selectionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const viewerButtonRef = useRef<HTMLButtonElement>(null);
   const resultRef = useRef<HTMLElement>(null);
   const folderSupported = useSyncExternalStore(subscribeToBrowserSupport, canSaveOfflineFolder, () => false);
   const [folderJob, setFolderJob] = useState<{ id: string; number: string; name: string } | null>(null);
@@ -283,7 +285,7 @@ export default function MaterialsDesk() {
         {matching.length === 0 ? <p>条件に合う生徒はいません。担任・学年・検索文字を変更してください。</p> : <div className={styles.studentResults} aria-label="生徒の検索結果">{visible.map(student => <button type="button" className={styles.studentResult} aria-pressed={number === student.number} key={student.number} onClick={() => chooseStudent(student)}><strong>{student.grade} {student.name}</strong><span>{student.number} ／ 担任：{student.teacher || '未設定'} ／ 回答{student.responses.length}件</span></button>)}</div>}
         {matching.length > displayLimit && <button type="button" onClick={() => setDisplayLimit(limit => limit + 30)}>さらに30人表示</button>}
       </section>
-      {selected && <section className={styles.card}><h2>2. アンケート回答を選ぶ</h2>
+      {selected && <section className={styles.card}><h2 ref={selectionHeadingRef} tabIndex={-1} style={{ scrollMarginTop: 24 }}>2. アンケート回答を選ぶ</h2>
         {!selected.responses.length ? <p>今回の回答はありません。指導簿と見つかった模試資料を作ります。</p> : <>
           <p>回答が複数ある場合は、使う回答を先生が選択してください。</p>
           <div className={styles.answers}>{selected.responses.map((response, index) => <label key={response.id} className={styles.answer}>
@@ -358,11 +360,16 @@ export default function MaterialsDesk() {
       </section>}
       {manifest && <section className={`${styles.card} ${styles.resultCard}`} ref={resultRef}><h2>3. 完成した資料を使う</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ。使い方を選んでください。</p>
+        <div className={styles.actions}><button type="button" onClick={() => {
+          selectionHeadingRef.current?.focus({ preventScroll: true });
+          selectionHeadingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}>← アンケート・資料の選択に戻る</button></div>
         {pdfUrl && <div className={styles.resultChoices} role="group" aria-label="完成した面談資料の使い方">
           <a className={styles.resultChoice} href={`${pdfUrl.split('#')[0]}#zoom=100&navpanes=0`} target="_blank" rel="noreferrer" aria-label="印刷用の一式PDFを開く"><strong>印刷</strong><span>一式PDFを開く</span></a>
-          <button type="button" className={styles.resultChoice} onClick={() => { setDownloadOpen(false); setViewerOpen(true); }}><strong>画面で見る</strong><span>資料を切り替える</span></button>
+          <button ref={viewerButtonRef} type="button" className={styles.resultChoice} onClick={() => { setDownloadOpen(false); setViewerOpen(true); }}><strong>画面で見る</strong><span>資料を切り替える</span></button>
           <button type="button" className={styles.resultChoice} aria-expanded={downloadOpen} aria-controls="interview-download-options" onClick={() => setDownloadOpen(open => !open)}><strong>DL</strong><span>PDF・フォルダ</span></button>
         </div>}
+        {pdfUrl && <p className={styles.note}>別タブで開いたPDFから戻るときは、元の勉たんのタブを選んでください。</p>}
         {pdfUrl && downloadOpen && <div id="interview-download-options" className={styles.downloadOptions}>
           <strong>保存する形式を選ぶ</strong>
           <div className={styles.downloadActions}>
@@ -378,7 +385,10 @@ export default function MaterialsDesk() {
         {manifest.missing.length > 0 && <div className={styles.missing}><h3>見つからなかった資料</h3><ul>{manifest.missing.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
         <p className={styles.note}>表示リンクは約10分間有効です。完成PDFは非公開で1日保管し、OneDriveにも保存します。</p>
       </section>}
-      {manifest && pdfUrl && <MaterialPdfViewer key={pdfUrl} items={manifest.items} pdfUrl={pdfUrl} open={viewerOpen} onClose={() => setViewerOpen(false)} context={materialContext} contextLoading={contextLoading} contextError={contextError} onNeedInfoSummary={needInfoSummary} />}
+      {manifest && pdfUrl && <MaterialPdfViewer key={pdfUrl} items={manifest.items} pdfUrl={pdfUrl} open={viewerOpen} onClose={() => {
+        setViewerOpen(false);
+        requestAnimationFrame(() => viewerButtonRef.current?.focus());
+      }} context={materialContext} contextLoading={contextLoading} contextError={contextError} onNeedInfoSummary={needInfoSummary} />}
     </>}
   </main>;
 }
