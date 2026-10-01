@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { materialRecord, notionBlockText, recentRecordCandidates, schoolMentionsFromRecords, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, recentRecordCandidates, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
 
 test('student context includes notes and avoids contact numbers', () => {
   const fields = studentInfoCandidates({
@@ -47,6 +47,26 @@ test('sibling information combines the recorded name and current school year', (
     { source: '兄弟姉妹（3人目）', value: '８学年上に兄弟姉妹がいます（現在21〜22歳程度）' },
   ]);
   assert.equal(info.find(item => item.source.startsWith('卒塾'))?.value, '姉：花子');
+});
+
+test('sibling school is shown only for an exact family-name match in the graduation list', () => {
+  const properties = {
+    '生徒氏名': { type: 'title', title: [{ plain_text: '髙橋　七斗' }] },
+    '兄弟姉妹１学年差': { type: 'select', select: { name: '７学年上' } },
+    '兄弟姉妹１ 名前': { type: 'rich_text', rich_text: [{ plain_text: '琉希' }] },
+  };
+  const [lookup] = siblingSchoolLookups(properties);
+  assert.deepEqual(lookup, { index: 0, search: '琉希', fullName: '髙橋琉希' });
+  const graduate = (name, school) => ({ properties: {
+    '名前': { type: 'title', title: [{ plain_text: name }] },
+    '進学先': { type: 'rich_text', rich_text: [{ plain_text: school }] },
+  } });
+  assert.equal(schoolForSiblingResults([graduate('別姓　琉希', '別の高校'), graduate('髙橋　琉希', '八潮南・商業')], lookup.fullName), '八潮南・商業');
+  assert.equal(schoolForSiblingResults([graduate('髙橋　琉希', '八潮南'), graduate('髙橋琉希', '草加')], lookup.fullName), '');
+  assert.equal(schoolForSiblingResults([graduate('別姓　琉希', '別の高校')], lookup.fullName), '');
+  assert.deepEqual(studentInfoCandidates(properties, '小4', ['八潮南・商業']).filter(item => item.source.startsWith('兄弟姉妹')), [
+    { source: '兄弟姉妹（1人目）', value: '７学年上に琉希さんがいます（現在高校2年生・進学先：八潮南・商業）' },
+  ]);
 });
 
 test('school mentions retain the exact record text and source', () => {

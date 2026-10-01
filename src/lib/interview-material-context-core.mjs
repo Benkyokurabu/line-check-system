@@ -26,7 +26,31 @@ function currentGrade(grade, offset) {
   return `${year + 5}〜${year + 6}歳程度`;
 }
 
-export function siblingInfoCandidates(properties, fallbackGrade = '') {
+const normalizedName = value => String(value ?? '').normalize('NFKC').replace(/\s+/gu, '').trim();
+
+export function siblingSchoolLookups(properties) {
+  const studentName = notionPropertyText(properties?.['生徒氏名']);
+  const nameParts = studentName.normalize('NFKC').trim().split(/\s+/u);
+  const surname = nameParts.length > 1 ? nameParts[0] : '';
+  return ['１', '２', '３'].flatMap((numeral, index) => {
+    const siblingName = notionPropertyText(properties?.[`兄弟姉妹${numeral}名前`])
+      || notionPropertyText(properties?.[`兄弟姉妹${numeral} 名前`]);
+    if (!siblingName) return [];
+    const explicitFullName = /\s/u.test(siblingName.trim());
+    if (!surname && !explicitFullName) return [];
+    const fullName = explicitFullName || normalizedName(siblingName).startsWith(normalizedName(surname))
+      ? siblingName : `${surname}${siblingName}`;
+    return [{ index, search: siblingName.trim().split(/\s+/u).at(-1), fullName: normalizedName(fullName) }];
+  });
+}
+
+export function schoolForSiblingResults(pages, fullName) {
+  const matches = pages.filter(page => normalizedName(notionPropertyText(page.properties?.['名前'])) === fullName);
+  if (matches.length !== 1) return '';
+  return notionPropertyText(matches[0].properties?.['進学先']);
+}
+
+export function siblingInfoCandidates(properties, fallbackGrade = '', siblingSchools = []) {
   const grade = notionPropertyText(properties?.['学年']) || fallbackGrade;
   const rows = [];
   for (const [index, numeral] of ['１', '２', '３'].entries()) {
@@ -37,8 +61,10 @@ export function siblingInfoCandidates(properties, fallbackGrade = '') {
     const match = difference.normalize('NFKC').match(/^(\d+)学年(上|下)$/u);
     const stage = match ? currentGrade(grade, Number(match[1]) * (match[2] === '上' ? 1 : -1)) : '';
     const person = name.replace(/さん$/u, '');
+    const school = name ? String(siblingSchools[index] ?? '').trim() : '';
+    const details = [stage ? `現在${stage}` : '', school ? `進学先：${school}` : ''].filter(Boolean).join('・');
     rows.push({ source: `兄弟姉妹（${index + 1}人目）`, value: name
-      ? `${difference ? `${difference}に` : '兄弟姉妹に'}${person}さんがいます${stage ? `（現在${stage}）` : difference ? '' : '（学年差の記載なし）'}`
+      ? `${difference ? `${difference}に` : '兄弟姉妹に'}${person}さんがいます${details ? `（${details}）` : difference ? '' : '（学年差の記載なし）'}`
       : `${difference}に兄弟姉妹がいます${stage ? `（現在${stage}）` : ''}` });
   }
   const ob = notionPropertyText(properties?.['OB詳細（続柄：名前）']);
@@ -46,9 +72,9 @@ export function siblingInfoCandidates(properties, fallbackGrade = '') {
   return rows;
 }
 
-export function studentInfoCandidates(properties, grade = '') {
+export function studentInfoCandidates(properties, grade = '', siblingSchools = []) {
   return [...candidateNames.map(name => ({ source: name, value: notionPropertyText(properties?.[name]) })),
-    ...siblingInfoCandidates(properties, grade)]
+    ...siblingInfoCandidates(properties, grade, siblingSchools)]
     .filter(item => item.value && item.value !== 'なし' && item.value !== '特になし')
     .map(item => ({ ...item, value: item.value.slice(0, 1200) }));
 }

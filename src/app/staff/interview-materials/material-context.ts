@@ -3,7 +3,8 @@ export type StudentInfo = { source: string; value: string };
 export type SchoolMention = { date: string; text: string; url: string };
 export type InfoSummary = { status: 'empty' | 'prepared' | 'queued' | 'running' | 'completed' | 'failed';
   items: { source: string; note: string; original: string }[]; sourceHash?: string };
-export type MaterialContext = { records: InterviewRecord[]; schoolMentions: SchoolMention[]; info: StudentInfo[]; summary: InfoSummary; studentUrl: string; source: 'notion'; showPastSchools?: boolean };
+export type MaterialContext = { records: InterviewRecord[]; schoolMentions: SchoolMention[]; info: StudentInfo[]; summary: InfoSummary;
+  siblingSchoolWarning?: string; studentUrl: string; source: 'notion'; showPastSchools?: boolean };
 
 export async function fetchMaterialContext(number: string): Promise<MaterialContext> {
   const response = await fetch(`/api/staff/interview-material-context?number=${encodeURIComponent(number)}`, { cache: 'no-store' });

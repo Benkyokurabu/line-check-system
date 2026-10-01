@@ -2,13 +2,17 @@ import { NextRequest } from 'next/server';
 import { staffContext, staffResponse, staffErrorResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
 import { notionRequest } from '@/lib/notion';
-import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, schoolMentionsFromRecords, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
 import { infoSourceHash } from '@/lib/interview-material-info-summary.mjs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const interviewSource = '19ef0120-80a7-808a-8992-000b85713577';
+const graduateSchoolSources = [
+  '67a016ee-cf53-41ac-a56d-9bc5810a57ec', // 2025年卒業生の進学先
+  '1aef0120-80a7-8074-8a78-000bcabe3f7e', // 本校合否結果
+];
 const recentRecordCount = 3;
 type NotionPage = { id: string; url?: string; created_time?: string; parent?: { data_source_id?: string }; properties: Record<string, unknown> };
 type NotionBlock = { id: string; type: string; has_children?: boolean; [key: string]: unknown };
@@ -44,6 +48,41 @@ async function interviewIds(page: NotionPage) {
     cursor = result.next_cursor;
   }
   return [...new Set(complete)];
+}
+
+async function siblingSchools(properties: Record<string, unknown>) {
+  const schools = ['', '', ''];
+  let warning = '';
+  const results = new Map<string, NotionPage[]>();
+  for (const lookup of siblingSchoolLookups(properties)) {
+    let failed = false;
+    for (const source of graduateSchoolSources) {
+      try {
+        const key = `${source}:${lookup.search}`;
+        if (!results.has(key)) {
+          const pages: NotionPage[] = [];
+          let cursor = '';
+          for (let index = 0; index < 3; index++) {
+            const result = await notionRequest(`/data_sources/${source}/query`, {
+              method: 'POST', body: JSON.stringify({ page_size: 100, filter: { property: '名前', title: { contains: lookup.search } },
+                ...(cursor ? { start_cursor: cursor } : {}) }),
+            });
+            pages.push(...(result.results ?? []) as NotionPage[]);
+            if (!result.has_more) break;
+            if (!result.next_cursor || index === 2) throw new Error('Graduate school lookup is incomplete');
+            cursor = result.next_cursor;
+          }
+          results.set(key, pages);
+        }
+        schools[lookup.index] = schoolForSiblingResults(results.get(key) ?? [], lookup.fullName);
+        if (schools[lookup.index]) break;
+      } catch {
+        failed = true;
+      }
+    }
+    if (failed && !schools[lookup.index]) warning = '兄弟姉妹の進学先一覧を一部確認できませんでした。Notionの接続と原本を確認してください。';
+  }
+  return { schools, warning };
 }
 
 export async function GET(request: NextRequest) {
@@ -88,7 +127,8 @@ export async function GET(request: NextRequest) {
       if (middleSecond) schoolRecords.push(parsed);
     }
     const schoolMentions = schoolMentionsFromRecords(schoolRecords);
-    const info = studentInfoCandidates(page.properties, student.grade as string);
+    const siblingSchoolResult = await siblingSchools(page.properties);
+    const info = studentInfoCandidates(page.properties, student.grade as string, siblingSchoolResult.schools);
     const summaryFields = [...recentRecordCandidates(records), ...info];
     let summary: { status: string; items: unknown[]; sourceHash?: string } = { status: 'empty', items: [] };
     if (summaryFields.length) {
@@ -105,7 +145,8 @@ export async function GET(request: NextRequest) {
       } else summary = { sourceHash, status: existing.status === 'queued' && !existing.requested ? 'prepared' : existing.status,
         items: Array.isArray(existing.result) ? existing.result : [] };
     }
-    return staffResponse({ records, schoolMentions, info, summary, studentUrl: page.url ?? '', source: 'notion' }, context);
+    return staffResponse({ records, schoolMentions, info, summary, siblingSchoolWarning: siblingSchoolResult.warning,
+      studentUrl: page.url ?? '', source: 'notion' }, context);
   } catch (error) {
     return error instanceof InterviewError ? staffResponse({ error: error.message }, context, error.status) : staffErrorResponse(error, context);
   }

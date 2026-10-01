@@ -64,6 +64,7 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
       </section>}
       {active === 'info' && <section className={styles.viewerTextPanel} aria-label="生徒情報">
         <h2>情報</h2><p>生徒情報DBの原文と、過去の面談記録も踏まえた注意点を表示します。</p>
+        {context?.siblingSchoolWarning && <p role="status">{context.siblingSchoolWarning}</p>}
         {showPastSchools && !contextLoading && !contextError && <div className={styles.viewerSummary}><h3>過去の面談で話題に出た高校</h3>
           <p>アンケートに志望校の記載がありません。以下は志望校として確定した情報ではありません。</p>
           {context?.schoolMentions?.length ? <ul>{context.schoolMentions.map((mention, index) => <li key={`${mention.url}-${index}`}>{mention.text} <small>（{mention.date || '日付なし'}・<a href={mention.url} target="_blank" rel="noreferrer">Notion原本</a>）</small></li>)}</ul>
