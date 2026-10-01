@@ -15,7 +15,14 @@ before(async()=>{
  create function staff_authorize(uuid,uuid,text,boolean) returns jsonb language sql as $$select jsonb_build_object('staffId',id,'role',role,'staffCode',staff_code) from staff_accounts limit 1$$;`);
  await db.query("insert into staff_accounts values($1,'admin','KUDO')",[actor]);
  await db.exec("insert into student_registry(student_number,student_name,grade,homeroom_teacher) values('one','架空生徒','中1','工藤'),('two','別の生徒','中2','工藤')");
- for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916','interview_parent_cancel_20260918','interview_auto_availability_20260921'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
+ for(const file of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','interview_requests_20260916'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
+ const initialSlot=randomUUID(),tomorrow=await value("select ((now() at time zone 'Asia/Tokyo')::date+1)::text v");
+ await db.query('insert into interview_public_slots(id,notion_page_id,data,notion_edited_at,updated_by) values($1,$2,$3,$4,$5)',[initialSlot,randomUUID(),JSON.stringify({teacher:'工藤',date:tomorrow,method:'Zoom'}),'test',actor]);
+ assert.equal(await value('select interview_slot_available($1,$2) v',[initialSlot,'工藤']),true,'初期DB定義でも明日を受け付ける');
+ await db.query("update interview_public_slots set data=jsonb_set(data,'{date}',to_jsonb(((now() at time zone 'Asia/Tokyo')::date)::text)) where id=$1",[initialSlot]);
+ assert.equal(await value('select interview_slot_available($1,$2) v',[initialSlot,'工藤']),false,'当日は受け付けない');
+ await db.query('delete from interview_public_slots where id=$1',[initialSlot]);
+ for(const file of ['interview_parent_cancel_20260918','interview_auto_availability_20260921'])await db.exec(await readFile(new URL(`../supabase/${file}.sql`,import.meta.url),'utf8'));
  student=await value("select id v from interview_students where student_number='one'");other=await value("select id v from interview_students where student_number='two'");
  await db.query("insert into student_line_accounts values('one',$1,'mother','confirmed')",[line]);
  await db.query("insert into interview_parent_sessions(token_hash,line_user_id,expires_at) values($1,$2,now()+interval '1 hour')",[hash,line]);

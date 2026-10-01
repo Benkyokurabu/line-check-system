@@ -45,7 +45,7 @@ create or replace function public.interview_slot_available(p_slot uuid,p_teacher
 language sql stable security definer set search_path=public,pg_temp as $$
  select exists(select 1 from interview_public_slots s where s.id=p_slot and s.published
  and s.data->>'method'='Zoom' and interview_teacher_key(s.data->>'teacher')=interview_teacher_key(p_teacher)
- and (s.data->>'date')::date>=(now() at time zone 'Asia/Tokyo')::date+2
+ and (s.data->>'date')::date>=(now() at time zone 'Asia/Tokyo')::date+1
  and not exists(select 1 from interview_bookings b where b.notion_page_id=s.notion_page_id
    or (b.status not in ('cancelled','rejected') and b.data->>'date'=s.data->>'date'
      and interview_teacher_key(b.data->>'teacher')=interview_teacher_key(s.data->>'teacher')
