@@ -49,11 +49,13 @@ function recordText(context: MaterialContext) {
     `${record.date || '日付なし'}　${record.title}\n方法：${record.method || '記載なし'} ／ 目的：${record.purpose || '記載なし'}\n原本：${record.url}\n\n${record.body || '本文なし'}${record.attachments?.length ? `\n\n添付ファイル：${record.attachments.join('、')}（原本から確認）` : ''}`)].join('\n\n━━━━━━━━━━━━━━━━\n\n');
 }
 
-function informationText(context: MaterialContext) {
+function informationText(context: MaterialContext, showPastSchools = false) {
   const notes = context.summary.status === 'completed'
     ? context.summary.items.map(item => `・${item.note}\n  出典：${item.source}`)
     : ['AIによる注意点の抽出は保存時点で完了していません。面談記録と生徒情報の原文を確認してください。'];
-  return ['面談前に確認したい点（AI）', ...(notes.length ? notes : ['特記する項目なし']),
+  const schools = showPastSchools ? ['過去の面談で話題に出た高校（志望校として未確定）',
+    ...(context.schoolMentions?.length ? context.schoolMentions.map(item => `${item.text}\n${item.date || '日付なし'}・${item.url}`) : ['高校名への言及なし']), ''] : [];
+  return [...schools, '面談前に確認したい点（AI）', ...(notes.length ? notes : ['特記する項目なし']),
     '', '生徒情報DBの原文', ...context.info.map(item => `${item.source}\n${item.value}`)].join('\n\n');
 }
 
@@ -86,7 +88,7 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 
 export async function saveInterviewFolder(
   jobId: string, studentNumber: string, studentName: string, studentGrade: string, _context: MaterialContext | null,
-  onProgress: (message: string) => void,
+  onProgress: (message: string) => void, showPastSchools = false,
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
   if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
@@ -107,7 +109,7 @@ export async function saveInterviewFolder(
   if (!template.includes('__ITEMS_JSON__') || !template.includes('__STUDENT_NAME_JSON__') || !template.includes('__CONTEXT_JSON__'))
     throw Error('面談用画面を作成できませんでした。');
   const html = template.replace('__ITEMS_JSON__', safeJson(items.map(item => ({ label: item.label, kind: materialDockLabel(item) }))))
-    .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson(details));
+    .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson({ ...details, showPastSchools }));
   if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
   const folderPart = (value: string) => value.trim().replace(/\s+/g, ' ').replace(/[<>:"/\\|?*]/g, '_').replace(/[. ]+$/g, '').slice(0, 60);
   const folderName = `${folderPart(studentGrade) || '学年不明'}_${folderPart(studentName) || '氏名不明'}`;
@@ -126,7 +128,7 @@ export async function saveInterviewFolder(
     }
   }));
   await writeFile(folder, '面談記録.txt', recordText(details));
-  await writeFile(folder, '生徒情報・注意点.txt', informationText(details));
+  await writeFile(folder, '生徒情報・注意点.txt', informationText(details, showPastSchools));
   await writeFile(folder, '資料一覧.txt', ['面談資料.html：資料の入口',
     'staff-bundle.pdf：印刷用の一式PDF',
     ...items.map((item, index) => `material-${index}.pdf：${item.label}`),

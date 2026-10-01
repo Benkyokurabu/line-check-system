@@ -64,6 +64,7 @@ export default function MaterialsDesk() {
   const [workerOnline, setWorkerOnline] = useState(false);
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
+  const showPastSchools = selected?.grade === '中2' && (selected.responses.length === 0 || Boolean(answer && answer.schools.length === 0));
   const campusValue = answer?.fields.find(field => field.label === '所属校舎')?.value.trim() || '';
   const campus = campusValue === '本校' || campusValue === '南教室' ? campusValue : '';
   const teachers = useMemo(() => [...new Set(students.map(s => s.teacher).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')), [students]);
@@ -258,7 +259,7 @@ export default function MaterialsDesk() {
     if (!folderJob || folderBusy || downloadBusy) return;
     setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
     try {
-      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, selected?.grade || '', materialContext, setDownloadMessage);
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, selected?.grade || '', materialContext, setDownloadMessage, Boolean(showPastSchools));
       setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setDownloadMessage('保存を取り消しました。');
@@ -301,6 +302,12 @@ export default function MaterialsDesk() {
             </div>
           </div>}
         </>}
+        {showPastSchools && <div className={styles.preview}><h3>過去の面談で話題に出た高校</h3>
+          <p className={styles.note}>アンケートに志望校の記載がないため、Notionの過去の面談記録にある高校への言及を示します。志望校として確定した情報ではありません。</p>
+          {contextLoading ? <p role="status">面談記録を確認中…</p> : contextError ? <p role="alert">{contextError}</p>
+            : materialContext?.schoolMentions?.length ? <ul>{materialContext.schoolMentions.map((mention, index) => <li key={`${mention.url}-${index}`}>{mention.text} <small>（{mention.date || '日付なし'}・<a href={mention.url} target="_blank" rel="noreferrer">Notion原本</a>）</small></li>)}</ul>
+              : <p>高校名への言及は見つかりませんでした。</p>}
+        </div>}
         <div className={styles.actions}><button className={styles.primary} disabled={!workerOnline || previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
         {selected.responses.length > 1 && !answer && <p className={styles.note}>上のアンケート回答を1つ選ぶと資料を確認できます。</p>}
         {previewMessage && <p className={styles.error} role="alert">{previewMessage}</p>}
@@ -388,7 +395,7 @@ export default function MaterialsDesk() {
       {manifest && pdfUrl && <MaterialPdfViewer key={pdfUrl} items={manifest.items} pdfUrl={pdfUrl} open={viewerOpen} onClose={() => {
         setViewerOpen(false);
         requestAnimationFrame(() => viewerButtonRef.current?.focus());
-      }} context={materialContext} contextLoading={contextLoading} contextError={contextError} onNeedInfoSummary={needInfoSummary} />}
+      }} context={materialContext} contextLoading={contextLoading} contextError={contextError} showPastSchools={Boolean(showPastSchools)} onNeedInfoSummary={needInfoSummary} />}
     </>}
   </main>;
 }

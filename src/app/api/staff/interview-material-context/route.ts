@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { staffContext, staffResponse, staffErrorResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
 import { notionRequest } from '@/lib/notion';
-import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, schoolMentionsFromRecords, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
 import { infoSourceHash } from '@/lib/interview-material-info-summary.mjs';
 
 export const dynamic = 'force-dynamic';
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     const number = request.nextUrl.searchParams.get('number') ?? '';
     if (!/^\d{5,12}$/.test(number)) throw new InterviewError('生徒番号を確認してください。', 400);
     const { data: student, error: studentError } = await context.dataClient.from('student_registry')
-      .select('notion_page_id,student_name').eq('student_number', number).eq('enrollment_status', 'current_roster').maybeSingle();
+      .select('notion_page_id,student_name,grade').eq('student_number', number).eq('enrollment_status', 'current_roster').maybeSingle();
     if (studentError) throw new InterviewError('生徒台帳を取得できません。', 503);
     if (!student) throw new InterviewError('在籍生徒が見つかりません。', 404);
     let pageId = student.notion_page_id as string | null;
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       if (mappingError) throw new InterviewError('Notionの生徒対応表を取得できません。', 503);
       pageId = mapping?.notion_page_id ?? null;
     }
-    if (!pageId) return staffResponse({ records: [], info: [], summary: { status: 'empty', items: [] }, studentUrl: '', source: 'notion' }, context);
+    if (!pageId) return staffResponse({ records: [], schoolMentions: [], info: [], summary: { status: 'empty', items: [] }, studentUrl: '', source: 'notion' }, context);
     const page = await notionRequest(`/pages/${pageId}`) as NotionPage;
     if (notionPropertyText(page.properties['学籍番号']) !== number) throw new InterviewError('Notionの生徒番号が一致しません。', 409);
     const ids = await interviewIds(page);
@@ -77,13 +77,17 @@ export async function GET(request: NextRequest) {
     const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     recordPages.sort((a, b) => materialRecord(b, '').date.localeCompare(materialRecord(a, '').date));
     const records = [];
+    const schoolRecords = [];
     for (const record of recordPages) {
       if (materialRecord(record, '').date.slice(0, 10) > today) continue;
+      if (records.length >= recentRecordCount && student.grade !== '中2') break;
       const body = (await allBlocks(record.id)).join('\n\n');
-      records.push(materialRecord(record, body));
-      if (records.length === recentRecordCount) break;
+      const parsed = materialRecord(record, body);
+      if (records.length < recentRecordCount) records.push(parsed);
+      if (student.grade === '中2') schoolRecords.push(parsed);
     }
-    const info = studentInfoCandidates(page.properties);
+    const schoolMentions = schoolMentionsFromRecords(schoolRecords);
+    const info = studentInfoCandidates(page.properties, student.grade as string);
     const summaryFields = [...recentRecordCandidates(records), ...info];
     let summary: { status: string; items: unknown[]; sourceHash?: string } = { status: 'empty', items: [] };
     if (summaryFields.length) {
@@ -100,7 +104,7 @@ export async function GET(request: NextRequest) {
       } else summary = { sourceHash, status: existing.status === 'queued' && !existing.requested ? 'prepared' : existing.status,
         items: Array.isArray(existing.result) ? existing.result : [] };
     }
-    return staffResponse({ records, info, summary, studentUrl: page.url ?? '', source: 'notion' }, context);
+    return staffResponse({ records, schoolMentions, info, summary, studentUrl: page.url ?? '', source: 'notion' }, context);
   } catch (error) {
     return error instanceof InterviewError ? staffResponse({ error: error.message }, context, error.status) : staffErrorResponse(error, context);
   }

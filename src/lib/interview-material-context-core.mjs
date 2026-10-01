@@ -1,8 +1,7 @@
 const candidateNames = [
   '特記事項', '配慮事項', '注意事項', '相談事項', '連絡先　備考',
   '他の習い事', '通塾経験のある塾名', '紹介者', '授業形態',
-  'OBの有無', 'OB詳細（続柄：名前）', '第何子',
-  '兄弟姉妹１学年差', '兄弟姉妹２学年差', '兄弟姉妹３学年差',
+  'OBの有無', '第何子',
 ];
 
 export function notionPropertyText(property) {
@@ -16,10 +15,56 @@ export function notionPropertyText(property) {
   return '';
 }
 
-export function studentInfoCandidates(properties) {
-  return candidateNames.map(name => ({ source: name, value: notionPropertyText(properties?.[name]) }))
+function currentGrade(grade, offset) {
+  const match = String(grade).normalize('NFKC').match(/^([小中高])([1-6])$/u);
+  if (!match) return '';
+  const year = { 小: 0, 中: 6, 高: 9 }[match[1]] + Number(match[2]) + offset;
+  if (year < 1) return `就学前・${Math.max(0, 5 + year)}〜${Math.max(0, 6 + year)}歳程度`;
+  if (year <= 6) return `小学${year}年生`;
+  if (year <= 9) return `中学${year - 6}年生`;
+  if (year <= 12) return `高校${year - 9}年生`;
+  return `${year + 5}〜${year + 6}歳程度`;
+}
+
+export function siblingInfoCandidates(properties, fallbackGrade = '') {
+  const grade = notionPropertyText(properties?.['学年']) || fallbackGrade;
+  const rows = [];
+  for (const [index, numeral] of ['１', '２', '３'].entries()) {
+    const difference = notionPropertyText(properties?.[`兄弟姉妹${numeral}学年差`]);
+    const name = notionPropertyText(properties?.[`兄弟姉妹${numeral}名前`])
+      || notionPropertyText(properties?.[`兄弟姉妹${numeral} 名前`]);
+    if (!difference && !name) continue;
+    const match = difference.normalize('NFKC').match(/^(\d+)学年(上|下)$/u);
+    const stage = match ? currentGrade(grade, Number(match[1]) * (match[2] === '上' ? 1 : -1)) : '';
+    const person = name.replace(/さん$/u, '');
+    rows.push({ source: `兄弟姉妹（${index + 1}人目）`, value: name
+      ? `${difference ? `${difference}に` : '兄弟姉妹に'}${person}さんがいます${stage ? `（現在${stage}）` : difference ? '' : '（学年差の記載なし）'}`
+      : `${difference}に兄弟姉妹がいます${stage ? `（現在${stage}）` : ''}` });
+  }
+  const ob = notionPropertyText(properties?.['OB詳細（続柄：名前）']);
+  if (ob) rows.push({ source: '卒塾した兄弟姉妹（続柄・名前）', value: ob });
+  return rows;
+}
+
+export function studentInfoCandidates(properties, grade = '') {
+  return [...candidateNames.map(name => ({ source: name, value: notionPropertyText(properties?.[name]) })),
+    ...siblingInfoCandidates(properties, grade)]
     .filter(item => item.value && item.value !== 'なし' && item.value !== '特になし')
     .map(item => ({ ...item, value: item.value.slice(0, 1200) }));
+}
+
+export function schoolMentionsFromRecords(records) {
+  const seen = new Set();
+  return records.flatMap(record => [String(record.title ?? ''), ...String(record.body ?? '').split(/\n+/u)].flatMap(line => {
+    const text = line.trim();
+    if (!/(?:高校|高等学校)/u.test(text)
+      && (!/志望校/u.test(text) || /(?:未定|なし|決まっていない)/u.test(text))) return [];
+    const excerpt = text.slice(0, 240);
+    const key = `${record.id}:${excerpt}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ date: record.date, text: excerpt, url: record.url }];
+  }));
 }
 
 export function notionBlockText(block) {
