@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { materialRecord, notionBlockText, recentRecordCandidates, schoolForSelectedDestinationResults, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, recentRecordCandidates, schoolCandidatesFromMentions, schoolForSelectedDestinationResults, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
 
 test('student context includes notes and avoids contact numbers', () => {
   const fields = studentInfoCandidates({
@@ -110,4 +110,11 @@ test('school mentions retain the exact record text and source', () => {
     { date:'2026-04-18', text:scoreLine, url:'https://notion.so/c' },
   ]);
   assert.deepEqual(schoolMentionsFromRecords([{ id:'d', body:'本人の偏差値は前回より上昇した。' }]), []);
+});
+
+test('past records offer distinct school choices even when the school name lacks 高校', () => {
+  const mentions = schoolMentionsFromRecords([{ id: 'a', date: '2026-04-18', url: 'https://notion.so/a',
+    body: '千陽さんの３月の偏差値は、５教科64.8となっており、大宮（普通科）の基準偏差値「71」までは6~7程度上げる必要があります。\n草加東高校と浦和高校も話題に出た。\n志望校：叡明も検討。\n大宮（普通科）の基準偏差値を再確認。' }]);
+  assert.deepEqual(schoolCandidatesFromMentions(mentions).map(candidate => candidate.name), ['大宮', '草加東', '浦和', '叡明']);
+  assert.equal(schoolCandidatesFromMentions(mentions)[0].url, 'https://notion.so/a');
 });

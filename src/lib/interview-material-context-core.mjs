@@ -112,6 +112,26 @@ export function schoolMentionsFromRecords(records) {
   }));
 }
 
+export function schoolCandidatesFromMentions(mentions) {
+  const found = new Map();
+  for (const mention of mentions) {
+    const text = String(mention.text ?? '').normalize('NFKC');
+    const patterns = [
+      /([\p{Script=Han}\p{Script=Katakana}ー]{2,20})(?:高等学校|高校)/gu,
+      /([\p{Script=Han}\p{Script=Katakana}ー]{2,20})\([^)]{1,20}(?:科|コース)\)の(?:基準)?偏差値/gu,
+      /志望校(?:は|に|として|[:：])\s*([\p{Script=Han}\p{Script=Katakana}ー]{2,20})/gu,
+    ];
+    for (const pattern of patterns) {
+      for (const match of text.matchAll(pattern)) {
+        const name = match[1].replace(/^(?:県立|市立|私立)/u, '').trim();
+        if (!name || /^(?:公立|私立|県立|市立|志望|希望|普通|高校|学校)$/u.test(name)) continue;
+        if (!found.has(name)) found.set(name, { name, date: mention.date, text: mention.text, url: mention.url });
+      }
+    }
+  }
+  return [...found.values()];
+}
+
 export function notionBlockText(block) {
   const content = block?.[block.type];
   const text = (content?.rich_text ?? []).map(item => item.plain_text ?? item.text?.content ?? '').join('').trim();

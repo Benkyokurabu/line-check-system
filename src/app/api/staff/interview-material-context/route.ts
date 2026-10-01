@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { staffContext, staffResponse, staffErrorResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
 import { notionRequest } from '@/lib/notion';
-import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, schoolForSelectedDestinationResults, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, schoolCandidatesFromMentions, schoolForSelectedDestinationResults, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
 import { infoSourceHash } from '@/lib/interview-material-info-summary.mjs';
 
 export const dynamic = 'force-dynamic';
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
       if (mappingError) throw new InterviewError('Notionの生徒対応表を取得できません。', 503);
       pageId = mapping?.notion_page_id ?? null;
     }
-    if (!pageId) return staffResponse({ records: [], schoolMentions: [], info: [], summary: { status: 'empty', items: [] }, studentUrl: '', source: 'notion' }, context);
+    if (!pageId) return staffResponse({ records: [], schoolMentions: [], schoolCandidates: [], info: [], summary: { status: 'empty', items: [] }, studentUrl: '', source: 'notion' }, context);
     const page = await notionRequest(`/pages/${pageId}`) as NotionPage;
     if (notionPropertyText(page.properties['学籍番号']) !== number) throw new InterviewError('Notionの生徒番号が一致しません。', 409);
     const ids = await interviewIds(page);
@@ -157,7 +157,7 @@ export async function GET(request: NextRequest) {
       } else summary = { sourceHash, status: existing.status === 'queued' && !existing.requested ? 'prepared' : existing.status,
         items: Array.isArray(existing.result) ? existing.result : [] };
     }
-    return staffResponse({ records, schoolMentions, info, summary, siblingSchoolWarning: siblingSchoolResult.warning,
+    return staffResponse({ records, schoolMentions, schoolCandidates: schoolCandidatesFromMentions(schoolMentions), info, summary, siblingSchoolWarning: siblingSchoolResult.warning,
       studentUrl: page.url ?? '', source: 'notion' }, context);
   } catch (error) {
     if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);

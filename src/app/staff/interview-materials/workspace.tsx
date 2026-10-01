@@ -130,6 +130,14 @@ export default function MaterialsDesk() {
     setManifest(null); setPdfUrl(''); setViewerOpen(false); setFolderJob(null); setDownloadOpen(false); setDownloadMessage(''); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false);
   }, []);
 
+  function toggleSchoolCandidate(name: string, checked: boolean) {
+    setSchoolNames(names => checked
+      ? names.some(value => searchable(value) === searchable(name)) || names.filter(Boolean).length >= 6
+        ? names : [...names.filter(Boolean), name]
+      : names.filter(value => searchable(value) !== searchable(name)));
+    setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); setPdfUrl('');
+  }
+
   useEffect(() => {
     if (manifest && pdfUrl) resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [manifest, pdfUrl]);
@@ -295,18 +303,29 @@ export default function MaterialsDesk() {
           </label>)}</div>
           {answer && <div className={styles.reviewGrid}>
             <div className={styles.survey}><div className={styles.surveyHeading}><h3>アンケート回答</h3><span>回答日：{answer.date || '日時不明'}</span></div><dl>{answer.fields.map((field, index) => <div className={styles.surveyField} key={index}><dt>{field.label}</dt><dd>{field.value || '（回答なし）'}</dd></div>)}</dl><a href={answer.url} target="_blank" rel="noreferrer">Notionの回答原本</a></div>
-            <div><h3>志望順位の確認</h3><p>アンケートの第1・第2・第3志望を確認してください。違う場合はここで直せます。</p>
-              {schoolNames.map((school, index) => <label key={index}>第{index + 1}志望<input value={school} onChange={event => { setSchoolNames(names => names.map((name, position) => position === index ? event.target.value : name)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }} /></label>)}
-              {schoolNames.length < 6 && <button type="button" onClick={() => { setSchoolNames(names => [...names, '']); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }}>志望校を追加</button>}
+            <div><h3>{answer.schools.length ? '志望順位の確認' : '資料を探す高校'}</h3><p>{answer.schools.length ? 'アンケートの第1・第2・第3志望を確認してください。違う場合はここで直せます。' : '過去の記録で話題に出た高校を下から複数選べます。ここで選んでも志望校として確定しません。'}</p>
+              {schoolNames.map((school, index) => <label key={index}>{answer.schools.length ? `第${index + 1}志望` : `資料候補 ${index + 1}`}<input value={school} onChange={event => { setSchoolNames(names => names.map((name, position) => position === index ? event.target.value : name)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }} /></label>)}
+              {schoolNames.length < 6 && <button type="button" onClick={() => { setSchoolNames(names => [...names, '']); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }}>{answer.schools.length ? '志望校を追加' : '資料候補を追加'}</button>}
               {answer.schools.some(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim())) && <p className={styles.note}>アンケートの「えいめい」は「叡明」として確認します。</p>}
             </div>
           </div>}
         </>}
         {showPastSchools && <div className={styles.preview}><h3>過去の面談で話題に出た高校</h3>
           <p className={styles.note}>アンケートに志望校の記載がないため、Notionの過去の面談記録にある高校への言及を示します。志望校として確定した情報ではありません。</p>
+          {!!materialContext?.schoolCandidates?.length && <fieldset><legend>資料を探す高校を複数選択</legend>
+            {materialContext.schoolCandidates.map(candidate => <label className={styles.materialOption} key={candidate.name}>
+              <input type="checkbox" checked={schoolNames.some(name => searchable(name) === searchable(candidate.name))}
+                disabled={!schoolNames.some(name => searchable(name) === searchable(candidate.name)) && schoolNames.filter(Boolean).length >= 6}
+                onChange={event => toggleSchoolCandidate(candidate.name, event.target.checked)} />
+              <span><strong>{candidate.name}</strong><small>{candidate.date || '日付なし'}・{candidate.text} ／ <a href={candidate.url} target="_blank" rel="noreferrer">Notion原本</a></small></span>
+            </label>)}
+            <p className={styles.note}>選択した高校の資料を検索します。最大6校まで選べます。</p>
+          </fieldset>}
           {contextLoading ? <p role="status">面談記録を確認中…</p> : contextError ? <p role="alert">{contextError}</p>
             : materialContext?.schoolMentions?.length ? <ul>{materialContext.schoolMentions.map((mention, index) => <li key={`${mention.url}-${index}`}>{mention.text} <small>（{mention.date || '日付なし'}・<a href={mention.url} target="_blank" rel="noreferrer">Notion原本</a>）</small></li>)}</ul>
               : <p>高校名への言及は見つかりませんでした。</p>}
+          {!answer && <div><h4>選択中の資料候補</h4>{schoolNames.map((school, index) => <label key={index}>資料候補 {index + 1}<input value={school} onChange={event => { setSchoolNames(names => names.map((name, position) => position === index ? event.target.value : name)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }} /></label>)}
+            {schoolNames.length < 6 && <button type="button" onClick={() => { setSchoolNames(names => [...names, '']); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }}>資料候補を追加</button>}</div>}
         </div>}
         <div className={styles.actions}><button className={styles.primary} disabled={!workerOnline || previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
         {selected.responses.length > 1 && !answer && <p className={styles.note}>上のアンケート回答を1つ選ぶと資料を確認できます。</p>}
