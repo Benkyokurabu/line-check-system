@@ -104,4 +104,10 @@ test('school mentions retain the exact record text and source', () => {
   assert.deepEqual(schoolMentionsFromRecords([{ id:'b', title:'大宮高校について', body:'', date:'2025-12-01', url:'https://notion.so/b' }]), [
     { date:'2025-12-01', text:'大宮高校について', url:'https://notion.so/b' },
   ]);
+  const scoreLine='千陽さんの３月の偏差値は、５教科64.8となっており、大宮（普通科）の基準偏差値「71」までは6~7程度上げる必要があります。';
+  assert.deepEqual(schoolMentionsFromRecords([{ id:'c', date:'2026-04-18', url:'https://notion.so/c',
+    body:`３月の結果を確認。\n${scoreLine}` }]), [
+    { date:'2026-04-18', text:scoreLine, url:'https://notion.so/c' },
+  ]);
+  assert.deepEqual(schoolMentionsFromRecords([{ id:'d', body:'本人の偏差値は前回より上昇した。' }]), []);
 });

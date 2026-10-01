@@ -17,7 +17,11 @@ export async function GET(request:NextRequest){let context;try{
   if(!row.page_id)continue;const pageId=String(row.page_id).replaceAll('-','').toLowerCase();
   const student=row.link_status==='linked'?students.find(s=>s.student_number===row.student_number):undefined;
   const identity=student&&identities.find(i=>i.id===student.interview_student_id&&!i.retired_at);
-  states[pageId]=surveyScheduling(identity?.id,invitations,requests,bookings);
+  const derived=surveyScheduling(identity?.id,invitations,requests,bookings);
+  const notionDate=String(row.appointment_date??'');
+  states[pageId]=notionDate&&derived.status==='uncontacted'
+   ?{status:'confirmed',date:notionDate,start:'',end:'',detail:'アンケートの面談日に登録済み'}
+   :derived;
  }
  return staffResponse({states,updatedAt:new Date().toISOString()},context);
  }catch(e){return staffErrorResponse(e,context);}}

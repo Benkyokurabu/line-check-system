@@ -99,7 +99,10 @@ export function schoolMentionsFromRecords(records) {
   const seen = new Set();
   return records.flatMap(record => [String(record.title ?? ''), ...String(record.body ?? '').split(/\n+/u)].flatMap(line => {
     const text = line.trim();
+    // School names can appear without 高校, for example 大宮（普通科）の基準偏差値.
+    const schoolCourseScore = /[一-龠々ァ-ヶー]{2,20}[（(][^）)]{1,20}(?:科|コース)[）)]の(?:基準)?偏差値/u.test(text);
     if (!/(?:高校|高等学校)/u.test(text)
+      && !schoolCourseScore
       && (!/志望校/u.test(text) || /(?:未定|なし|決まっていない)/u.test(text))) return [];
     const excerpt = text.slice(0, 240);
     const key = `${record.id}:${excerpt}`;

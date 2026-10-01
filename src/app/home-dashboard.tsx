@@ -255,10 +255,11 @@ export default function HomeDashboard({
                           <div className={styles.surveyProgressCell} data-status={progress.status}>
                             <span className={styles.surveyProgressLabel}>進捗</span>
                             <select value={progress.status} aria-label={`${student.name}の対応状況`} disabled={!confirmation.ready||confirmation.isSaving(student.notionUrl)} onChange={e=>confirmation.setProgress(student.notionUrl,e.target.value as 'needs-review'|'handled'|'coordinating'|'scheduled'|'completed')}>{Object.entries(surveyProgressLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select>
-                            {schedule.date&&<small className={styles.surveyAppointment}>{schedule.date} {schedule.start}〜{schedule.end}</small>}
+                            {schedule.date&&<small className={styles.surveyAppointment}>{schedule.date}{schedule.start&&schedule.end?` ${schedule.start}〜${schedule.end}`:'（時刻未登録）'}</small>}
                             {schedule.status!=='uncontacted'&&<small>{schedule.detail}</small>}
                           </div>
                           <div className={styles.surveyRowDetails}>
+                            {surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/survey-workflow?answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：日程連絡・面談記録・LINE`}>日程・LINE・面談記録</Link>}
                             {surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interview-materials?answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：資料をつくる`}>資料をつくる</Link>}
                             {confirmation.isSaving(student.notionUrl)&&<small role="status">保存中…</small>}
                             {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}

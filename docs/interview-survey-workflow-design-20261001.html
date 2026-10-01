@@ -1,0 +1,23 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アンケートから面談を進める</title><style>
+body{font-family:Arial,"Yu Gothic",sans-serif;background:#f2f6fa;color:#203347;margin:0}main{max-width:1050px;margin:auto;padding:32px 18px}
+h1{font-size:26px;margin:0 0 8px}p{line-height:1.7}.lead{color:#516779}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:28px 0}
+.step{background:#fff;border:1px solid #cbd9e5;border-top:5px solid #1c608f;border-radius:10px;padding:18px;box-shadow:0 5px 16px #18344f0d}
+.step b{display:block;font-size:19px;margin-bottom:8px}.step small{color:#566c7e}
+.sources{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.source{background:#e4edf5;padding:16px;border-radius:8px}
+.source strong{display:block;margin-bottom:6px}ul{line-height:1.8;padding-left:24px}
+@media(max-width:750px){.flow,.sources{grid-template-columns:1fr}}
+</style></head><body><main><h1>アンケートから面談を進める</h1>
+<p class="lead">2026年秋のアンケート回答を起点に、日程・連絡・記録を同じ生徒に紐づける画面。</p>
+<div class="flow">
+<section class="step"><b>1　面談日</b><p>決定した日を入力し、Notionのアンケート「面談日」に保存。</p><small>日付の変更を確認してから保存</small></section>
+<section class="step"><b>2　日程連絡</b><p>父・母・本人など、確認済みLINE候補からチェックで宛先を選択。文面と宛先を確認して送信。</p><small>送信履歴と二重送信防止</small></section>
+<section class="step"><b>3　面談記録</b><p>話題ごとの本文を入力し、Notionの面談DBへコードブロック形式で保存。</p><small>同日の既存記録があれば更新を確認</small></section>
+<section class="step"><b>4　面談後のまとめ</b><p>記録本文に挨拶・結びを加え、選択した父・母・本人それぞれの文面を確認して送信。</p><small>未選択の相手には送信しない</small></section>
+</div>
+<div class="sources"><section class="source"><strong>アンケート</strong>回答ページ、学籍番号、面談日</section>
+<section class="source"><strong>生徒情報</strong>Notionの生徒ページで面談記録と接続</section>
+<section class="source"><strong>LINE</strong>学籍番号に照合済みの家族アカウント</section></div>
+<p>操作は勉たんのアンケート一覧から開始します。面談記録の本文とLINE全文は別に扱い、送信前に宛先と文章を表示します。</p>
+</main></body></html>

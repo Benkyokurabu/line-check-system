@@ -5,6 +5,7 @@ const accessible = new Set([
   '/api/staff/interview-material-context',
   '/api/staff/interview-material-info',
   '/api/staff/interview-material-jobs',
+  '/api/staff/survey-workflow',
 ]);
 
 export function teacherRouteAllowed(pathname) {
