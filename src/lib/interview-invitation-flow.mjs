@@ -1,3 +1,5 @@
+import {INTERVIEW_SURVEY_PROPERTY_ORDER} from './interview-survey-property-order.mjs';
+
 export const invitationProgressLabels = {
  new:'未打診', waiting:'回答待ち', pending:'承認待ち', confirmed:'確定',
  completed:'実施済み', rearrange:'再調整', delivery:'送信要確認',
@@ -28,10 +30,12 @@ export function defaultInvitationTeacher(staff,students){
  return matches.length===1?matches[0]:'';
 }
 // Property values only; relations, formulas and rollups can contain unrelated internal data.
-export function surveyAnswerFields(properties){
- return Object.entries(properties??{}).flatMap(([label,p])=>{
+export function surveyAnswerFields(properties,grade=''){
+ const order=INTERVIEW_SURVEY_PROPERTY_ORDER[String(grade??'').normalize('NFKC')]??[];
+ const positions=new Map(order.map((id,index)=>[id,index]));
+ return Object.entries(properties??{}).flatMap(([label,p],sourceIndex)=>{
   if(!p||['title','relation','rollup','formula','people','files','created_by','last_edited_by'].includes(p.type))return [];
-  if(['学籍番号','担任','所属','状態'].includes(label))return [];
+  if(['学籍番号','担任','所属','状態','年度','備考','面談準備','面談日','対応'].includes(label))return [];
   let value='';
   if(p.type==='rich_text')value=(p.rich_text??[]).map(t=>t.plain_text??t.text?.content??'').join('');
   else if(p.type==='select'||p.type==='status')value=p[p.type]?.name??'';
@@ -39,6 +43,8 @@ export function surveyAnswerFields(properties){
   else if(p.type==='checkbox')value=p.checkbox?'はい':'いいえ';
   else if(p.type==='number'&&p.number!=null)value=String(p.number);
   else if(p.type==='date')value=[p.date?.start,p.date?.end].filter(Boolean).join(' 〜 ');
-  return value?[{label,value}]:[];
- });
+  const id=p.id?decodeURIComponent(p.id):'';
+  return value?[{label,value,position:positions.get(id)??Infinity,sourceIndex}]:[];
+ }).sort((a,b)=>a.position-b.position||a.sourceIndex-b.sourceIndex)
+  .map(({label,value})=>({label,value}));
 }

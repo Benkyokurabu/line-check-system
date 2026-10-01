@@ -69,7 +69,7 @@ export async function loadInvitationSurveyResponses(students:Record<string,unkno
  for(const {grade,pages} of results)for(const page of pages){
   const p=page.properties??{},name=propertyText(Object.values(p).find(v=>v.type==='title')),number=propertyText(p['学籍番号']);
   const match=matchSurveyStudent({name,number,grade},roster),answered_at=page.created_time?new Date(page.created_time).toLocaleString('sv-SE',{timeZone:'Asia/Tokyo'}):null;
-  if(match)rows.push({...base,student_number:match.number,link_status:'linked',answered_at,page_id:page.id,notion_url:`https://www.notion.so/${page.id.replaceAll('-','')}`,answer_fields:surveyAnswerFields(p)});
+  if(match)rows.push({...base,student_number:match.number,link_status:'linked',answered_at,page_id:page.id,notion_url:`https://www.notion.so/${page.id.replaceAll('-','')}`,answer_fields:surveyAnswerFields(p,grade)});
   else {unmatched++;rows.push({...base,page_id:page.id,student_number:null,link_status:'needs_review',answered_at});for(const candidate of roster.filter(s=>s.number===number||normalizeSurveyName(s.name)===normalizeSurveyName(name)))rows.push({...base,student_number:candidate.number,link_status:'needs_review',answered_at});}
  }
  return {rows,unmatched};
@@ -95,7 +95,7 @@ export async function loadVerifiedSurveyAnswer(pageId: string, student: Record<s
  const matched=matchSurveyStudent({name,number,grade},roster);
  if(!matched||matched.number!==String(student.student_number??''))throw Error('アンケート回答と生徒の照合に失敗しました。');
  return {id:page.id,date:new Date(page.created_time).toLocaleString('sv-SE',{timeZone:'Asia/Tokyo'}),
-  fields:surveyAnswerFields(properties),url:`https://www.notion.so/${page.id.replaceAll('-','')}`};
+  fields:surveyAnswerFields(properties,grade),url:`https://www.notion.so/${page.id.replaceAll('-','')}`};
 }
 
 export async function loadInterviewSurveyGroups(): Promise<InterviewSurveyTeacherGroup[]> {

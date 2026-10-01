@@ -1,6 +1,27 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {blocksNewInvitation,currentInvitation,defaultInvitationTeacher,invitationProgress,surveyAnswerFields} from '../src/lib/interview-invitation-flow.mjs';
+
+test('アンケート回答は学年ごとのNotion「回答」表の列順に並ぶ',()=>{
+ const answer=(id,value)=>({id,type:'rich_text',rich_text:[{plain_text:value}]});
+ const middleSecond=surveyAnswerFields({
+  第三志望校:answer('dkrH','C高校'),
+  '数学：クラス':answer('uJFF','A'),
+  第二志望校:answer('D~vZ','B高校'),
+  第一志望校:answer('V%3Edu','A高校'),
+  保護者氏名:answer('%3C%3FFJ','保護者'),
+  所属校舎:answer('o%7CK%5D','本校'),
+  備考:answer('TBn%3B','職員用'),
+ },'中２');
+ assert.deepEqual(middleSecond.map(field=>field.label),[
+  '所属校舎','保護者氏名','数学：クラス','第一志望校','第二志望校','第三志望校',
+ ]);
+ const middleThird=surveyAnswerFields({
+  '現状の第一志望校（任意回答）':answer('V%3Edu','A高校'),
+  '第一志望の学校種別':answer('%7C%3CM%40','県立'),
+ },'中3');
+ assert.deepEqual(middleThird.map(field=>field.label),['第一志望の学校種別','現状の第一志望校（任意回答）']);
+});
 import {invitationStudents} from '../src/lib/interview-invitation-students.mjs';
 const now=Date.parse('2026-09-23T12:00:00+09:00');
 const base={id:'i',student_id:'a',status:'active',created_at:'2026-09-23',expires_at:'2026-09-24T12:00:00+09:00',notification_status:'sent',answerStatus:'unanswered'};
