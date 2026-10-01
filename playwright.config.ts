@@ -10,6 +10,7 @@ export default defineConfig({
     url: "http://127.0.0.1:3197/staff/self-study-room",
     reuseExistingServer: false,
     env: { STAFF_AUTH_ENABLED: "true", STAFF_AUTH_ORIGIN: "https://test.invalid",
-      SUPABASE_URL: "http://127.0.0.1:1", SUPABASE_SECRET_KEY: "isolated-test-not-a-real-key" },
+      SUPABASE_URL: "http://127.0.0.1:1", SUPABASE_SECRET_KEY: "isolated-test-not-a-real-key",
+      LINE_CHANNEL_SECRET: "isolated-webhook-test-secret" },
   },
 });

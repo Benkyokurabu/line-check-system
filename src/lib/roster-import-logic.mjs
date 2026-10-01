@@ -58,12 +58,14 @@ export function changedManifestFiles(current, previous) {
     return current.map((file) => ({ ...file, status: "initial" }));
   }
   const previousByFile = new Map(previous.map((file) => [file.file, file]));
-  return current
+  const changed = current
     .filter((file) => {
       const before = previousByFile.get(file.file);
       return !before || before.size !== file.size || before.mtime_ms !== file.mtime_ms;
     })
     .map((file) => ({ ...file, status: previousByFile.has(file.file) ? "changed" : "new" }));
+  const currentNames = new Set(current.map((file) => file.file));
+  return [...changed, ...previous.filter((file) => !currentNames.has(file.file)).map((file) => ({ ...file, status: "missing" }))];
 }
 
 export async function getRosterImportPreview({ supabase, root = process.cwd() }) {
@@ -80,13 +82,43 @@ export async function getRosterImportPreview({ supabase, root = process.cwd() })
   const previousManifest = previousManifestRow?.value ?? null;
   const firstImport = !Array.isArray(previousManifest);
   const changedFiles = changedManifestFiles(currentManifest, previousManifest);
+  const issues = [];
+  if (currentManifest.length === 0) issues.push("クラス一覧表が見つかりません");
+  if (changedFiles.some((file) => file.status === "missing")) issues.push("前回取り込んだクラス一覧表が見つかりません");
+  let studentCount = 0;
+  let enrollmentCount = 0;
+  let existingEnrollmentCount = 0;
+  if (currentManifest.length > 0) {
+    const { rows, enrollments, skippedFiles } = readRosterExcelRows(files, root);
+    studentCount = new Set(rows.map((row) => row.student_number)).size;
+    enrollmentCount = new Set(enrollments.map((row) => `${row.student_number}:${row.subject}:${row.class_name}`)).size;
+    if (skippedFiles.length > 0) issues.push("学年を判定できないファイルがあります");
+    if (files.some((file) => !rows.some((row) => row.source_file === file))) issues.push("生徒がいないクラス一覧表があります");
+    if (rows.length !== studentCount) issues.push("複数のクラス一覧表に同じ学籍番号があります");
+    if (studentCount === 0 || enrollmentCount === 0) issues.push("生徒またはクラス所属が0件です");
+    const { count, error: countError } = await supabase.from("student_class_enrollments")
+      .select("id", { count: "exact", head: true }).like("source_file", "%クラス一覧表%");
+    if (countError) throw countError;
+    existingEnrollmentCount = count ?? 0;
+    if (existingEnrollmentCount >= 20 && enrollmentCount * 5 < existingEnrollmentCount * 4) {
+      issues.push("既存のクラス所属より20%以上少なくなります");
+    }
+  }
   return {
     ok: true,
     first_import: firstImport,
     changed: changedFiles.length > 0,
     files: currentManifest,
+    previous_manifest: previousManifest,
     changed_files: changedFiles,
-    message: firstImport
+    blocked: issues.length > 0,
+    issues,
+    students: studentCount,
+    class_enrollments: enrollmentCount,
+    previous_class_enrollments: existingEnrollmentCount,
+    message: issues.length > 0
+      ? `取り込みを止めました: ${issues.join("。")}`
+      : firstImport
       ? `初回取り込みです。フォルダ内のクラス一覧表 ${currentManifest.length}件を表示しています。`
       : changedFiles.length > 0
         ? `新しくなっていたクラス一覧表 ${changedFiles.length}件を取り込みます。`
@@ -214,8 +246,12 @@ export function mergeNotionStudentWithExistingRoster(student, current, updatedAt
   };
 }
 
-export async function importRosterFromExcel({ supabase, root = process.cwd(), force = false }) {
+export async function importRosterFromExcel({ supabase, root = process.cwd(), force = false, expectedManifest = null }) {
   const preview = await getRosterImportPreview({ supabase, root });
+  if (expectedManifest && !sameManifest(preview.files, expectedManifest)) {
+    throw new Error("確認後にクラス一覧表が変わりました。もう一度確認してください");
+  }
+  if (preview.blocked) throw new Error(preview.message);
   if (!force && !preview.changed) {
     return {
       ...preview,
@@ -224,11 +260,10 @@ export async function importRosterFromExcel({ supabase, root = process.cwd(), fo
     };
   }
 
-  if (preview.files.length === 0) {
-    throw new Error("No roster Excel files found.");
-  }
-
   const { rows, enrollments, skippedFiles } = readRosterExcelRows(preview.files.map((file) => file.file), root);
+  if (!sameManifest(fileManifest(preview.files.map((file) => file.file), root), preview.files)) {
+    throw new Error("読み込み中にクラス一覧表が変わりました。もう一度確認してください");
+  }
   const uniqueRows = [...new Map(rows.map((row) => [row.student_number, row])).values()];
   const rosterRows = await preserveExistingTeachers(supabase, uniqueRows);
   const uniqueEnrollments = [
@@ -240,39 +275,19 @@ export async function importRosterFromExcel({ supabase, root = process.cwd(), fo
     ).values(),
   ];
 
-  const { error } = await supabase
-    .from("student_roster")
-    .upsert(rosterRows, { onConflict: "student_number" });
+  const { data, error } = await supabase.rpc("import_roster_from_excel_atomic", {
+    p_roster: rosterRows,
+    p_enrollments: uniqueEnrollments,
+    p_manifest: preview.files,
+    p_expected_manifest: preview.previous_manifest,
+  });
   if (error) throw error;
-
-  const { error: deleteEnrollmentError } = await supabase
-    .from("student_class_enrollments")
-    .delete()
-    .neq("student_number", "__never__");
-  if (deleteEnrollmentError) throw deleteEnrollmentError;
-
-  if (uniqueEnrollments.length > 0) {
-    const { error: enrollmentError } = await supabase
-      .from("student_class_enrollments")
-      .insert(uniqueEnrollments);
-    if (enrollmentError) throw enrollmentError;
-  }
-
-  const { error: manifestError } = await supabase
-    .from("app_settings")
-    .upsert({
-      key: ROSTER_MANIFEST_KEY,
-      value: preview.files,
-      description: "Last imported roster Excel file names, sizes, and mtimes.",
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "key" });
-  if (manifestError && !["42P01", "PGRST205"].includes(manifestError.code)) throw manifestError;
 
   return {
     ...preview,
     skipped: false,
-    students: rosterRows.length,
-    class_enrollments: uniqueEnrollments.length,
+    students: data.students,
+    class_enrollments: data.class_enrollments,
     duplicate_roster_rows_skipped: rows.length - uniqueRows.length,
     skipped_files: skippedFiles,
   };

@@ -880,7 +880,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
     }
   }
 
-  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus || Boolean(lesson.broadcast_group && lesson.enrolled)) : lessons;
+  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus) : lessons;
   const lessonGroups = lessonsByTime(filteredLessons);
 
   return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
@@ -1070,7 +1070,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
   const currentStudent = students.find((student) => student.student_number === draft.student_number) ?? null;
   const effectiveCampus = draft.campus || selectableCampus(currentStudent?.campus);
   const candidateStudents = students;
-  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus || Boolean(lesson.broadcast_group && lesson.enrolled)) : lessons;
+  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus) : lessons;
   const lessonGroups = lessonsByTime(filteredLessons);
   const currentLesson = lessons.find((lesson) => lesson.id === draft.lesson_id) ?? null;
   const isEditingCrossCampus = lessonIsCrossCampus(currentStudent, currentLesson, effectiveCampus);
@@ -1295,14 +1295,14 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
     return () => window.clearTimeout(timer);
   }, [items, manualRevision, confirmedBy, closed, registering, busy, showAutoPeriod]);
 
-  function updateGroup(groupItems: EditableItem[], patch: Partial<EditableItem>, clearLessons = false) {
+  function updateGroup(groupItems: EditableItem[], patch: Partial<EditableItem>, clearLessons = false, autoSelect = true) {
     setManualRevision((value) => value + 1);
     const groupIds = new Set(groupItems.map((item) => item.client_id));
     const firstId = groupItems[0].client_id;
     setItems((current) => current.flatMap((item) => {
       if (!groupIds.has(item.client_id)) return [item];
       if (clearLessons && item.client_id !== firstId) return [];
-      return [{ ...item, ...patch, ...(clearLessons ? { lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "", auto_select: true } : {}) }];
+      return [{ ...item, ...patch, ...(clearLessons ? { lesson_id: "", suggested_subject: null, suggested_class_name: null, cross_campus_override: false, cross_campus_reason: "", auto_select: autoSelect } : {}) }];
     }));
   }
 
@@ -1757,7 +1757,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         const currentLesson = selectedItems.length === 1 ? lessons.find((lesson) => lesson.id === selectedItems[0].lesson_id) ?? candidateLesson(candidate, selectedItems[0]) : null;
         const rowStudent = studentOptions.find((student) => student.student_number === item.student_number) ?? null;
         const crossCampus = selectedItems.some((row) => lessonIsCrossCampus(rowStudent, lessons.find((lesson) => lesson.id === row.lesson_id) ?? candidateLesson(candidate, row), row.campus));
-        const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus || Boolean(lesson.broadcast_group && lesson.enrolled)) : lessons;
+        const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus) : lessons;
         const lessonGroups = lessonsByTime(filteredLessons);
         const rowClosed = closed || item.status === "confirmed";
         const selectionSummary = selectedItems.length > 1 ? `${selectedItems.length}授業選択中` : currentLesson ? `${currentLesson.label}${currentLesson.broadcast_group ? `（配信元 ${currentLesson.campus}）` : ""}` : (selectedItems.length ? "1授業選択中" : "授業未選択");
@@ -1780,7 +1780,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
             />
             <label style={fieldStyle}>日付<input style={inputStyle} type="date" value={item.event_date} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { event_date: event.target.value }, true)} /></label>
             <label style={fieldStyle}>種別<select style={inputStyle} value={item.event_type} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { event_type: event.target.value, ai_summary: !item.ai_summary.trim() || item.ai_summary === fallbackReason(item.event_type) ? fallbackReason(event.target.value) : item.ai_summary })}>{eventTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label style={fieldStyle}>校舎<select style={inputStyle} value={item.campus} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { campus: event.target.value }, true)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
+            <label style={fieldStyle}>授業校舎<select style={inputStyle} value={item.campus} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { campus: event.target.value }, true, false)}><option value="">要選択</option><option value="本校">本校</option><option value="南教室">南教室</option></select></label>
             <label style={fieldStyle}>理由<div style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr)", gap: 8 }}><select style={inputStyle} value={reasonOptions.includes(item.ai_summary) ? item.ai_summary : ""} disabled={rowClosed} onChange={(event) => { if (event.target.value) updateGroup(registrationGroup.items, { ai_summary: event.target.value }); }}><option value="">直接入力</option>{reasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select><input style={inputStyle} value={item.ai_summary} disabled={rowClosed} onChange={(event) => updateGroup(registrationGroup.items, { ai_summary: event.target.value })} placeholder="例：体調不良" /></div></label>
             <button type="button" style={{ ...ghostButtonStyle, height: 40, padding: 0 }} disabled={rowClosed || items.length <= registrationGroup.items.length} onClick={() => removeGroup(registrationGroup.items)}>削除</button>
           </div>
@@ -1790,8 +1790,8 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           </div>}
           
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {selectionSummary}</div>
-          <div style={{ color: "#59635e", fontSize: 12 }}>生徒を選ぶと受講中の授業を初期選択します。授業は複数選択でき、押すたびに緑（選択）／白（解除）が切り替わります。</div>
-          {filteredLessons.some((lesson) => lesson.broadcast_group && lesson.enrolled) && <div style={{ color: "#07586b", fontSize: 13, fontWeight: 700 }}>配信授業は実際の配信元「本校／南教室」を選んでください。欠席は選んだ校舎だけに登録します。</div>}
+          <div style={{ color: "#59635e", fontSize: 12 }}>授業校舎を選ぶと、その校舎の当日の授業だけを表示します。授業を押して緑にした後、「確認してNotionへ登録」を押してください。通常授業は受講中の授業を初期選択します。</div>
+          {filteredLessons.some((lesson) => lesson.broadcast_group && lesson.enrolled) && <div style={{ color: "#07586b", fontSize: 13, fontWeight: 700 }}>Xクラスなどの配信授業も、実際に配信した校舎を職員が選んでください。緑にした授業だけに欠席を登録します。</div>}
           <div style={{ display: "grid", gap: 6 }}>
             {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : !lessonList ? <div role="status" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>選択した生徒の授業を読み込んでいます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((timeGroup) => <div key={timeGroup.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
               <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{timeGroup.time}</div>

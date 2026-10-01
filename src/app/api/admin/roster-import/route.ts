@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       supabase,
       root: process.cwd(),
       force: body?.force === true,
+      expectedManifest: Array.isArray(body?.expected_files) ? body.expected_files : null,
     });
     return NextResponse.json(result);
   } catch (error) {

@@ -8,7 +8,10 @@ import * as XLSXNamespace from "xlsx";
 
 import {
   CANONICAL_ROSTER_DIRECTORY,
+  changedManifestFiles,
   fileManifest,
+  getRosterImportPreview,
+  importRosterFromExcel,
   listRosterExcelFiles,
   mergeNotionStudentWithExistingRoster,
   preserveExistingTeachers,
@@ -43,6 +46,51 @@ test("正本フォルダがある場合はプロジェクト直下の旧コピ�
   assert.equal(manifest[0].size, fs.statSync(path.join(canonicalRoot, fileName)).size);
   const result = readRosterExcelRows([fileName], projectRoot);
   assert.deepEqual(result.rows.map((row) => row.student_number), ["2020999"]);
+});
+
+test("前回のクラス一覧表が欠けたら確定を止め、所属を変更しない", async () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "roster-missing-file-"));
+  const fileName = "・中１ クラス一覧表(2026).xlsx";
+  writeRoster(path.join(projectRoot, fileName), [["本校", 2020999, "架空 生徒", "女", "北", "工藤", "本", "A"]]);
+  const oldManifest = [...fileManifest([fileName], projectRoot), { file: "・中２ クラス一覧表(2026).xlsx", size: 100, mtime_ms: 1 }];
+  let writes = 0;
+  const supabase = {
+    from(table) {
+      if (table === "app_settings") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { value: oldManifest }, error: null }) }) }) };
+      if (table === "student_class_enrollments") return { select: () => ({ like: async () => ({ count: 2, error: null }) }) };
+      throw new Error(`Unexpected table ${table}`);
+    },
+    rpc() { writes++; throw new Error("取込を呼んではいけません"); },
+  };
+  const preview = await getRosterImportPreview({ supabase, root: projectRoot });
+  assert.equal(preview.blocked, true);
+  assert.deepEqual(preview.changed_files.map(({ status }) => status), ["missing"]);
+  assert.deepEqual(changedManifestFiles(preview.files, oldManifest).map(({ status }) => status), ["missing"]);
+  await assert.rejects(() => importRosterFromExcel({ supabase, root: projectRoot }), /見つかりません/);
+  assert.equal(writes, 0);
+});
+
+test("確認済みファイルだけをDBの一括取込関数へ渡す", async () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "roster-atomic-rpc-"));
+  const fileName = "・中２ クラス一覧表(2026).xlsx";
+  writeRoster(path.join(projectRoot, fileName), [["南", 2020998, "架空 生徒", "女", "北", "工藤", "南", "A"]]);
+  const calls = [];
+  const supabase = {
+    from(table) {
+      if (table === "app_settings") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
+      if (table === "student_class_enrollments") return { select: () => ({ like: async () => ({ count: 0, error: null }) }) };
+      throw new Error(`Unexpected table ${table}`);
+    },
+    async rpc(name, payload) { calls.push({ name, payload }); return { data: { students: 1, class_enrollments: 1 }, error: null }; },
+  };
+  const preview = await getRosterImportPreview({ supabase, root: projectRoot });
+  assert.equal(preview.blocked, false);
+  await assert.rejects(() => importRosterFromExcel({ supabase, root: projectRoot, expectedManifest: [] }), /もう一度確認/);
+  const result = await importRosterFromExcel({ supabase, root: projectRoot, expectedManifest: preview.files });
+  assert.equal(result.students, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, "import_roster_from_excel_atomic");
+  assert.equal(calls[0].payload.p_enrollments.length, 1);
 });
 
 test("担任が空欄でも生徒とクラス所属を取り込む", () => {

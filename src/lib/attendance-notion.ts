@@ -3,6 +3,7 @@ import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
 } from "@/lib/classroom-attendance-display.mjs";
+import { assertXClassPageCampus, chooseXClassNotionPage, isXClassLesson } from "@/lib/attendance-notion-campus.mjs";
 
 type NotionProperty = { type?: string };
 type NotionDataSource = { properties?: Record<string, NotionProperty> };
@@ -136,7 +137,7 @@ function buildProperties(input: {
   if (lessonNameProperty) pageProperties[lessonNameProperty.name] = lessonProperty(lessonNameProperty, lessonName);
   if (campusNameProperty) pageProperties[campusNameProperty.name] = campusProperty(campusNameProperty, input.event.lessons?.campus ?? null);
   if (typeProperty) pageProperties[typeProperty.name] = textProperty(typeProperty, eventTypeLabel(input.event.event_type));
-  return { pageProperties, studentProperty, dateProperty, lessonNameProperty, lessonName };
+  return { pageProperties, studentProperty, dateProperty, lessonNameProperty, campusNameProperty, lessonName };
 }
 
 export async function upsertAttendanceNotionPage(input: {
@@ -145,12 +146,21 @@ export async function upsertAttendanceNotionPage(input: {
   notionPageId?: string | null;
 }) {
   const { dataSourceId, properties } = await notionContext();
-  const { pageProperties, studentProperty, dateProperty, lessonNameProperty, lessonName } = buildProperties({
+  const { pageProperties, studentProperty, dateProperty, lessonNameProperty, campusNameProperty, lessonName } = buildProperties({
     event: input.event,
     profilePageId: input.profilePageId,
     properties,
   });
+  const xClass = isXClassLesson(input.event.lessons);
+  const campus = input.event.lessons?.campus ?? null;
+  if (xClass && (!campusNameProperty || !lessonNameProperty || !campus)) {
+    throw new Error("XクラスのNotion登録には配信元校舎と授業・校舎列が必要です");
+  }
   if (input.notionPageId) {
+    if (xClass) {
+      const existingPage = await notionRequest(`/pages/${input.notionPageId}`);
+      assertXClassPageCampus(existingPage, campusNameProperty!.name, campus);
+    }
     const page = await notionRequest(`/pages/${input.notionPageId}`, {
       method: "PATCH",
       body: JSON.stringify({ archived: false, properties: pageProperties }),
@@ -165,9 +175,17 @@ export async function upsertAttendanceNotionPage(input: {
   if (lessonFilterValue) filters.push(lessonFilterValue);
   const existing = await notionRequest(`/data_sources/${dataSourceId}/query`, {
     method: "POST",
-    body: JSON.stringify({ page_size: 1, filter: { and: filters } }),
+    body: JSON.stringify({ page_size: xClass ? 100 : 1, filter: { and: filters } }),
   });
-  const existingPageId = (existing.results?.[0]?.id as string | undefined) ?? null;
+  if (xClass && existing.has_more) throw new Error("Xクラス欠席のNotion照合結果が多すぎます。職員が確認してください");
+  const existingPageId = xClass
+    ? chooseXClassNotionPage(existing.results ?? [], {
+        campusPropertyName: campusNameProperty!.name,
+        lessonPropertyName: lessonNameProperty!.name,
+        campus,
+        lessonName,
+      })
+    : (existing.results?.[0]?.id as string | undefined) ?? null;
   if (existingPageId) {
     const page = await notionRequest(`/pages/${existingPageId}`, {
       method: "PATCH",

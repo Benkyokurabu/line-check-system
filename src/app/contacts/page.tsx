@@ -14,7 +14,7 @@ import {
 } from "@/lib/line-contact-registration.mjs";
 
 type RosterImportFile = { file: string; status?: string };
-type RosterImportPreview = { changed?: boolean; first_import?: boolean; message?: string; files?: RosterImportFile[]; changed_files?: RosterImportFile[]; students?: number; class_enrollments?: number; skipped?: boolean };
+type RosterImportPreview = { changed?: boolean; blocked?: boolean; issues?: string[]; first_import?: boolean; message?: string; files?: RosterImportFile[]; changed_files?: RosterImportFile[]; students?: number; class_enrollments?: number; previous_class_enrollments?: number; skipped?: boolean };
 
 type Contact = {
   line_user_id: string;
@@ -287,7 +287,9 @@ export default function ContactsPage() {
       if (!response.ok) throw new Error(body.error ?? "クラス一覧表の確認に失敗しました");
       setRosterImportPreview(body);
       const files = body.first_import ? body.files ?? [] : body.changed_files ?? [];
-      if (body.first_import) {
+      if (body.blocked) {
+        setRosterImportMsg(body.message ?? "クラス一覧表を確認してください。");
+      } else if (body.first_import) {
         setRosterImportMsg(`初回取り込みです。フォルダ内のクラス一覧表 ${files.length}件を表示しています。`);
       } else if (body.changed) {
         setRosterImportMsg(`新しくなっていたクラス一覧表 ${files.length}件を取り込みます。`);
@@ -302,16 +304,16 @@ export default function ContactsPage() {
   }
 
   async function confirmRosterImport() {
-    if (!rosterImportPreview?.changed) return;
+    if (!rosterImportPreview?.changed || rosterImportPreview.blocked) return;
     const files = rosterImportPreview.first_import ? rosterImportPreview.files ?? [] : rosterImportPreview.changed_files ?? [];
-    if (!window.confirm(`${files.map((file) => file.file).join("\n")}\n\nこれらのファイルを取り込みます。よろしいですか？`)) return;
+    if (!window.confirm(`${files.map((file) => file.file).join("\n")}\n\n${rosterImportPreview.students}名、クラス所属${rosterImportPreview.class_enrollments}件を取り込みます。よろしいですか？`)) return;
     setRosterImporting(true);
     setRosterImportMsg("クラス一覧表を取り込んでいます...");
     try {
       const response = await fetch("/api/admin/roster-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ expected_files: rosterImportPreview.files }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "クラス一覧表の取り込みに失敗しました");
@@ -554,17 +556,18 @@ export default function ContactsPage() {
           <button onClick={handleRosterImportClick} style={btnEdit} disabled={rosterImporting}>
             {rosterImporting ? "確認中..." : "取り込み"}
           </button>
-          {rosterImportPreview?.changed && (
+          {rosterImportPreview?.changed && !rosterImportPreview.blocked && (
             <button onClick={confirmRosterImport} style={btnSave} disabled={rosterImporting}>
               確定
             </button>
           )}
-          {rosterImportMsg && <span style={{ fontSize: "0.875rem", color: rosterImportMsg.includes("失敗") ? "#dc2626" : "var(--muted)" }}>{rosterImportMsg}</span>}
+          {rosterImportMsg && <span role={rosterImportPreview?.blocked ? "alert" : undefined} style={{ fontSize: "0.875rem", color: rosterImportPreview?.blocked || rosterImportMsg.includes("失敗") ? "#dc2626" : "var(--muted)" }}>{rosterImportMsg}</span>}
         </div>
         {rosterImportPreview && (
           <div style={{ display: "grid", gap: 4, fontSize: "0.82rem", color: "var(--muted)" }}>
+            <span>生徒 {rosterImportPreview.students ?? 0}名・クラス所属 {rosterImportPreview.class_enrollments ?? 0}件（前回 {rosterImportPreview.previous_class_enrollments ?? 0}件）</span>
             {(rosterImportPreview.first_import ? rosterImportPreview.files ?? [] : rosterImportPreview.changed_files ?? []).map((file) => (
-              <span key={file.file}>・{file.file}</span>
+              <span key={file.file}>・{file.file}{file.status === "missing" ? "（見つかりません）" : ""}</span>
             ))}
           </div>
         )}

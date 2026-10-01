@@ -1,15 +1,16 @@
 import "server-only";
 
 import crypto from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
-import { autoLinkLineSenders } from "@/lib/line-auto-link";
+import { processSavedLineMessages } from "@/lib/line-webhook-postprocess";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 
 // LINE Webhook は Node.js ランタイムで実行する（HMAC 署名検証に crypto を使うため）。
 export const runtime = "nodejs";
 // 署名検証のため raw body を毎回読む必要があるのでキャッシュさせない。
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 // line_messages.message_type の CHECK 制約に存在する値だけを許可し、
 // それ以外（location / imagemap など）は "unknown" に丸める。
@@ -36,25 +37,6 @@ type LineMessageRow = {
 };
 
 const DOWNLOADABLE_MESSAGE_TYPES = new Set(["image", "video", "audio", "file"]);
-const MEDIA_BUCKET = "line-message-media";
-const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
-
-async function fetchDisplayName(
-  userId: string,
-  accessToken: string,
-): Promise<string | null> {
-  try {
-    const res = await fetch(`https://api.line.me/v2/bot/profile/${userId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { displayName?: string };
-    return typeof data.displayName === "string" ? data.displayName : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * x-line-signature ヘッダーを HMAC-SHA256(channelSecret, rawBody) の Base64 と比較する。
  * 必ず JSON.parse 前の raw body 文字列を使う。
@@ -106,8 +88,8 @@ function buildRow(event: unknown): LineMessageRow | null {
     ? message.fileName
     : null;
 
-  const timestamp =
-    typeof e.timestamp === "number" ? new Date(e.timestamp).toISOString() : null;
+  const eventTime = typeof e.timestamp === "number" ? new Date(e.timestamp) : null;
+  const timestamp = eventTime && Number.isFinite(eventTime.getTime()) ? eventTime.toISOString() : null;
 
   return {
     line_message_id: message.id,
@@ -121,74 +103,6 @@ function buildRow(event: unknown): LineMessageRow | null {
     media_file_name: mediaFileName,
     media_status: DOWNLOADABLE_MESSAGE_TYPES.has(messageType) ? "pending" : "not_applicable",
   };
-}
-
-function safeFileName(value: string) {
-  return value.normalize("NFKC").replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(0, 120) || "file";
-}
-
-function extensionFor(contentType: string | null, messageType: string) {
-  const mime = contentType?.split(";")[0].trim().toLowerCase();
-  const byMime: Record<string, string> = {
-    "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp",
-    "application/pdf": ".pdf", "video/mp4": ".mp4", "audio/m4a": ".m4a", "audio/mp4": ".m4a",
-  };
-  return byMime[mime ?? ""] ?? (messageType === "image" ? ".jpg" : "");
-}
-
-async function saveMedia(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  row: { id: string; line_message_id: string; line_user_id: string; message_type: string; media_file_name: string | null },
-  accessToken: string,
-) {
-  try {
-    const response = await fetch(`https://api-data.line.me/v2/bot/message/${row.line_message_id}/content`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!response.ok) throw new Error(`LINE content API returned ${response.status}`);
-
-    const declaredSize = Number(response.headers.get("content-length") ?? 0);
-    if (declaredSize > MAX_MEDIA_BYTES) {
-      await supabase.from("line_messages").update({
-        media_status: "too_large", media_size_bytes: declaredSize, media_error: "File exceeds 50 MB limit",
-      }).eq("id", row.id);
-      return;
-    }
-
-    const body = new Uint8Array(await response.arrayBuffer());
-    if (body.byteLength > MAX_MEDIA_BYTES) {
-      await supabase.from("line_messages").update({
-        media_status: "too_large", media_size_bytes: body.byteLength, media_error: "File exceeds 50 MB limit",
-      }).eq("id", row.id);
-      return;
-    }
-
-    const contentType = response.headers.get("content-type")?.split(";")[0] ?? "application/octet-stream";
-    const originalName = row.media_file_name?.trim();
-    const fileName = safeFileName(originalName || `${row.message_type}${extensionFor(contentType, row.message_type)}`);
-    const storagePath = `${row.line_user_id}/${row.line_message_id}/${fileName}`;
-    const { error: uploadError } = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, body, {
-      contentType,
-      upsert: false,
-    });
-    if (uploadError && !uploadError.message.toLowerCase().includes("already exists")) throw uploadError;
-
-    const { error: updateError } = await supabase.from("line_messages").update({
-      media_storage_path: storagePath,
-      media_content_type: contentType,
-      media_file_name: originalName || fileName,
-      media_size_bytes: body.byteLength,
-      media_status: "saved",
-      media_error: null,
-    }).eq("id", row.id);
-    if (updateError) throw updateError;
-  } catch (error) {
-    console.error("Failed to save LINE media", row.line_message_id, error);
-    await supabase.from("line_messages").update({
-      media_status: "failed",
-      media_error: error instanceof Error ? error.message.slice(0, 500) : "Unknown media save error",
-    }).eq("id", row.id);
-  }
 }
 
 export async function POST(request: Request) {
@@ -224,57 +138,29 @@ export async function POST(request: Request) {
 
   if (rows.length > 0) {
     try {
-      const accessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "";
-      const uniqueUserIds = [...new Set(rows.map((r) => r.line_user_id))];
-      const profiles = await Promise.all(
-        uniqueUserIds.map(async (userId) => {
-          const name = await fetchDisplayName(userId, accessToken);
-          return [userId, name] as [string, string | null];
-        }),
-      );
-      const profileMap = Object.fromEntries(profiles);
-      const rowsWithNames = rows.map((r) => ({
-        ...r,
-        display_name: profileMap[r.line_user_id] ?? null,
-      }));
-
       const supabase = createSupabaseAdminClient();
       // line_message_id の unique 制約で重複を防ぐ。同一 ID は無視（再送対策）。
       const { data: savedRows, error } = await supabase
         .from("line_messages")
-        .upsert(rowsWithNames, {
+        .upsert(rows, {
           onConflict: "line_message_id",
           ignoreDuplicates: true,
         })
-        .select("id,line_message_id,line_user_id,display_name,text,message_type,media_file_name");
+        .select("id,line_message_id,line_user_id,display_name,text,message_type,media_file_name,media_status");
 
-      if (error) {
-        console.error("Failed to upsert line_messages", error);
-      } else if (accessToken) {
-        await autoLinkLineSenders(
-          supabase,
-          (savedRows ?? []).map((row) => ({
-            id: row.id,
-            line_user_id: row.line_user_id,
-            display_name: row.display_name,
-            text: row.text,
-          })),
-        ).catch((linkError) => {
-          console.error("Failed to auto-link LINE sender", linkError);
-        });
-
-        await Promise.all(
-          (savedRows ?? [])
-            .filter((row) => DOWNLOADABLE_MESSAGE_TYPES.has(row.message_type))
-            .map((row) => saveMedia(supabase, row, accessToken)),
-        );
+      if (error) throw error;
+      const accessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "";
+      if (accessToken && savedRows?.length) {
+        after(() => processSavedLineMessages(supabase, savedRows, accessToken).catch((cause) => {
+          console.error("LINE webhook postprocessing failed", cause);
+        }));
       }
     } catch (err) {
-      // 保存に失敗しても LINE には 200 を返す（リトライ嵐を避ける）。失敗はログで追う。
-      console.error("Unexpected error while saving line_messages", err);
+      console.error("Failed to save LINE webhook messages", err);
+      return NextResponse.json({ error: "message persistence failed" }, { status: 503 });
     }
   }
 
-  // LINE には常に短時間で 200 を返す。
+  // 保存したイベントだけを受信成功として通知する。重複再配信も200で受ける。
   return NextResponse.json({ ok: true }, { status: 200 });
 }

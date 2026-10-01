@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test("south campus X student selects one broadcasting campus for an absence", async ({ page }) => {
   const student = { student_number: "x-student", student_name: "山田 花子", grade: "中2", campus: "南教室", homeroom_teacher: "佐藤" };
   let savedItems: Array<{ lesson_id: string | null; cross_campus_override: boolean }> = [];
+  let notionRequests = 0;
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/attendance/students") return route.fulfill({ json: { students: [student] } });
@@ -22,6 +23,10 @@ test("south campus X student selects one broadcasting campus for an absence", as
       savedItems = route.request().postDataJSON().items;
       return route.fulfill({ json: { candidate: {} } });
     }
+    if (url.pathname === "/api/attendance/candidates/x-absence/confirm" && route.request().method() === "POST") {
+      notionRequests += 1;
+      return route.fulfill({ json: { notion_page_ids: ["x-south-page"], notion_created_count: 1, notion_updated_count: 0 } });
+    }
     if (url.pathname === "/api/attendance/status") return route.fulfill({ json: {} });
     if (url.pathname === "/api/attendance/extract") return route.fulfill({ json: { processed: 0, candidates: 0, ignored: 0, retrying: 0, dead: 0 } });
     return route.fulfill({ json: {} });
@@ -30,18 +35,23 @@ test("south campus X student selects one broadcasting campus for an absence", as
   await page.goto("/attendance");
   await page.getByLabel("確認者名").fill("テスト担当");
   await page.getByRole("button", { name: "対応する", exact: true }).click();
-  const main = page.getByRole("button", { name: /配信元 本校/ });
-  const south = page.getByRole("button", { name: /配信元 南教室/ });
-  await expect(main).toBeVisible();
+  const row = page.getByRole("group", { name: "1行目の登録内容" });
+  const main = row.getByRole("button", { name: /配信元 本校/ });
+  const south = row.getByRole("button", { name: /配信元 南教室/ });
   await expect(south).toBeVisible();
-  await expect(main).toHaveAttribute("aria-pressed", "false");
-  await expect(south).toHaveAttribute("aria-pressed", "false");
+  await expect(main).toHaveCount(0);
+  await row.getByLabel("授業校舎").selectOption("本校");
+  await expect(main).toBeVisible();
+  await expect(south).toHaveCount(0);
+  await row.getByLabel("授業校舎").selectOption("南教室");
+  await expect(south).toBeVisible();
+  await expect(main).toHaveCount(0);
   await south.click();
   await expect(south).toHaveAttribute("aria-pressed", "true");
-  await main.click();
-  await expect(main).toHaveAttribute("aria-pressed", "true");
-  await expect(south).toHaveAttribute("aria-pressed", "false");
-  await expect.poll(() => savedItems.filter((item) => item.lesson_id).map((item) => [item.lesson_id, item.cross_campus_override])).toEqual([["x-main", false]]);
+  await expect(south).toHaveCSS("background-color", "rgb(220, 252, 231)");
+  await page.getByRole("button", { name: "確認してNotionへ登録" }).click();
+  await expect.poll(() => notionRequests).toBe(1);
+  expect(savedItems.filter((item) => item.lesson_id).map((item) => [item.lesson_id, item.cross_campus_override])).toEqual([["x-south", false]]);
 });
 
 test("known student's enrolled lessons start selected and can be deselected", async ({ page }) => {

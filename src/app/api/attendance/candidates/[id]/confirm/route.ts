@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { attendanceCrossCampusReason, enrollmentCampusForLesson, isBroadcastEnrollment, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { assertXClassPageCampus, chooseXClassNotionPage, isXClassLesson } from "@/lib/attendance-notion-campus.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -236,16 +237,36 @@ async function registerItem(input: {
   const lessonNameProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_LESSON_PROPERTY", ["授業", "授業・クラス"]));
   const campusNameProperty = optionalProperty(input.properties, envFirst("NOTION_ATTENDANCE_CAMPUS_PROPERTY", ["授業校舎", "校舎"]));
   const typeProperty = optionalProperty(input.properties, attendanceTypePropertyNames(process.env.NOTION_ATTENDANCE_TYPE_PROPERTY));
+  const xClass = isXClassLesson(lesson);
+  if (xClass && (!campusNameProperty || !lessonNameProperty || !campus)) {
+    throw new Error("XクラスのNotion登録には配信元校舎と授業・校舎列が必要です");
+  }
   const filters: unknown[] = [
     { property: studentProperty.name, relation: { contains: input.profilePageId } },
     dateFilter(dateProperty, input.item.event_date),
   ];
   const lessonFilterValue = lessonNameProperty ? lessonFilter(lessonNameProperty, lessonName) : null;
   if (lessonFilterValue) filters.push(lessonFilterValue);
-  const existing = await notionRequest(`/data_sources/${input.dataSourceId}/query`, {
-    method: "POST",
-    body: JSON.stringify({ page_size: 1, filter: { and: filters } }),
-  });
+  let existingPageId: string | null = null;
+  if (xClass && input.item.notion_page_id) {
+    const existingPage = await notionRequest(`/pages/${input.item.notion_page_id}`);
+    assertXClassPageCampus(existingPage, campusNameProperty!.name, campus);
+    existingPageId = input.item.notion_page_id;
+  } else {
+    const existing = await notionRequest(`/data_sources/${input.dataSourceId}/query`, {
+      method: "POST",
+      body: JSON.stringify({ page_size: xClass ? 100 : 1, filter: { and: filters } }),
+    });
+    if (xClass && existing.has_more) throw new Error("Xクラス欠席のNotion照合結果が多すぎます。職員が確認してください");
+    existingPageId = xClass
+      ? chooseXClassNotionPage(existing.results ?? [], {
+          campusPropertyName: campusNameProperty!.name,
+          lessonPropertyName: lessonNameProperty!.name,
+          campus,
+          lessonName,
+        })
+      : (existing.results?.[0]?.id as string | undefined) ?? null;
+  }
   const pageProperties: Record<string, unknown> = {
     [reasonProperty.name]: textProperty(reasonProperty, input.item.ai_summary?.trim() || fallbackReason(input.item.event_type)),
     [studentProperty.name]: { relation: [{ id: input.profilePageId }] },
@@ -254,7 +275,6 @@ async function registerItem(input: {
   if (lessonNameProperty) pageProperties[lessonNameProperty.name] = lessonProperty(lessonNameProperty, lessonName);
   if (campusNameProperty) pageProperties[campusNameProperty.name] = campusProperty(campusNameProperty, campus);
   if (typeProperty) pageProperties[typeProperty.name] = textProperty(typeProperty, eventTypeLabel(input.item.event_type));
-  const existingPageId = existing.results?.[0]?.id as string | undefined;
   const notionPage = existingPageId
     ? await notionRequest(`/pages/${existingPageId}`, {
         method: "PATCH",

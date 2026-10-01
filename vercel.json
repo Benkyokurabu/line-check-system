@@ -17,6 +17,10 @@
       "schedule": "0 21 * * *"
     },
     {
+      "path": "/api/cron/line-webhook-recovery",
+      "schedule": "15 21 * * *"
+    },
+    {
       "path": "/api/cron/interview-material-cleanup",
       "schedule": "15 22 * * *"
     }
