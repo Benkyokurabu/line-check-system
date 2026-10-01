@@ -2,19 +2,29 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {blocksNewInvitation,currentInvitation,defaultInvitationTeacher,invitationProgress,surveyAnswerFields} from '../src/lib/interview-invitation-flow.mjs';
 
-test('アンケート回答は学年ごとのNotion「回答」表の列順に並ぶ',()=>{
+test('アンケート回答は学年ごとの実際のフォーム設問順に並ぶ',()=>{
  const answer=(id,value)=>({id,type:'rich_text',rich_text:[{plain_text:value}]});
  const middleSecond=surveyAnswerFields({
   第三志望校:answer('dkrH','C高校'),
   '数学：クラス':answer('uJFF','A'),
-  第二志望校:answer('D~vZ','B高校'),
-  第一志望校:answer('V%3Edu','A高校'),
+  '①数学のレベル':answer('FZWL','適切'),
+  学籍番号:answer('%5DYmP','2026001'),
+  生徒氏名:{id:'title',type:'title',title:[{plain_text:'勉クラ太郎'}]},
   保護者氏名:answer('%3C%3FFJ','保護者'),
   所属校舎:answer('o%7CK%5D','本校'),
+  第一志望校:answer('V%3Edu','A高校'),
   備考:answer('TBn%3B','職員用'),
  },'中２');
  assert.deepEqual(middleSecond.map(field=>field.label),[
-  '所属校舎','保護者氏名','数学：クラス','第一志望校','第二志望校','第三志望校',
+  '所属校舎','学籍番号','生徒氏名','保護者氏名','数学：クラス','①数学のレベル',
+ ]);
+ const elementaryFifth=surveyAnswerFields({
+  '英語：受講しているクラス':answer('ZbSZ','英語'),
+  '国語：受講しているクラス':answer('hoib','国語'),
+  '算数：受講しているクラス':answer('uJFF','算数'),
+ },'小5');
+ assert.deepEqual(elementaryFifth.map(field=>field.label),[
+  '算数：受講しているクラス','国語：受講しているクラス','英語：受講しているクラス',
  ]);
  const middleThird=surveyAnswerFields({
   '現状の第一志望校（任意回答）':answer('V%3Edu','A高校'),
