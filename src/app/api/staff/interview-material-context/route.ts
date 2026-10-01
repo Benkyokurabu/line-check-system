@@ -75,16 +75,17 @@ export async function GET(request: NextRequest) {
       recordPages.push(record);
     }
     const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const middleSecond = String(student.grade ?? '').normalize('NFKC') === '中2';
     recordPages.sort((a, b) => materialRecord(b, '').date.localeCompare(materialRecord(a, '').date));
     const records = [];
     const schoolRecords = [];
     for (const record of recordPages) {
       if (materialRecord(record, '').date.slice(0, 10) > today) continue;
-      if (records.length >= recentRecordCount && student.grade !== '中2') break;
+      if (records.length >= recentRecordCount && !middleSecond) break;
       const body = (await allBlocks(record.id)).join('\n\n');
       const parsed = materialRecord(record, body);
       if (records.length < recentRecordCount) records.push(parsed);
-      if (student.grade === '中2') schoolRecords.push(parsed);
+      if (middleSecond) schoolRecords.push(parsed);
     }
     const schoolMentions = schoolMentionsFromRecords(schoolRecords);
     const info = studentInfoCandidates(page.properties, student.grade as string);
