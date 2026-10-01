@@ -31,6 +31,11 @@ export async function GET(request: NextRequest) {
     }));
     return staffResponse({ campaign: '2026年 秋の面談アンケート', students, unmatched: survey.unmatched }, context);
   } catch (error) {
-    return error instanceof InterviewError ? staffResponse({ error: error.message }, context, error.status) : staffErrorResponse(error, context);
+    if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);
+    if (context) {
+      console.error('Failed to load interview material surveys', error);
+      return staffResponse({ error: '面談アンケートを取得できません。時間をおいて再読み込みしてください。' }, context, 503);
+    }
+    return staffErrorResponse(error);
   }
 }

@@ -67,7 +67,7 @@ async function siblingSchools(properties: Record<string, unknown>, grade: string
             const nameFilter = { property: source.name, title: { contains: lookup.search } };
             const filter = source.selectedChoice ? { and: [nameFilter, { property: '入試年度', select: { equals: `${source.year}年度` } }] } : nameFilter;
             const result = await notionRequest(`/data_sources/${source.id}/query`, {
-              method: 'POST', body: JSON.stringify({ page_size: 100, filter,
+              method: 'POST', signal: AbortSignal.timeout(4000), body: JSON.stringify({ page_size: 100, filter,
                 ...(cursor ? { start_cursor: cursor } : {}) }),
             });
             pages.push(...(result.results ?? []) as NotionPage[]);
@@ -133,7 +133,13 @@ export async function GET(request: NextRequest) {
     }
     const schoolMentions = schoolMentionsFromRecords(schoolRecords);
     const academicYear = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) < 4 ? 1 : 0);
-    const siblingSchoolResult = await siblingSchools(page.properties, String(student.grade ?? ''), academicYear);
+    let siblingSchoolResult: { schools: string[]; warning: string };
+    try {
+      siblingSchoolResult = await siblingSchools(page.properties, String(student.grade ?? ''), academicYear);
+    } catch (error) {
+      console.error('Failed to enrich interview material with sibling schools', error);
+      siblingSchoolResult = { schools: ['', '', ''], warning: '兄弟姉妹の進学先を確認できませんでした。Notionの原本を確認してください。' };
+    }
     const info = studentInfoCandidates(page.properties, student.grade as string, siblingSchoolResult.schools);
     const summaryFields = [...recentRecordCandidates(records), ...info];
     let summary: { status: string; items: unknown[]; sourceHash?: string } = { status: 'empty', items: [] };
@@ -154,6 +160,11 @@ export async function GET(request: NextRequest) {
     return staffResponse({ records, schoolMentions, info, summary, siblingSchoolWarning: siblingSchoolResult.warning,
       studentUrl: page.url ?? '', source: 'notion' }, context);
   } catch (error) {
-    return error instanceof InterviewError ? staffResponse({ error: error.message }, context, error.status) : staffErrorResponse(error, context);
+    if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);
+    if (context) {
+      console.error('Failed to load interview material context', error);
+      return staffResponse({ error: '面談記録を取得できません。時間をおいて再読み込みしてください。' }, context, 503);
+    }
+    return staffErrorResponse(error);
   }
 }
