@@ -8,8 +8,10 @@ import {
   normalizeClassroomEventType,
 } from "../src/lib/classroom-attendance-display.mjs";
 import {
+  broadcastLessonGroup,
   enrollmentCampusForLesson,
   enrollmentMatchesLesson,
+  isBroadcastEnrollment,
   attendanceCrossCampusReason,
   isAttendanceCrossCampus,
   resolveNotionLesson,
@@ -123,6 +125,22 @@ test("同じオンライン授業だけを両校舎で共有する", () => {
   assert.deepEqual(sharedOnlineLessons(main, [main, { ...south, teacher_name: "別の先生" }]).map((lesson) => lesson.id), ["main"]);
   assert.deepEqual(sharedOnlineLessons({ ...main, source_payload: { faceToFace: true } }, [main, south]).map((lesson) => lesson.id), ["main"]);
   assert.deepEqual(sharedOnlineLessons(main, [main, south, { ...south, id: "duplicate" }]).map((lesson) => lesson.id), ["main"]);
+});
+
+test("配信元の選択は同一授業の2校舎ペアと受講登録がある場合だけ許可する", () => {
+  const base = { lesson_date: "2026-10-29", start_time: "6:35～8:05", grade: "中2", class_name: "X", subject: "数学", teacher_name: "工藤", source_payload: { faceToFace: false } };
+  const main = { ...base, id: "main", campus: "本校" };
+  const south = { ...base, id: "south", campus: "南教室" };
+  const enrollment = [{ grade: "中2", class_name: "X", subject: "数学", classroom: "南" }];
+  assert.equal(broadcastLessonGroup(main, [main, south]), "main:south");
+  assert.equal(isBroadcastEnrollment(enrollment, main, "南教室", [main, south]), true);
+  assert.equal(isBroadcastEnrollment([], main, "南教室", [main, south]), false);
+  assert.equal(validateAttendanceCampusSelection({ studentCampus: "南教室", lessonCampus: "本校", enrollmentCampus: "南教室", broadcastEnrollment: true }).ok, true);
+  assert.equal(shouldDisplayAttendanceEvent({ studentCampus: "南教室", lessonCampus: "本校", broadcastEnrollment: true }), true);
+  assert.equal(isBroadcastEnrollment(enrollment, main, "南教室", [main]), false);
+  assert.equal(isBroadcastEnrollment([{ ...enrollment[0], class_name: "A" }], main, "南教室", [main, south]), false);
+  assert.equal(isBroadcastEnrollment(enrollment, { ...main, source_payload: { faceToFace: true } }, "南教室", [main, south]), false);
+  assert.equal(validateAttendanceCampusSelection({ studentCampus: "南教室", lessonCampus: "本校", enrollmentCampus: "南教室" }).ok, false);
 });
 
 test("教室表示は両方所属の通常授業を表示する", () => {

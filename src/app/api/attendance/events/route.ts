@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { attendanceCrossCampusReason, enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { attendanceCrossCampusReason, enrollmentCampusForLesson, isBroadcastEnrollment, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,12 +82,18 @@ async function validateEventRows(
   const lessonIds = [...new Set(rows.map((row) => row.lesson_id))];
   const [rosterResult, lessonResult, enrollmentResult] = await Promise.all([
     supabase.from("student_roster").select("student_number,campus").in("student_number", studentNumbers),
-    supabase.from("lessons").select("id,lesson_date,campus,grade,subject,class_name").in("id", lessonIds),
+    supabase.from("lessons").select("id,lesson_date,start_time,campus,grade,subject,class_name,teacher_name,source_payload").in("id", lessonIds),
     supabase.from("student_class_enrollments").select("student_number,grade,subject,class_name,classroom").in("student_number", studentNumbers),
   ]);
   if (rosterResult.error) throw rosterResult.error;
   if (lessonResult.error) throw lessonResult.error;
   if (enrollmentResult.error) throw enrollmentResult.error;
+  const dates = [...new Set((lessonResult.data ?? []).map((lesson) => lesson.lesson_date))];
+  if (dates.length === 0) return "選択した授業を確認できません";
+  const dayResult = await supabase.from("lessons")
+    .select("id,lesson_date,start_time,campus,grade,subject,class_name,teacher_name,source_payload")
+    .in("lesson_date", dates);
+  if (dayResult.error) throw dayResult.error;
   const campusByStudent = new Map((rosterResult.data ?? []).map((row) => [row.student_number as string, row.campus as string | null]));
   const lessonById = new Map((lessonResult.data ?? []).map((lesson) => [lesson.id as string, lesson]));
   const enrollmentsByStudent = new Map<string, typeof enrollmentResult.data>();
@@ -105,6 +111,7 @@ async function validateEventRows(
       lessonCampus: lesson.campus,
       requestedCampus: lesson.campus,
       enrollmentCampus: enrollmentCampusForLesson(enrollmentsByStudent.get(row.student_number), lesson),
+      broadcastEnrollment: isBroadcastEnrollment(enrollmentsByStudent.get(row.student_number), lesson, campusByStudent.get(row.student_number), dayResult.data),
       crossCampusOverride: row.cross_campus_override,
       crossCampusReason: row.cross_campus_reason,
     });

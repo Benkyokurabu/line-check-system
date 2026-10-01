@@ -1,5 +1,49 @@
 import { expect, test } from "@playwright/test";
 
+test("south campus X student selects one broadcasting campus for an absence", async ({ page }) => {
+  const student = { student_number: "x-student", student_name: "山田 花子", grade: "中2", campus: "南教室", homeroom_teacher: "佐藤" };
+  let savedItems: Array<{ lesson_id: string | null; cross_campus_override: boolean }> = [];
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/attendance/students") return route.fulfill({ json: { students: [student] } });
+    if (url.pathname === "/api/attendance/candidates" && route.request().method() === "GET") return route.fulfill({ json: { candidates: [{
+      id: "x-absence", student_number: "x-student", student_roster: student,
+      status: "pending", event_type: "absence", event_date: "2099-09-11", ai_summary: "欠席", ai_confidence: 0.9,
+      sender_profile: { display_name: "山田保護者", alias_names: [], account_names: [] },
+      line_messages: { id: "x-message", line_user_id: "x-line", display_name: "山田保護者", text: "欠席します", received_at: "2099-09-10T09:00:00Z" },
+      attendance_candidate_items: [{ id: "x-item", student_number: "x-student", event_type: "absence", event_date: "2099-09-11", lesson_id: null, suggested_subject: null, suggested_class_name: null, ai_summary: "欠席", status: "pending" }],
+      reply_messages: [],
+    }] } });
+    if (url.pathname === "/api/attendance/lessons") return route.fulfill({ json: { lessons: [
+      { id: "x-main", label: "中2 X 数学", lesson_date: "2099-09-11", start_time: "17:00", campus: "本校", enrolled: true, broadcast_group: "x-main:x-south" },
+      { id: "x-south", label: "中2 X 数学", lesson_date: "2099-09-11", start_time: "17:00", campus: "南教室", enrolled: true, broadcast_group: "x-main:x-south" },
+    ] } });
+    if (url.pathname === "/api/attendance/candidates/x-absence" && route.request().method() === "PATCH") {
+      savedItems = route.request().postDataJSON().items;
+      return route.fulfill({ json: { candidate: {} } });
+    }
+    if (url.pathname === "/api/attendance/status") return route.fulfill({ json: {} });
+    if (url.pathname === "/api/attendance/extract") return route.fulfill({ json: { processed: 0, candidates: 0, ignored: 0, retrying: 0, dead: 0 } });
+    return route.fulfill({ json: {} });
+  });
+
+  await page.goto("/attendance");
+  await page.getByLabel("確認者名").fill("テスト担当");
+  await page.getByRole("button", { name: "対応する", exact: true }).click();
+  const main = page.getByRole("button", { name: /配信元 本校/ });
+  const south = page.getByRole("button", { name: /配信元 南教室/ });
+  await expect(main).toBeVisible();
+  await expect(south).toBeVisible();
+  await expect(main).toHaveAttribute("aria-pressed", "false");
+  await expect(south).toHaveAttribute("aria-pressed", "false");
+  await south.click();
+  await expect(south).toHaveAttribute("aria-pressed", "true");
+  await main.click();
+  await expect(main).toHaveAttribute("aria-pressed", "true");
+  await expect(south).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => savedItems.filter((item) => item.lesson_id).map((item) => [item.lesson_id, item.cross_campus_override])).toEqual([["x-main", false]]);
+});
+
 test("known student's enrolled lessons start selected and can be deselected", async ({ page }) => {
   const student = { student_number: "known", student_name: "山田 花子", grade: "中2", campus: "本校", homeroom_teacher: "佐藤" };
   await page.route("**/api/**", async (route) => {

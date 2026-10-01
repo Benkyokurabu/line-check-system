@@ -6,6 +6,7 @@ import { attendanceRangeDates } from "@/lib/attendance-date-range.mjs";
 export type PeriodLesson = {
   id: string; lesson_date: string; label: string; campus: string | null; start_time: string | null;
   enrolled?: boolean; enrollment_campus?: string | null; subject?: string | null; class_name?: string | null;
+  broadcast_group?: string | null;
 };
 const field = { display: "grid", gap: 6 } as const;
 const input = { padding: 9, border: "1px solid var(--line)", borderRadius: 6, background: "white", minWidth: 0 } as const;
@@ -42,7 +43,7 @@ export default function PeriodLessonPicker({ studentNumber, initialDate, selecte
       if (!response.ok) throw new Error(body.error ?? "授業一覧を取得できませんでした。");
       if (request.signal.aborted) return;
       const rows = (body.lessons ?? []) as PeriodLesson[];
-      setLessons(rows); onChange(rows); setLoaded(true);
+      setLessons(rows); onChange(rows.filter((lesson) => !lesson.broadcast_group)); setLoaded(true);
     } catch (error) {
       if (!request.signal.aborted) setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -61,11 +62,15 @@ export default function PeriodLessonPicker({ studentNumber, initialDate, selecte
     {loaded && <>
       <p role="status" style={{ fontWeight: 700 }}>{new Set(selected.map((lesson) => lesson.lesson_date)).size}日・{selected.length}授業を選択中</p>
       {!lessons.length ? <p>期間内に受講中の授業が見つかりません。授業予定・受講クラスの登録を確認してください。</p> : <>
-        <p style={{ fontSize: 13 }}>受講授業がない日は登録しません。未登録の授業や振替は、1日ずつの登録で授業を選択できます。</p>
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}><button type="button" style={button} onClick={() => onChange(lessons)}>すべて選択</button><button type="button" style={button} onClick={() => onChange([])}>すべて解除</button></div>
+        <p style={{ fontSize: 13 }}>受講授業がない日は登録しません。配信授業は日付ごとに実際の配信元を1校舎だけ選んでください。未登録の授業や振替は、1日ずつの登録で授業を選択できます。</p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}><button type="button" style={button} onClick={() => onChange(lessons.filter((lesson) => !lesson.broadcast_group || selected.some((row) => row.id === lesson.id)))}>通常授業をすべて選択</button><button type="button" style={button} onClick={() => onChange([])}>すべて解除</button></div>
         <div style={{ display: "grid", gap: 6, maxHeight: 340, overflowY: "auto" }}>{lessons.map((lesson) => <label key={lesson.id} style={{ display: "flex", alignItems: "center", gap: 8, background: selected.some((row) => row.id === lesson.id) ? "#dcfce7" : "white", border: selected.some((row) => row.id === lesson.id) ? "2px solid #16a34a" : "1px solid var(--line)", padding: 10, borderRadius: 6 }}>
-          <input type="checkbox" checked={selected.some((row) => row.id === lesson.id)} onChange={(event) => onChange(event.target.checked ? lessons.filter((row) => row.id === lesson.id || selected.some((item) => item.id === row.id)) : selected.filter((row) => row.id !== lesson.id))} />
-          <span>{lesson.lesson_date}（{new Intl.DateTimeFormat("ja-JP", { weekday: "short", timeZone: "Asia/Tokyo" }).format(new Date(`${lesson.lesson_date}T00:00:00Z`))}） {lesson.start_time?.slice(0, 5)}　{lesson.label} / {lesson.campus}</span>
+          <input type="checkbox" checked={selected.some((row) => row.id === lesson.id)} onChange={(event) => {
+            const ids = new Set(selected.filter((row) => !lesson.broadcast_group || row.broadcast_group !== lesson.broadcast_group).map((row) => row.id));
+            if (event.target.checked) ids.add(lesson.id); else ids.delete(lesson.id);
+            onChange(lessons.filter((row) => ids.has(row.id)));
+          }} />
+          <span>{lesson.lesson_date}（{new Intl.DateTimeFormat("ja-JP", { weekday: "short", timeZone: "Asia/Tokyo" }).format(new Date(`${lesson.lesson_date}T00:00:00Z`))}） {lesson.start_time?.slice(0, 5)}　{lesson.label} / {lesson.broadcast_group ? `配信元 ${lesson.campus}` : lesson.campus}</span>
         </label>)}</div>
       </>}
     </>}

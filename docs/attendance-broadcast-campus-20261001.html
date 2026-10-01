@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xクラス欠席登録・配信元校舎の選択</title>
+<style>
+  body { margin: 0; background: #f3f7f5; color: #173229; font: 16px/1.65 system-ui, sans-serif; }
+  main { max-width: 850px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 1.8rem; line-height: 1.35; }
+  .panel { background: #fff; border: 1px solid #c9d9d0; border-radius: 12px; padding: 22px; margin: 20px 0; }
+  .choices { display: flex; gap: 12px; flex-wrap: wrap; }
+  button { padding: 14px 20px; border: 2px solid #8aaca0; border-radius: 10px; background: #fff; color: inherit; font: inherit; cursor: pointer; }
+  button[aria-pressed="true"] { border-color: #177b4b; background: #dff4e7; font-weight: 700; }
+  .result { border-left: 5px solid #177b4b; padding: 10px 15px; background: #eef8f1; }
+  .muted { color: #51675c; }
+  ul { padding-left: 1.4em; }
+</style>
+</head>
+<body><main>
+  <h1>Xクラスの欠席は、職員が選んだ配信元校舎に登録</h1>
+  <p>例：南教室所属の生徒が、本校から配信する中2 X 数学を欠席する場合。</p>
+  <section class="panel" aria-labelledby="choose-title">
+    <h2 id="choose-title">1. 配信元を選ぶ</h2>
+    <p class="muted">その日の実際の配信元を職員が確認して選択します。初期状態では両校舎とも選択しません。</p>
+    <div class="choices">
+      <button type="button" data-campus="本校" aria-pressed="false">配信元 本校</button>
+      <button type="button" data-campus="南教室" aria-pressed="false">配信元 南教室</button>
+    </div>
+  </section>
+  <section class="panel" aria-labelledby="result-title">
+    <h2 id="result-title">2. 登録先と教室表示</h2>
+    <p id="result" class="result" role="status">配信元を選択してください。</p>
+  </section>
+  <section class="panel">
+    <h2>既存動作の保護</h2>
+    <ul>
+      <li>通常授業は従来どおり所属校舎と授業校舎を照合します。</li>
+      <li>別校舎の通常授業に振り替える場合は、従来どおり明示的な別校舎受講の指定を使います。</li>
+      <li>配信授業は同日・同時刻・同学年・同クラス・同科目・同講師で両校舎にある場合だけ対象です。</li>
+      <li>Xクラスの対象生徒は、クラス一覧表の「難数・難英・難国」欄のX登録で判定します。</li>
+      <li>選んだ校舎の授業にだけ登録し、もう一方の教室には同じ欠席を表示しません。</li>
+    </ul>
+  </section>
+</main><script>
+  const buttons = [...document.querySelectorAll('[data-campus]')];
+  const result = document.querySelector('#result');
+  for (const button of buttons) button.addEventListener('click', () => {
+    for (const other of buttons) other.setAttribute('aria-pressed', String(other === button));
+    const otherCampus = button.dataset.campus === '本校' ? '南教室' : '本校';
+    result.textContent = `${button.dataset.campus}の授業に欠席を1件登録し、${button.dataset.campus}の教室に表示します。${otherCampus}の授業には登録しません。`;
+  });
+</script></body></html>

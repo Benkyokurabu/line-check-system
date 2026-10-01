@@ -58,6 +58,23 @@ test("担任が空欄でも生徒とクラス所属を取り込む", () => {
   ]);
 });
 
+test("難数・難英・難国のX登録も受講クラスとして取り込む", () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "roster-x-class-"));
+  const fileName = "・中２ クラス一覧表(2026).xlsx";
+  const row = ["南", 2020123, "テスト 生徒", "女", "北", "佐藤", "南", "A"];
+  row[21] = "X";
+  row[22] = "X";
+  row[23] = "";
+  writeRoster(path.join(projectRoot, fileName), [row]);
+
+  const result = readRosterExcelRows([fileName], projectRoot);
+  assert.deepEqual(result.enrollments.map(({ subject, class_name, classroom }) => ({ subject, class_name, classroom })), [
+    { subject: "数学", class_name: "A", classroom: "南" },
+    { subject: "数学", class_name: "X", classroom: null },
+    { subject: "英語", class_name: "X", classroom: null },
+  ]);
+});
+
 test("Excelの担任が空欄なら既存DBの担任を維持する", async () => {
   const rows = [
     { student_number: "2020022", homeroom_teacher: "未設定" },

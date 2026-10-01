@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { enrollmentCampusForLesson, enrollmentMatchesLesson } from "@/lib/attendance-campus-consistency.mjs";
+import { broadcastLessonGroup, enrollmentCampusForLesson, enrollmentMatchesLesson, isBroadcastEnrollment } from "@/lib/attendance-campus-consistency.mjs";
 import { attendanceRangeDates } from "@/lib/attendance-date-range.mjs";
 
 export async function GET(request: Request) {
@@ -30,10 +30,10 @@ export async function GET(request: Request) {
     studentCampus = rosterResult.data?.campus ?? null;
   }
   const query = () => supabase.from("lessons")
-    .select("id,lesson_date,start_time,grade,class_name,subject,campus,classroom,label,source_payload")
+    .select("id,lesson_date,start_time,grade,class_name,subject,campus,classroom,teacher_name,label,source_payload")
     .gte("lesson_date", dates[0]).lte("lesson_date", dates[dates.length - 1])
     .order("lesson_date").order("start_time").order("id");
-  const data = [];
+  const data: Array<{ id: string; campus: string | null; [key: string]: unknown }> = [];
   for (let offset = 0; ; offset += 1000) {
     const result = await query().range(offset, offset + 999);
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
@@ -41,9 +41,11 @@ export async function GET(request: Request) {
     if ((result.data ?? []).length < 1000) break;
   }
   const lessons = data.map((lesson) => {
-    const enrolled = enrolledClasses.some((entry) => enrollmentMatchesLesson(entry, lesson, studentCampus));
+    const broadcastGroup = studentNumber && isBroadcastEnrollment(enrolledClasses, lesson, studentCampus, data)
+      ? broadcastLessonGroup(lesson, data) : null;
+    const enrolled = Boolean(broadcastGroup) || enrolledClasses.some((entry) => enrollmentMatchesLesson(entry, lesson, studentCampus));
     const enrollmentCampus = enrollmentCampusForLesson(enrolledClasses, lesson);
-    return { ...lesson, enrolled, student_campus: studentCampus, enrollment_campus: enrollmentCampus };
+    return { ...lesson, enrolled, broadcast_group: broadcastGroup, student_campus: studentCampus, enrollment_campus: enrollmentCampus };
   });
   return NextResponse.json({ lessons: rangeRequested ? lessons.filter((lesson) => lesson.enrolled) : lessons });
 }

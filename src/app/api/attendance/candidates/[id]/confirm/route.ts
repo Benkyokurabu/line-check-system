@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { attendanceCrossCampusReason, enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { attendanceCrossCampusReason, enrollmentCampusForLesson, isBroadcastEnrollment, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -338,6 +338,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     current.push(enrollment);
     enrollmentsByStudent.set(enrollment.student_number as string, current);
   }
+  const lessonDates = [...new Set(items.map((item) => item.event_date).filter((value): value is string => Boolean(value)))];
+  if (lessonDates.length === 0) return NextResponse.json({ error: "対象日を入力してください" }, { status: 400 });
+  const { data: dayLessons, error: dayError } = await supabase.from("lessons")
+    .select("id,lesson_date,start_time,campus,grade,subject,class_name,teacher_name,source_payload")
+    .in("lesson_date", lessonDates);
+  if (dayError) return NextResponse.json({ error: dayError.message }, { status: 500 });
   for (const item of items) {
     const studentNumber = item.student_number ?? candidate.student_number as string;
     const lesson = firstRelation(item.lessons);
@@ -350,6 +356,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       lessonCampus: lesson.campus,
       requestedCampus: lesson.campus,
       enrollmentCampus: enrollmentCampusForLesson(enrollmentsByStudent.get(studentNumber), lesson),
+      broadcastEnrollment: isBroadcastEnrollment(enrollmentsByStudent.get(studentNumber), dayLessons?.find((row) => row.id === item.lesson_id), campusByStudent.get(studentNumber), dayLessons),
       crossCampusOverride: item.cross_campus_override,
       crossCampusReason: item.cross_campus_reason,
     });

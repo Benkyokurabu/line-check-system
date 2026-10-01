@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { archiveAttendanceNotionPage, upsertAttendanceNotionPage, type AttendanceNotionEvent } from "@/lib/attendance-notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { attendanceCrossCampusReason, enrollmentCampusForLesson, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
+import { attendanceCrossCampusReason, enrollmentCampusForLesson, isBroadcastEnrollment, validateAttendanceCampusSelection } from "@/lib/attendance-campus-consistency.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,7 +106,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const supabase = createSupabaseAdminClient();
   const [rosterResult, lessonResult, enrollmentResult] = await Promise.all([
     supabase.from("student_roster").select("campus").eq("student_number", update.student_number).maybeSingle(),
-    supabase.from("lessons").select("lesson_date,campus,grade,subject,class_name").eq("id", update.lesson_id).maybeSingle(),
+    supabase.from("lessons").select("id,lesson_date,start_time,campus,grade,subject,class_name,teacher_name,source_payload").eq("id", update.lesson_id).maybeSingle(),
     supabase.from("student_class_enrollments").select("grade,subject,class_name,classroom").eq("student_number", update.student_number),
   ]);
   if (rosterResult.error) return NextResponse.json({ error: rosterResult.error.message }, { status: 500 });
@@ -116,11 +116,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (lessonResult.data.lesson_date !== update.event_date) {
     return NextResponse.json({ error: `対象日（${update.event_date}）と選択した授業の日付（${lessonResult.data.lesson_date}）が一致しません` }, { status: 400 });
   }
+  const { data: dayLessons, error: dayError } = await supabase.from("lessons")
+    .select("id,lesson_date,start_time,campus,grade,subject,class_name,teacher_name,source_payload")
+    .eq("lesson_date", update.event_date);
+  if (dayError) return NextResponse.json({ error: dayError.message }, { status: 500 });
   const campusValidation = validateAttendanceCampusSelection({
     studentCampus: rosterResult.data?.campus,
     lessonCampus: lessonResult.data.campus,
     requestedCampus: lessonResult.data.campus,
     enrollmentCampus: enrollmentCampusForLesson(enrollmentResult.data, lessonResult.data),
+    broadcastEnrollment: isBroadcastEnrollment(enrollmentResult.data, lessonResult.data, rosterResult.data?.campus, dayLessons),
     crossCampusOverride: update.cross_campus_override,
     crossCampusReason: update.cross_campus_reason,
   });

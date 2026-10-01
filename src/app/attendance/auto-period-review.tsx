@@ -36,7 +36,11 @@ export default function AutoPeriodReview({ studentNumber, studentName, proposal,
         const response = await fetch(`/api/attendance/lessons?${params}`, { signal: controller.signal });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error ?? "授業を取得できませんでした。");
-        if (!controller.signal.aborted) setLessons(lessonsForPeriodProposal(body.lessons ?? [], { ...proposal, start, end }));
+        if (!controller.signal.aborted) {
+          const rows = lessonsForPeriodProposal(body.lessons ?? [], { ...proposal, start, end }) as PeriodLesson[];
+          setLessons(rows);
+          setExcluded(rows.filter((lesson) => lesson.broadcast_group).map((lesson) => lesson.id));
+        }
       } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause)); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }
@@ -59,12 +63,14 @@ export default function AutoPeriodReview({ studentNumber, studentName, proposal,
         if (!reason.trim() || ["欠席", "欠席連絡", "遅刻", "遅刻連絡"].includes(reason.trim())) setReason(next === "late" ? "遅刻連絡" : "欠席連絡");
       }} style={{ padding: 10, border: "1px solid var(--line)", borderRadius: 6, background: "white" }}><option value="absence">欠席</option><option value="late">遅刻</option></select>
     </label>
-    <p style={{ margin: 0 }}>連絡の期間と受講クラスから、対象の授業を調べました。この内容でまとめて{kind}登録しますか？</p>
+    <p style={{ margin: 0 }}>連絡の期間と受講クラスから、対象の授業を調べました。配信授業は日付ごとに実際の配信元を1校舎だけ選んでください。この内容でまとめて{kind}登録しますか？</p>
     {loading ? <p role="status">期間内の授業を確認しています…</p> : error ? <div role="alert">{error} <button type="button" onClick={() => setReload((value) => value + 1)}>再取得</button></div> : <>
       {!lessons.length ? <p role="status">対象の授業が見つかりません。選択した生徒・連絡の期間・受講クラスを確認してください。「日付・授業を自分で修正」からも設定できます。</p> : <>
         <div style={{ display: "grid", gap: 8 }}>{lessons.map((lesson) => <label key={lesson.id} style={{ display: "flex", alignItems: "center", gap: 10, background: excluded.includes(lesson.id) ? "white" : "#dcfce7", border: excluded.includes(lesson.id) ? "1px solid var(--line)" : "2px solid #16a34a", padding: 12, borderRadius: 8 }}>
-          <input type="checkbox" checked={!excluded.includes(lesson.id)} onChange={(event) => setExcluded((current) => event.target.checked ? current.filter((id) => id !== lesson.id) : [...current, lesson.id])} />
-          <span><strong>{lesson.lesson_date}（{new Intl.DateTimeFormat("ja-JP", { weekday: "short", timeZone: "Asia/Tokyo" }).format(new Date(`${lesson.lesson_date}T00:00:00Z`))}）</strong><br />{lesson.label} / {lesson.campus} / {lesson.start_time}</span>
+          <input type="checkbox" checked={!excluded.includes(lesson.id)} onChange={(event) => setExcluded((current) => event.target.checked
+            ? [...new Set([...current, ...lessons.filter((row) => lesson.broadcast_group && row.broadcast_group === lesson.broadcast_group).map((row) => row.id)])].filter((id) => id !== lesson.id)
+            : [...current, lesson.id])} />
+          <span><strong>{lesson.lesson_date}（{new Intl.DateTimeFormat("ja-JP", { weekday: "short", timeZone: "Asia/Tokyo" }).format(new Date(`${lesson.lesson_date}T00:00:00Z`))}）</strong><br />{lesson.label} / {lesson.broadcast_group ? `配信元 ${lesson.campus}` : lesson.campus} / {lesson.start_time}</span>
         </label>)}</div>
         <p style={{ margin: 0, fontSize: 13 }}>授業がない日は登録しません。対象外の授業だけチェックを外してください。</p>
         <label style={{ display: "grid", gap: 6 }}>まとめて登録する理由<input value={reason} onChange={(event) => setReason(event.target.value)} style={{ padding: 10, border: "1px solid var(--line)", borderRadius: 6 }} /></label>

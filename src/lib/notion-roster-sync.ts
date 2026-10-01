@@ -83,6 +83,9 @@ const CLASS_COLUMNS = [
   { subject: "数学", classroomIndex: 6, classIndex: 7 },
   { subject: "英語", classroomIndex: 9, classIndex: 10 },
   { subject: "国語", classroomIndex: 12, classIndex: 13 },
+  { subject: "数学", classroomIndex: null, classIndex: 21 },
+  { subject: "英語", classroomIndex: null, classIndex: 22 },
+  { subject: "国語", classroomIndex: null, classIndex: 23 },
 ];
 
 function gradeFromFileName(fileName: string) {
@@ -150,7 +153,7 @@ function readRosterExcelRowsForSync(files: string[], root = process.cwd(), thres
           grade,
           subject: column.subject,
           class_name: className,
-          classroom: cellText(record[column.classroomIndex]) || null,
+          classroom: column.classroomIndex == null ? null : cellText(record[column.classroomIndex]) || null,
           source_file: file,
           updated_at: timestamp,
         });

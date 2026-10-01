@@ -7,7 +7,7 @@ import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
 import { LineRegistrationForm } from "@/app/LineRegistrationForm";
 import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
-import { isAttendanceCrossCampus, normalizeCampus, studentCampusIncludesLesson } from "@/lib/attendance-campus-consistency.mjs";
+import { isAttendanceCrossCampus, normalizeCampus } from "@/lib/attendance-campus-consistency.mjs";
 import {
   actionCandidatesForReview,
   candidateHasError,
@@ -17,7 +17,7 @@ import {
 } from "@/lib/attendance-review-logic.mjs";
 
 type Student = { student_number: string; student_name: string; grade: string; campus: string | null; homeroom_teacher: string | null };
-type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean; enrollment_campus?: string | null };
+type Lesson = { id: string; label: string; start_time: string | null; campus: string | null; grade?: string | null; subject?: string | null; class_name?: string | null; classroom?: string | null; enrolled?: boolean; enrollment_campus?: string | null; broadcast_group?: string | null };
 type StudentSuggestion = Student & { score: number; reason: string };
 type SenderProfile = {
   display_name: string | null;
@@ -156,12 +156,9 @@ function selectableCampus(value: string | null | undefined) {
   return campus === "本校" || campus === "南教室" ? campus : "";
 }
 
-function studentMatchesCampus(student: Student, campus: string) {
-  return studentCampusIncludesLesson(student.campus, campus);
-}
-
 function lessonIsCrossCampus(student: Student | null | undefined, lesson: Lesson | null | undefined, fallbackCampus = "") {
   if (!student) return false;
+  if (lesson?.broadcast_group && lesson.enrolled) return false;
   return isAttendanceCrossCampus({
     studentCampus: student.campus,
     lessonCampus: lesson?.campus ?? fallbackCampus,
@@ -811,7 +808,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
   }, [eventDate, studentNumber, periodMode]);
   const effectiveReceivedBy = receivedBy || confirmedBy;
   const effectiveCampus = campus || selectableCampus(selectedStudent?.campus);
-  const candidateStudents = effectiveCampus ? students.filter((student) => studentMatchesCampus(student, effectiveCampus)) : [];
+  const candidateStudents = students;
   const selectedLesson = lessons.find((lesson) => lesson.id === lessonId) ?? null;
   const isCrossCampus = lessonIsCrossCampus(selectedStudent, selectedLesson, effectiveCampus);
 
@@ -883,7 +880,7 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
     }
   }
 
-  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus) : lessons;
+  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus || Boolean(lesson.broadcast_group && lesson.enrolled)) : lessons;
   const lessonGroups = lessonsByTime(filteredLessons);
 
   return <section className="panel" style={{ padding: 16, marginTop: 16, display: "grid", gap: 12 }}>
@@ -902,9 +899,10 @@ function ManualEntryForm({ students, confirmedBy, onSaved, onSavingChange }: { s
     </div>
     {periodMode ? <PeriodLessonPicker key={studentNumber} studentNumber={studentNumber} initialDate={eventDate} selected={periodLessons} onChange={setPeriodLessons} disabled={saving} /> : <div style={{ display: "grid", gap: 6 }}>
       <span style={{ fontWeight: 700 }}>授業</span>
+      {filteredLessons.some((lesson) => lesson.broadcast_group && lesson.enrolled) && <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>配信授業は授業名の「配信元 本校／南教室」を確認し、実際に配信する校舎を選んでください。欠席は選んだ校舎だけに登録します。</p>}
       {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
         <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === lessonId; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === lessonId; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => { setLessonId(lesson.id); setCampus(lesson.campus ?? effectiveCampus); }} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.broadcast_group ? <span> / 配信元 {lesson.campus}</span> : null}{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
       </div>)}
     </div>}
     {!periodMode && isCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
@@ -1071,8 +1069,8 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
 
   const currentStudent = students.find((student) => student.student_number === draft.student_number) ?? null;
   const effectiveCampus = draft.campus || selectableCampus(currentStudent?.campus);
-  const candidateStudents = effectiveCampus ? students.filter((student) => studentMatchesCampus(student, effectiveCampus)) : [];
-  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus) : lessons;
+  const candidateStudents = students;
+  const filteredLessons = effectiveCampus ? lessons.filter((lesson) => lesson.campus === effectiveCampus || Boolean(lesson.broadcast_group && lesson.enrolled)) : lessons;
   const lessonGroups = lessonsByTime(filteredLessons);
   const currentLesson = lessons.find((lesson) => lesson.id === draft.lesson_id) ?? null;
   const isEditingCrossCampus = lessonIsCrossCampus(currentStudent, currentLesson, effectiveCampus);
@@ -1111,9 +1109,10 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
           </div>
           <div style={{ display: "grid", gap: 6 }}>
             <span style={{ fontWeight: 700 }}>授業</span>
+            {filteredLessons.some((lesson) => lesson.broadcast_group && lesson.enrolled) && <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>配信授業は実際の配信元校舎を選んでください。欠席は選んだ校舎だけに登録します。</p>}
             {lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>対象日の授業が見つかりません。</div> : lessonGroups.map((group) => <div key={group.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
               <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{group.time}</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === draft.lesson_id; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus }))} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{group.lessons.map((lesson) => { const selected = lesson.id === draft.lesson_id; return <button key={lesson.id} type="button" aria-pressed={selected} onClick={() => setDraft((d) => ({ ...d, lesson_id: lesson.id, campus: lesson.campus ?? d.campus, cross_campus_override: false }))} style={{ border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#ecfdf3" : "white", cursor: "pointer", textAlign: "left" }}><strong>{lesson.label}</strong>{lesson.broadcast_group ? <span> / 配信元 {lesson.campus}</span> : null}{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{lesson.enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}</button>; })}</div>
             </div>)}
           </div>
           {isEditingCrossCampus && <div style={{ border: "1px solid #fdba74", background: "#fff7ed", borderRadius: 6, padding: 10, display: "grid", gap: 8 }}>
@@ -1243,7 +1242,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
               const assignedElsewhere = new Set(currentItems.filter((item) => !groupIds.has(item.client_id) && item.student_number === rowStudentNumber && item.event_date === date && item.lesson_id).map((item) => item.lesson_id));
               const student = studentOptions.find((entry) => entry.student_number === rowStudentNumber);
               const campus = selectableCampus(student?.campus);
-              const enrolled = found.filter((lesson) => lesson.enrolled && !assignedElsewhere.has(lesson.id) && (!campus || lesson.campus === campus));
+              const enrolled = found.filter((lesson) => lesson.enrolled && !lesson.broadcast_group && !assignedElsewhere.has(lesson.id) && (!campus || lesson.campus === campus));
               const first = group.items[0];
               const selected = enrolled.slice(0, Math.max(0, 80 - projectedLength + group.items.length)).map((lesson, index): EditableItem => ({
                 ...(group.items.find((item) => item.lesson_id === lesson.id) ?? first),
@@ -1309,12 +1308,16 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
 
   function toggleGroupLesson(groupItems: EditableItem[], lesson: Lesson) {
     const groupIds = new Set(groupItems.map((item) => item.client_id));
+    const alternatives = new Set(lesson.broadcast_group
+      ? (lessonLists[candidateLessonListKey(groupItems[0].event_date, groupItems[0].student_number)] ?? [])
+        .filter((entry) => entry.broadcast_group === lesson.broadcast_group).map((entry) => entry.id)
+      : [lesson.id]);
     const chosen = groupItems.find((item) => item.lesson_id === lesson.id);
-    if (!chosen && items.some((item) => !groupIds.has(item.client_id) && item.student_number === groupItems[0].student_number && item.event_date === groupItems[0].event_date && item.lesson_id === lesson.id)) {
+    if (!chosen && items.some((item) => !groupIds.has(item.client_id) && item.student_number === groupItems[0].student_number && item.event_date === groupItems[0].event_date && alternatives.has(item.lesson_id))) {
       setCardMessage("この授業は別の登録行で選択済みです。");
       return;
     }
-    if (!chosen && items.length >= 80 && groupItems.every((item) => item.lesson_id)) {
+    if (!chosen && items.length >= 80 && groupItems.every((item) => item.lesson_id) && !groupItems.some((item) => alternatives.has(item.lesson_id))) {
       setCardMessage("登録できる授業は80件までです。");
       return;
     }
@@ -1328,6 +1331,9 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         if (members.length > 1) return current.filter((item) => item.client_id !== selectedItem.client_id);
         return current.map((item) => item.client_id === selectedItem.client_id ? { ...item, lesson_id: "", suggested_subject: null, suggested_class_name: null, auto_select: false } : item);
       }
+      const otherBroadcastCampus = lesson.broadcast_group && members.find((item) => alternatives.has(item.lesson_id));
+      if (otherBroadcastCampus) return current.map((item) => item.client_id === otherBroadcastCampus.client_id
+        ? { ...item, lesson_id: lesson.id, campus: lesson.campus ?? item.campus, cross_campus_override: false, cross_campus_reason: "" } : item);
       const blankItem = members.find((item) => !item.lesson_id);
       if (blankItem) return current.map((item) => item.client_id === blankItem.client_id ? { ...item, lesson_id: lesson.id, campus: lesson.campus ?? item.campus, suggested_subject: null, suggested_class_name: null, auto_select: false } : item);
       const firstItem = members[0];
@@ -1751,10 +1757,10 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         const currentLesson = selectedItems.length === 1 ? lessons.find((lesson) => lesson.id === selectedItems[0].lesson_id) ?? candidateLesson(candidate, selectedItems[0]) : null;
         const rowStudent = studentOptions.find((student) => student.student_number === item.student_number) ?? null;
         const crossCampus = selectedItems.some((row) => lessonIsCrossCampus(rowStudent, lessons.find((lesson) => lesson.id === row.lesson_id) ?? candidateLesson(candidate, row), row.campus));
-        const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus) : lessons;
+        const filteredLessons = item.campus ? lessons.filter((lesson) => lesson.campus === item.campus || Boolean(lesson.broadcast_group && lesson.enrolled)) : lessons;
         const lessonGroups = lessonsByTime(filteredLessons);
         const rowClosed = closed || item.status === "confirmed";
-        const selectionSummary = selectedItems.length > 1 ? `${selectedItems.length}授業選択中` : currentLesson?.label ?? (selectedItems.length ? "1授業選択中" : "授業未選択");
+        const selectionSummary = selectedItems.length > 1 ? `${selectedItems.length}授業選択中` : currentLesson ? `${currentLesson.label}${currentLesson.broadcast_group ? `（配信元 ${currentLesson.campus}）` : ""}` : (selectedItems.length ? "1授業選択中" : "授業未選択");
         return <div key={item.client_id} role="group" aria-label={`${index + 1}行目の登録内容`} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, display: "grid", gap: 10, background: item.status === "confirmed" ? "#f2fbf5" : "white" }}>
           {item.status === "confirmed" && <div style={{ color: "#087a3d", fontWeight: 800 }}>この行はNotion登録済みです。未完了の行だけ再試行されます。</div>}
           <div style={{ display: "grid", gridTemplateColumns: "minmax(190px,1.2fr) 110px 120px 130px minmax(220px,1fr) 42px", gap: 8, alignItems: "end" }}>
@@ -1785,6 +1791,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           
           <div style={{ color: "#666", fontSize: 13 }}>{index + 1}行目: {item.event_date || "日付未選択"} / {eventTypeLabel(item.event_type)} / {selectionSummary}</div>
           <div style={{ color: "#59635e", fontSize: 12 }}>生徒を選ぶと受講中の授業を初期選択します。授業は複数選択でき、押すたびに緑（選択）／白（解除）が切り替わります。</div>
+          {filteredLessons.some((lesson) => lesson.broadcast_group && lesson.enrolled) && <div style={{ color: "#07586b", fontSize: 13, fontWeight: 700 }}>配信授業は実際の配信元「本校／南教室」を選んでください。欠席は選んだ校舎だけに登録します。</div>}
           <div style={{ display: "grid", gap: 6 }}>
             {!item.event_date ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>日付を指定すると、その日の授業がここに表示されます。</div> : !lessonList ? <div role="status" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>選択した生徒の授業を読み込んでいます。</div> : lessonGroups.length === 0 ? <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 10, color: "#777" }}>{item.campus ? `${item.campus}の授業は見つかりませんでした。` : "この日の授業は見つかりませんでした。"}</div> : lessonGroups.map((timeGroup) => <div key={timeGroup.time} style={{ display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 8, alignItems: "start" }}>
               <div style={{ color: "#555", fontSize: 13, fontWeight: 700, paddingTop: 8 }}>{timeGroup.time}</div>
@@ -1793,7 +1800,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
                   const selected = selectedLessonIds.has(lesson.id);
                   const enrolled = Boolean(lesson.enrolled);
                   return <button key={lesson.id} type="button" aria-pressed={selected} disabled={rowClosed} onClick={() => toggleGroupLesson(registrationGroup.items, lesson)} title={[lesson.campus, lesson.classroom && `${lesson.classroom}教室`, enrolled && "受講中"].filter(Boolean).join(" / ")} style={{ border: selected ? "2px solid #16a34a" : "1px solid var(--line)", borderRadius: 6, padding: "7px 9px", background: selected ? "#dcfce7" : "white", cursor: rowClosed ? "default" : "pointer", textAlign: "left", whiteSpace: "nowrap", maxWidth: "100%" }}>
-                    <strong>{lesson.label}</strong>{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
+                    <strong>{lesson.label}</strong>{lesson.broadcast_group ? <span> / 配信元 {lesson.campus}</span> : null}{lesson.classroom ? <span style={{ color: "#666", fontSize: 12 }}> / {lesson.classroom}教室</span> : null}{enrolled ? <span style={{ color: "#087a3d", fontSize: 12, fontWeight: 700 }}> / 受講中</span> : null}
                   </button>;
                 })}
               </div>

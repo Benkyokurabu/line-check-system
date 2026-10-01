@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { notionAbsenceDataSourceId, notionRequest } from "@/lib/notion";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { pickClassroomLessonByEndBoundary } from "@/lib/classroom-lesson-picker.mjs";
-import { sharedOnlineLessons, shouldDisplayAttendanceEvent } from "@/lib/attendance-campus-consistency.mjs";
+import { broadcastLessonGroup, shouldDisplayAttendanceEvent } from "@/lib/attendance-campus-consistency.mjs";
 import {
   attendanceReasonPropertyNames,
   attendanceTypePropertyNames,
@@ -389,18 +389,17 @@ export async function GET(request: Request) {
     });
   }
 
-  const linkedLessons = sharedOnlineLessons(selectedLesson, dayLessons) as LessonRow[];
-  const linkedLessonById = new Map(linkedLessons.map((lesson) => [lesson.id, lesson]));
+  const broadcastLesson = Boolean(broadcastLessonGroup(selectedLesson, dayLessons));
   const eventRequest = supabase
     .from("attendance_events")
     .select("id,lesson_id,student_number,event_type,reason,arrival_expected_time,note_for_classroom,cross_campus_override,cross_campus_reason,confirmed_at,student_roster(student_name,grade,campus)")
-    .in("lesson_id", linkedLessons.map((lesson) => lesson.id))
+    .eq("lesson_id", selectedLesson.id)
     .eq("status", "confirmed")
     .order("confirmed_at", { ascending: false });
 
   const [eventResult, notionResults] = await Promise.all([
     eventRequest,
-    Promise.all(linkedLessons.map((lesson) => fetchNotionClassroomEvents({ supabase, date, selectedLesson: lesson })
+    Promise.all([selectedLesson].map((lesson) => fetchNotionClassroomEvents({ supabase, date, selectedLesson: lesson })
       .then((events) => ({ events, warning: null as string | null }))
       .catch((error) => ({
         events: [] as ClassroomEvent[],
@@ -414,7 +413,8 @@ export async function GET(request: Request) {
     const roster = firstRoster(event.student_roster);
     return !shouldDisplayAttendanceEvent({
       studentCampus: roster?.campus,
-      lessonCampus: linkedLessonById.get(event.lesson_id)?.campus,
+      lessonCampus: selectedLesson.campus,
+      broadcastEnrollment: broadcastLesson,
       crossCampusOverride: event.cross_campus_override,
       crossCampusReason: event.cross_campus_reason,
     });

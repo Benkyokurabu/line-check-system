@@ -66,6 +66,12 @@ export function enrollmentMatchesLesson(enrollment, lesson, studentCampus) {
   return campusMatches;
 }
 
+export function enrollmentMatchesBroadcastLesson(enrollment, lesson, studentCampus) {
+  if (lesson?.source_payload?.faceToFace !== false || !enrollmentIdentityMatchesLesson(enrollment, lesson, true)) return false;
+  const campus = campusFromEnrollmentClassroom(enrollment?.classroom) ?? normalizeCampus(studentCampus);
+  return campus === "本校" || campus === "南教室" || isDualCampus(studentCampus);
+}
+
 export function isAttendanceCrossCampus(input) {
   const lessonCampus = normalizeCampus(input?.lessonCampus);
   const enrollmentCampus = normalizeCampus(input?.enrollmentCampus);
@@ -86,6 +92,7 @@ export function validateAttendanceCampusSelection(input) {
   if (requestedCampus && requestedCampus !== lessonCampus) {
     return { ok: false, crossCampus: isAttendanceCrossCampus(input), error: "指定校舎と選択した授業の校舎が一致しません" };
   }
+  if (input?.broadcastEnrollment === true) return { ok: true, crossCampus: false, error: null };
   const crossCampus = isAttendanceCrossCampus({ ...input, studentCampus, lessonCampus, enrollmentCampus });
   if (!crossCampus && override) {
     return { ok: false, crossCampus: false, error: "所属校舎と授業校舎が同じため、別校舎受講の指定は不要です" };
@@ -105,6 +112,7 @@ export function attendanceCrossCampusReason(override, value) {
 }
 
 export function shouldDisplayAttendanceEvent(input) {
+  if (input?.broadcastEnrollment === true) return Boolean(normalizeCampus(input?.lessonCampus));
   const crossCampus = isAttendanceCrossCampus(input);
   if (!crossCampus) return Boolean(normalizeCampus(input?.lessonCampus));
   return input?.crossCampusOverride === true;
@@ -119,6 +127,16 @@ export function sharedOnlineLessons(selectedLesson, lessons) {
     ["本校", "南教室"].includes(lesson.campus));
   if (matches.length !== 2 || new Set(matches.map((lesson) => lesson.campus)).size !== 2) return [selectedLesson];
   return [selectedLesson, ...matches.filter((lesson) => lesson.id !== selectedLesson.id)];
+}
+
+export function broadcastLessonGroup(lesson, lessons) {
+  const linked = sharedOnlineLessons(lesson, lessons);
+  return linked.length === 2 ? linked.map((row) => row.id).sort().join(":") : null;
+}
+
+export function isBroadcastEnrollment(enrollments, lesson, studentCampus, lessons) {
+  return Boolean(broadcastLessonGroup(lesson, lessons)) &&
+    (enrollments ?? []).some((enrollment) => enrollmentMatchesBroadcastLesson(enrollment, lesson, studentCampus));
 }
 
 const gradeAliases = new Map([
