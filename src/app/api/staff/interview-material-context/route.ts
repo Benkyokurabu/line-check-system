@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { staffContext, staffResponse, staffErrorResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
 import { notionRequest } from '@/lib/notion';
-import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, notionPropertyText, recentRecordCandidates, schoolForSelectedDestinationResults, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '@/lib/interview-material-context-core.mjs';
 import { infoSourceHash } from '@/lib/interview-material-info-summary.mjs';
 
 export const dynamic = 'force-dynamic';
@@ -10,8 +10,9 @@ export const maxDuration = 60;
 
 const interviewSource = '19ef0120-80a7-808a-8992-000b85713577';
 const graduateSchoolSources = [
-  '67a016ee-cf53-41ac-a56d-9bc5810a57ec', // 2025年卒業生の進学先
-  '1aef0120-80a7-8074-8a78-000bcabe3f7e', // 本校合否結果
+  { id: '2bff0120-80a7-81e7-9efb-000b10b37457', year: 2026, name: '生徒氏名', selectedChoice: true }, // 受験校最終チェックフォーム
+  { id: '67a016ee-cf53-41ac-a56d-9bc5810a57ec', year: 2025, name: '名前', selectedChoice: false }, // 2025年卒業生の進学先
+  { id: '1aef0120-80a7-8074-8a78-000bcabe3f7e', year: 2025, name: '名前', selectedChoice: false }, // 本校合否結果
 ];
 const recentRecordCount = 3;
 type NotionPage = { id: string; url?: string; created_time?: string; parent?: { data_source_id?: string }; properties: Record<string, unknown> };
@@ -50,21 +51,23 @@ async function interviewIds(page: NotionPage) {
   return [...new Set(complete)];
 }
 
-async function siblingSchools(properties: Record<string, unknown>) {
+async function siblingSchools(properties: Record<string, unknown>, grade: string, academicYear: number) {
   const schools = ['', '', ''];
   let warning = '';
   const results = new Map<string, NotionPage[]>();
-  for (const lookup of siblingSchoolLookups(properties)) {
+  for (const lookup of siblingSchoolLookups(properties, grade, academicYear)) {
     let failed = false;
-    for (const source of graduateSchoolSources) {
+    for (const source of graduateSchoolSources.filter(item => item.year === lookup.graduationYear)) {
       try {
-        const key = `${source}:${lookup.search}`;
+        const key = `${source.id}:${lookup.search}`;
         if (!results.has(key)) {
           const pages: NotionPage[] = [];
           let cursor = '';
           for (let index = 0; index < 3; index++) {
-            const result = await notionRequest(`/data_sources/${source}/query`, {
-              method: 'POST', body: JSON.stringify({ page_size: 100, filter: { property: '名前', title: { contains: lookup.search } },
+            const nameFilter = { property: source.name, title: { contains: lookup.search } };
+            const filter = source.selectedChoice ? { and: [nameFilter, { property: '入試年度', select: { equals: `${source.year}年度` } }] } : nameFilter;
+            const result = await notionRequest(`/data_sources/${source.id}/query`, {
+              method: 'POST', body: JSON.stringify({ page_size: 100, filter,
                 ...(cursor ? { start_cursor: cursor } : {}) }),
             });
             pages.push(...(result.results ?? []) as NotionPage[]);
@@ -74,7 +77,9 @@ async function siblingSchools(properties: Record<string, unknown>) {
           }
           results.set(key, pages);
         }
-        schools[lookup.index] = schoolForSiblingResults(results.get(key) ?? [], lookup.fullName);
+        schools[lookup.index] = source.selectedChoice
+          ? schoolForSelectedDestinationResults(results.get(key) ?? [], lookup.fullName, source.year)
+          : schoolForSiblingResults(results.get(key) ?? [], lookup.fullName);
         if (schools[lookup.index]) break;
       } catch {
         failed = true;
@@ -127,7 +132,8 @@ export async function GET(request: NextRequest) {
       if (middleSecond) schoolRecords.push(parsed);
     }
     const schoolMentions = schoolMentionsFromRecords(schoolRecords);
-    const siblingSchoolResult = await siblingSchools(page.properties);
+    const academicYear = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) < 4 ? 1 : 0);
+    const siblingSchoolResult = await siblingSchools(page.properties, String(student.grade ?? ''), academicYear);
     const info = studentInfoCandidates(page.properties, student.grade as string, siblingSchoolResult.schools);
     const summaryFields = [...recentRecordCandidates(records), ...info];
     let summary: { status: string; items: unknown[]; sourceHash?: string } = { status: 'empty', items: [] };

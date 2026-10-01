@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { materialRecord, notionBlockText, recentRecordCandidates, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
+import { materialRecord, notionBlockText, recentRecordCandidates, schoolForSelectedDestinationResults, schoolForSiblingResults, schoolMentionsFromRecords, siblingSchoolLookups, studentInfoCandidates } from '../src/lib/interview-material-context-core.mjs';
 
 test('student context includes notes and avoids contact numbers', () => {
   const fields = studentInfoCandidates({
@@ -51,21 +51,47 @@ test('sibling information combines the recorded name and current school year', (
 
 test('sibling school is shown only for an exact family-name match in the graduation list', () => {
   const properties = {
-    '生徒氏名': { type: 'title', title: [{ plain_text: '髙橋　七斗' }] },
+    '生徒氏名': { type: 'title', title: [{ plain_text: '仮名　太郎' }] },
     '兄弟姉妹１学年差': { type: 'select', select: { name: '７学年上' } },
-    '兄弟姉妹１ 名前': { type: 'rich_text', rich_text: [{ plain_text: '琉希' }] },
+    '兄弟姉妹１ 名前': { type: 'rich_text', rich_text: [{ plain_text: '花子' }] },
   };
-  const [lookup] = siblingSchoolLookups(properties);
-  assert.deepEqual(lookup, { index: 0, search: '琉希', fullName: '髙橋琉希' });
+  const [lookup] = siblingSchoolLookups(properties, '小4', 2026);
+  assert.deepEqual(lookup, { index: 0, search: '花子', fullName: '仮名花子', graduationYear: 2025 });
   const graduate = (name, school) => ({ properties: {
     '名前': { type: 'title', title: [{ plain_text: name }] },
     '進学先': { type: 'rich_text', rich_text: [{ plain_text: school }] },
   } });
-  assert.equal(schoolForSiblingResults([graduate('別姓　琉希', '別の高校'), graduate('髙橋　琉希', '八潮南・商業')], lookup.fullName), '八潮南・商業');
-  assert.equal(schoolForSiblingResults([graduate('髙橋　琉希', '八潮南'), graduate('髙橋琉希', '草加')], lookup.fullName), '');
-  assert.equal(schoolForSiblingResults([graduate('別姓　琉希', '別の高校')], lookup.fullName), '');
-  assert.deepEqual(studentInfoCandidates(properties, '小4', ['八潮南・商業']).filter(item => item.source.startsWith('兄弟姉妹')), [
-    { source: '兄弟姉妹（1人目）', value: '７学年上に琉希さんがいます（現在高校2年生・進学先：八潮南・商業）' },
+  assert.equal(schoolForSiblingResults([graduate('別姓　花子', '別の高校'), graduate('仮名　花子', 'さくら高校・普通')], lookup.fullName), 'さくら高校・普通');
+  assert.equal(schoolForSiblingResults([graduate('仮名　花子', 'さくら高校'), graduate('仮名花子', 'もみじ高校')], lookup.fullName), '');
+  assert.equal(schoolForSiblingResults([graduate('別姓　花子', '別の高校')], lookup.fullName), '');
+  assert.deepEqual(studentInfoCandidates(properties, '小4', ['さくら高校・普通']).filter(item => item.source.startsWith('兄弟姉妹')), [
+    { source: '兄弟姉妹（1人目）', value: '７学年上に花子さんがいます（現在高校2年生・進学先：さくら高校・普通）' },
+  ]);
+});
+
+test('2026 entrance form supplies the selected destination school for a first-year high school sibling', () => {
+  const properties = {
+    '生徒氏名': { type: 'title', title: [{ plain_text: '仮名　太郎' }] },
+    '兄弟姉妹１学年差': { type: 'select', select: { name: '３学年上' } },
+    '兄弟姉妹１ 名前': { type: 'rich_text', rich_text: [{ plain_text: '花子' }] },
+  };
+  const [lookup] = siblingSchoolLookups(properties, '中1', 2026);
+  assert.equal(lookup.graduationYear, 2026);
+  const entrance = (name, choice, first, second, year = '2026年度') => ({ properties: {
+    '生徒氏名': { type: 'title', title: [{ plain_text: name }] },
+    '入試年度': { type: 'select', select: { name: year } },
+    '進学先': { type: 'select', select: { name: choice } },
+    '第①志望　高校名': { type: 'rich_text', rich_text: [{ plain_text: first }] },
+    '第②志望　高校名': { type: 'rich_text', rich_text: [{ plain_text: second }] },
+  } });
+  assert.equal(schoolForSelectedDestinationResults([
+    entrance('別姓　花子', '第①志望／進学', '別の高校', ''),
+    entrance('仮名　花子', '第②志望／進学', 'さくら高校', 'もみじ高校'),
+  ], lookup.fullName, 2026), 'もみじ高校');
+  assert.equal(schoolForSelectedDestinationResults([entrance('仮名　花子', 'その他', 'さくら高校', '')], lookup.fullName, 2026), '');
+  assert.equal(schoolForSelectedDestinationResults([entrance('仮名　花子', '第①志望／進学', 'さくら高校', '', '2027年度')], lookup.fullName, 2026), '');
+  assert.deepEqual(studentInfoCandidates(properties, '中1', ['もみじ高校']).filter(item => item.source.startsWith('兄弟姉妹')), [
+    { source: '兄弟姉妹（1人目）', value: '３学年上に花子さんがいます（現在高校1年生・進学先：もみじ高校）' },
   ]);
 });
 

@@ -28,19 +28,26 @@ function currentGrade(grade, offset) {
 
 const normalizedName = value => String(value ?? '').normalize('NFKC').replace(/\s+/gu, '').trim();
 
-export function siblingSchoolLookups(properties) {
+export function siblingSchoolLookups(properties, fallbackGrade = '', academicYear = 0) {
   const studentName = notionPropertyText(properties?.['生徒氏名']);
+  const grade = notionPropertyText(properties?.['学年']) || fallbackGrade;
   const nameParts = studentName.normalize('NFKC').trim().split(/\s+/u);
   const surname = nameParts.length > 1 ? nameParts[0] : '';
   return ['１', '２', '３'].flatMap((numeral, index) => {
     const siblingName = notionPropertyText(properties?.[`兄弟姉妹${numeral}名前`])
       || notionPropertyText(properties?.[`兄弟姉妹${numeral} 名前`]);
     if (!siblingName) return [];
+    const difference = notionPropertyText(properties?.[`兄弟姉妹${numeral}学年差`]);
+    const gap = difference.normalize('NFKC').match(/^(\d+)学年(上|下)$/u);
+    const stage = gap ? currentGrade(grade, Number(gap[1]) * (gap[2] === '上' ? 1 : -1)) : '';
+    const highYear = Number(stage.match(/^高校([1-3])年生$/u)?.[1] ?? 0);
+    if (!highYear || !academicYear) return [];
     const explicitFullName = /\s/u.test(siblingName.trim());
     if (!surname && !explicitFullName) return [];
     const fullName = explicitFullName || normalizedName(siblingName).startsWith(normalizedName(surname))
       ? siblingName : `${surname}${siblingName}`;
-    return [{ index, search: siblingName.trim().split(/\s+/u).at(-1), fullName: normalizedName(fullName) }];
+    return [{ index, search: siblingName.trim().split(/\s+/u).at(-1), fullName: normalizedName(fullName),
+      graduationYear: academicYear - highYear + 1 }];
   });
 }
 
@@ -48,6 +55,15 @@ export function schoolForSiblingResults(pages, fullName) {
   const matches = pages.filter(page => normalizedName(notionPropertyText(page.properties?.['名前'])) === fullName);
   if (matches.length !== 1) return '';
   return notionPropertyText(matches[0].properties?.['進学先']);
+}
+
+export function schoolForSelectedDestinationResults(pages, fullName, graduationYear) {
+  const matches = pages.filter(page => normalizedName(notionPropertyText(page.properties?.['生徒氏名'])) === fullName
+    && notionPropertyText(page.properties?.['入試年度']) === `${graduationYear}年度`);
+  if (matches.length !== 1) return '';
+  const selection = notionPropertyText(matches[0].properties?.['進学先']);
+  const choice = selection.match(/^第([①②③④])志望／進学$/u)?.[1];
+  return choice ? notionPropertyText(matches[0].properties?.[`第${choice}志望　高校名`]) : '';
 }
 
 export function siblingInfoCandidates(properties, fallbackGrade = '', siblingSchools = []) {
