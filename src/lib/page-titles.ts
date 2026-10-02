@@ -2,6 +2,7 @@ import type {Metadata} from 'next';
 
 export const pageTitles:Record<string,string>={
  '/':'勉たん',
+ '/staff/recordings':'録画の公開設定',
  '/attendance':'遅刻・欠席確認',
  '/classroom':'遅刻・欠席確認',
  '/classroom-office':'教室への連絡',

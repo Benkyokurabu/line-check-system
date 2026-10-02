@@ -2,6 +2,7 @@ import HomeDashboard from "./home-dashboard";
 import { interviewSurveyGroups } from "@/lib/interview-surveys";
 
 const menuItems = [
+  {href:"/staff/recordings",group:"lesson" as const,icon:"calendar",title:"録画の公開設定",description:"単元テスト解説などの録画を、非公開・日時指定・今すぐ公開に設定します。"},
   {
     href: "/staff/interview-materials",
     group: "reservation" as const,
