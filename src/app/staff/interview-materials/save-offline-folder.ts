@@ -3,9 +3,10 @@ import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type Materi
 
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
 type FileHandle = { createWritable(): Promise<WritableFile>; getFile(): Promise<Blob> };
+type SavedFolderInfo = { studentNumber: string; saveId: string; sourceHash: string; context: MaterialContext; showPastSchools: boolean };
 type DirectoryHandle = {
   getDirectoryHandle(name: string, options: { create: true }): Promise<DirectoryHandle>;
-  getFileHandle(name: string, options: { create: true }): Promise<FileHandle>;
+  getFileHandle(name: string, options: { create: boolean }): Promise<FileHandle>;
 };
 type DirectoryPicker = Window & {
   showDirectoryPicker?: (options: { mode: 'readwrite'; startIn: 'downloads'; id: string }) => Promise<DirectoryHandle>;
@@ -29,23 +30,26 @@ async function writeFile(folder: DirectoryHandle, name: string, contents: Blob |
   if (saved.size !== expectedSize) throw Error(`${name}を完全に保存できませんでした。`);
 }
 
-async function completeMaterialContext(number: string): Promise<MaterialContext> {
-  let details = await fetchMaterialContext(number);
-  if (details.summary.status === 'prepared') await requestInfoSummary(number);
-  for (let attempt = 0; attempt < 12 && ['prepared', 'queued', 'running'].includes(details.summary.status); attempt++) {
-    if (attempt) await new Promise(resolve => window.setTimeout(resolve, 5000));
-    const summary = await fetchInfoSummary(number);
-    if (details.summary.sourceHash && summary.sourceHash && details.summary.sourceHash !== summary.sourceHash)
-      throw Error('面談記録が更新されました。資料を開き直して保存してください。');
-    details = { ...details, summary };
-  }
-  if (details.summary.status !== 'completed' && details.summary.status !== 'empty')
-    throw Error('AIによる注意点の確認が完了していません。少し待ってから保存し直してください。');
+/** AI enrichment is optional. Required records and student information must still load in full. */
+async function snapshotMaterialContext(number: string, previous: MaterialContext | null): Promise<MaterialContext> {
+  // Reuse the snapshot already shown for this student for two minutes; otherwise refresh in full.
+  const fresh = previous?.studentNumber === number && previous.capturedAt
+    && Date.now() - Date.parse(previous.capturedAt) >= 0 && Date.now() - Date.parse(previous.capturedAt) < 120000;
+  const details = fresh ? previous : await fetchMaterialContext(number, AbortSignal.timeout(65000));
+  if (['completed', 'empty'].includes(details.summary.status)) return details;
+  if (previous?.summary.status === 'completed' && details.summary.sourceHash
+    && previous.summary.sourceHash === details.summary.sourceHash) return { ...details, summary: previous.summary };
+  try {
+    const summary = await fetchInfoSummary(number, AbortSignal.timeout(3000));
+    // Never attach a summary extracted from different source records.
+    if (summary.status === 'completed' && details.summary.sourceHash
+      && summary.sourceHash === details.summary.sourceHash) return { ...details, summary };
+  } catch { /* Save the complete originals even if the optional AI service is unavailable. */ }
   return details;
 }
 
 function recordText(context: MaterialContext) {
-  return ['Notionの直近3回の面談記録（保存時点）', ...context.records.map(record =>
+  return ['Notionの直近3回の面談記録（取得時点）', `取得日時：${context.capturedAt || '記録なし'}`,  ...context.records.map(record =>
     `${record.date || '日付なし'}　${record.title}\n方法：${record.method || '記載なし'} ／ 目的：${record.purpose || '記載なし'}\n原本：${record.url}\n\n${record.body || '本文なし'}${record.attachments?.length ? `\n\n添付ファイル：${record.attachments.join('、')}（原本から確認）` : ''}`)].join('\n\n━━━━━━━━━━━━━━━━\n\n');
 }
 
@@ -59,8 +63,60 @@ function informationText(context: MaterialContext, showPastSchools = false) {
     '', '生徒情報DBの原文', ...context.info.map(item => `${item.source}\n${item.value}`)].join('\n\n');
 }
 
+function summaryScript(saved: SavedFolderInfo, summary = saved.context.summary) {
+  return `window.__INTERVIEW_AI_SNAPSHOT__ = ${safeJson({ saveId: saved.saveId, sourceHash: saved.sourceHash, summary })};`;
+}
+async function writeSummary(folder: DirectoryHandle, saved: SavedFolderInfo, summary: MaterialContext['summary']) {
+  const current = await (await folder.getFileHandle('AI要約.js', { create: false })).getFile();
+  if (!(await current.text()).includes(`"saveId":${safeJson(saved.saveId)}`)) return false;
+  await writeFile(folder, '生徒情報・注意点.txt', informationText({ ...saved.context, summary }, saved.showPastSchools));
+  await writeFile(folder, 'AI要約.js', summaryScript(saved, summary));
+  return true;
+}
+function watchSummary(folder: DirectoryHandle, saved: SavedFolderInfo, onProgress?: (message: string) => void) {
+  if (!saved.sourceHash || !['prepared', 'queued', 'running'].includes(saved.context.summary.status)) return;
+  const expires = Date.now() + 10 * 60_000;
+  onProgress?.('資料一式は保存済みです。AI要約は完成後、このフォルダへ自動で追加します。勉たんのタブを開いたままにしてください。');
+  const poll = async () => {
+    try {
+      const summary = await fetchInfoSummary(saved.studentNumber, AbortSignal.timeout(10000));
+      if (summary.sourceHash !== saved.sourceHash) {
+        onProgress?.('元の記録が更新されたため、AIの自動追記を停止しました。最新の資料を保存してください。'); return;
+      }
+      if (summary.status === 'completed') {
+        const updated = await writeSummary(folder, saved, summary);
+        if (updated) onProgress?.('AI要約を同じフォルダに追加しました。開いている面談資料.htmlにも反映されます。');
+        return;
+      }
+      if (summary.status === 'failed') { onProgress?.('資料は利用できます。AI要約は失敗しました。「保存済みフォルダのAI要約を更新」で再依頼できます。'); return; }
+    } catch { /* Keep the complete saved folder usable and retry without duplicate writes. */ }
+    if (Date.now() < expires) window.setTimeout(() => { void poll(); }, 3000);
+    else onProgress?.('資料は保存済みです。AI要約の自動追記を終了しました。後から「保存済みフォルダのAI要約を更新」で追加できます。');
+  };
+  window.setTimeout(() => { void poll(); }, 3000);
+}
+export async function updateInterviewFolderSummary(studentNumber: string, onProgress: (message: string) => void) {
+  const pick = (window as DirectoryPicker).showDirectoryPicker;
+  if (!pick) throw Error('フォルダ更新はChromeまたはEdgeで利用できます。');
+  const folder = await pick({ mode: 'readwrite', startIn: 'downloads', id: 'interview-material-folder-update' });
+  let saved: SavedFolderInfo;
+  try { saved = JSON.parse(await (await (await folder.getFileHandle('保存情報.json', { create: false })).getFile()).text()); }
+  catch { throw Error('保存した生徒名のフォルダを選んでください。「保存情報.json」が見つかりません。'); }
+  if (saved.studentNumber !== studentNumber || !saved.saveId || !saved.context || !saved.sourceHash)
+    throw Error('選んだフォルダの生徒または保存情報が一致しません。');
+  let summary = await fetchInfoSummary(studentNumber, AbortSignal.timeout(10000));
+  if (summary.sourceHash !== saved.sourceHash) throw Error('元の記録が更新されています。AI要約だけを追加せず、最新の面談フォルダを保存してください。');
+  if (summary.status === 'completed') {
+    if (!await writeSummary(folder, saved, summary)) throw Error('フォルダが更新されました。もう一度選んでください。');
+    onProgress('AI要約を保存済みフォルダに追加しました。PDFを保存し直す必要はありません。');
+  } else {
+    if (['prepared', 'failed'].includes(summary.status)) { await requestInfoSummary(studentNumber); summary = { ...summary, status: 'queued' }; }
+    watchSummary(folder, { ...saved, context: { ...saved.context, summary } }, onProgress);
+  }
+}
+
 async function fetchPdf(url: string): Promise<Blob> {
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
   if (!response.ok) throw Error('PDFを取得できませんでした。');
   const pdf = await response.blob();
   if (await pdf.slice(0, 5).text() !== '%PDF-') throw Error('PDFの内容を確認できませんでした。');
@@ -87,8 +143,9 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 }
 
 export async function saveInterviewFolder(
-  jobId: string, studentNumber: string, studentName: string, studentGrade: string, _context: MaterialContext | null,
+  jobId: string, studentNumber: string, studentName: string, _studentGrade: string, previousContext: MaterialContext | null,
   onProgress: (message: string) => void, showPastSchools = false,
+  onSummaryProgress?: (message: string) => void
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
   if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
@@ -98,7 +155,7 @@ export async function saveInterviewFolder(
   const [jobResponse, templateResponse, details] = await Promise.all([
     fetch(`/api/staff/interview-material-jobs?id=${encodeURIComponent(jobId)}`, { cache: 'no-store' }),
     fetch('/interview-material-offline-template.html'),
-    completeMaterialContext(studentNumber),
+    snapshotMaterialContext(studentNumber, previousContext),
   ]);
   if (!jobResponse.ok || !templateResponse.ok) throw Error('資料を取得できませんでした。もう一度お試しください。');
   const { job } = await jobResponse.json();
@@ -112,28 +169,39 @@ export async function saveInterviewFolder(
     .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson({ ...details, showPastSchools }));
   if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
   const folderPart = (value: string) => value.trim().replace(/\s+/g, ' ').replace(/[<>:"/\\|?*]/g, '_').replace(/[. ]+$/g, '').slice(0, 60);
-  const folderName = `${folderPart(studentGrade) || '学年不明'}_${folderPart(studentName) || '氏名不明'}`;
-  const folder = await parent.getDirectoryHandle(folderName, { create: true });
+  const folderName = `${folderPart(studentName) || '氏名不明'}_${studentNumber}`;
   const files = [{ name: 'staff-bundle.pdf', url: job.pdfUrl },
     ...items.map((item, index) => ({ name: `material-${index}.pdf`, url: item.previewUrl! }))];
+  // Download and validate every PDF before touching a previously saved student folder.
+  const pdfs: Blob[] = new Array(files.length);
   let next = 0;
   let saved = 0;
   await Promise.all(Array.from({ length: Math.min(3, files.length) }, async () => {
     while (next < files.length) {
-      const file = files[next++];
-      const pdf = await fetchPdf(file.url);
-      await writeFile(folder, file.name, pdf);
+      const index = next++;
+      const file = files[index];
+      try { pdfs[index] = await fetchPdf(file.url); }
+      catch { throw Error(`「${file.name === 'staff-bundle.pdf' ? '印刷用の一式PDF' : items[index - 1].label}」を取得できませんでした。フォルダ保存をもう一度お試しください。`); }
       saved++;
-      onProgress(`PDFを保存しています… ${saved}/${files.length}`);
+      onProgress(`PDFを取得しています… ${saved}/${files.length}`);
     }
   }));
+  const folder = await parent.getDirectoryHandle(folderName, { create: true });
+  for (let index = 0; index < files.length; index++) {
+    onProgress(`ファイルを保存・確認しています… ${index + 1}/${files.length}`);
+    await writeFile(folder, files[index].name, pdfs[index]);
+  }
   await writeFile(folder, '面談記録.txt', recordText(details));
   await writeFile(folder, '生徒情報・注意点.txt', informationText(details, showPastSchools));
-  await writeFile(folder, '資料一覧.txt', ['面談資料.html：資料の入口',
+  await writeFile(folder, '資料一覧.txt', ['面談資料.html：面談中はこのファイルを開く（保存後はネット接続不要）',
     'staff-bundle.pdf：印刷用の一式PDF',
     ...items.map((item, index) => `material-${index}.pdf：${item.label}`),
     '面談記録.txt：Notionの直近3回の面談記録の全文',
     '生徒情報・注意点.txt：生徒情報とAIによる確認点'].join('\n'));
+  const savedInfo: SavedFolderInfo = { studentNumber, saveId: crypto.randomUUID(), sourceHash: details.summary.sourceHash || '', context: details, showPastSchools };
+  await writeFile(folder, '保存情報.json', JSON.stringify(savedInfo));
+  await writeFile(folder, 'AI要約.js', summaryScript(savedInfo));
   await writeFile(folder, '面談資料.html', html);
+  watchSummary(folder, savedInfo, onSummaryProgress);
   return folderName;
 }

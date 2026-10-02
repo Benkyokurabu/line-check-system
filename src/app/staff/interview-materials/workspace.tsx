@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import styles from './workspace.module.css';
 import MaterialPdfViewer from './material-pdf-viewer';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
-import { canSaveOfflineFolder, downloadInterviewPdf, saveInterviewFolder } from './save-offline-folder';
+import { canSaveOfflineFolder, downloadInterviewPdf, saveInterviewFolder, updateInterviewFolderSummary } from './save-offline-folder';
 
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
@@ -49,7 +49,8 @@ export default function MaterialsDesk() {
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState('');
   const contextCache = useRef(new Map<string, MaterialContext>());
-  const summaryRequesting = useRef(false);
+  const summaryRequests = useRef(new Set<string>());
+  const currentNumber = useRef('');
   const selectionHeadingRef = useRef<HTMLHeadingElement>(null);
   const viewerButtonRef = useRef<HTMLButtonElement>(null);
   const resultRef = useRef<HTMLElement>(null);
@@ -60,6 +61,8 @@ export default function MaterialsDesk() {
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadMessage, setDownloadMessage] = useState('');
   const [downloadFailed, setDownloadFailed] = useState(false);
+  const [summarySaveMessage, setSummarySaveMessage] = useState('');
+  const [summarySaveBusy, setSummarySaveBusy] = useState(false);
   const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
   const [workerOnline, setWorkerOnline] = useState(false);
   const selected = students.find(s => s.number === number);
@@ -88,42 +91,57 @@ export default function MaterialsDesk() {
     return () => { active = false; };
   }, [number, staff]);
   useEffect(() => {
-    if (!number || !materialContext || !['queued', 'running'].includes(materialContext.summary.status)) return;
+    const status = materialContext?.summary.status;
+    if (!number || !['queued', 'running'].includes(status || '')) return;
     let active = true;
-    const timer = window.setInterval(() => {
-      void fetchInfoSummary(number).then(summary => {
-        if (!active) return;
-        setMaterialContext(previous => previous ? { ...previous, summary } : previous);
-        const cached = contextCache.current.get(number);
-        if (cached) contextCache.current.set(number, { ...cached, summary });
-      }).catch(() => {});
-    }, 10000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [number, materialContext]);
-  const needInfoSummary = useCallback(async () => {
-    if (!number || materialContext?.summary.status !== 'prepared' || summaryRequesting.current) return;
-    summaryRequesting.current = true;
-    try {
-      await requestInfoSummary(number);
-      setMaterialContext(previous => previous ? { ...previous, summary: { ...previous.summary, status: 'queued' } } : previous);
+    let timer: number;
+    const poll = async () => {
       try {
-        const summary = await fetchInfoSummary(number);
+        const summary = await fetchInfoSummary(number, AbortSignal.timeout(10000));
+        if (!active || currentNumber.current !== number) return;
+        const cached = contextCache.current.get(number);
+        if (cached?.summary.sourceHash && summary.sourceHash !== cached.summary.sourceHash) return;
         setMaterialContext(previous => previous ? { ...previous, summary } : previous);
+        if (cached) contextCache.current.set(number, { ...cached, summary });
+        if (!['queued', 'running'].includes(summary.status)) return;
+      } catch { /* Keep displaying the originals; retry without overlapping requests. */ }
+      if (active) timer = window.setTimeout(() => { void poll(); }, 3000);
+    };
+    timer = window.setTimeout(() => { void poll(); }, 3000);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [number, materialContext?.summary.status]);
+  const needInfoSummary = useCallback(async () => {
+    if (!number || materialContext?.summary.status !== 'prepared' || summaryRequests.current.has(number)) return;
+    const selectedNumber = number;
+    const sourceHash = materialContext.summary.sourceHash;
+    summaryRequests.current.add(selectedNumber);
+    const apply = (summary: MaterialContext['summary']) => {
+      const cached = contextCache.current.get(selectedNumber);
+      if (cached && (!sourceHash || cached.summary.sourceHash === sourceHash))
+        contextCache.current.set(selectedNumber, { ...cached, summary });
+      if (currentNumber.current === selectedNumber)
+        setMaterialContext(previous => previous ? { ...previous, summary } : previous);
+    };
+    try {
+      await requestInfoSummary(selectedNumber);
+      apply({ ...materialContext.summary, status: 'queued' });
+      try {
+        const summary = await fetchInfoSummary(selectedNumber, AbortSignal.timeout(10000));
+        if (!sourceHash || sourceHash === summary.sourceHash) apply(summary);
       } catch { /* The regular polling will retry. */ }
-    } catch {
-      setMaterialContext(previous => previous ? { ...previous, summary: { ...previous.summary, status: 'failed' } } : previous);
-    } finally { summaryRequesting.current = false; }
+    } catch { apply({ ...materialContext.summary, status: 'failed' }); }
+    finally { summaryRequests.current.delete(selectedNumber); }
   }, [number, materialContext]);
   useEffect(() => {
-    if (!preview || materialContext?.summary.status !== 'prepared') return;
+    if (!number || materialContext?.summary.status !== 'prepared') return;
     const timer = window.setTimeout(() => { void needInfoSummary(); }, 0);
     return () => window.clearTimeout(timer);
-  }, [preview, materialContext?.summary.status, needInfoSummary]);
+  }, [number, materialContext?.summary.status, needInfoSummary]);
   const chooseStudent = useCallback((student: Student, preferredAnswer = '') => {
     const selectedAnswer = student.responses.find(response => answerKey(response.id) === answerKey(preferredAnswer))
       ?? (student.responses.length === 1 ? student.responses[0] : undefined);
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
-    summaryRequesting.current = false;
+    currentNumber.current = student.number;
     setMaterialContext(null); setContextError(''); setContextLoading(true);
     setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
     setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setPreviewMessage('');
@@ -180,7 +198,7 @@ export default function MaterialsDesk() {
     const created = await response.json();
     if (!response.ok) throw Error(created.error || '作成依頼を登録できません。');
     for (let attempt = 0; attempt < 300; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (attempt) await new Promise(resolve => setTimeout(resolve, 2000));
       const status = await fetch(`/api/staff/interview-material-jobs?id=${created.id}`, { cache: 'no-store' });
       const body = await status.json();
       if (!status.ok) throw Error(body.error || '作成状況を確認できません。');
@@ -267,12 +285,19 @@ export default function MaterialsDesk() {
     if (!folderJob || folderBusy || downloadBusy) return;
     setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
     try {
-      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, selected?.grade || '', materialContext, setDownloadMessage, Boolean(showPastSchools));
-      setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, selected?.grade || '', materialContext, setDownloadMessage, Boolean(showPastSchools), setSummarySaveMessage);
+      setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開けば、ネット接続なしで資料・面談記録・生徒情報を確認できます。AI要約は完成済みの場合に含まれます。`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setDownloadMessage('保存を取り消しました。');
       else { setDownloadFailed(true); setDownloadMessage(requestError(error)); }
     } finally { setFolderBusy(false); }
+  }
+  async function updateSavedSummary() {
+    if (!selected || summarySaveBusy) return;
+    setSummarySaveBusy(true);setSummarySaveMessage('');
+    try { await updateInterviewFolderSummary(selected.number, setSummarySaveMessage); }
+    catch (error) { setSummarySaveMessage(error instanceof DOMException && error.name === 'AbortError' ? '更新を取り消しました。' : requestError(error)); }
+    finally { setSummarySaveBusy(false); }
   }
   return <main className={styles.page}>
     <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>
@@ -384,6 +409,7 @@ export default function MaterialsDesk() {
         {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
         <p className={styles.note}>NASで資料の有無と年度を確認してからPDFを作成します。アンケート回答も最初から印刷対象に選ばれています。</p>
       </section>}
+      {selected && folderSupported && <section className={styles.card}><h2>保存済みフォルダのAI要約</h2><p>AIの完成後に勉たんを閉じていた場合も、生徒名のフォルダを選んで要約だけを追加できます。</p><button type="button" disabled={summarySaveBusy || folderBusy} onClick={() => void updateSavedSummary()}>{summarySaveBusy ? 'AI要約を更新中…' : '保存済みフォルダのAI要約を更新'}</button>{summarySaveMessage && <p role="status">{summarySaveMessage}</p>}</section>}
       {manifest && <section className={`${styles.card} ${styles.resultCard}`} ref={resultRef}><h2>3. 完成した資料を使う</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ。使い方を選んでください。</p>
         <div className={styles.actions}><button type="button" onClick={() => {
@@ -393,16 +419,16 @@ export default function MaterialsDesk() {
         {pdfUrl && <div className={styles.resultChoices} role="group" aria-label="完成した面談資料の使い方">
           <a className={styles.resultChoice} href={`${pdfUrl.split('#')[0]}#zoom=100&navpanes=0`} target="_blank" rel="noreferrer" aria-label="印刷用の一式PDFを開く"><strong>印刷</strong><span>一式PDFを開く</span></a>
           <button ref={viewerButtonRef} type="button" className={styles.resultChoice} onClick={() => { setDownloadOpen(false); setViewerOpen(true); }}><strong>画面で見る</strong><span>資料を切り替える</span></button>
-          <button type="button" className={styles.resultChoice} aria-expanded={downloadOpen} aria-controls="interview-download-options" onClick={() => setDownloadOpen(open => !open)}><strong>DL</strong><span>PDF・フォルダ</span></button>
+          <button type="button" className={styles.resultChoice} aria-expanded={downloadOpen} aria-controls="interview-download-options" onClick={() => setDownloadOpen(open => !open)}><strong>PCに保存</strong><span>生徒名フォルダ・PDF</span></button>
         </div>}
         {pdfUrl && <p className={styles.note}>別タブで開いたPDFから戻るときは、元の勉たんのタブを選んでください。</p>}
         {pdfUrl && downloadOpen && <div id="interview-download-options" className={styles.downloadOptions}>
           <strong>保存する形式を選ぶ</strong>
           <div className={styles.downloadActions}>
             <button type="button" disabled={!folderJob || downloadBusy || folderBusy} onClick={() => void savePdf()}>{downloadBusy ? '一式PDFを保存中…' : '一式PDFをダウンロード'}<small>印刷にも使える1つのPDF</small></button>
-            <button type="button" disabled={!folderJob || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダを保存'}<small>面談資料.html とPDF一式</small></button>
+            <button type="button" disabled={!folderJob || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダを保存'}<small>生徒名のフォルダにHTML・全PDF・記録を保存</small></button>
           </div>
-          <p className={styles.note}>{folderSupported ? 'フォルダ保存では保存先を選びます。面談中はフォルダ内の「面談資料.html」を開いてください。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
+          <p className={styles.note}>{folderSupported ? 'フォルダ保存では保存先を選びます。面談中はフォルダ内の「面談資料.html」を開けば、ネット接続なしで資料・面談記録・生徒情報を確認できます。AI要約は完成済みの場合に含まれます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
         </div>}
         {downloadMessage && <p role="status" className={downloadFailed ? styles.error : styles.note}>{downloadMessage}</p>}
         {savedFile && <p role="status">{cloudSynced ? '作成PCとOneDriveのクラウドに保存しました' : '作成PCのOneDriveフォルダに保存しました'}：{savedFile}。別PCで開く前にOneDriveの同期完了を確認してください。</p>}

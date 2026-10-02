@@ -130,6 +130,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByText('主担当PCが稼働中です')).toBeVisible();
   await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
   await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
+  await expect.poll(() => summaryRequests).toBe(1);
   await expect(page.getByRole('textbox', { name: '第3志望' })).toHaveValue('叡明');
   await page.getByRole('button', { name: '資料を作る' }).click();
   const contextPreview = page.getByRole('region', { name: '面談記録とAIのまとめ' });
@@ -150,7 +151,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('heading', { name: '3. 完成した資料を使う' })).toBeVisible({ timeout: 15000 });
   const print = page.getByRole('link', { name: '印刷用の一式PDFを開く' });
   const screen = page.getByRole('button', { name: /画面で見る/ });
-  const downloadButton = page.getByRole('button', { name: /DL/ });
+  const downloadButton = page.getByRole('button', { name: /PCに保存/ });
   await expect(print).toHaveAttribute('href', 'https://example.com/signed.pdf#zoom=100&navpanes=0');
   await expect(page.getByRole('dialog', { name: '面談資料のプレビュー' })).toBeHidden();
   const positions = await Promise.all([print, screen, downloadButton].map(element => element.boundingBox()));
@@ -214,12 +215,12 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('status').filter({ hasText: '面談資料.html' })).toBeVisible();
   const saved = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
   const folderName = Object.keys(saved)[0].split('/')[0];
-  expect(folderName).toBe('中3_確認用 生徒');
+  expect(folderName).toBe('確認用 生徒_2018998');
   expect(Object.keys(saved).sort()).toEqual([
     `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
     `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,
     `${folderName}/面談記録.txt`, `${folderName}/生徒情報・注意点.txt`, `${folderName}/資料一覧.txt`,
-    `${folderName}/面談資料.html`,
+    `${folderName}/面談資料.html`, `${folderName}/保存情報.json`, `${folderName}/AI要約.js`,
   ].sort());
   expect(saved[`${folderName}/面談資料.html`]).toContain('material-${index}.pdf#zoom=100&navpanes=0');
   expect(saved[`${folderName}/面談資料.html`]).toContain('staff-bundle.pdf#zoom=100&navpanes=0');

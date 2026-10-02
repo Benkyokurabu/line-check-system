@@ -1,3 +1,4 @@
+import { mapMaterialSources } from '@/lib/interview-material-load.mjs';
 import { NextRequest } from 'next/server';
 import { staffContext, staffResponse, staffErrorResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
@@ -15,6 +16,17 @@ const graduateSchoolSources = [
   { id: '1aef0120-80a7-8074-8a78-000bcabe3f7e', year: 2025, name: '名前', selectedChoice: false }, // 本校合否結果
 ];
 const recentRecordCount = 3;
+// Keep bounded parallel reads resilient to Notion's shared request limit.
+async function materialNotionRead(path: string, init: RequestInit = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await notionRequest(path, init); }
+    catch (error) {
+      if (attempt >= 2 || !(error instanceof Error) || !/rate.?limit|too many requests|exceeded.*limit|429/i.test(error.message)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+  }
+}
+
 type NotionPage = { id: string; url?: string; created_time?: string; parent?: { data_source_id?: string }; properties: Record<string, unknown> };
 type NotionBlock = { id: string; type: string; has_children?: boolean; [key: string]: unknown };
 
@@ -23,7 +35,7 @@ async function allBlocks(pageId: string, budget = { pages: 0 }) {
   let cursor = '';
   do {
     if (++budget.pages > 100) throw new InterviewError('面談記録が長いため全文を取得できません。Notionの原本を確認してください。', 503);
-    const result = await notionRequest(`/blocks/${pageId}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
+    const result = await materialNotionRead(`/blocks/${pageId}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
     for (const block of (result.results ?? []) as NotionBlock[]) {
       const line = notionBlockText(block);
       if (line) lines.push(line);
@@ -43,7 +55,7 @@ async function interviewIds(page: NotionPage) {
   let cursor = '';
   const complete: string[] = [];
   for (let index = 0; index < 10; index++) {
-    const result = await notionRequest(`/pages/${page.id}/properties/${encodeURIComponent(property.id)}?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
+    const result = await materialNotionRead(`/pages/${page.id}/properties/${encodeURIComponent(property.id)}?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
     complete.push(...(result.results ?? []).map((item: { relation?: { id?: string } }) => item.relation?.id).filter(Boolean));
     if (!result.has_more || !result.next_cursor) break;
     cursor = result.next_cursor;
@@ -66,7 +78,7 @@ async function siblingSchools(properties: Record<string, unknown>, grade: string
           for (let index = 0; index < 3; index++) {
             const nameFilter = { property: source.name, title: { contains: lookup.search } };
             const filter = source.selectedChoice ? { and: [nameFilter, { property: '入試年度', select: { equals: `${source.year}年度` } }] } : nameFilter;
-            const result = await notionRequest(`/data_sources/${source.id}/query`, {
+            const result = await materialNotionRead(`/data_sources/${source.id}/query`, {
               method: 'POST', signal: AbortSignal.timeout(4000), body: JSON.stringify({ page_size: 100, filter,
                 ...(cursor ? { start_cursor: cursor } : {}) }),
             });
@@ -108,56 +120,51 @@ export async function GET(request: NextRequest) {
       if (mappingError) throw new InterviewError('Notionの生徒対応表を取得できません。', 503);
       pageId = mapping?.notion_page_id ?? null;
     }
-    if (!pageId) return staffResponse({ records: [], schoolMentions: [], schoolCandidates: [], info: [], summary: { status: 'empty', items: [] }, studentUrl: '', source: 'notion' }, context);
-    const page = await notionRequest(`/pages/${pageId}`) as NotionPage;
+    if (!pageId) return staffResponse({ studentNumber: number, capturedAt: new Date().toISOString(), records: [], schoolMentions: [], schoolCandidates: [], info: [], summary: { status: 'empty', items: [] }, studentUrl: '', source: 'notion' }, context);
+    const page = await materialNotionRead(`/pages/${pageId}`) as NotionPage;
     if (notionPropertyText(page.properties['学籍番号']) !== number) throw new InterviewError('Notionの生徒番号が一致しません。', 409);
     const ids = await interviewIds(page);
-    const recordPages: NotionPage[] = [];
-    for (const id of ids) {
-      const record = await notionRequest(`/pages/${id}`) as NotionPage;
-      if (record.parent?.data_source_id !== interviewSource) continue;
-      recordPages.push(record);
-    }
+    const recordPages = (await mapMaterialSources(ids, async (id: string) =>
+      await materialNotionRead(`/pages/${id}`) as NotionPage) as NotionPage[])
+      .filter(record => record.parent?.data_source_id === interviewSource);
     const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     const middleSecond = String(student.grade ?? '').normalize('NFKC') === '中2';
     recordPages.sort((a, b) => materialRecord(b, '').date.localeCompare(materialRecord(a, '').date));
-    const records = [];
-    const schoolRecords = [];
-    for (const record of recordPages) {
-      if (materialRecord(record, '').date.slice(0, 10) > today) continue;
-      if (records.length >= recentRecordCount && !middleSecond) break;
-      const body = (await allBlocks(record.id)).join('\n\n');
-      const parsed = materialRecord(record, body);
-      if (records.length < recentRecordCount) records.push(parsed);
-      if (middleSecond) schoolRecords.push(parsed);
-    }
-    const schoolMentions = schoolMentionsFromRecords(schoolRecords);
     const academicYear = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) < 4 ? 1 : 0);
-    let siblingSchoolResult: { schools: string[]; warning: string };
-    try {
-      siblingSchoolResult = await siblingSchools(page.properties, String(student.grade ?? ''), academicYear);
-    } catch (error) {
+    const siblingPromise = siblingSchools(page.properties, String(student.grade ?? ''), academicYear).catch(error => {
       console.error('Failed to enrich interview material with sibling schools', error);
-      siblingSchoolResult = { schools: ['', '', ''], warning: '兄弟姉妹の進学先を確認できませんでした。Notionの原本を確認してください。' };
-    }
+      return { schools: ['', '', ''], warning: '兄弟姉妹の進学先を確認できません。Notionの原本を確認してください。' };
+    });
+    const eligible = recordPages.filter(record => materialRecord(record, '').date.slice(0, 10) <= today);
+    const selectedRecords = middleSecond ? eligible : eligible.slice(0, recentRecordCount);
+    const parsed = await mapMaterialSources(selectedRecords, async (record: NotionPage) =>
+      materialRecord(record, (await allBlocks(record.id)).join('\n\n')));
+    const records = parsed.slice(0, recentRecordCount);
+    const schoolMentions = schoolMentionsFromRecords(middleSecond ? parsed : []);
+    const siblingSchoolResult = await siblingPromise;
     const info = studentInfoCandidates(page.properties, student.grade as string, siblingSchoolResult.schools);
     const summaryFields = [...recentRecordCandidates(records), ...info];
     let summary: { status: string; items: unknown[]; sourceHash?: string } = { status: 'empty', items: [] };
     if (summaryFields.length) {
       const sourceHash = infoSourceHash(summaryFields);
-      const { data: existing, error: readError } = await context.dataClient.from('interview_material_info_summaries')
-        .select('source_hash,status,requested,result').eq('student_number', number).maybeSingle();
-      if (readError) throw new InterviewError('情報の要約を確認できません。', 503);
-      if (!existing || existing.source_hash !== sourceHash) {
-        const { error: queueError } = await context.dataClient.from('interview_material_info_summaries')
-          .upsert({ student_number: number, source_hash: sourceHash, fields: summaryFields, status: 'queued', requested: false,
-            result: [], error: null, attempts: 0, claimed_at: null, updated_at: new Date().toISOString() }, { onConflict: 'student_number' });
-        if (queueError) throw new InterviewError('情報の要約を依頼できません。', 503);
-        summary = { status: 'prepared', items: [], sourceHash };
-      } else summary = { sourceHash, status: existing.status === 'queued' && !existing.requested ? 'prepared' : existing.status,
-        items: Array.isArray(existing.result) ? existing.result : [] };
+      try {
+        const { data: existing, error: readError } = await context.dataClient.from('interview_material_info_summaries')
+          .select('source_hash,status,requested,result').eq('student_number', number).maybeSingle();
+        if (readError) throw new InterviewError('情報の要約を確認できません。', 503);
+        if (!existing || existing.source_hash !== sourceHash) {
+          const { error: queueError } = await context.dataClient.from('interview_material_info_summaries')
+            .upsert({ student_number: number, source_hash: sourceHash, fields: summaryFields, status: 'queued', requested: false,
+              result: [], error: null, attempts: 0, claimed_at: null, updated_at: new Date().toISOString() }, { onConflict: 'student_number' });
+          if (queueError) throw new InterviewError('情報の要約を依頼できません。', 503);
+          summary = { status: 'prepared', items: [], sourceHash };
+        } else summary = { sourceHash, status: existing.status === 'queued' && !existing.requested ? 'prepared' : existing.status,
+          items: Array.isArray(existing.result) ? existing.result : [] };
+      } catch (error) {
+        console.error('Optional interview AI summary is unavailable', error);
+        summary = { status: 'failed', items: [], sourceHash };
+      }
     }
-    return staffResponse({ records, schoolMentions, schoolCandidates: schoolCandidatesFromMentions(schoolMentions), info, summary, siblingSchoolWarning: siblingSchoolResult.warning,
+    return staffResponse({ studentNumber: number, capturedAt: new Date().toISOString(), records, schoolMentions, schoolCandidates: schoolCandidatesFromMentions(schoolMentions), info, summary, siblingSchoolWarning: siblingSchoolResult.warning,
       studentUrl: page.url ?? '', source: 'notion' }, context);
   } catch (error) {
     if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);

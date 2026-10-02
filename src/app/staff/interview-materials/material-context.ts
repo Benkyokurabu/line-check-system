@@ -4,18 +4,18 @@ export type SchoolMention = { date: string; text: string; url: string };
 export type SchoolCandidate = SchoolMention & { name: string };
 export type InfoSummary = { status: 'empty' | 'prepared' | 'queued' | 'running' | 'completed' | 'failed';
   items: { source: string; note: string; original: string }[]; sourceHash?: string };
-export type MaterialContext = { records: InterviewRecord[]; schoolMentions: SchoolMention[]; schoolCandidates?: SchoolCandidate[]; info: StudentInfo[]; summary: InfoSummary;
+export type MaterialContext = { studentNumber?: string; capturedAt?: string; records: InterviewRecord[]; schoolMentions: SchoolMention[]; schoolCandidates?: SchoolCandidate[]; info: StudentInfo[]; summary: InfoSummary;
   siblingSchoolWarning?: string; studentUrl: string; source: 'notion'; showPastSchools?: boolean };
 
-export async function fetchMaterialContext(number: string): Promise<MaterialContext> {
-  const response = await fetch(`/api/staff/interview-material-context?number=${encodeURIComponent(number)}`, { cache: 'no-store' });
+export async function fetchMaterialContext(number: string, signal?: AbortSignal): Promise<MaterialContext> {
+  const response = await fetch(`/api/staff/interview-material-context?number=${encodeURIComponent(number)}`, { cache: 'no-store', signal });
   const body = await response.json();
   if (!response.ok) throw Error(body.error || '面談記録を取得できません。');
   return body as MaterialContext;
 }
 
-export async function fetchInfoSummary(number: string): Promise<InfoSummary> {
-  const response = await fetch(`/api/staff/interview-material-info?number=${encodeURIComponent(number)}`, { cache: 'no-store' });
+export async function fetchInfoSummary(number: string, signal?: AbortSignal): Promise<InfoSummary> {
+  const response = await fetch(`/api/staff/interview-material-info?number=${encodeURIComponent(number)}`, { cache: 'no-store', signal });
   const body = await response.json();
   if (!response.ok) throw Error(body.error || '情報の要約を取得できません。');
   return body.summary as InfoSummary;
