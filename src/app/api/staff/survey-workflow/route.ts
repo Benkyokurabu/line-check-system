@@ -5,7 +5,7 @@ import {loadMaterialStudents} from '@/lib/interview-material-students';
 import {loadInvitationSurveyResponses,loadVerifiedSurveyAnswer} from '@/lib/interview-surveys-notion';
 import {notionRequest} from '@/lib/notion';
 import {readLineResponse} from '@/lib/line-send-audit';
-import {validInterviewDate,notionRecordText,interviewLineRetryKey} from '@/lib/survey-workflow-core.mjs';
+import {validInterviewDate,notionRecordText,interviewLineRetryKey,interviewDateParts,recordBlockState,RECORD_CAPTION} from '@/lib/survey-workflow-core.mjs';
 
 export const dynamic='force-dynamic';
 export const maxDuration=60;
@@ -14,20 +14,22 @@ const UUID=/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
 type NotionText={plain_text?:string;text?:{content?:string}};
 type NotionProperty={title?:NotionText[];rich_text?:NotionText[];number?:number|null;relation?:Array<{id:string}>;date?:{start?:string}|null};
 type NotionPage={id:string;url?:string;last_edited_time?:string;parent?:{data_source_id?:string};properties:Record<string,NotionProperty>};
-type RecordBlock={id:string;type:string;last_edited_time?:string;code?:{rich_text?:Array<{plain_text?:string;text?:{content?:string}}>};has_children?:boolean};
+type RecordBlock={id:string;type:string;last_edited_time?:string;code?:{rich_text?:NotionText[];caption?:NotionText[]};has_children?:boolean;[key:string]:unknown};
+
 type StaffContext=Awaited<ReturnType<typeof staffContext>>;
 
 function text(property?:NotionProperty){return (property?.title??property?.rich_text??[]).map(x=>x.plain_text??x.text?.content??'').join('').trim();}
 function requireRole(context:StaffContext){if(!['admin','office','employee','teacher'].includes(context.staff.role))throw new InterviewError('職員の権限を確認してください。',403);}
 
 async function selectedAnswer(context:StaffContext,answerId:string){
+ if(/^[a-f\d]{32}$/i.test(answerId))answerId=answerId.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,'$1-$2-$3-$4-$5');
  if(!UUID.test(answerId))throw new InterviewError('アンケート回答を選び直してください。',400);
  const roster=await loadMaterialStudents(context.dataClient);
  const survey=await loadInvitationSurveyResponses(roster);
  const row=survey.rows.find(x=>String(x.page_id??'').replaceAll('-','').toLowerCase()===answerId.replaceAll('-','').toLowerCase()&&x.link_status==='linked');
  const student=row&&roster.find(x=>String(x.student_number)===String(row.student_number));
  if(!student)throw new InterviewError('アンケート回答と生徒を照合できません。',404);
- await loadVerifiedSurveyAnswer(answerId,student,roster);
+ const answer=await loadVerifiedSurveyAnswer(answerId,student,roster);
  const page=await notionRequest(`/pages/${answerId}`) as NotionPage;
  const relation=page.properties['生徒情報DB']?.relation??[];
  if(relation.length>1)throw new InterviewError('アンケートに複数の生徒情報が紐づいています。',409);
@@ -49,7 +51,7 @@ async function selectedAnswer(context:StaffContext,answerId:string){
  if(text(profile.properties['学籍番号'])!==String(student.student_number)&&
     String(profile.properties['学籍番号']?.number??'')!==String(student.student_number))
    throw new InterviewError('Notionの生徒番号が一致しません。',409);
- return {student,page,profile};
+ return {student,page,profile,answer};
 }
 async function linkedAccounts(context:StaffContext,number:string){
  const {data,error}=await context.dataClient.from('student_line_accounts')
@@ -77,11 +79,8 @@ async function recordDetails(profileId:string,date:string){
  const page=await matchingRecord(profileId,date);
  if(!page)return {id:'',url:'',body:'',blockId:'',blockEditedAt:'',editable:true};
  const blocks=await notionRequest(`/blocks/${page.id}/children?page_size=100`) as {results?:RecordBlock[];has_more?:boolean};
- const first=blocks.results?.[0];
- const editable=!blocks.has_more&&blocks.results?.length===1&&first?.type==='code'&&!first.has_children;
  return {id:page.id,url:page.url??`https://app.notion.com/p/${page.id.replaceAll('-','')}`,
-  body:editable?(first?.code?.rich_text??[]).map(x=>x.plain_text??x.text?.content??'').join(''):'',
-  blockId:editable?first?.id??'':'',blockEditedAt:editable?first?.last_edited_time??'':'',editable};
+  ...recordBlockState(blocks,page.last_edited_time)};
 }
 function responseError(error:unknown,context?:StaffContext){
  return error instanceof InterviewError?staffResponse({error:error.message},context,error.status):staffErrorResponse(error,context);
@@ -89,37 +88,49 @@ function responseError(error:unknown,context?:StaffContext){
 export async function GET(request:NextRequest){let context:StaffContext|undefined;try{
  context=await staffContext(request);requireRole(context);
  const answer=request.nextUrl.searchParams.get('answer')??'';
- const {student,page,profile}=await selectedAnswer(context,answer);
- const date=page.properties['面談日']?.date?.start??'';
+ const {student,page,profile,answer:verifiedAnswer}=await selectedAnswer(context,answer);
+ const storedDate=page.properties['面談日']?.date?.start??'';
+ const {date,time}=interviewDateParts(storedDate);
  const [accounts,record]=await Promise.all([linkedAccounts(context,String(student.student_number)),
   date?recordDetails(profile.id,date):Promise.resolve(null)]);
+  const ids=accounts.map(account=>account.id);
+ let history:unknown[]=[];let historyError='';
+ if(ids.length){const {data:messages,error}=await context.dataClient.from('line_messages')
+  .select('id,line_user_id,direction,text,received_at,sent_by').in('line_user_id',ids)
+  .order('received_at',{ascending:false}).limit(20);
+  if(!error)history=messages??[];else historyError='LINE履歴を取得できませんでした。最新情報を読み直してください。';
+ }
  return staffResponse({student:{name:student.student_name,number:student.student_number,grade:student.grade},
   staffName:context.staff.displayName,
-  survey:{id:page.id,url:page.url,date,editedAt:page.last_edited_time},
-  accounts,record},context);
+  survey:{id:page.id,url:page.url,date,time,editedAt:page.last_edited_time},
+  accounts,record,history,historyError,answerFields:verifiedAnswer.fields},context);
  }catch(error){return responseError(error,context);}}
 
 export async function POST(request:NextRequest){let context:StaffContext|undefined;try{
  assertStaffMutationOrigin(request);context=await staffContext(request);requireRole(context);
  const body=await staffJsonBody(request,30000);
  const {student,page,profile}=await selectedAnswer(context,String(body.answerId??''));
- const date=page.properties['面談日']?.date?.start??'';
+ const storedDate=page.properties['面談日']?.date?.start??'';
+ const {date}=interviewDateParts(storedDate);
  if(body.action==='date'){
+  if(body.time&&!(typeof body.time==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(body.time)))throw new InterviewError('面談時刻を確認してください。',400);
   if(!validInterviewDate(body.date))throw new InterviewError('面談日を確認してください。',400);
   if(String(body.expectedEditedAt??'')!==page.last_edited_time)throw new InterviewError('アンケートが更新されています。読み込み直して確認してください。',409);
-  await notionRequest(`/pages/${page.id}`,{method:'PATCH',body:JSON.stringify({properties:{'面談日':{date:{start:body.date}}}})});
+  await notionRequest(`/pages/${page.id}`,{method:'PATCH',body:JSON.stringify({properties:{'面談日':{date:{start:body.time?`${body.date}T${body.time}:00+09:00`:body.date}}}})});
   return staffResponse({ok:true,date:body.date},context);
  }
+ if(['record','send'].includes(String(body.action))&&String(body.expectedSurveyEditedAt??'')!==page.last_edited_time)throw new InterviewError('アンケートの日程が更新されています。最新情報を読み直して確認してください。',409);
  if(body.action==='record'){
   if(!validInterviewDate(date))throw new InterviewError('先にアンケートの面談日を保存してください。',409);
   const content=String(body.content??'').trim();
   if(!content||content.length>15000)throw new InterviewError('面談記録の本文を確認してください。',400);
   const current=await recordDetails(profile.id,date);
-  if(!current.editable)throw new InterviewError('既存の面談記録は複数のブロックで構成されています。Notion原本を確認してください。',409);
+  if(!current.editable)throw new InterviewError('記録が大きいか編集用ブロックが重複しています。原本を確認してください。',409);
   if(current.id){
    if(String(body.expectedBlockId??'')!==current.blockId||String(body.expectedBlockEditedAt??'')!==current.blockEditedAt)
     throw new InterviewError('面談記録が更新されています。読み込み直して確認してください。',409);
-   await notionRequest(`/blocks/${current.blockId}`,{method:'PATCH',body:JSON.stringify({code:{rich_text:notionRecordText(content),language:'plain text'}})});
+   if(current.blockId)await notionRequest(`/blocks/${current.blockId}`,{method:'PATCH',body:JSON.stringify({code:{rich_text:notionRecordText(content),language:'plain text'}})});
+   else await notionRequest(`/blocks/${current.id}/children`,{method:'PATCH',body:JSON.stringify({children:[{object:'block',type:'code',code:{rich_text:notionRecordText(content),language:'plain text',caption:[{type:'text',text:{content:RECORD_CAPTION}}]}}]})});
    return staffResponse({ok:true,recordId:current.id},context);
   }
   const method=String(body.method??'');
@@ -136,14 +147,13 @@ export async function POST(request:NextRequest){let context:StaffContext|undefin
   if(method)properties['方法']={select:{name:method}};
   const created=await notionRequest('/pages',{method:'POST',body:JSON.stringify({
    parent:{type:'data_source_id',data_source_id:RECORD_SOURCE},properties,
-   children:[{object:'block',type:'code',code:{rich_text:notionRecordText(content),language:'plain text'}}],
+   children:[{object:'block',type:'code',code:{rich_text:notionRecordText(content),language:'plain text',caption:[{type:'text',text:{content:RECORD_CAPTION}}]}}],
   })}) as {id:string};
   return staffResponse({ok:true,recordId:created.id},context);
  }
  if(body.action==='send'){
   const phase=String(body.phase??'');
   if(!['schedule','summary'].includes(phase))throw new InterviewError('連絡の種類を確認してください。',400);
-  if(phase==='schedule'&&!validInterviewDate(date))throw new InterviewError('先にアンケートの面談日を保存してください。',409);
   if(phase==='summary'&&(!validInterviewDate(date)||!(await matchingRecord(profile.id,date))))throw new InterviewError('先に面談記録を保存してください。',409);
   const messages=body.messages;
   if(!Array.isArray(messages)||messages.length<1||messages.length>10)throw new InterviewError('送信先を選んでください。',400);

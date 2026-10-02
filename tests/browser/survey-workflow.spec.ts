@@ -47,3 +47,54 @@ test('mobile survey workflow saves the date and previews only checked LINE recip
  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);
  expect(overflow).toBe(false);
 });
+
+test('survey list opens inline, preserves drafts and saves time without sending LINE',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ const answer='11111111111141118111111111111111';
+ let date='',time='',content='',sends=0;
+ await page.route('**/api/interview-surveys',route=>route.fulfill({json:{groups:[{teacher:'工藤',students:[{grade:'中2',name:'架空 花子',notionUrl:`https://app.notion.com/p/${answer}`,submittedAt:'2026-10-01T00:00:00Z'}]}]}}));
+ await page.route('**/api/interview-surveys/confirmations',route=>route.fulfill({json:{states:[]}}));
+ await page.route('**/api/interview-surveys/scheduling',route=>route.fulfill({json:{states:{},updatedAt:'2026-10-01T00:00:00Z'}}));
+ await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill({json:{
+  student:{name:'架空 花子',number:'2019001',grade:'中2'},staffName:'工藤',survey:{id:answer,url:'https://example.invalid',date,time,editedAt:'version'},
+  answerFields:[{label:'ご相談内容',value:'勉強の進め方について相談したい'}],accounts:[{id:'mother',relation:'mother',label:'母・確認済み'}],
+  record:date?{id:'record',body:content,existingText:'これまでの面談記録',blockId:content?'block':'',blockEditedAt:'version',editable:true}:null,
+  history:[{id:'reply',line_user_id:'mother',direction:'inbound',text:'18時でお願いします',received_at:'2026-10-01T00:00:00Z'}]
+ }}));
+ await page.route('**/api/staff/survey-workflow',async route=>{
+  const body=route.request().postDataJSON();
+  if(body.action==='date'){date=body.date;time=body.time;}
+  if(body.action==='record')content=body.content;
+  if(body.action==='send')sends++;
+  await route.fulfill({json:{ok:true}});
+ });
+ await page.goto('/');
+ await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');
+ const open=page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'});
+ await open.click();
+ const workspace=page.getByRole('region',{name:'面談入力'});
+ await expect(workspace.getByText('勉強の進め方について相談したい')).toBeVisible();
+ await expect(page).toHaveURL(/\/$/);
+ await workspace.getByRole('button',{name:'面談記録',exact:true}).click();
+ await workspace.getByLabel('面談内容',{exact:true}).fill('相談の記録を書きかけ');
+ await workspace.getByRole('button',{name:'日程・LINE返信',exact:true}).click();
+ await workspace.getByLabel('面談日',{exact:true}).fill('2026-10-02');
+ await workspace.getByLabel('開始時刻（任意）').fill('18:00');
+ await workspace.getByRole('button',{name:'面談日を保存',exact:true}).click();
+ await expect(workspace.getByText('面談日をアンケートのNotion原本に保存しました。')).toBeVisible();
+ await workspace.getByText('最近のLINEのやり取り',{exact:true}).click();
+ await expect(workspace.getByText('18時でお願いします',{exact:true})).toBeVisible();
+ await workspace.getByRole('button',{name:'日程から文面を作る'}).click();
+ await expect(workspace.getByLabel('日程連絡の文面')).toHaveValue(/18:00/);
+ await workspace.getByRole('button',{name:'面談記録',exact:true}).click();
+ await expect(workspace.getByLabel('面談内容',{exact:true})).toHaveValue('相談の記録を書きかけ');
+ await expect(workspace.getByText('これまでの面談記録',{exact:true})).toBeVisible();
+ await open.click();await open.click();
+ await workspace.getByRole('button',{name:'面談記録',exact:true}).click();
+ await expect(workspace.getByLabel('面談内容',{exact:true})).toHaveValue('相談の記録を書きかけ');
+ await workspace.getByRole('button',{name:'面談記録を更新',exact:true}).click();
+ await expect(workspace.getByText('面談内容をNotionの面談記録に保存しました。')).toBeVisible();
+ expect(sends).toBe(0);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.screenshot({path:'analysis_outputs/survey-inline-mobile.png',fullPage:true});
+});

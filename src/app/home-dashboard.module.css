@@ -200,3 +200,5 @@
 @media (max-width: 380px) { .navigation { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
 .surveyActions a.scheduleAction{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;border:1px solid #187d60;border-radius:8px;background:#e6f4ef;color:#125f58;font-size:12px;font-weight:700;text-decoration:none;box-sizing:border-box}.surveyActions a.scheduleAction:focus-visible{outline:3px solid #13856c;outline-offset:3px}
+
+.inlineWorkspace{grid-column:1 / -1;min-width:0;width:100%}.surveyRowDetails button.scheduleAction{font:inherit;cursor:pointer;min-height:44px}

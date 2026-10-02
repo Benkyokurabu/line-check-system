@@ -1,3 +1,4 @@
+import {interviewDateParts} from '@/lib/survey-workflow-core.mjs';
 import {NextRequest} from 'next/server';
 import {staffContext,staffResponse,staffErrorResponse} from '@/lib/staff-auth-http';
 import {readAll} from '@/lib/interview-store';
@@ -18,9 +19,9 @@ export async function GET(request:NextRequest){let context;try{
   const student=row.link_status==='linked'?students.find(s=>s.student_number===row.student_number):undefined;
   const identity=student&&identities.find(i=>i.id===student.interview_student_id&&!i.retired_at);
   const derived=surveyScheduling(identity?.id,invitations,requests,bookings);
-  const notionDate=String(row.appointment_date??'');
+  const {date:notionDate,time:notionTime}=interviewDateParts(String(row.appointment_date??''));
   states[pageId]=notionDate&&derived.status==='uncontacted'
-   ?{status:'confirmed',date:notionDate,start:'',end:'',detail:'アンケートの面談日に登録済み'}
+   ?{status:'confirmed',date:notionDate,start:notionTime,end:'',detail:'アンケートの面談日に登録済み'}
    :derived;
  }
  return staffResponse({states,updatedAt:new Date().toISOString()},context);
