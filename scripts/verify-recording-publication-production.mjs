@@ -1,0 +1,15 @@
+import {createClient} from '@supabase/supabase-js';
+const env=process.argv[process.argv.indexOf('--env')+1];
+if(!env || !process.argv.includes('--env'))throw new Error('Supply the local server configuration path.');
+process.loadEnvFile(env);
+const db=createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SECRET_KEY,{auth:{persistSession:false}});
+const before=await db.from('recording_publications').select('*').abortSignal(AbortSignal.timeout(15000));
+if(before.error)throw new Error('Publication read failed: '+before.error.code);
+const row=before.data[0];
+const admin=await db.from('staff_accounts').select('id').eq('staff_code','KUDO').eq('active',true).single().abortSignal(AbortSignal.timeout(15000));
+if(admin.error)throw new Error('Administrator lookup failed: '+admin.error.code);
+const probe=await db.rpc('save_recording_publication',{p_key:row.event_key,p_keys:row.event_keys,p_url:row.source_url,p_urls:row.source_urls,p_lesson:row.lesson,p_mode:'private',p_release_at:null,p_version:row.version+1000,p_staff:admin.data.id}).abortSignal(AbortSignal.timeout(15000));
+if(probe.error?.code!=='PT409')throw new Error('RPC stale-write check failed: '+probe.error?.code+' '+probe.error?.message?.slice(0,160));
+const after=await db.from('recording_publications').select('version').eq('event_key',row.event_key).single().abortSignal(AbortSignal.timeout(15000));
+if(after.error || after.data.version!==row.version)throw new Error('Production recording rule was changed.');
+console.log('Production RPC reachable; stale request rejected; emergency rule unchanged.');

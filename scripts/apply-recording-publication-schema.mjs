@@ -36,7 +36,7 @@ try{
  await db.query('select save_recording_publication($1,$2,$3,$4,$5,\'private\',null,0,$6)',[key,JSON.stringify([key]),'https://example.invalid/validation',JSON.stringify(['https://example.invalid/validation']),JSON.stringify({date:'2099-01-01'}),admin[0].id]);
  await db.query('savepoint stale_validation');
  let stale=false;
- try{await db.query('select save_recording_publication($1,$2,$3,$4,$5,\'public\',null,0,$6)',[key,JSON.stringify([key]),'https://example.invalid/validation','[]','{}',admin[0].id]);}catch(e){if(e.code==='40001'){stale=true;await db.query('rollback to savepoint stale_validation');}else throw e;}
+ try{await db.query('select save_recording_publication($1,$2,$3,$4,$5,\'public\',null,0,$6)',[key,JSON.stringify([key]),'https://example.invalid/validation','[]','{}',admin[0].id]);}catch(e){if(e.code==='PT409'){stale=true;await db.query('rollback to savepoint stale_validation');}else throw e;}
  if(!stale)throw new Error('Stale version was accepted');
  await db.query('rollback to savepoint recording_validation');
  if((await db.query('select 1 from recording_publications where event_key=$1',[key])).rowCount)throw new Error('Validation data remains');

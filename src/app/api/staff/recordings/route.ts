@@ -38,7 +38,7 @@ export async function POST(request:NextRequest) {
   const keys=[...new Set([key,...(existing?.event_keys || []),...Object.entries(entries).filter(([,r])=>r.url===url).map(([k])=>k)])];
   const urls=[...new Set([url,...(existing?.source_urls || [])])];
   const result=await context.dataClient.rpc('save_recording_publication',{p_key:existing?.event_key || key,p_keys:keys,p_url:url,p_urls:urls,p_lesson:lesson,p_mode:mode,p_release_at:releaseAt,p_version:body.version,p_staff:context.staff.staffId});
-  if(result.error) return staffResponse({error:result.error.code==='40001'?'別の操作で設定が変わりました。一覧を更新してください。':'録画の公開設定を保存できませんでした。'},context,result.error.code==='40001'?409:503);
+  if(result.error) return staffResponse({error:result.error.code==='PT409'?'別の操作で設定が変わりました。一覧を更新してください。':'録画の公開設定を保存できませんでした。'},context,result.error.code==='PT409'?409:503);
   return staffResponse({saved:true,rule:result.data,status:publicationStatus(result.data)},context);
  } catch(error) {return staffErrorResponse(error,context);}
 }

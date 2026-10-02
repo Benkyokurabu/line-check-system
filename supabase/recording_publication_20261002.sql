@@ -32,7 +32,7 @@ begin
  if p_mode not in ('private','scheduled','public') or (p_mode='scheduled' and (p_release_at is null or p_release_at <= clock_timestamp())) then raise exception 'invalid publication setting' using errcode='22023'; end if;
  perform pg_advisory_xact_lock(hashtextextended('recording:'||p_key,0));
  select * into old_row from recording_publications where event_key=p_key for update;
- if coalesce(old_row.version,0) <> p_version then raise exception 'publication changed' using errcode='40001'; end if;
+ if coalesce(old_row.version,0) <> p_version then raise exception 'publication changed' using errcode='PT409'; end if;
  insert into recording_publications(event_key,event_keys,source_url,source_urls,lesson,mode,release_at,updated_by)
  values(p_key,p_keys,p_url,p_urls,p_lesson,p_mode,p_release_at,p_staff)
  on conflict(event_key) do update set event_keys=excluded.event_keys,mode=excluded.mode,release_at=excluded.release_at,
