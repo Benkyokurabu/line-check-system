@@ -30,7 +30,7 @@ function runCodex(fields) {
     `コマンド実行やファイル参照は不要です。JSONのみ返してください。\n入力: ${JSON.stringify(fields)}`;
   return new Promise((resolve, reject) => {
     const args = ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '--ignore-user-config',
-      '--output-schema', schemaPath, '-o', output, '-'];
+      '--model', 'gpt-6-luna', '-c', 'model_reasoning_effort="low"', '--output-schema', schemaPath, '-o', output, '-'];
     const child = spawn(executable, args, { cwd: temp, env: childEnvironment(executable), windowsHide: true,
       stdio: ['pipe', 'ignore', 'pipe'] });
     let stderr = '';
@@ -57,7 +57,7 @@ if (process.argv.includes('--test-summary')) {
     { source: '過去の面談記録1（2026-05-23・進路相談）', value: '前回の面談で次回までに志望校の候補を家庭で確認すると約束した。まだ確認結果の記録はない。' },
     { source: '連絡先　備考', value: '面談の連絡は保護者へ。電話は平日18時以降がつながりやすい。' },
   ]);
-  console.log(JSON.stringify({ completed: true, noteCount: result.length, sources: result.map(item => item.source) }));
+  console.log(JSON.stringify({ completed: true, model: 'gpt-6-luna', noteCount: result.length, sources: result.map(item => item.source) }));
 } else if (check) {
   const result = await new Promise((resolve, reject) => {
     const child = spawn(executable, ['login', 'status'], { env: childEnvironment(executable), windowsHide: true });
@@ -83,14 +83,15 @@ if (process.argv.includes('--test-summary')) {
         error: 'Codexの処理が中断されました。', updated_at: new Date().toISOString() })
         .eq('status', 'running').lt('claimed_at', stale).gte('attempts', 3));
       const { data: rows, error } = await db.from('interview_material_info_summaries')
-        .select('student_number,source_hash,fields,attempts').eq('status', 'queued').eq('requested', true).lt('attempts', 3)
+        .select('student_number,source_hash,fields,attempts,updated_at').eq('status', 'queued').eq('requested', true).lt('attempts', 3)
         .order('updated_at', { ascending: true }).limit(1);
       if (error) throw error;
       const job = rows?.[0];
       if (job) {
+        const lease = new Date().toISOString();
         const { data: claimed, error: claimError } = await db.from('interview_material_info_summaries')
-          .update({ status: 'running', attempts: job.attempts + 1, claimed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq('student_number', job.student_number).eq('source_hash', job.source_hash).eq('status', 'queued').eq('requested', true)
+          .update({ status: 'running', attempts: job.attempts + 1, claimed_at: lease, updated_at: lease })
+          .eq('student_number', job.student_number).eq('source_hash', job.source_hash).eq('status', 'queued').eq('requested', true).eq('updated_at', job.updated_at)
           .select('student_number').maybeSingle();
         if (claimError) throw claimError;
         if (claimed) {
@@ -98,11 +99,11 @@ if (process.argv.includes('--test-summary')) {
             const result = await runCodex(job.fields);
             await save(db.from('interview_material_info_summaries').update({ status: 'completed', result,
               error: null, updated_at: new Date().toISOString() })
-              .eq('student_number', job.student_number).eq('source_hash', job.source_hash).eq('status', 'running'));
+              .eq('student_number', job.student_number).eq('source_hash', job.source_hash).eq('status', 'running').eq('claimed_at', lease));
           } catch {
             await save(db.from('interview_material_info_summaries').update({ status: 'failed',
               error: 'Codexで要約を作成できませんでした。', updated_at: new Date().toISOString() })
-              .eq('student_number', job.student_number).eq('source_hash', job.source_hash).eq('status', 'running'));
+              .eq('student_number', job.student_number).eq('source_hash', job.source_hash).eq('status', 'running').eq('claimed_at', lease));
           }
         }
       }
