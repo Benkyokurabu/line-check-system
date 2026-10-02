@@ -1,13 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function setup(page: Page, options: { evidence?: boolean; reject?: boolean; staff?: boolean; guardian?: boolean } = {}) {
+async function setup(page: Page, options: { evidence?: boolean; reject?: boolean; staff?: boolean; guardian?: boolean; siblings?: boolean } = {}) {
   const writes: Record<string, unknown>[] = [];
   let savedAlias = "";
   let staffGroup = false;
   const student = { student_number: "relation-test", student_name: "続柄試験", grade: "中1", campus: "本校" };
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if ((path === "/api/attendance/students" || path === "/api/admin/contacts/students")) return route.fulfill({ json: { students: options.staff ? [] : [student] } });
+    if ((path === "/api/attendance/students" || path === "/api/admin/contacts/students")) return route.fulfill({ json: { students: options.staff ? [] : [student, ...(options.siblings ? [{ ...student, student_number: "sibling-test", student_name: "双子試験" }] : [])] } });
     if (path === "/api/attendance/candidates") return route.fulfill({ json: { candidates: [{
       id: "relation-candidate", student_number: options.staff ? null : student.student_number, student_roster: options.staff ? null : student,
       status: "pending", event_type: "absence", event_date: "2099-09-11", ai_summary: "欠席",
@@ -57,7 +57,6 @@ async function setup(page: Page, options: { evidence?: boolean; reject?: boolean
   await expect(registration).toHaveAttribute("aria-expanded", "false");
   await registration.click();
   if (!options.guardian && !options.staff) await page.getByRole("button", { name: "紐付ける生徒・続柄も直す", exact: true }).click();
-  await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
   await expect(page.getByLabel("LINE登録の確認者名", { exact: true })).toHaveCount(0);
   await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("試験職員");
   return writes;
@@ -156,3 +155,35 @@ test("staff save failure keeps the input and original name", async ({ page }) =>
   await expect(page.getByLabel("先生・スタッフの登録名")).toHaveValue("試験先生");
   await expect(page.getByText("sample-line（sample-line）", { exact: true })).toBeVisible();
 });
+
+for (const reject of [false, true]) {
+  test(`sibling button preserves the first child and submits both on mobile (reject=${reject})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const writes = await setup(page, { guardian: true, siblings: true, reject });
+    await page.getByRole("button", { name: "LINE登録を閉じる", exact: true }).click();
+    const entry = page.getByRole("button", { name: "兄弟・双子のLINE紐付け", exact: true });
+    await expect(entry).toBeVisible();
+    const bounds = await entry.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+    await entry.click();
+    await expect(page.getByRole("button", { name: "続柄試験 を外す", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "保護者", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByLabel("生徒を検索", { exact: true }).fill("双子試験");
+    await page.getByRole("button", { name: /双子試験.*生徒番号 sibling-test/ }).click();
+    const alias = "本　続柄試験　保護者 / 本　双子試験　保護者";
+    await expect(page.getByLabel("登録後に一覧へ表示する共通の名前")).toHaveValue(alias);
+    await expect(page.getByRole("button", { name: "双子試験 を外す", exact: true })).toBeVisible();
+    page.on("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" }).click();
+    expect(writes).toHaveLength(1);
+    expect(writes[0].targets).toEqual([
+      { student_number: "relation-test", relation: "guardian", alias_name: alias, is_primary: false },
+      { student_number: "sibling-test", relation: "guardian", alias_name: alias, is_primary: false },
+    ]);
+    if (reject) {
+      await expect(page.getByText("確認メッセージが一致しません", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("登録後に一覧へ表示する共通の名前")).toHaveValue(alias);
+    } else await expect(page.getByText(`${alias}（sample-line）`, { exact: true })).toBeVisible();
+  });
+}

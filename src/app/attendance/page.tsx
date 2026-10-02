@@ -1661,6 +1661,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
           if (lineStudentAccount) openLineNameEdit();
           else { setExpanded(true); setRegistrationOpen(true); if (expanded) registrationRef.current?.scrollIntoView({ block: "center" }); }
         }}>勉たんの名前を直す</button>
+        <button type="button" style={secondaryButtonStyle} disabled={!senderLineUserId} aria-expanded={registrationOpen} onClick={() => { setLineNameOpen(false); setExpanded(true); setRegistrationOpen(true); }}>兄弟・双子のLINE紐付け</button>
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
@@ -1697,7 +1698,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
         })}
       </div>}
     </div>}
-    {registrationOpen && senderLineUserId && <div ref={registrationRef} style={{ margin: "12px 0" }}><LineRegistrationForm key={senderLineUserId} userId={senderLineUserId} displayName={candidate.line_messages?.display_name} students={studentOptions} initialStudentNumber={studentNumber} evidence={candidate.line_messages?.id ? { id: candidate.line_messages.id, text: candidate.line_messages.text ?? "（本文なし）" } : null} confirmedBy={confirmedBy} onConfirmedByChange={onConfirmedByChange} source="attendance_review" onClose={() => setRegistrationOpen(false)} onSaved={async (result) => { if (result.relation !== "staff" && result.studentNumbers[0]) selectStudent(result.studentNumbers[0]); await onChanged(); }} /></div>}
+    {registrationOpen && senderLineUserId && <div ref={registrationRef} style={{ margin: "12px 0" }}><LineRegistrationForm key={senderLineUserId} userId={senderLineUserId} displayName={candidate.line_messages?.display_name} students={studentOptions} initialStudentNumber={studentNumber} initialStudentNumbers={candidate.sender_profile?.student_accounts?.length ? candidate.sender_profile.student_accounts.map(account => account.student_number) : undefined} initialRelation={candidate.sender_profile?.student_accounts?.[0]?.relation} initialRelations={Object.fromEntries((candidate.sender_profile?.student_accounts ?? []).map(account => [account.student_number, account.relation]))} evidence={candidate.line_messages?.id ? { id: candidate.line_messages.id, text: candidate.line_messages.text ?? "（本文なし）" } : null} confirmedBy={confirmedBy} onConfirmedByChange={onConfirmedByChange} source="attendance_review" onClose={() => setRegistrationOpen(false)} onSaved={async (result) => { if (result.relation !== "staff" && !studentNumber && result.studentNumbers[0]) selectStudent(result.studentNumbers[0]); await onChanged(); }} /></div>}
 
 
 
