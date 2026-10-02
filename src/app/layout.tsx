@@ -27,12 +27,14 @@ export const viewport: Viewport = {
 
 export default function RootLayout({
   children,
+  registration,
 }: Readonly<{
   children: React.ReactNode;
+  registration?: React.ReactNode;
 }>) {
   return (
     <html lang="ja">
-      <body><PwaRegistration /><AppFrame>{children}</AppFrame><CodexPanel /></body>
+      <body><PwaRegistration /><AppFrame>{children}</AppFrame>{registration}<CodexPanel /></body>
     </html>
   );
 }

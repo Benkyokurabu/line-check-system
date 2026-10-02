@@ -1,5 +1,5 @@
 "use client";
-import { LineRegistrationForm } from "@/app/LineRegistrationForm";
+import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registration/navigation";
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
@@ -85,10 +85,7 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("全て");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
   const [staffRegistrationMode, setStaffRegistrationMode] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupValue, setEditGroupValue] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
@@ -155,45 +152,15 @@ export default function ContactsPage() {
     window.localStorage.setItem("line-contact-operator-name", value);
   }
 
-  function startEdit(c: Contact) {
-    setEditingId(c.line_user_id);
-    setEditValue(c.alias_name ?? c.display_name ?? "");
-  }
-
-  function startStaffRegistration(c: Contact) {
-    void openContactDetail({ ...c, group_name: "スタッフ" });
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditValue("");
-  }
-
-  async function saveAlias(userId: string) {
-    const trimmed = editValue.trim();
-    if (!trimmed || saving === userId) return;
-    setSaveError(null);
-    setSaving(userId);
-    try {
-      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alias_name: trimmed }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? "登録名を保存できませんでした");
-      setContacts((prev) =>
-        prev.map((c) =>
-          c.line_user_id === userId ? { ...c, alias_name: trimmed } : c,
-        ),
-      );
-      setEditingId(null);
-      } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "登録名を保存できませんでした");
-    } finally {
-      setSaving(null);
+  useRegistrationRefresh(async change => {
+    await fetchContacts();
+    setSelectedContact(current => current?.line_user_id === change.userId ? { ...current, alias_name: change.alias } : current);
+    if (selectedContact?.line_user_id === change.userId) {
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(change.userId)}/messages`);
+      if (!response.ok) throw new Error("登録履歴を更新できませんでした");
+      setContactDetail(await response.json());
     }
-  }
+  });
 
   async function handleCsvImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -468,7 +435,7 @@ export default function ContactsPage() {
       <section className={styles.staffEntry} aria-label="先生・スタッフのLINE登録">
         <div><strong>先生・スタッフのLINE登録</strong><p>対象のLINE連絡先を検索し、登録名を入力して「スタッフ」グループへ登録します。職員ログインアカウントの作成は含みません。</p></div>
         <button type="button" style={btnSave} onClick={() => {
-          setStaffRegistrationMode(true); setContactTab("all"); setGroupFilter("全て"); setSearch(""); cancelEdit();
+          setStaffRegistrationMode(true); setContactTab("all"); setGroupFilter("全て"); setSearch("");
           requestAnimationFrame(() => document.getElementById("contact-search")?.focus());
         }}>先生・スタッフを探して登録</button>
       </section>
@@ -655,7 +622,7 @@ export default function ContactsPage() {
           </div>
           {detailLoading ? <p style={{ color: "var(--muted)" }}>メッセージを読み込んでいます...</p> : contactDetail && (
             <>
-              <LineRegistrationForm key={selectedContact.line_user_id} userId={selectedContact.line_user_id} displayName={selectedContact.display_name} initialRelation={selectedContact.group_name === "スタッフ" ? "staff" : ""} confirmedBy={operatorName} onConfirmedByChange={updateOperatorName} source="contacts_review" onClose={() => { setSelectedContact(null); setContactDetail(null); }} onSaved={async (result) => { await fetchContacts(); setSelectedContact(current => current ? { ...current, alias_name: result.alias } : null); const response = await fetch(`/api/admin/contacts/${encodeURIComponent(selectedContact.line_user_id)}/messages`); if (!response.ok) throw new Error("登録履歴の更新に失敗しました"); setContactDetail(await response.json()); }} />
+              <RegistrationLink style={btnSave} entry={{ userId: selectedContact.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName }}>生徒・続柄・兄弟を登録する</RegistrationLink>
 
               {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
                 <strong>現在の生徒紐付け</strong>
@@ -678,9 +645,8 @@ export default function ContactsPage() {
       {staffRegistrationMode && <div className={styles.staffGuide} role="status">
         <strong>① LINE名で検索 → ②「先生・スタッフとして登録」→ ③ 登録名を入力して保存</strong>
         <p>見つからない場合は、上の「LINE登録名を同期する」から連絡先を取得してください。</p>
-        <button type="button" style={btnCancel} onClick={() => { setStaffRegistrationMode(false); cancelEdit(); }}>登録案内を閉じる</button>
+        <button type="button" style={btnCancel} onClick={() => { setStaffRegistrationMode(false); }}>登録案内を閉じる</button>
       </div>}
-      {saveError && <p role="alert" className={styles.error}>{saveError}</p>}
       <div className={styles.filters}>
         <input
           id="contact-search"
@@ -746,24 +712,7 @@ export default function ContactsPage() {
                       : <span style={{ ...statusBadge("unmatched"), color: "#555" }}>取込のみ・未確認</span>}
                   </td>
                   <td data-label="登録名" style={td}>
-                    {editingId === c.line_user_id ? (
-                      <input
-                        type="text"
-                        aria-label="登録名"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") saveAlias(c.line_user_id);
-                          if (e.key === "Escape") cancelEdit();
-                        }}
-                        autoFocus
-                        style={editInput}
-                      />
-                    ) : (
-                      <span style={{ fontWeight: c.alias_name ? 600 : 400, color: c.alias_name ? "var(--foreground)" : "var(--muted)" }}>
-                        {c.alias_name ?? "—"}
-                      </span>
-                    )}
+                    <span style={{ fontWeight: c.alias_name ? 600 : 400, color: c.alias_name ? "var(--foreground)" : "var(--muted)" }}>{c.alias_name ?? "—"}</span>
                   </td>
                   <td data-label="グループ" style={td}>
                     {editingGroupId === c.line_user_id ? (
@@ -788,51 +737,11 @@ export default function ContactsPage() {
                   </td>
                   <td data-label="操作" style={td}>
                     <div className={styles.actions}>
-                      <button onClick={() => void openContactDetail(c)} disabled={detailLoading && selectedContact?.line_user_id === c.line_user_id} style={classifyLineContact(c) === "pending" ? btnSave : btnEdit}>
-                        {classifyLineContact(c) === "pending" ? "生徒本人・保護者を登録" : "メッセージ・履歴"}
-                      </button>
-                      {editingId === c.line_user_id ? (
-                        <>
-                          <button
-                            onClick={() => saveAlias(c.line_user_id)}
-                            disabled={saving === c.line_user_id || !editValue.trim()}
-                            style={btnSave}
-                          >
-                            保存
-                          </button>
-                          <button onClick={cancelEdit} style={btnCancel}>
-                            キャンセル
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => startEdit(c)}
-                            disabled={saving === c.line_user_id}
-                            style={btnEdit}
-                          >
-                            登録名編集
-                          </button>
-                          <button
-                            onClick={() => startStaffRegistration(c)}
-                            disabled={saving === c.line_user_id || Boolean(c.system_verified)}
-                            style={btnEdit}
-                          >
-                            先生・スタッフとして登録
-                          </button>
-                          {c.alias_name && (
-                            <button
-                              onClick={() => clearAlias(c.line_user_id)}
-                              disabled={saving === c.line_user_id}
-                              style={btnCancel}
-                            >
-                              削除
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    <div className={styles.actions}>
+                      {classifyLineContact(c) === "pending" && <RegistrationLink style={btnSave} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName }}>生徒本人・保護者を登録</RegistrationLink>}
+                      <button onClick={() => void openContactDetail(c)} disabled={detailLoading && selectedContact?.line_user_id === c.line_user_id} style={btnEdit}>メッセージ・履歴</button>
+                      <RegistrationLink style={btnEdit} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, mode: "name" }}>登録名編集</RegistrationLink>
+                      <RegistrationLink style={btnEdit} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, relation: "staff" }}>先生・スタッフとして登録</RegistrationLink>
+                      {c.alias_name && <button onClick={() => void clearAlias(c.line_user_id)} disabled={saving === c.line_user_id} style={btnCancel}>削除</button>}
                       {editingGroupId === c.line_user_id ? (
                         <>
                           <button

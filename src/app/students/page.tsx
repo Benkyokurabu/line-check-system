@@ -1,5 +1,5 @@
 "use client";
-import { LineRegistrationForm } from "@/app/LineRegistrationForm";
+import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registration/navigation";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -68,13 +68,7 @@ type HistoryResponse = {
   messages: Message[];
 };
 
-type LineNameEdit = {
-  studentNumber: string;
-  studentName: string;
-  lineUserId: string;
-  currentName: string;
-  lineDisplayName: string | null;
-};
+
 
 export default function StudentsPage() {
   const [mode, setMode] = useState<"teacher" | "class">("teacher");
@@ -98,17 +92,12 @@ export default function StudentsPage() {
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
-  const [registrationContact, setRegistrationContact] = useState<Contact | null>(null);
   const [registrationRelation, setRegistrationRelation] = useState("guardian");
   const [replyText, setReplyText] = useState("");
   const [senderName, setSenderName] = useState("");
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<string | null>(null);
-  const [nameEdit, setNameEdit] = useState<LineNameEdit | null>(null);
-  const [nameEditValue, setNameEditValue] = useState("");
-  const [nameEditBy, setNameEditBy] = useState("");
-  const [nameEditSaving, setNameEditSaving] = useState(false);
-  const [nameEditMessage, setNameEditMessage] = useState<string | null>(null);
+
   const historyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -179,7 +168,6 @@ export default function StudentsPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedNumber(null);
-    setRegistrationContact(null);
     setSelectedAccountId(null);
     setHistory(null);
     setReplyText("");
@@ -225,7 +213,6 @@ export default function StudentsPage() {
     : classes.find((item) => item.id === selectedClassId)?.label ?? "クラス未選択";
 
   async function openHistory(student: Student, account: LineAccount | null = studentAccount(student)) {
-    setRegistrationContact(null);
     const accountId = account?.line_user_id ?? null;
     setRegistrationRelation(account?.relation ?? "student");
     setSelectedNumber(student.student_number);
@@ -279,69 +266,23 @@ export default function StudentsPage() {
     setStudents(data.students ?? []);
   }
 
-  function startLineNameEdit(student: Student, account: LineAccount) {
-    const currentName = account.alias_name ?? account.friend_display_name ?? student.student_name;
-    setNameEdit({
-      studentNumber: student.student_number,
-      studentName: student.student_name,
-      lineUserId: account.line_user_id,
-      currentName,
-      lineDisplayName: account.friend_display_name ?? null,
-    });
-    setNameEditValue(currentName);
-    setNameEditBy(senderName);
-    setNameEditMessage(null);
-  }
-
-  async function saveLineName() {
-    if (!nameEdit || nameEditSaving || !nameEditValue.trim() || !nameEditBy.trim()) return;
-    setNameEditSaving(true);
-    setNameEditMessage(null);
-    try {
-      const response = await fetch(`/api/students/${encodeURIComponent(nameEdit.studentNumber)}/line-name`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          line_user_id: nameEdit.lineUserId,
-          alias_name: nameEditValue.trim(),
-          performed_by: nameEditBy.trim(),
-        }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? "LINEの生徒名を保存できませんでした");
-      const savedName = nameEditValue.trim();
-      setStudents((current) => current.map((student) => student.student_number !== nameEdit.studentNumber ? student : ({
-        ...student,
-        line_accounts: (student.line_accounts ?? []).map((account) => account.line_user_id === nameEdit.lineUserId
-          ? { ...account, alias_name: savedName }
-          : account),
-      })));
-      setContacts((current) => current.map((contact) => contact.line_user_id === nameEdit.lineUserId
-        ? { ...contact, alias_name: savedName }
-        : contact));
-      if (selectedAccountId === nameEdit.lineUserId) {
-        setSelectedContact((current) => current ? { ...current, alias_name: savedName } : current);
-        setHistory((current) => current?.selected_account
-          ? { ...current, selected_account: { ...current.selected_account, alias_name: savedName } }
-          : current);
-      }
-      setNameEdit((current) => current ? { ...current, currentName: savedName } : current);
-      setNameEditMessage(`${savedName} に変更しました。生徒一覧とLINE履歴の表示にも反映されます。`);
-      try {
-        await refreshStudents();
-      } catch {
-        // 保存自体は完了しているため、即時反映した画面を保ち、次回読込で再取得する。
-      }
-    } catch (error) {
-      setNameEditMessage(error instanceof Error ? error.message : "LINEの生徒名を保存できませんでした");
-    } finally {
-      setNameEditSaving(false);
+  useRegistrationRefresh(async change => {
+    await refreshStudents();
+    const response = await fetch("/api/admin/contacts");
+    if (!response.ok) throw new Error("連絡先を更新できませんでした");
+    const data = await response.json();
+    setContacts(data.contacts ?? []);
+    setSelectedContact(current => current?.line_user_id === change.userId ? { ...current, alias_name: change.alias } : current);
+    if (selectedNumber && (selectedAccountId === change.userId || change.studentNumbers?.includes(selectedNumber))) {
+      const response = await fetch(`/api/students/${encodeURIComponent(selectedNumber)}/messages?line_user_id=${encodeURIComponent(change.userId)}`);
+      if (!response.ok) throw new Error("LINE履歴を更新できませんでした");
+      setHistory(await response.json());
+      setSelectedAccountId(change.userId);
+      setSelectedContact((data.contacts ?? []).find((contact: Contact) => contact.line_user_id === change.userId) ?? null);
+      if (change.relation) setRegistrationRelation(change.relation);
     }
-  }
-
-  function linkContact(contact: Contact) {
-    setRegistrationContact(contact);
-  }
+    setSendMsg(`${change.alias} として登録しました。`);
+  });
 
   async function sendToSelectedStudent() {
     if (!history || !selectedContact || !replyText.trim()) return;
@@ -493,16 +434,7 @@ export default function StudentsPage() {
                               <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
                                 <LineAccountColumn student={student} kind="student" />
                                 {studentAccount(student) && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      startLineNameEdit(student, studentAccount(student)!);
-                                    }}
-                                    style={btnNameEdit}
-                                  >
-                                    名前を直す
-                                  </button>
+                                  <RegistrationLink style={btnNameEdit} entry={{ userId: studentAccount(student)!.line_user_id, returnTo: "/students", source: "students_review", studentNumber: student.student_number, operator: senderName, mode: "name" }}>名前を直す</RegistrationLink>
                                 )}
                               </div>
                             </td>
@@ -513,16 +445,7 @@ export default function StudentsPage() {
                             {studentAccount(student) ? (
                               <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
                                 <span>{accountDisplayName(studentAccount(student)!)}・{student.message_count}件</span>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    startLineNameEdit(student, studentAccount(student)!);
-                                  }}
-                                  style={btnNameEdit}
-                                >
-                                  名前を直す
-                                </button>
+                                <RegistrationLink style={btnNameEdit} entry={{ userId: studentAccount(student)!.line_user_id, returnTo: "/students", source: "students_review", studentNumber: student.student_number, operator: senderName, mode: "name" }}>名前を直す</RegistrationLink>
                               </div>
                             ) : "未紐づけ"}
                           </td>
@@ -565,7 +488,6 @@ export default function StudentsPage() {
           <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--line)", background: "var(--background)" }}>
             <h2 style={{ fontSize: "1rem", fontWeight: 700 }}>LINE履歴・送信</h2>
           </div>
-          {registrationContact && history && <LineRegistrationForm key={registrationContact.line_user_id + history.student.student_number} userId={registrationContact.line_user_id} displayName={registrationContact.display_name} initialStudentNumber={history.student.student_number} source="students_review" onClose={() => setRegistrationContact(null)} onSaved={async (result) => { await refreshStudents(); const student = students.find(s => s.student_number === result.studentNumbers[0]); if (student && result.relation !== "staff") await openHistory(student, contactToLineAccount({ ...registrationContact, alias_name: result.alias }, result.relation)); setSendMsg(`${result.alias} として登録しました。`); }} />}
           {historyLoading ? (
             <p style={{ padding: 20, color: "var(--muted)" }}>読み込み中...</p>
           ) : !history ? (
@@ -592,17 +514,17 @@ export default function StudentsPage() {
                     <p style={{ color: "var(--muted)", fontSize: "0.82rem" }}>該当する連絡先がありません。</p>
                   ) : (
                     contactResults.map((contact) => (
-                      <button
+                      <RegistrationLink
                         key={contact.line_user_id}
-                        onClick={() => linkContact(contact)}
-                        disabled={!!registrationContact}
+                        entry={{ userId: contact.line_user_id, returnTo: "/students", source: "students_review", studentNumber: history.student.student_number, operator: senderName }}
+
                         style={contactButton}
                       >
                         <span style={{ fontWeight: 700 }}>{contact.alias_name ?? contact.display_name ?? "名前未設定"}</span>
                         {contact.alias_name && contact.display_name && (
                           <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>({contact.display_name})</span>
                         )}
-                      </button>
+                      </RegistrationLink>
                     ))
                   )}
                 </div>
@@ -658,18 +580,17 @@ export default function StudentsPage() {
                     />
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {contactResults.map((contact) => (
-                        <button
+                        <RegistrationLink
                           key={contact.line_user_id}
-                          type="button"
-                          onClick={() => linkContact(contact)}
-                          disabled={!!registrationContact}
+                          entry={{ userId: contact.line_user_id, returnTo: "/students", source: "students_review", studentNumber: history.student.student_number, operator: senderName }}
+
                           style={contactButton}
                         >
                           <span style={{ fontWeight: 700 }}>{contact.alias_name ?? contact.display_name ?? "名前未設定"}</span>
                           {contact.alias_name && contact.display_name && (
                             <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>({contact.display_name})</span>
                           )}
-                        </button>
+                        </RegistrationLink>
                       ))}
                     </div>
                   </div>
@@ -690,38 +611,7 @@ export default function StudentsPage() {
           )}
         </aside>
       </div>
-      {nameEdit && (
-        <div role="presentation" style={dialogBackdrop} onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !nameEditSaving) setNameEdit(null);
-        }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="line-name-edit-title" style={dialogCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
-              <div>
-                <p style={{ margin: "0 0 4px", color: "#0369a1", fontSize: "0.78rem", fontWeight: 700 }}>LINE登録名</p>
-                <h2 id="line-name-edit-title" style={{ margin: 0, fontSize: "1.2rem" }}>{nameEdit.studentName}さんの名前を直す</h2>
-              </div>
-              <button type="button" onClick={() => setNameEdit(null)} disabled={nameEditSaving} style={btnGhost}>閉じる</button>
-            </div>
-            <div style={{ padding: 12, borderRadius: 8, background: "#f8fafc", display: "grid", gap: 4, fontSize: "0.84rem" }}>
-              <span>現在の登録名：<strong>{nameEdit.currentName}</strong></span>
-              <span style={{ color: "var(--muted)" }}>LINEアプリ側の表示名：{nameEdit.lineDisplayName ?? "未取得"}</span>
-            </div>
-            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
-              生徒一覧に表示する名前
-              <input autoFocus value={nameEditValue} maxLength={200} onChange={(event) => { setNameEditValue(event.target.value); setNameEditMessage(null); }} style={{ ...inputStyle, width: "100%" }} />
-            </label>
-            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
-              変更した先生・スタッフ名
-              <input value={nameEditBy} maxLength={100} onChange={(event) => { setNameEditBy(event.target.value); setNameEditMessage(null); }} placeholder="例：工藤" style={{ ...inputStyle, width: "100%" }} />
-            </label>
-            <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.8rem" }}>変更するのは勉たん内の登録名です。相手のLINEアプリで設定している名前は変わりません。変更履歴は保存されます。</p>
-            <button type="button" onClick={() => void saveLineName()} disabled={nameEditSaving || !nameEditValue.trim() || !nameEditBy.trim()} style={btnSend}>
-              {nameEditSaving ? "保存中..." : "この名前で保存"}
-            </button>
-            {nameEditMessage && <p role="status" style={{ margin: 0, color: nameEditMessage.includes("変更しました") ? "#15803d" : "#b91c1c", fontWeight: 700 }}>{nameEditMessage}</p>}
-          </section>
-        </div>
-      )}
+
     </div>
   );
 }
@@ -825,15 +715,7 @@ function selectedAccountLabel(contact: Contact | null, relation: string) {
     : contact?.display_name ?? contact?.alias_name ?? "未登録";
   return `${relationLabel(relation)}: ${name}`;
 }
-function contactToLineAccount(contact: Contact, relation: string): LineAccount {
-  return {
-    line_user_id: contact.line_user_id,
-    relation,
-    alias_name: contact.alias_name,
-    friend_display_name: contact.display_name,
-    is_primary: relation === "student",
-  };
-}
+
 function guardianAccounts(student: { line_accounts?: LineAccount[] }) {
   const seen = new Set<string>();
   return (student.line_accounts ?? [])
@@ -959,29 +841,6 @@ const btnNameEdit: React.CSSProperties = {
   fontWeight: 700,
   fontSize: "0.78rem",
 };
-
-const dialogBackdrop: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 1000,
-  display: "grid",
-  placeItems: "center",
-  padding: 16,
-  background: "rgba(15, 23, 42, 0.55)",
-};
-
-const dialogCard: React.CSSProperties = {
-  width: "min(100%, 480px)",
-  maxHeight: "calc(100vh - 32px)",
-  overflowY: "auto",
-  display: "grid",
-  gap: 14,
-  padding: 20,
-  borderRadius: 12,
-  background: "var(--surface)",
-  boxShadow: "0 20px 60px rgba(15, 23, 42, 0.3)",
-};
-
 
 const contactButton: React.CSSProperties = {
   display: "flex",

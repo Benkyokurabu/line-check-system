@@ -206,10 +206,11 @@ test("attendance review keeps past candidates out of the initial response", asyn
   assert.match(route, /if \(!includePastPending\) \{\s*visibleClosedCandidateQuery = visibleClosedCandidateQuery\.gte\("event_date", today\);\s*\}/);
 });
 
-test("all LINE registration entry points use the shared form", async () => {
+test("all LINE registration entry points link to the dedicated page", async () => {
   for (const file of ["attendance/page.tsx", "contacts/page.tsx", "students/page.tsx"]) {
     const page = await readFile(new URL(`../src/app/${file}`, import.meta.url), "utf8");
-    assert.match(page, /<LineRegistrationForm/);
+    assert.match(page, /<RegistrationLink/);
+    assert.doesNotMatch(page, /<LineRegistrationForm/);
   }
 });
 

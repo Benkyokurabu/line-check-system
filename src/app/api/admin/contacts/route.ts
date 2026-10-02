@@ -6,15 +6,15 @@ import { withContactAcademicGrades } from "@/lib/student-academic-grade.mjs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request?: Request) {
+  const userId = request ? new URL(request.url).searchParams.get("userId") : null;
   const supabase = createSupabaseAdminClient();
 
   const summaries = [];
   let summaryError = null;
   for (let from = 0; ; from += 1000) {
-    const result = await supabase
-      .rpc("get_line_contact_admin_summaries")
-      .range(from, from + 999);
+    const query = supabase.rpc("get_line_contact_admin_summaries");
+    const result = await (userId ? query.eq("line_user_id", userId) : query).range(from, from + 999);
     if (result.error) {
       summaryError = result.error;
       break;
@@ -89,5 +89,5 @@ export async function GET() {
     return aLabel.localeCompare(bLabel, "ja");
   });
 
-  return NextResponse.json({ contacts });
+  return NextResponse.json({ contacts: userId ? contacts.filter(contact => contact.line_user_id === userId) : contacts });
 }

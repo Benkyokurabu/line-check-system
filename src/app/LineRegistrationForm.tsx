@@ -10,7 +10,7 @@ type Evidence = { id: string; text: string; direction?: string; message_type?: s
 export type LineRegistrationResult = { relation: string; alias: string; studentNumbers: string[] };
 type Props = {
   userId: string; displayName?: string | null; source: string;
-  students?: Student[]; initialStudentNumber?: string; initialStudentNumbers?: string[]; initialRelation?: string; initialRelations?: Record<string, string>;
+  students?: Student[]; initialStudentNumber?: string; initialStudentNumbers?: string[]; initialRelation?: string; initialRelations?: Record<string, string>; initialEvidenceId?: string; initialAlias?: string; onSavingChange?: (saving: boolean) => void;
   evidence?: Evidence | null; confirmedBy?: string; onConfirmedByChange?: (name: string) => void;
   onSaved: (result: LineRegistrationResult) => Promise<void>; onClose: () => void;
 };
@@ -26,10 +26,10 @@ export function LineRegistrationForm(props: Props) {
   const [relation, setRelation] = useState(props.initialRelation ?? "");
   const [selectedIds, setSelectedIds] = useState<string[]>(props.initialStudentNumbers ?? (props.initialStudentNumber ? [props.initialStudentNumber] : []));
   const [relationChanged, setRelationChanged] = useState(false);
-  const [familyAlias, setFamilyAlias] = useState("");
+  const [familyAlias, setFamilyAlias] = useState((props.initialStudentNumbers?.length ?? 0) > 1 ? props.initialAlias ?? "" : "");
   const [query, setQuery] = useState("");
-  const [aliases, setAliases] = useState<Record<string, string>>({});
-  const [staffName, setStaffName] = useState("");
+  const [aliases, setAliases] = useState<Record<string, string>>(props.initialAlias && (props.initialStudentNumbers?.[0] || props.initialStudentNumber) ? { [props.initialStudentNumbers?.[0] || props.initialStudentNumber!]: props.initialAlias } : {});
+  const [staffName, setStaffName] = useState(props.initialRelation === "staff" ? props.initialAlias ?? "" : "");
   const [localOperator, setLocalOperator] = useState("");
   const operator = props.confirmedBy ?? localOperator;
   const [loading, setLoading] = useState(true);
@@ -38,8 +38,6 @@ export function LineRegistrationForm(props: Props) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const serial = useRef(false);
-  const root = useRef<HTMLElement>(null);
-  useEffect(() => { root.current?.scrollIntoView({ block: "start" }); }, []);
   const initial = useRef(props);
   useEffect(() => {
     const controller = new AbortController();
@@ -50,7 +48,7 @@ export function LineRegistrationForm(props: Props) {
         const get = async (url: string) => { const response = await fetch(url, { signal: controller.signal }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "登録情報を読み込めませんでした。"); return data; };
         const [roster, detail] = await Promise.all([
           get("/api/admin/contacts/students"),
-          config.evidence !== undefined ? Promise.resolve(null) : get(`/api/admin/contacts/${encodeURIComponent(config.userId)}/messages`),
+          config.evidence !== undefined ? Promise.resolve(null) : get(`/api/admin/contacts/${encodeURIComponent(config.userId)}/messages?limit=100`),
         ]);
         if (controller.signal.aborted) return;
         if (roster) {
@@ -58,7 +56,11 @@ export function LineRegistrationForm(props: Props) {
           setStudents(loaded);
           setSelectedIds(ids => ids.map(id => loaded.find(student => student.student_number === id || student.merged_student_numbers?.includes(id))?.student_number ?? id).filter((id, index, values) => values.indexOf(id) === index));
         }
-        if (detail) setMessages((detail.messages ?? []).filter((m: Evidence) => m.direction === "inbound" && m.message_type === "text" && m.text?.trim()));
+        if (detail) {
+          const available = (detail.messages ?? []).filter((m: Evidence) => m.direction === "inbound" && m.message_type === "text" && m.text?.trim());
+          setMessages(available);
+          if (config.initialEvidenceId && available.some((m: Evidence) => m.id === config.initialEvidenceId)) setEvidenceId(config.initialEvidenceId);
+        }
       } catch (error) { if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : "読み込みに失敗しました。"); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }
@@ -66,8 +68,8 @@ export function LineRegistrationForm(props: Props) {
   }, [attempt]);
   const selected = selectedIds.map(id => students.find(s => s.student_number === id)).filter((s): s is Student => Boolean(s));
   const aliasFor = (student: Student) => aliases[student.student_number] ?? (relation ? buildLineContactAlias(student, relation) : "");
-  const commonAlias = familyAlias || selected.map(s => buildLineContactAlias(s, relation)).join(" / ");
   const relationFor = (student: Student) => !relationChanged ? props.initialRelations?.[student.student_number] ?? student.merged_student_numbers?.map(id => props.initialRelations?.[id]).find(Boolean) ?? relation : relation;
+  const commonAlias = familyAlias || selected.map(s => buildLineContactAlias(s, relationFor(s))).join(" / ");
   const savedAliasFor = (student: Student) => selected.length > 1 ? commonAlias : aliasFor(student);
   const normalized = query.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
   const matches = students.filter(s => normalized && !selectedIds.includes(s.student_number) && studentRegistrationSearchText(s).includes(normalized)).slice(0, 12);
@@ -77,7 +79,7 @@ export function LineRegistrationForm(props: Props) {
     if (serial.current || !canSave || loading || loadError) return;
     const names = staff ? staffName.trim() : selected.length > 1 ? commonAlias.trim() : selected.map(s => aliasFor(s).trim()).join(" / ");
     if (!window.confirm(`${props.displayName || "このLINE"} を ${names} として登録します。\n${staff ? "先生・スタッフ" : "確認者: " + operator.trim()}\nよろしいですか？`)) return;
-    serial.current = true; setSaving(true); setMessage("");
+    serial.current = true; setSaving(true); props.onSavingChange?.(true); setMessage("");
     try {
       const response = await fetch(`/api/admin/contacts/${encodeURIComponent(props.userId)}${staff ? "" : "/verify"}`, {
         method: staff ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
@@ -92,10 +94,10 @@ export function LineRegistrationForm(props: Props) {
       try { await props.onSaved({ relation, alias: names, studentNumbers: selectedIds }); }
       catch { setMessage(`${names} として登録しました。一覧を更新できなかったため、画面を再読み込みしてください。`); }
     } catch (error) { setMessage(error instanceof Error ? error.message : "登録できませんでした。"); }
-    finally { serial.current = false; setSaving(false); }
+    finally { serial.current = false; setSaving(false); props.onSavingChange?.(false); }
   }
-  return <section ref={root} aria-label="生徒本人・保護者のLINE登録" style={{ border: "2px solid #0891b2", borderRadius: 10, padding: 16, display: "grid", gap: 14, background: "white", minWidth: 0, overflowWrap: "anywhere" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}><strong style={{ fontSize: 17 }}>生徒本人・保護者のLINE登録</strong><button type="button" style={button} disabled={saving} onClick={props.onClose}>LINE登録を閉じる</button></div>
+  return <section aria-label="生徒本人・保護者のLINE登録" style={{ border: "2px solid #0891b2", borderRadius: 10, padding: 16, display: "grid", gap: 14, background: "white", minWidth: 0, overflowWrap: "anywhere" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}><strong style={{ fontSize: 17 }}>生徒本人・保護者のLINE登録</strong></div>
     <p style={{ margin: 0 }}>相手のLINE表示名：<strong>{props.displayName || "表示名なし"}</strong></p>
     <small>表示名が未確定・登録を修正したいときに設定します。毎回の登録は不要です。</small>{props.initialStudentNumbers?.length ? <small>現在の確認済み紐付け {props.initialStudentNumbers.length}名を選択済みです。追加する生徒を検索してください。利用者・続柄を変更しなければ既存の続柄を維持します。</small> : null}
     {loading && <p role="status">登録情報を読み込んでいます…</p>}
@@ -119,7 +121,7 @@ export function LineRegistrationForm(props: Props) {
         {selected.map(s => <div key={s.student_number} style={{ padding: 10, background: "#eff8f3", borderRadius: 7, display: "grid", gap: 6 }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12 }}>選択先：生徒番号 {s.student_number}（{recordLabel(s)}）</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412" }}>同じ生徒の古いNotion重複 {s.merged_record_count}件は候補から除外済みです。</span>}<button type="button" style={button} onClick={() => setSelectedIds(ids => ids.filter(id => id !== s.student_number))}>{s.student_name} を外す</button></div>)}
       </div>}
       <div style={field}><strong>3. 表示名を確認して登録</strong><small>登録すると、この一覧と連絡先管理の名前が更新されます。</small>
-        {!staff && <>{selected.length > 1 ? <label style={field}>登録後に一覧へ表示する共通の名前<input style={input} maxLength={200} disabled={!relation} value={commonAlias} onChange={e => setFamilyAlias(e.target.value)} /></label> : selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}{props.confirmedBy === undefined ? <label style={field}>LINE登録の確認者名<input style={input} value={localOperator} onChange={e => setLocalOperator(e.target.value)} /></label> : !operator.trim() && <small>画面上部の確認者名・スタッフ名を入力してください。</small>}</>}
+        {!staff && <>{selected.length > 1 ? <label style={field}>登録後に一覧へ表示する共通の名前<input style={input} maxLength={200} disabled={!relation} value={commonAlias} onChange={e => setFamilyAlias(e.target.value)} /></label> : selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}{props.confirmedBy === undefined ? <label style={field}>LINE登録の確認者名<input style={input} value={localOperator} onChange={e => setLocalOperator(e.target.value)} /></label> : <label style={field}>LINE登録の確認者名<input style={input} value={operator} onChange={e => props.onConfirmedByChange?.(e.target.value)} /></label>}</>}
         <button type="button" style={primary} disabled={!canSave} onClick={() => void save()}>{saving ? "登録中..." : staff ? "先生・スタッフとして保存して一覧を更新" : "この内容で登録して一覧の名前を更新"}</button>
       </div>
     </fieldset>
