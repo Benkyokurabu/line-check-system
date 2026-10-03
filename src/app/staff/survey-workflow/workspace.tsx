@@ -188,15 +188,16 @@ const accountCategory=(a:Account)=>a.category??(['mother','father','guardian','f
 function RecipientChoices({student,accounts,values,statusFor,disabled,onToggle,onRefresh}:{student:State['student'];accounts:Account[];values:string[];
  statusFor:(account:Account)=>Delivery['status']|undefined;disabled:boolean;onToggle:(id:string)=>void;onRefresh:()=>void}){
  const guardianCount=accounts.filter(a=>accountCategory(a)==='guardian').length;
+ const contactParams=new URLSearchParams({source:'survey-workflow',student:student.number,studentName:student.name});
  return <div className={styles.recipientPanel}><p><strong>{student.name}さんのLINE宛先</strong><br/>学籍番号 <strong>{student.number}</strong> に登録された宛先です。保護者 {guardianCount}件・選択中 {accounts.filter(a=>values.includes(a.id)).length}件</p>
- {!guardianCount&&<p className={styles.error}>この生徒の保護者LINEはまだ登録されていません。本人・続柄未確認の宛先は下に分けて表示します。</p>}
+ {!guardianCount&&<p className={styles.error}>この生徒に紐づく保護者LINEが見つかりません。「保護者LINEを確認・登録」から、生徒・続柄の登録を確認してください。</p>}
  {!accounts.length&&<p>学籍番号に紐づくLINE宛先が見つかりませんでした。</p>}
  {(['guardian','student','unknown'] as const).map(category=>{const rows=accounts.filter(a=>accountCategory(a)===category);if(!rows.length)return null;
  return <fieldset key={category} className={styles.recipients}><legend>{({guardian:'保護者のLINE（送信先をチェック）',student:'本人のLINE（必要な場合に選択）',unknown:'続柄未確認のLINE（相手を確認して選択）'})[category]}</legend>{rows.map(account=>{
   const status=statusFor(account);
   return <label key={account.id}><input type="checkbox" aria-label={account.label} checked={values.includes(account.id)} disabled={disabled}
    onChange={()=>onToggle(account.id)}/><span><strong>{account.label}</strong>{account.displayName&&account.displayName!==account.aliasName&&<small>LINE表示名：{account.displayName}</small>}<small>{account.verification==='confirmed'?'確認済み・学籍番号で連携':'学籍番号で登録済み・送信前に相手を確認'}</small></span>{status&&<small>{({sent:'送信済み',already_sent:'送信済み',failed:'送信失敗',history_failed:'送信済み・履歴要確認',unknown:'結果要確認'} as Record<string,string>)[status]}</small>}</label>;
- })}</fieldset>;})}<div className={styles.actions}><button disabled={disabled} onClick={onRefresh}>LINE宛先を読み直す</button><a className={styles.linkButton} href="/contacts" target="_blank" rel="noreferrer">LINE連絡先の登録・確認 ↗</a></div></div>;
+ })}</fieldset>;})}<div className={styles.actions}><a className={styles.linkButton} href={`/contacts?${contactParams}`} target="_blank" rel="noreferrer">保護者LINEを確認・登録 ↗</a><button disabled={disabled} onClick={onRefresh}>LINE宛先を読み直す</button></div><p className={styles.recipientHelp}>別のタブで登録状況とLINE連絡先を確認できます。確認後は元の面談タブに戻り、「LINE宛先を読み直す」を押してください。</p></div>;
 }
 function SendReview({student,phase,entries,disabled,onSend,onCancel}:{student:State['student'];phase:Phase;entries:Array<{account:Account;text:string}>;disabled:boolean;onSend:()=>void;onCancel:()=>void}){
  return <div className={styles.review}><h3>{phase==='schedule'?'日程連絡':'面談後のまとめ'}の送信確認</h3>

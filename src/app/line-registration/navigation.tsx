@@ -2,10 +2,11 @@
 import Link from "next/link";
 import { useEffect, useEffectEvent, type CSSProperties, type ReactNode } from "react";
 export type RegistrationChange = { userId: string; alias: string; relation?: string; studentNumbers?: string[] };
-export type RegistrationEntry = { userId: string; returnTo: "/attendance" | "/contacts" | "/students"; source: string; studentNumber?: string; evidenceId?: string; operator?: string; mode?: "name" | "register"; relation?: string };
+export type RegistrationEntry = { userId: string; returnTo: "/attendance" | "/contacts" | "/students"; source: string; studentNumber?: string; studentName?: string; evidenceId?: string; operator?: string; mode?: "name" | "register"; relation?: string };
 export function registrationHref(entry: RegistrationEntry) {
   const params = new URLSearchParams({ userId: entry.userId, returnTo: entry.returnTo, source: entry.source });
   if (entry.studentNumber) params.set("student", entry.studentNumber);
+  if (entry.studentName) params.set("studentName", entry.studentName);
   if (entry.evidenceId) params.set("evidence", entry.evidenceId);
   if (entry.mode) params.set("mode", entry.mode);
   if (entry.relation === "staff") params.set("relation", "staff");

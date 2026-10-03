@@ -1,7 +1,9 @@
 "use client";
 import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registration/navigation";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
+import { surveyLineRecipients } from "@/lib/survey-line-recipients.mjs";
 import Link from "next/link";
 import styles from "./contacts.module.css";
 
@@ -81,9 +83,19 @@ const importStatusLabel: Record<AliasImportStatus, string> = {
 };
 
 export default function ContactsPage() {
+  return <Suspense fallback={<div className="shell">連絡先を読み込んでいます…</div>}><ContactsWorkspace /></Suspense>;
+}
+
+function ContactsWorkspace() {
+  const params = useSearchParams();
+  const studentNumber = (params.get("student") ?? "").slice(0, 100);
+  const studentName = (params.get("studentName") ?? "").slice(0, 200);
+  const fromSurvey = params.get("source") === "survey-workflow" && !!studentNumber;
+  const [returnNotice, setReturnNotice] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(fromSurvey ? studentName || studentNumber : "");
   const [groupFilter, setGroupFilter] = useState("全て");
   const [staffRegistrationMode, setStaffRegistrationMode] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -96,7 +108,7 @@ export default function ContactsPage() {
   const [rosterImportMsg, setRosterImportMsg] = useState<string | null>(null);
   const [rosterImportPreview, setRosterImportPreview] = useState<RosterImportPreview | null>(null);
   const [rosterImporting, setRosterImporting] = useState(false);
-  const [contactTab, setContactTab] = useState<ContactTab>("pending");
+  const [contactTab, setContactTab] = useState<ContactTab>(fromSurvey ? "all" : "pending");
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -113,6 +125,7 @@ export default function ContactsPage() {
 
   const fetchContacts = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const [contactsResponse, candidatesResponse] = await Promise.all([
         fetch("/api/admin/contacts"),
@@ -131,6 +144,8 @@ export default function ContactsPage() {
           ? { ...contact, pending_evidence: true, registration_state: "pending" as const }
           : contact
       )));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "連絡先を取得できませんでした。");
     } finally {
       setLoading(false);
     }
@@ -388,7 +403,7 @@ export default function ContactsPage() {
       if (!response.ok) throw new Error(data.error || "メッセージを取得できませんでした。");
       setContactDetail(data);
     } catch (error) { setVerificationMsg(error instanceof Error ? error.message : "読み込みに失敗しました。"); }
-    finally { setDetailLoading(false); }
+    finally { setDetailLoading(false); requestAnimationFrame(() => document.getElementById("contact-detail")?.scrollIntoView({ block: "start" })); }
   }
 
   const tabCounts = contacts.reduce((counts, contact) => {
@@ -396,17 +411,21 @@ export default function ContactsPage() {
     return counts;
   }, { pending: 0, system_registered: 0, other: 0 });
 
+  const guardians = fromSurvey ? surveyLineRecipients(studentNumber,
+    contacts.flatMap(contact => (contact.registered_accounts ?? []).map(account => ({ ...account, line_user_id: contact.line_user_id, friend_display_name: contact.display_name }))),
+    [], contacts).filter(account => account.category === "guardian") : [];
+  function clearFilters() { setSearch(""); setContactTab("all"); setGroupFilter("全て"); }
+  function searchAll(value: string) { setSearch(value); setContactTab("all"); setGroupFilter("全て"); }
+  const normalizeSearch = (value: string | null | undefined) => String(value ?? "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+  const terms = search.normalize("NFKC").trim().split(/\s+/).map(normalizeSearch).filter(Boolean);
   const filtered = contacts.filter((c) => {
     if (contactTab !== "all" && classifyLineContact(c) !== contactTab) return false;
     if (groupFilter !== "全て" && c.group_name !== groupFilter) return false;
-    const q = search.trim().toLowerCase();
+    const q = normalizeSearch(search);
     if (!q) return true;
-    return (
-      (c.alias_name ?? "").toLowerCase().includes(q) ||
-      (c.display_name ?? "").toLowerCase().includes(q) ||
-      (c.registered_accounts ?? []).some((account) => account.student_name.toLowerCase().includes(q) || account.student_number.toLowerCase().includes(q)) ||
-      c.line_user_id.toLowerCase().includes(q)
-    );
+    const fields = [c.alias_name, c.display_name, c.line_user_id,
+      ...(c.registered_accounts ?? []).flatMap(account => [account.student_name, account.student_number])].map(normalizeSearch);
+    return fields.some(field => field.includes(q) || terms.every(term => field.includes(term)));
   });
   return (
     <div className={`shell ${styles.page}`} style={{ maxWidth: 1280 }}>
@@ -426,6 +445,215 @@ export default function ContactsPage() {
         LINEメッセージを確認して生徒・続柄を登録し、確認済みの連絡先を一覧で管理します。候補だけで自動登録されることはありません。
       </p>
 
+      {fromSurvey && <section className={styles.studentContext} aria-label="対象生徒の保護者LINE登録状況">
+        <h2>{studentName || studentNumber}さんの保護者LINEを確認</h2>
+        <p>学籍番号 {studentNumber} に登録された保護者LINE</p>
+        {loading ? <p role="status">登録状況を確認しています…</p> : loadError ? <p>登録状況を取得できませんでした。下の「再試行」を押してください。</p> : <>
+          <p className={styles.registrationCount}>登録済みの保護者LINE：{guardians.length}件</p>
+          {guardians.length ? <ul>{guardians.map(account => <li key={account.id}><strong>{account.label}</strong> — {account.verification === "confirmed" ? "本人確認済み" : "登録済み・本人確認未完了"}</li>)}</ul> : <p>下の検索からお母様などのLINEを探し、生徒・続柄の登録を確認してください。</p>}
+        </>}
+        <p>名前が一致する検索結果でも、この生徒への登録が済んでいるとは限りません。</p>
+        <button type="button" style={btnEdit} onClick={() => { window.close(); setReturnNotice("このタブを閉じて、元の面談タブに戻ってください。"); }}>確認を終えて元の面談タブに戻る</button>
+        <p>面談の入力内容は元のタブに残っています。戻ったら「LINE宛先を読み直す」を押してください。</p>
+        {returnNotice && <p role="status">{returnNotice}</p>}
+      </section>}
+      <section className={styles.searchPanel} aria-label="LINE連絡先の検索">
+      <div className={styles.filters}>
+        <label className={styles.searchLabel} htmlFor="contact-search">LINE連絡先を検索</label>
+        <input
+          id="contact-search"
+          type="search"
+          placeholder="生徒名・学籍番号・LINE表示名・登録名"
+          value={search}
+          onChange={(e) => searchAll(e.target.value)}
+          style={{ ...searchInput, flex: 1 }}
+        />
+        <select
+          aria-label="グループで絞り込み"
+          value={groupFilter}
+          onChange={(e) => setGroupFilter(e.target.value)}
+          style={{ ...inputStyle, width: 160 }}
+        >
+          <option value="全て">グループ: 全て</option>
+          {groups.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
+        </select>
+        <button type="button" style={btnEdit} onClick={clearFilters}>検索・絞り込みをクリア</button>
+        <p className={styles.searchHelp}>入力すると、すべての登録状態・グループから検索します。検索後に絞り込みもできます。</p>
+      </div>
+
+      <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {([
+            ["pending", `要確認 ${tabCounts.pending}`],
+            ["system_registered", `本人確認済み ${tabCounts.system_registered}`],
+            ["other", `取込のみ・その他 ${tabCounts.other}`],
+            ["all", `すべて ${contacts.length}`],
+          ] as [ContactTab, string][]).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={contactTab === value} onClick={() => setContactTab(value)} style={contactTab === value ? btnSave : btnEdit}>{label}</button>
+          ))}
+        </div>
+        <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
+          「本人確認済み」は、スタッフが実際のLINEメッセージを確認し、生徒・続柄を確定した連絡先だけです。LINE管理名を取り込んだだけの連絡先とは分けて表示します。
+        </span>
+      </div>
+
+      </section>
+      {loadError && <div className={styles.error} role="alert">{loadError} <button type="button" style={btnEdit} onClick={() => void fetchContacts()} disabled={loading}>再試行</button></div>}
+      {selectedContact && (
+        <section id="contact-detail" className="panel" style={{ padding: 16, marginBottom: 16, display: "grid", gap: 12, border: "2px solid #67e8f9" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <strong>{selectedContact.alias_name ?? selectedContact.display_name ?? "名前未取得"} の本人確認</strong>
+              <div style={{ color: "var(--muted)", fontSize: "0.76rem", marginTop: 3 }}>LINE表示名：{selectedContact.display_name ?? "未取得"}</div>
+            </div>
+            <button type="button" style={btnCancel} onClick={() => { setSelectedContact(null); setContactDetail(null); }}>閉じる</button>
+          </div>
+          {detailLoading ? <p style={{ color: "var(--muted)" }}>メッセージを読み込んでいます...</p> : contactDetail && (
+            <>
+              <RegistrationLink style={btnSave} entry={{ userId: selectedContact.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, studentNumber: fromSurvey ? studentNumber : undefined, studentName: fromSurvey ? studentName : undefined }}>生徒・続柄・兄弟を登録する</RegistrationLink>
+
+              {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+                <strong>現在の生徒紐付け</strong>
+                {(selectedContact.registered_accounts ?? []).map((account) => <div key={`${account.student_number}-${account.relation}`} style={{ padding: 9, border: "1px solid var(--line)", borderRadius: 6 }}>
+                  {studentEnrollmentLabel(account.enrollment_status)} {account.grade} {account.student_name} / {studentInstructionTypeLabel(account.instruction_type)} / {relationLabel(account.relation)} / {account.alias_name ?? "登録名なし"}
+                  {account.study_room_enabled && " / 自習室利用可"}
+                  <div style={{ color: "var(--muted)", fontSize: "0.72rem" }}>{account.verification_status === "confirmed" ? `本人確認済み：${account.verified_by ?? "確認者不明"} / ${formatDateTime(account.verified_at)}` : "取込・推定による紐付け（本人確認未完了）"}</div>
+                </div>)}
+              </div>}
+
+              {contactDetail.registration_history.length > 0 && <details><summary style={{ cursor: "pointer", fontWeight: 700 }}>登録履歴 {contactDetail.registration_history.length}件</summary>
+                <div style={{ display: "grid", gap: 5, marginTop: 8 }}>{contactDetail.registration_history.map((event) => <div key={event.id} style={{ color: "var(--muted)", fontSize: "0.76rem" }}>{formatDateTime(event.created_at)} / {event.performed_by} / {event.alias_name ?? event.action}</div>)}</div>
+              </details>}
+            </>
+          )}
+          {verificationMsg && <p role="status" style={{ color: verificationMsg.includes("登録しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{verificationMsg}</p>}
+        </section>
+      )}
+
+      {staffRegistrationMode && <div className={styles.staffGuide} role="status">
+        <strong>① LINE名で検索 → ②「先生・スタッフとして登録」→ ③ 登録名を入力して保存</strong>
+        <p>見つからない場合は、下の「LINE登録名を同期する」から連絡先を取得してください。</p>
+        <button type="button" style={btnCancel} onClick={() => { setStaffRegistrationMode(false); }}>登録案内を閉じる</button>
+      </div>}
+      <div className={`panel ${styles.contactPanel}`} style={{ padding: 0, marginTop: 12 }}>
+        {loading ? (
+          <p style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>読み込み中...</p>
+        ) : filtered.length === 0 ? (
+          <div className={styles.emptyState}>
+            <strong>{loadError ? "連絡先を表示できませんでした" : "条件に一致するLINE連絡先がありません"}</strong>
+            <p>生徒名で見つからない場合は、お母様などのLINE表示名・登録名でも探してください。</p>
+            <button type="button" style={btnSave} onClick={clearFilters}>すべてのLINE連絡先を表示</button>
+          </div>
+        ) : (
+          <table className={styles.contactTable} aria-label="連絡先一覧">
+            <thead>
+              <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
+                <Th>LINE名</Th>
+                <Th>確認状態</Th>
+                <Th>登録名</Th>
+                <Th>グループ</Th>
+                <Th>操作</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr
+                  key={c.line_user_id}
+                  style={{
+                    borderBottom: "1px solid var(--line)",
+                    opacity: saving === c.line_user_id ? 0.4 : 1,
+                    transition: "opacity 0.15s",
+                  }}
+                >
+                  <td data-label="LINE名" style={td}>
+                    <div style={{ display: "grid", gap: 3 }}>
+                      <span style={{ color: c.display_name ? "var(--muted)" : "var(--foreground)", fontSize: "0.875rem", fontWeight: c.display_name ? 400 : 700 }}>
+                        {c.display_name ?? c.alias_name ?? "名前未取得"}
+                      </span>
+                      <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
+                        {c.display_name ? "LINE名取得済み" : "LINE名未取得"}
+                      </span>
+                      <span style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: "0.68rem" }}>{c.line_user_id}</span>
+                    </div>
+                  </td>
+                  <td data-label="確認状態" style={td}>
+                    <div className={styles.accountStatus}>
+                      <span>{classifyLineContact(c) === "system_registered" ? "本人確認済み" : classifyLineContact(c) === "pending" ? "メッセージ確認待ち" : "取込のみ・未確認"}</span>
+                      {(c.registered_accounts ?? []).length ? (c.registered_accounts ?? []).map(account => <div key={account.student_number} className={fromSurvey && account.student_number === studentNumber ? styles.targetAccount : undefined}>
+                        <strong>{account.student_name || "氏名未設定"}（{relationLabel(account.relation)}）</strong>
+                        <small>学籍番号 {account.student_number}・{account.grade}・{studentInstructionTypeLabel(account.instruction_type)}</small>
+                        <small>{account.verification_status === "confirmed" ? "本人確認済み" : account.verification_status === "unverified" ? "登録済み・本人確認未完了" : "登録の再確認が必要"}</small>
+                      </div>) : <small>生徒・続柄の登録なし</small>}
+                    </div>
+                  </td>
+                  <td data-label="登録名" style={td}>
+                    <span style={{ fontWeight: c.alias_name ? 600 : 400, color: c.alias_name ? "var(--foreground)" : "var(--muted)" }}>{c.alias_name ?? "—"}</span>
+                  </td>
+                  <td data-label="グループ" style={td}>
+                    {editingGroupId === c.line_user_id ? (
+                      <input
+                        type="text"
+                        aria-label="グループ名"
+                        value={editGroupValue}
+                        onChange={(e) => setEditGroupValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveGroup(c.line_user_id);
+                          if (e.key === "Escape") cancelEditGroup();
+                        }}
+                        placeholder="例: 高3理系"
+                        autoFocus
+                        style={editInput}
+                      />
+                    ) : (
+                      <span style={{ fontWeight: c.group_name ? 600 : 400, color: c.group_name ? "var(--foreground)" : "var(--muted)" }}>
+                        {c.group_name ?? "—"}
+                      </span>
+                    )}
+                  </td>
+                  <td data-label="操作" style={td}>
+                    <div className={styles.actions}>
+                      <RegistrationLink style={btnSave} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, studentNumber: fromSurvey ? studentNumber : undefined, studentName: fromSurvey ? studentName : undefined }}>生徒・保護者の登録を確認・修正</RegistrationLink>
+                      <button onClick={() => void openContactDetail(c)} disabled={detailLoading && selectedContact?.line_user_id === c.line_user_id} style={btnEdit}>メッセージ・履歴</button>
+                      <RegistrationLink style={btnEdit} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, mode: "name" }}>登録名編集</RegistrationLink>
+                      <RegistrationLink style={btnEdit} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, relation: "staff" }}>先生・スタッフとして登録</RegistrationLink>
+                      {c.alias_name && <button onClick={() => void clearAlias(c.line_user_id)} disabled={saving === c.line_user_id} style={btnCancel}>削除</button>}
+                      {editingGroupId === c.line_user_id ? (
+                        <>
+                          <button
+                            onClick={() => saveGroup(c.line_user_id)}
+                            disabled={saving === c.line_user_id}
+                            style={btnSave}
+                          >
+                            保存
+                          </button>
+                          <button onClick={cancelEditGroup} style={btnCancel}>
+                            キャンセル
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => startEditGroup(c)}
+                          disabled={saving === c.line_user_id}
+                          style={btnEdit}
+                        >
+                          グループ編集
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <p style={{ color: "var(--muted)", fontSize: "0.8rem", marginTop: 8 }}>
+        {filtered.length} 件表示 / 全 {contacts.length} 件
+      </p>
+      <section className={styles.management} aria-label="連絡先の管理機能">
+        <h2>同期・取り込み・一斉送信などの管理機能</h2>
       <div style={{ display: "grid", gap: 6, marginBottom: 16, maxWidth: 360 }}>
         <label htmlFor="contact-operator" style={{ fontSize: "0.85rem", fontWeight: 700 }}>操作するスタッフ名</label>
         <input id="contact-operator" value={operatorName} onChange={(event) => updateOperatorName(event.target.value)} placeholder="例：吉川" style={inputStyle} />
@@ -595,186 +823,7 @@ export default function ContactsPage() {
         )}
       </div>
 
-      <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {([
-            ["pending", `要確認 ${tabCounts.pending}`],
-            ["system_registered", `本人確認済み ${tabCounts.system_registered}`],
-            ["other", `取込のみ・その他 ${tabCounts.other}`],
-            ["all", `すべて ${contacts.length}`],
-          ] as [ContactTab, string][]).map(([value, label]) => (
-            <button key={value} type="button" onClick={() => setContactTab(value)} style={contactTab === value ? btnSave : btnEdit}>{label}</button>
-          ))}
-        </div>
-        <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
-          「本人確認済み」は、スタッフが実際のLINEメッセージを確認し、生徒・続柄を確定した連絡先だけです。LINE管理名を取り込んだだけの連絡先とは分けて表示します。
-        </span>
-      </div>
-
-      {selectedContact && (
-        <section className="panel" style={{ padding: 16, marginBottom: 16, display: "grid", gap: 12, border: "2px solid #67e8f9" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div>
-              <strong>{selectedContact.alias_name ?? selectedContact.display_name ?? "名前未取得"} の本人確認</strong>
-              <div style={{ color: "var(--muted)", fontSize: "0.76rem", marginTop: 3 }}>LINE表示名：{selectedContact.display_name ?? "未取得"}</div>
-            </div>
-            <button type="button" style={btnCancel} onClick={() => { setSelectedContact(null); setContactDetail(null); }}>閉じる</button>
-          </div>
-          {detailLoading ? <p style={{ color: "var(--muted)" }}>メッセージを読み込んでいます...</p> : contactDetail && (
-            <>
-              <RegistrationLink style={btnSave} entry={{ userId: selectedContact.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName }}>生徒・続柄・兄弟を登録する</RegistrationLink>
-
-              {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-                <strong>現在の生徒紐付け</strong>
-                {(selectedContact.registered_accounts ?? []).map((account) => <div key={`${account.student_number}-${account.relation}`} style={{ padding: 9, border: "1px solid var(--line)", borderRadius: 6 }}>
-                  {studentEnrollmentLabel(account.enrollment_status)} {account.grade} {account.student_name} / {studentInstructionTypeLabel(account.instruction_type)} / {relationLabel(account.relation)} / {account.alias_name ?? "登録名なし"}
-                  {account.study_room_enabled && " / 自習室利用可"}
-                  <div style={{ color: "var(--muted)", fontSize: "0.72rem" }}>{account.verification_status === "confirmed" ? `本人確認済み：${account.verified_by ?? "確認者不明"} / ${formatDateTime(account.verified_at)}` : "取込・推定による紐付け（本人確認未完了）"}</div>
-                </div>)}
-              </div>}
-
-              {contactDetail.registration_history.length > 0 && <details><summary style={{ cursor: "pointer", fontWeight: 700 }}>登録履歴 {contactDetail.registration_history.length}件</summary>
-                <div style={{ display: "grid", gap: 5, marginTop: 8 }}>{contactDetail.registration_history.map((event) => <div key={event.id} style={{ color: "var(--muted)", fontSize: "0.76rem" }}>{formatDateTime(event.created_at)} / {event.performed_by} / {event.alias_name ?? event.action}</div>)}</div>
-              </details>}
-            </>
-          )}
-          {verificationMsg && <p role="status" style={{ color: verificationMsg.includes("登録しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{verificationMsg}</p>}
-        </section>
-      )}
-
-      {staffRegistrationMode && <div className={styles.staffGuide} role="status">
-        <strong>① LINE名で検索 → ②「先生・スタッフとして登録」→ ③ 登録名を入力して保存</strong>
-        <p>見つからない場合は、上の「LINE登録名を同期する」から連絡先を取得してください。</p>
-        <button type="button" style={btnCancel} onClick={() => { setStaffRegistrationMode(false); }}>登録案内を閉じる</button>
-      </div>}
-      <div className={styles.filters}>
-        <input
-          id="contact-search"
-          aria-label="連絡先を名前で検索"
-          type="text"
-          placeholder="名前で検索…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ ...searchInput, flex: 1 }}
-        />
-        <select
-          value={groupFilter}
-          onChange={(e) => setGroupFilter(e.target.value)}
-          style={{ ...inputStyle, width: 160 }}
-        >
-          <option value="全て">グループ: 全て</option>
-          {groups.map((g) => (
-            <option key={g} value={g}>{g}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className={`panel ${styles.contactPanel}`} style={{ padding: 0, marginTop: 12 }}>
-        {loading ? (
-          <p style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>読み込み中...</p>
-        ) : filtered.length === 0 ? (
-          <p style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>該当なし</p>
-        ) : (
-          <table className={styles.contactTable} aria-label="連絡先一覧">
-            <thead>
-              <tr style={{ background: "var(--background)", borderBottom: "1px solid var(--line)" }}>
-                <Th>LINE名</Th>
-                <Th>確認状態</Th>
-                <Th>登録名</Th>
-                <Th>グループ</Th>
-                <Th>操作</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => (
-                <tr
-                  key={c.line_user_id}
-                  style={{
-                    borderBottom: "1px solid var(--line)",
-                    opacity: saving === c.line_user_id ? 0.4 : 1,
-                    transition: "opacity 0.15s",
-                  }}
-                >
-                  <td data-label="LINE名" style={td}>
-                    <div style={{ display: "grid", gap: 3 }}>
-                      <span style={{ color: c.display_name ? "var(--muted)" : "var(--foreground)", fontSize: "0.875rem", fontWeight: c.display_name ? 400 : 700 }}>
-                        {c.display_name ?? c.alias_name ?? "名前未取得"}
-                      </span>
-                      <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
-                        {c.display_name ? "LINE名取得済み" : "LINE名未取得"}
-                      </span>
-                      <span style={{ color: "var(--muted)", fontFamily: "Consolas, monospace", fontSize: "0.68rem" }}>{c.line_user_id}</span>
-                    </div>
-                  </td>
-                  <td data-label="確認状態" style={td}>
-                    {classifyLineContact(c) === "system_registered" ? <div style={{ display: "grid", gap: 3 }}><span style={{ ...statusBadge("same_existing"), color: "#087a3d" }}>本人確認済み</span><span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>{(c.registered_accounts ?? []).map((account) => `${account.grade} ${account.student_name}・${studentInstructionTypeLabel(account.instruction_type)}（${relationLabel(account.relation)}）`).join(" / ")}</span></div>
-                      : classifyLineContact(c) === "pending" ? <span style={{ ...statusBadge("different_existing"), color: "#9a3412" }}>メッセージ確認待ち</span>
-                      : <span style={{ ...statusBadge("unmatched"), color: "#555" }}>取込のみ・未確認</span>}
-                  </td>
-                  <td data-label="登録名" style={td}>
-                    <span style={{ fontWeight: c.alias_name ? 600 : 400, color: c.alias_name ? "var(--foreground)" : "var(--muted)" }}>{c.alias_name ?? "—"}</span>
-                  </td>
-                  <td data-label="グループ" style={td}>
-                    {editingGroupId === c.line_user_id ? (
-                      <input
-                        type="text"
-                        aria-label="グループ名"
-                        value={editGroupValue}
-                        onChange={(e) => setEditGroupValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") saveGroup(c.line_user_id);
-                          if (e.key === "Escape") cancelEditGroup();
-                        }}
-                        placeholder="例: 高3理系"
-                        autoFocus
-                        style={editInput}
-                      />
-                    ) : (
-                      <span style={{ fontWeight: c.group_name ? 600 : 400, color: c.group_name ? "var(--foreground)" : "var(--muted)" }}>
-                        {c.group_name ?? "—"}
-                      </span>
-                    )}
-                  </td>
-                  <td data-label="操作" style={td}>
-                    <div className={styles.actions}>
-                      {classifyLineContact(c) === "pending" && <RegistrationLink style={btnSave} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName }}>生徒本人・保護者を登録</RegistrationLink>}
-                      <button onClick={() => void openContactDetail(c)} disabled={detailLoading && selectedContact?.line_user_id === c.line_user_id} style={btnEdit}>メッセージ・履歴</button>
-                      <RegistrationLink style={btnEdit} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, mode: "name" }}>登録名編集</RegistrationLink>
-                      <RegistrationLink style={btnEdit} entry={{ userId: c.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, relation: "staff" }}>先生・スタッフとして登録</RegistrationLink>
-                      {c.alias_name && <button onClick={() => void clearAlias(c.line_user_id)} disabled={saving === c.line_user_id} style={btnCancel}>削除</button>}
-                      {editingGroupId === c.line_user_id ? (
-                        <>
-                          <button
-                            onClick={() => saveGroup(c.line_user_id)}
-                            disabled={saving === c.line_user_id}
-                            style={btnSave}
-                          >
-                            保存
-                          </button>
-                          <button onClick={cancelEditGroup} style={btnCancel}>
-                            キャンセル
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => startEditGroup(c)}
-                          disabled={saving === c.line_user_id}
-                          style={btnEdit}
-                        >
-                          グループ編集
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-      <p style={{ color: "var(--muted)", fontSize: "0.8rem", marginTop: 8 }}>
-        {filtered.length} 件表示 / 全 {contacts.length} 件
-      </p>
+      </section>
     </div>
   );
 }
