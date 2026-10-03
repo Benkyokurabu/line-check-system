@@ -246,13 +246,12 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(Object.keys(saved).sort()).toEqual([
     `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
     `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,
-    `${folderName}/hokushin-${'a'.repeat(64)}.pdf`, `${folderName}/hokushin-${'b'.repeat(64)}.pdf`,
     `${folderName}/面談記録.txt`, `${folderName}/生徒情報・注意点.txt`, `${folderName}/資料一覧.txt`,
     `${folderName}/面談資料.html`, `${folderName}/保存情報.json`, `${folderName}/AI要約.js`,
   ].sort());
   expect(saved[`${folderName}/面談資料.html`]).toContain('file:`material-${tab}.pdf`');
-  expect(saved[`${folderName}/面談資料.html`]).toContain('"schoolLibrary":[{"id":');
-  expect(saved[`${folderName}/面談資料.html`]).toContain(`hokushin-${'b'.repeat(64)}.pdf`);
+  expect(saved[`${folderName}/面談資料.html`]).not.toContain('"schoolLibrary":');
+  expect(Object.keys(saved).some(name => name.includes('/hokushin-'))).toBe(false);
   expect(saved[`${folderName}/面談資料.html`]).toContain('staff-bundle.pdf#zoom=100&navpanes=0');
   expect(saved[`${folderName}/面談資料.html`]).toContain('面談アンケート回答');
   expect(saved[`${folderName}/面談資料.html`]).toContain('"kind":"塾内成績"');
@@ -262,11 +261,14 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(saved[`${folderName}/生徒情報・注意点.txt`]).toContain('面談連絡は保護者へ。');
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);
-  await page.route('**/api/staff/interview-material-school-library', route => route.fulfill({ status: 503, json: { error: '学校一覧を取得できませんでした。' } }));
+  let studentLibraryReads = 0;
+  await page.route('**/api/staff/interview-material-school-library', route => {
+    studentLibraryReads++;
+    return route.fulfill({ status: 503, json: { error: '学校一覧を取得できませんでした。' } });
+  });
   await page.getByRole('button', { name: /面談用フォルダを保存/ }).click();
-  await expect(page.getByText('学校一覧を取得できませんでした。')).toBeVisible();
-  const afterFailedSave = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
-  expect(afterFailedSave).toEqual(saved);
+  await expect(page.getByRole('status').filter({ hasText: '面談資料.html' })).toBeVisible();
+  expect(studentLibraryReads).toBe(0);
 });
 
 test('the school library requires a staff login', async ({ request }) => {

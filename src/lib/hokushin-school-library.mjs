@@ -29,3 +29,15 @@ export function filterHokushinSchools(items, query, category = '全て') {
   return items.filter(item => (category === '全て' || item.category === category)
     && tokens.every(token => schoolSearchKey(`${item.school}${item.reading}`).includes(token)));
 }
+
+export function renderOfflineSchoolLibrary(template, items, capturedAt) {
+  if (!template.includes('__SCHOOLS_JSON__') || !template.includes('__CAPTURED_AT_JSON__')
+    || !Array.isArray(items) || !items.length || items.length > 1500
+    || items.some(item => !/^[a-f0-9]{64}$/.test(item.id) || typeof item.school !== 'string'
+      || typeof item.reading !== 'string' || !['公立', '私立', 'その他'].includes(item.category) || !Number.isInteger(item.year)))
+    throw Error('北辰基礎資料のHTMLを作成できませんでした。');
+  const json = value => JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026').replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
+  const local = items.map(({ id, school, reading, category, year }) => ({ id, school, reading, category, year, file: `pdf/${id}.pdf` }));
+  return template.replace('__SCHOOLS_JSON__', json(local)).replace('__CAPTURED_AT_JSON__', json(capturedAt));
+}

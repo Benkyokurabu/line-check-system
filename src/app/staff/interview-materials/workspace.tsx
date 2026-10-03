@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import styles from './workspace.module.css';
 import MaterialPdfViewer from './material-pdf-viewer';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
-import { canSaveOfflineFolder, downloadInterviewPdf, saveInterviewFolder, updateInterviewFolderSummary } from './save-offline-folder';
+import { canSaveOfflineFolder, downloadInterviewPdf, saveInterviewFolder, saveSchoolLibraryFolder, updateInterviewFolderSummary } from './save-offline-folder';
 
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
@@ -45,6 +45,11 @@ export default function MaterialsDesk() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [schoolViewerOpen, setSchoolViewerOpen] = useState(false);
+  const schoolViewerButtonRef = useRef<HTMLButtonElement>(null);
+  const [schoolFolderBusy, setSchoolFolderBusy] = useState(false);
+  const [schoolFolderMessage, setSchoolFolderMessage] = useState('');
+  const [schoolFolderFailed, setSchoolFolderFailed] = useState(false);
   const [materialContext, setMaterialContext] = useState<MaterialContext | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState('');
@@ -292,6 +297,17 @@ export default function MaterialsDesk() {
       else { setDownloadFailed(true); setDownloadMessage(requestError(error)); }
     } finally { setFolderBusy(false); }
   }
+  async function saveSchoolFolder() {
+    if (schoolFolderBusy) return;
+    setSchoolFolderBusy(true); setSchoolFolderFailed(false); setSchoolFolderMessage('');
+    try {
+      const name = await saveSchoolLibraryFolder(setSchoolFolderMessage);
+      setSchoolFolderMessage(`「${name}」フォルダを保存しました。「北辰基礎資料.html」を開けば、全学校・学科をネット接続なしで閲覧できます。生徒フォルダごとに保存する必要はありません。`);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') setSchoolFolderMessage('保存を取り消しました。');
+      else { setSchoolFolderFailed(true); setSchoolFolderMessage(requestError(error)); }
+    } finally { setSchoolFolderBusy(false); }
+  }
   async function updateSavedSummary() {
     if (!selected || summarySaveBusy) return;
     setSummarySaveBusy(true);setSummarySaveMessage('');
@@ -308,6 +324,15 @@ export default function MaterialsDesk() {
       <button disabled={busy || loginTeachers.length === 0}>ログイン</button>
     </form> : <>
       <p role="status" className={styles.note}>{workerStatus} <button type="button" onClick={() => void refreshWorkers()}>稼働状況を再確認</button></p>
+      <section className={styles.card} aria-label="共通の北辰基礎資料"><h2>北辰基礎資料（全学校）</h2>
+        <p>面談中にほかの学校を見たいときは、こちらを開いてください。生徒を選ぶ前でも使えます。</p>
+        <div className={styles.actions}>
+          <button type="button" ref={schoolViewerButtonRef} onClick={() => setSchoolViewerOpen(true)}>北辰基礎資料を見る</button>
+          <button type="button" disabled={!folderSupported || schoolFolderBusy} onClick={() => void saveSchoolFolder()}>{schoolFolderBusy ? '北辰用フォルダを保存中…' : '北辰用フォルダを保存'}</button>
+        </div>
+        <p className={styles.note}>全学校のPDFは「北辰基礎資料」フォルダに1セットだけ保存します（約750MB）。保存後は、その中の「北辰基礎資料.html」を必要なときに開いてください。2回目以降は確認済みのPDFを再利用します。{!folderSupported && 'フォルダ保存はChromeまたはEdgeで利用できます。'}</p>
+        {schoolFolderMessage && <p role={schoolFolderFailed ? 'alert' : 'status'} className={schoolFolderFailed ? styles.error : styles.note}>{schoolFolderMessage}</p>}
+      </section>
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
         <div className={styles.studentFilters}>
           <label>担任<select value={teacherFilter} onChange={event => { setTeacherFilter(event.target.value); setDisplayLimit(30); }}><option value="">すべての担任</option>{teachers.map(teacher => <option key={teacher} value={teacher}>{teacher}先生</option>)}</select></label>
@@ -428,7 +453,7 @@ export default function MaterialsDesk() {
             <button type="button" disabled={!folderJob || downloadBusy || folderBusy} onClick={() => void savePdf()}>{downloadBusy ? '一式PDFを保存中…' : '一式PDFをダウンロード'}<small>印刷にも使える1つのPDF</small></button>
             <button type="button" disabled={!folderJob || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダを保存'}<small>生徒名のフォルダにHTML・全PDF・記録を保存</small></button>
           </div>
-          <p className={styles.note}>{folderSupported ? 'フォルダ保存では保存先を選びます。北辰基礎資料は全学校・学科も保存するため、取得に時間がかかります。面談中はフォルダ内の「面談資料.html」を開けば、ネット接続なしで学校の目次・資料・面談記録・生徒情報を確認できます。AI要約は完成済みの場合に含まれます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
+          <p className={styles.note}>{folderSupported ? '生徒用フォルダには、選んだ面談資料・面談記録・生徒情報を保存します。「面談資料.html」を開けばネット接続なしで確認できます。全学校の北辰基礎資料は、画面上部の「北辰用フォルダを保存」で別に1セットだけ保存できます。AI要約は完成済みの場合に含まれます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
         </div>}
         {downloadMessage && <p role="status" className={downloadFailed ? styles.error : styles.note}>{downloadMessage}</p>}
         {savedFile && <p role="status">{cloudSynced ? '作成PCとOneDriveのクラウドに保存しました' : '作成PCのOneDriveフォルダに保存しました'}：{savedFile}。別PCで開く前にOneDriveの同期完了を確認してください。</p>}
@@ -441,6 +466,10 @@ export default function MaterialsDesk() {
         setViewerOpen(false);
         requestAnimationFrame(() => viewerButtonRef.current?.focus());
       }} context={materialContext} contextLoading={contextLoading} contextError={contextError} showPastSchools={Boolean(showPastSchools)} onNeedInfoSummary={needInfoSummary} />}
+      <MaterialPdfViewer items={[]} pdfUrl="" schoolLibraryOnly open={schoolViewerOpen} onClose={() => {
+        setSchoolViewerOpen(false);
+        requestAnimationFrame(() => schoolViewerButtonRef.current?.focus());
+      }} context={null} contextLoading={false} contextError="" showPastSchools={false} onNeedInfoSummary={() => {}} />
     </>}
   </main>;
 }

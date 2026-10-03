@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>北辰基礎資料</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f9f7;color:#173d43;font-family:system-ui,-apple-system,"Yu Gothic",sans-serif}button,input,select,a{font:inherit}button,a{touch-action:manipulation}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #147b83;outline-offset:3px}button{cursor:pointer}button:disabled{cursor:default;opacity:.5}[hidden]{display:none!important}.header{padding:16px 24px;background:#fff;border-bottom:1px solid #c7dcd6;display:flex;align-items:center;gap:20px}.header h1{font-size:1.4rem;margin:0}.header p{margin:4px 0 0;color:#536870;font-size:.85rem}.back,.pdf-actions a,.pdf-actions button{min-height:44px;padding:10px 14px;border:1px solid #07586b;border-radius:9px;background:#fff;color:#07586b;font-weight:700;text-decoration:none}.back{background:#07586b;color:#fff}.contents{max-width:1180px;margin:auto;padding:28px 24px 50px}.contents h2{margin:0 0 10px;font-size:1.35rem}.intro{line-height:1.7;color:#536870}.filters{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:16px;margin:22px 0 14px}.filters label{font-weight:700}.filters input,.filters select{display:block;width:100%;min-height:48px;margin-top:7px;padding:10px 12px;border:1px solid #9fbcb7;border-radius:9px;background:#fff;color:#173d43}.school-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:12px}.school-list button{position:relative;display:flex;flex-direction:column;gap:7px;min-height:85px;padding:16px 65px 16px 16px;border:1px solid #b6d0ca;border-radius:11px;background:#fff;color:#173d43;text-align:left}.school-list button:hover{background:#eaf7f3;border-color:#07586b}.school-list small{color:#536870}.school-list span{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:.85rem;font-weight:700;color:#07586b}.empty{padding:22px;background:#fff;border-radius:10px}.pdf-view{height:calc(100dvh - 88px);display:flex;flex-direction:column}.pdf-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 24px;background:#fff;border-bottom:1px solid #c7dcd6}.pdf-actions h2{margin:0 auto 0 0;font-size:1rem;overflow-wrap:anywhere}.pdf-actions a,.pdf-actions button{font-size:.85rem}.pdf-frame{flex:1;min-height:0;width:100%;border:0;background:#dce7e5}.help{margin:0;padding:7px 24px;background:#fff;color:#536870;font-size:.8rem}.captured{margin-top:28px;color:#536870;font-size:.8rem}@media(max-width:700px){.header{padding:12px 16px;gap:12px;flex-wrap:wrap}.header h1{font-size:1.1rem}.header p{font-size:.78rem}.contents{padding:22px 16px}.filters{gap:10px;grid-template-columns:minmax(0,1fr) 110px}.school-list{grid-template-columns:1fr}.pdf-actions{padding:10px 16px}.pdf-actions h2{width:100%}.pdf-actions button,.pdf-actions a{padding:8px;font-size:.78rem}.pdf-view{height:calc(100dvh - 120px)}.help{padding:7px 16px}}
+</style>
+</head>
+<body>
+<header class="header"><button class="back" id="back" type="button" hidden>← 学校の目次に戻る</button><div><h1>北辰基礎資料</h1><p>全学校・学科の資料を、このフォルダだけで閲覧できます。</p></div></header>
+<main>
+<section class="contents" id="contents" aria-label="北辰基礎資料の目次">
+  <h2>学校の目次</h2><p class="intro">見たい学校を選んでください。学校ごとに新しい年度の資料を優先し、各資料に年度を表示しています。生徒の面談資料とは別に、必要なときにこのHTMLを開いて使えます。</p>
+  <div class="filters"><label>学校名で検索<input id="query" type="search" placeholder="例：川口、叡明"></label><label>学校の種類<select id="category"><option>全て</option><option>公立</option><option>私立</option><option>その他</option></select></label></div>
+  <p id="count" role="status"></p><div class="school-list" id="school-list"></div><p id="empty" class="empty" hidden>該当する学校はありません。学校名や絞り込みを変更してください。</p>
+  <p class="captured" id="captured"></p>
+</section>
+<section class="pdf-view" id="pdf-view" aria-label="北辰基礎資料のプレビュー" hidden>
+  <div class="pdf-actions"><h2 id="pdf-title" tabindex="-1"></h2><button id="previous" type="button">← 前の資料</button><button id="next" type="button">次の資料 →</button><a id="direct" target="_blank" rel="noopener">PDFを別タブで開く・印刷</a></div>
+  <iframe class="pdf-frame" id="pdf-frame" title="北辰基礎資料のPDF"></iframe>
+  <p class="help">枠内に表示されない場合は「PDFを別タブで開く・印刷」から確認できます。別タブから戻るときは、元の北辰基礎資料のタブを選んでください。</p>
+</section>
+</main>
+<script>
+const schools=__SCHOOLS_JSON__,capturedAt=__CAPTURED_AT_JSON__;
+const contents=document.getElementById('contents'),pdfView=document.getElementById('pdf-view'),back=document.getElementById('back'),query=document.getElementById('query'),category=document.getElementById('category'),list=document.getElementById('school-list'),frame=document.getElementById('pdf-frame');
+let matches=[],selected=null;
+function key(value){return String(value).normalize('NFKC').toLowerCase().replace(/[ァ-ヶ]/g,char=>String.fromCharCode(char.charCodeAt(0)-0x60)).replace(/[\s　]/g,'')}
+function text(parent,tag,value){const element=document.createElement(tag);element.textContent=value;parent.append(element);return element}
+function render(){const terms=key(query.value).split(/[、,]/).filter(Boolean);matches=schools.filter(item=>(category.value==='全て'||category.value===item.category)&&terms.every(term=>key(`${item.school}${item.reading||''}`).includes(term)));document.getElementById('count').textContent=`${matches.length}件 / 全${schools.length}件`;document.getElementById('empty').hidden=matches.length>0;list.replaceChildren();for(const item of matches){const button=document.createElement('button');button.type='button';button.dataset.id=item.id;button.setAttribute('aria-label',`${item.school}の北辰基礎資料を表示`);text(button,'strong',item.school);text(button,'small',`${item.category} ／ ${item.year}年度`);const arrow=text(button,'span','開く →');arrow.setAttribute('aria-hidden','true');button.onclick=()=>show(item);list.append(button)}}
+function show(item){selected=item;contents.hidden=true;pdfView.hidden=false;back.hidden=false;document.getElementById('pdf-title').textContent=`${item.school} ／ ${item.year}年度`;frame.src=`${item.file}#zoom=100&navpanes=0`;frame.title=`${item.school}の北辰基礎資料`;document.getElementById('direct').href=item.file;const index=matches.findIndex(row=>row.id===item.id);document.getElementById('previous').disabled=index<=0;document.getElementById('next').disabled=index<0||index>=matches.length-1;document.getElementById('pdf-title').focus();window.scrollTo(0,0)}
+function showContents(){pdfView.hidden=true;contents.hidden=false;back.hidden=true;frame.removeAttribute('src');const button=Array.from(list.querySelectorAll('button')).find(item=>item.dataset.id===selected?.id);(button||query).focus()}
+query.oninput=render;category.onchange=render;back.onclick=showContents;
+document.getElementById('previous').onclick=()=>{const index=matches.findIndex(item=>item.id===selected?.id);if(index>0)show(matches[index-1])};
+document.getElementById('next').onclick=()=>{const index=matches.findIndex(item=>item.id===selected?.id);if(index>=0&&index<matches.length-1)show(matches[index+1])};
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!pdfView.hidden)showContents()});
+document.getElementById('captured').textContent=`全${schools.length}件 ／ 保存時点：${capturedAt?new Date(capturedAt).toLocaleString('ja-JP'):'記録なし'}。別のPCでは、このフォルダを丸ごとコピーして「北辰基礎資料.html」を開いてください。`;
+render();
+</script>
+</body></html>

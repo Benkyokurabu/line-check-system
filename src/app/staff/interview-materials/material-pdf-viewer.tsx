@@ -10,20 +10,28 @@ import { filterHokushinSchools } from '@/lib/hokushin-school-library.mjs';
 type Item = { label: string; source?: string; previewUrl?: string };
 type Active = number | 'records' | 'info' | 'schools' | `school:${string}`;
 type Props = { items: Item[]; pdfUrl: string; open: boolean; onClose: () => void;
-  context: MaterialContext | null; contextLoading: boolean; contextError: string; showPastSchools: boolean; onNeedInfoSummary: () => void };
+  context: MaterialContext | null; contextLoading: boolean; contextError: string; showPastSchools: boolean; onNeedInfoSummary: () => void; schoolLibraryOnly?: boolean };
 const viewerUrl = (url: string) => `${url.split('#')[0]}#zoom=100&navpanes=0`;
 
-export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, context, contextLoading, contextError, showPastSchools, onNeedInfoSummary }: Props) {
+export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, context, contextLoading, contextError, showPastSchools, onNeedInfoSummary, schoolLibraryOnly = false }: Props) {
   const separate = items.length > 0 && items.every(item => Boolean(item.previewUrl));
-  const [active, setActive] = useState<Active>(0);
+  const [active, setActive] = useState<Active>(schoolLibraryOnly ? 'schools' : 0);
   const [hovered, setHovered] = useState<number | null>(null);
   const [cached, setCached] = useState<number[]>(() => items.slice(0, 8).map((_, index) => index));
   const [schools, setSchools] = useState<SchoolLibraryItem[] | null>(null);
-  const [schoolLoading, setSchoolLoading] = useState(false);
+  const [schoolLoading, setSchoolLoading] = useState(schoolLibraryOnly);
   const [schoolError, setSchoolError] = useState('');
   const [schoolQuery, setSchoolQuery] = useState('');
   const [schoolCategory, setSchoolCategory] = useState('全て');
-  const tabs: Active[] = [...items.map((_, index) => index), 'schools', 'records', 'info'];
+  const tabs: Active[] = schoolLibraryOnly ? ['schools'] : [...items.map((_, index) => index), 'schools', 'records', 'info'];
+  useEffect(() => {
+    if (!schoolLibraryOnly || !open) return;
+    const controller = new AbortController();
+    void fetchSchoolLibrary(AbortSignal.any([controller.signal, AbortSignal.timeout(65000)]))
+      .then(value => { setSchools(value); setSchoolError(''); setSchoolLoading(false); })
+      .catch(error => { if (!controller.signal.aborted) { setSchoolError(error instanceof Error ? error.message : '学校一覧を読み込めませんでした。'); setSchoolLoading(false); } });
+    return () => controller.abort();
+  }, [schoolLibraryOnly, open]);
   useEffect(() => {
     if (!open) return;
     const oldOverflow = document.body.style.overflow;
@@ -53,14 +61,14 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
     : active === 'records' ? '面談記録' : active === 'info' ? '情報' : selected?.label || '一式PDF';
   const sourceUrl = active === 'schools' ? null : active === 'records' ? context?.records[0]?.url : active === 'info' ? context?.studentUrl : viewerUrl(selectedUrl);
   const shownSchools = filterHokushinSchools(schools || [], schoolQuery, schoolCategory) as SchoolLibraryItem[];
-  return <div className={styles.viewerOverlay} role="dialog" aria-modal={open ? 'true' : undefined} aria-label="面談資料のプレビュー" aria-hidden={!open} style={{ display: open ? undefined : 'none' }}>
+  return <div className={styles.viewerOverlay} role="dialog" aria-modal={open ? 'true' : undefined} aria-label={schoolLibraryOnly ? '北辰基礎資料のプレビュー' : '面談資料のプレビュー'} aria-hidden={!open} style={{ display: open ? undefined : 'none' }}>
     <header className={styles.viewerHeader}>
-      <button className={styles.viewerBack} type="button" onClick={onClose}>← 完成した資料に戻る</button>
+      <button className={styles.viewerBack} type="button" onClick={onClose}>{schoolLibraryOnly ? '← 面談資料の画面に戻る' : '← 完成した資料に戻る'}</button>
       <strong>{title}</strong>
       <div><button type="button" onClick={() => select('schools')}>北辰基礎資料の目次</button>{sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer">{typeof active === 'number' || selectedSchool ? 'このPDFを別画面で開く' : 'Notionの原本を開く'}</a>}</div>
     </header>
     <div className={styles.viewerBody}>
-      {separate ? items.map((item, index) => cached.includes(index) && <iframe key={index} className={styles.viewerFrame} data-active={active === index ? 'true' : 'false'} src={viewerUrl(item.previewUrl!)} title={`${item.label}のPDFプレビュー`} tabIndex={active === index && open ? 0 : -1} aria-hidden={active !== index || !open} />) : <iframe className={styles.viewerFrame} data-active={typeof active === 'number' ? 'true' : 'false'} src={viewerUrl(pdfUrl)} title="一式PDFのプレビュー" tabIndex={typeof active === 'number' && open ? 0 : -1} />}
+      {pdfUrl && (separate ? items.map((item, index) => cached.includes(index) && <iframe key={index} className={styles.viewerFrame} data-active={active === index ? 'true' : 'false'} src={viewerUrl(item.previewUrl!)} title={`${item.label}のPDFプレビュー`} tabIndex={active === index && open ? 0 : -1} aria-hidden={active !== index || !open} />) : <iframe className={styles.viewerFrame} data-active={typeof active === 'number' ? 'true' : 'false'} src={viewerUrl(pdfUrl)} title="一式PDFのプレビュー" tabIndex={typeof active === 'number' && open ? 0 : -1} />)}
       {selectedSchool && <iframe key={selectedSchool.id} className={styles.viewerFrame} data-active="true" src={viewerUrl(selectedSchool.previewUrl)} title={`${selectedSchool.school}の北辰基礎資料`} />}
       {active === 'schools' && <section className={styles.viewerTextPanel} aria-label="北辰基礎資料の目次">
         <h2>北辰基礎資料の目次</h2><p>全学校・学科から選べます。学校ごとに新しい年度を優先しています。</p>

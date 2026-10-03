@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterHokushinSchools, validateHokushinCatalog } from '../src/lib/hokushin-school-library.mjs';
+import { filterHokushinSchools, renderOfflineSchoolLibrary, validateHokushinCatalog } from '../src/lib/hokushin-school-library.mjs';
 import { teacherRouteAllowed } from '../src/lib/staff-teacher-route-access.mjs';
 
 const item = { id: 'a'.repeat(64), school: '川口（普通）', reading: 'か川口（普通）', category: '公立', year: 2027,
@@ -23,4 +23,14 @@ test('search matches partial school and course names, kana and category', () => 
 test('shared teacher accounts may access only the exact school library endpoint', () => {
   assert.equal(teacherRouteAllowed('/api/staff/interview-material-school-library'), true);
   assert.equal(teacherRouteAllowed('/api/staff/interview-material-school-library/admin'), false);
+});
+test('standalone HTML contains only local school references and safely escapes school names', () => {
+  const html = renderOfflineSchoolLibrary('__SCHOOLS_JSON__; __CAPTURED_AT_JSON__',
+    [{ ...item, school: '</script><script>alert(1)</script>', previewUrl: 'https://secret.example/signed', studentNumber: '2018998' }], '2026-10-03');
+  assert.ok(html.includes(`pdf/${item.id}.pdf`));
+  assert.ok(html.includes('\\u003c'));
+  assert.ok(!html.includes('</script>'));
+  assert.ok(!html.includes('secret.example'));
+  assert.ok(!html.includes('2018998'));
+  assert.throws(() => renderOfflineSchoolLibrary('__ITEMS_JSON__', [item], '2026-10-03'));
 });
