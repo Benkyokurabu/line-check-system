@@ -1,5 +1,34 @@
 import {test,expect} from '@playwright/test';
 
+for(const embedded of [true,false])for(const expiredInitially of [true,false])test(`inline relogin preserves interview drafts (initial expiry: ${expiredInitially}, embedded: ${embedded})`,async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ let authenticated=!expiredInitially,mutations=0,logins=0;
+ const answer='11111111-1111-4111-8111-111111111111';
+ await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill(authenticated?{json:{student:{name:'架空 花子',number:'2019001',grade:'中2'},staffName:'工藤',survey:{id:answer,url:'https://example.invalid',date:'2026-10-03',time:'',editedAt:'v1'},accounts:[],record:{id:'record',body:'保存済み',blockId:'block',blockEditedAt:'v1',editable:true}}}:{status:401,json:{error:'ログインしなおしてください。'}}));
+ await page.route('**/api/staff/survey-workflow',route=>{mutations++;return route.fulfill({status:401,json:{error:'ログインしなおしてください。'}});});
+ await page.route('**/api/staff/session',route=>{
+  expect(route.request().method()).toBe('POST');const body=route.request().postDataJSON();expect(body.staffCode).toBe('KUDO');
+  logins++;if(body.password==='wrong')return route.fulfill({status:401,json:{error:'パスワードを確認してください。'}});
+  authenticated=true;return route.fulfill({json:{staff:{staffCode:'KUDO'}}});
+ });
+ if(embedded){
+  await page.route('**/api/interview-surveys',route=>route.fulfill({json:{groups:[{teacher:'工藤',students:[{grade:'中2',name:'架空 花子',notionUrl:`https://app.notion.com/p/${answer.replaceAll('-','')}`,submittedAt:'2026-10-01T00:00:00Z'}]}]}}));
+  await page.route('**/api/interview-surveys/confirmations',route=>route.fulfill({json:{states:[]}}));
+  await page.route('**/api/interview-surveys/scheduling',route=>route.fulfill({json:{states:{}}}));
+  await page.goto('/');await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');await page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'}).click();
+ }else await page.goto(`/staff/survey-workflow?answer=${answer}`);
+ if(!expiredInitially){if(embedded)await page.getByRole('button',{name:'面談記録',exact:true}).click();await page.getByLabel('面談内容',{exact:true}).fill('未保存の面談メモ');authenticated=false;await page.getByRole('button',{name:'面談記録を更新'}).click();}
+ const form=page.getByRole('form',{name:'面談の職員ログイン'});
+ await expect(form).toBeVisible();await form.getByRole('button',{name:'工藤さんの入口',exact:true}).click();
+ if(embedded&&expiredInitially)await page.screenshot({path:'analysis_outputs/survey-relogin-mobile.png',fullPage:true});
+ await form.getByLabel('パスワード').fill('wrong');await form.getByRole('button',{name:'ログインして面談を再開'}).click();
+ await expect(page.getByRole('region',{name:'面談入力'}).getByRole('alert')).toContainText('パスワードを確認');await expect(form.getByLabel('パスワード')).toHaveValue('');
+ await form.getByLabel('パスワード').fill('isolated-test');await form.getByRole('button',{name:'ログインして面談を再開'}).click();
+ await expect(form).toHaveCount(0);if(embedded&&expiredInitially)await page.getByRole('button',{name:'面談記録',exact:true}).click();await expect(page.getByLabel('面談内容',{exact:true})).toHaveValue(expiredInitially?'保存済み':'未保存の面談メモ');
+ expect(mutations).toBe(expiredInitially?0:1);expect(logins).toBe(2);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});
+
 test('mobile survey workflow saves the date and previews only checked LINE recipients',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  let date='',recordBody='',sendCalls=0;

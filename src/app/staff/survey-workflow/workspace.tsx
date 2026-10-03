@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
+import StaffEntry from '../self-study-room/staff-entry';
 import styles from './workspace.module.css';
 
 type Account={id:string;relation:string;label:string};
@@ -27,6 +28,7 @@ function summaryText(body:string,account:Account,selected:Account[],studentName:
 export default function Workspace({answerId,embedded=false,onSaved}:{answerId:string;embedded?:boolean;onSaved?:()=>void}){
  const [tab,setTab]=useState<'date'|'record'|'summary'>('date');
  const [draftNotice,setDraftNotice]=useState('');
+ const [authRequired,setAuthRequired]=useState(false),[code,setCode]=useState(''),[password,setPassword]=useState('');
  const [time,setTime]=useState('');
  const hydrated=useRef(false);
  const draftKey=`bentan:interview-draft:${answerId}`;
@@ -38,7 +40,8 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
  const load=useCallback(async(id:string)=>{
   const response=await fetch(`/api/staff/survey-workflow?answer=${encodeURIComponent(id)}`,{cache:'no-store'});
   const body=await response.json();
-  if(!response.ok)throw Error(body.error||'アンケートと面談情報を取得できません。');
+  if(!response.ok){if(response.status===401){setAuthRequired(true);setReview(null);}throw Error(body.error||'アンケートと面談情報を取得できません。');}
+  setAuthRequired(false);
   const state=body as State;setData(state);
   if(!hydrated.current){
    setDate(state.survey.date||'');setTime(state.survey.time||'');setContent(state.record?.body||'');
@@ -66,8 +69,17 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
   setBusy(true);setError('');setNotice('');
   try{const response=await fetch('/api/staff/survey-workflow',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({answerId,expectedSurveyEditedAt:data?.survey.editedAt,...payload})});const body=await response.json();
-   if(!response.ok)throw Error(body.error||'保存できませんでした。');return body;
+   if(!response.ok){if(response.status===401){setAuthRequired(true);setReview(null);}throw Error(body.error||'保存できませんでした。');}return body;
   }finally{setBusy(false);}
+ }
+ async function login(event:FormEvent){
+  event.preventDefault();setBusy(true);setError('');
+  const secret=password;setPassword('');
+  try{
+   const response=await fetch('/api/staff/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({staffCode:code,password:secret})});
+   const body=await response.json();if(!response.ok)throw Error(body.error||'ログインできませんでした。');
+   await load(answerId);setNotice('ログインしました。入力内容を確認してから、保存・送信してください。');
+  }catch(e){setError(e instanceof Error?e.message:'ログインできませんでした。');}finally{setBusy(false);}
  }
  async function saveDate(){if(!data)return;try{
   await action({action:'date',date,time,expectedEditedAt:data.survey.editedAt});
@@ -105,11 +117,16 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
  return <section className={`${styles.main} ${embedded?styles.embedded:''}`} aria-label="面談入力">
   <header>{!embedded&&<Link href="/">← 勉たんのアンケート一覧に戻る</Link>}{embedded?<h2>アンケートから面談を進める</h2>:<h1>アンケートから面談を進める</h1>}
    <p>面談日・日程連絡・面談記録・面談後のLINEを、同じ生徒の回答から確認します。</p></header>
-  {error&&<p className={styles.error} role="alert">{error} <Link href="/staff/self-study-room">職員ログイン</Link> <button disabled={busy} onClick={()=>void load(answerId).then(()=>setError('')).catch(e=>setError(e.message))}>最新情報を読み直す（入力保持）</button></p>}
+  {error&&<p className={styles.error} role="alert">{error} {!authRequired&&<button disabled={busy} onClick={()=>void load(answerId).then(()=>setError('')).catch(e=>setError(e.message))}>最新情報を読み直す（入力保持）</button>}</p>}
+  {authRequired&&<form className={`${styles.card} ${styles.login}`} onSubmit={login} aria-label="面談の職員ログイン">
+   <h2>この画面でログインし直す</h2><p>選んだアンケートと入力途中の内容を保持して、面談を再開します。</p>
+   <StaffEntry code={code} onChange={value=>{setCode(value);setPassword('');}} disabled={busy}/>
+   {code&&<><label>パスワード<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required disabled={busy}/></label><button disabled={busy||!password}>{busy?'ログイン中…':'ログインして面談を再開'}</button></>}
+  </form>}
   {draftNotice&&<p className={styles.notice} role="status">{draftNotice}</p>}
   {notice&&<p className={styles.notice} role="status">{notice}</p>}
   {!data&&!error&&<p>読み込み中…</p>}
-  {data&&<><section className={styles.identity}><strong>{data.student.name}　{data.student.grade}</strong><span>学籍番号 {data.student.number}</span>
+  {data&&!authRequired&&<><section className={styles.identity}><strong>{data.student.name}　{data.student.grade}</strong><span>学籍番号 {data.student.number}</span>
    <a href={data.survey.url} target="_blank" rel="noreferrer">アンケート原本 ↗</a></section>
    <details className={styles.answers} open><summary>アンケートの回答を確認</summary><dl>{data.answerFields?.map((field,index)=><div key={index}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl></details>
    {embedded&&<div className={styles.tabs} role="group" aria-label="面談の入力項目">{([['date','日程・LINE返信'],['record','面談記録'],['summary','面談後のLINE']] as const).map(([value,label])=><button key={value} aria-pressed={tab===value} onClick={()=>{setTab(value);setReview(null);}}>{label}</button>)}</div>}
