@@ -6,6 +6,7 @@ import styles from './workspace.module.css';
 
 type Account={id:string;relation:string;label:string};
 type State={student:{name:string;number:string;grade:string};staffName:string;survey:{id:string;url:string;date:string;time?:string;editedAt:string};
+ bensuke?:{state:string;id?:string;url?:string};scheduleTeacher?:string;
  historyError?:string;history?:Array<{id:string;line_user_id:string;direction:string;text:string;received_at:string;sent_by?:string}>;answerFields?:Array<{label:string;value:string}>;accounts:Account[];record:{id:string;url:string;body:string;existingText?:string;blockId:string;blockEditedAt:string;editable:boolean}|null};
 type Phase='schedule'|'summary';
 type Delivery={lineUserId:string;status:'sent'|'already_sent'|'failed'|'history_failed'|'unknown';detail?:string};
@@ -82,8 +83,11 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
   }catch(e){setError(e instanceof Error?e.message:'ログインできませんでした。');}finally{setBusy(false);}
  }
  async function saveDate(){if(!data)return;try{
-  await action({action:'date',date,time,expectedEditedAt:data.survey.editedAt});
-  const updated=await load(answerId);if(!recordChanged)setContent(updated.record?.body||'');onSaved?.();setNotice('面談日をアンケートのNotion原本に保存しました。');
+  const result=await action({action:'date',date,time,expectedEditedAt:data.survey.editedAt});
+  setNotice('面談日をアンケートとベンスケに保存しました。');onSaved?.();
+  if(result.bensuke)setData(old=>old?{...old,bensuke:result.bensuke}:old);
+  try{const updated=await load(answerId);if(!recordChanged)setContent(updated.record?.body||'');}
+  catch{setError('面談日は保存済みです。最新表示を取得できませんでした。「最新情報を読み直す」で確認してください。');}
  }catch(e){setError(e instanceof Error?e.message:'保存できませんでした。');}}
  async function saveRecord(){if(!data)return;try{
   await action({action:'record',content,method,expectedBlockId:data.record?.blockId??'',expectedBlockEditedAt:data.record?.blockEditedAt??''});
@@ -130,10 +134,12 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
    <a href={data.survey.url} target="_blank" rel="noreferrer">アンケート原本 ↗</a></section>
    <details className={styles.answers} open><summary>アンケートの回答を確認</summary><dl>{data.answerFields?.map((field,index)=><div key={index}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl></details>
    {embedded&&<div className={styles.tabs} role="group" aria-label="面談の入力項目">{([['date','日程・LINE返信'],['record','面談記録'],['summary','面談後のLINE']] as const).map(([value,label])=><button key={value} aria-pressed={tab===value} onClick={()=>{setTab(value);setReview(null);}}>{label}</button>)}</div>}
-   <section hidden={embedded&&tab!=='date'} className={styles.card}><h2>1　面談日を決める</h2><p>日程が決まったら、アンケートの「面談日」に保存します。</p>
+   <section hidden={embedded&&tab!=='date'} className={styles.card}><h2>1　面談日を決める</h2><p>日程が決まったら、アンケートの「面談日」とベンスケに保存します。時刻を空欄にすると日付だけで登録します。</p>
+    <p>ベンスケの担当者：{data.scheduleTeacher&&data.scheduleTeacher!=='未設定'?`${data.scheduleTeacher}先生`:'未設定（ベンスケで設定できます）'}</p>
+    {data.bensuke?.url&&<a href={data.bensuke.url} target="_blank" rel="noreferrer">ベンスケの面談予定 ↗</a>}
     <div className={styles.row}><label>面談日<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
      <label>開始時刻（任意）<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label>
-     <button disabled={busy||!date||!scheduleChanged} onClick={()=>void saveDate()}>{busy?'保存中…':'面談日を保存'}</button></div></section>
+     <button disabled={busy||!date||(!scheduleChanged&&data.bensuke?.state==='synced'&&!error)} onClick={()=>void saveDate()}>{busy?'保存中…':'面談日を保存'}</button></div></section>
    <section hidden={embedded&&tab!=='date'} className={styles.card}><h2>2　日程をLINEで連絡する</h2>
     <p>日程の調整中も返信できます。宛先を選び、文面を確認してから送信します。</p>
     <details className={styles.answers}><summary>最近のLINEのやり取り</summary><p>確認済みの家族アカウントの直近20件です。兄弟の連絡を含む場合があります。</p>{data.historyError&&<p role="alert">{data.historyError}</p>}{data.history?.length?data.history.map(item=><div className={styles.history} key={item.id}><strong>{data.accounts.find(account=>account.id===item.line_user_id)?.label}・{item.direction==='inbound'?'受信':'送信'}</strong><small>{new Date(item.received_at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}</small><p>{item.text||'文字以外のメッセージ'}</p></div>):<p>表示できるLINE履歴がありません。</p>}</details>

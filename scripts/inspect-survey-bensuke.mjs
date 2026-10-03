@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import {createClient} from '@supabase/supabase-js';
+import {BENSUKE_SOURCE,bookingSchema,staffDirectory,teacherMatch} from '../src/lib/bensuke-booking.mjs';
+process.loadEnvFile(process.argv[process.argv.indexOf('--env')+1]);
+const request=async(path,init={})=>{const r=await fetch(`https://api.notion.com/v1${path}`,{...init,headers:{Authorization:`Bearer ${process.env.NOTION_TOKEN??process.env.NOTION_API_KEY}`,'Notion-Version':'2025-09-03','Content-Type':'application/json'},signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(`Notion access failed (${r.status})`);return r.json();};
+const schema=await request(`/data_sources/${BENSUKE_SOURCE}`);bookingSchema(schema);
+const directory=await staffDirectory(request,schema);
+const db=createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SECRET_KEY,{auth:{persistSession:false}});
+const {data,error}=await db.from('student_registry').select('homeroom_teacher').eq('enrollment_status','current_roster');if(error)throw Error('Student read failed');
+const teachers=[...new Set(data.map(x=>x.homeroom_teacher).filter(x=>x&&x!=='未設定'&&x!=='検証用'))];for(const t of teachers)teacherMatch(t,directory);
+fs.mkdirSync('analysis_outputs/survey-bensuke',{recursive:true});fs.writeFileSync('analysis_outputs/survey-bensuke/schema.json',JSON.stringify(schema));
+console.log(JSON.stringify({serverTokenAccess:true,bensukeSchemaVerified:true,homeroomTeachersMatched:teachers.length,notesField:schema.properties['備考']?.type,scheduleTag:schema.properties['内容']?.multi_select?.options?.some(x=>x.name==='面談予定')}));

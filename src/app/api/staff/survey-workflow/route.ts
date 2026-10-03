@@ -6,6 +6,7 @@ import {loadInvitationSurveyResponses,loadVerifiedSurveyAnswer} from '@/lib/inte
 import {notionRequest} from '@/lib/notion';
 import {readLineResponse} from '@/lib/line-send-audit';
 import {validInterviewDate,notionRecordText,interviewLineRetryKey,interviewDateParts,recordBlockState,RECORD_CAPTION} from '@/lib/survey-workflow-core.mjs';
+import {saveSurveySchedule} from '@/lib/survey-bensuke.mjs';
 
 export const dynamic='force-dynamic';
 export const maxDuration=60;
@@ -91,6 +92,7 @@ export async function GET(request:NextRequest){let context:StaffContext|undefine
  const {student,page,profile,answer:verifiedAnswer}=await selectedAnswer(context,answer);
  const storedDate=page.properties['面談日']?.date?.start??'';
  const {date,time}=interviewDateParts(storedDate);
+ const {data:link,error:linkError}=await context.dataClient.from('survey_bensuke_links').select('page_id,state').eq('answer_id',page.id).maybeSingle();
  const [accounts,record]=await Promise.all([linkedAccounts(context,String(student.student_number)),
   date?recordDetails(profile.id,date):Promise.resolve(null)]);
   const ids=accounts.map(account=>account.id);
@@ -103,6 +105,8 @@ export async function GET(request:NextRequest){let context:StaffContext|undefine
  return staffResponse({student:{name:student.student_name,number:student.student_number,grade:student.grade},
   staffName:context.staff.displayName,
   survey:{id:page.id,url:page.url,date,time,editedAt:page.last_edited_time},
+  bensuke:linkError?{state:'unavailable'}:{state:link?.state??'new',id:link?.page_id??'',url:link?.page_id?`https://www.notion.so/${String(link.page_id).replaceAll('-','')}`:''},
+  scheduleTeacher:student.homeroom_teacher,
   accounts,record,history,historyError,answerFields:verifiedAnswer.fields},context);
  }catch(error){return responseError(error,context);}}
 
@@ -113,11 +117,13 @@ export async function POST(request:NextRequest){let context:StaffContext|undefin
  const storedDate=page.properties['面談日']?.date?.start??'';
  const {date}=interviewDateParts(storedDate);
  if(body.action==='date'){
-  if(body.time&&!(typeof body.time==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(body.time)))throw new InterviewError('面談時刻を確認してください。',400);
-  if(!validInterviewDate(body.date))throw new InterviewError('面談日を確認してください。',400);
-  if(String(body.expectedEditedAt??'')!==page.last_edited_time)throw new InterviewError('アンケートが更新されています。読み込み直して確認してください。',409);
-  await notionRequest(`/pages/${page.id}`,{method:'PATCH',body:JSON.stringify({properties:{'面談日':{date:{start:body.time?`${body.date}T${body.time}:00+09:00`:body.date}}}})});
-  return staffResponse({ok:true,date:body.date},context);
+  if(typeof body.time!=='undefined'&&typeof body.time!=='string')throw new InterviewError('面談時刻を確認してください。',400);
+  const result=await saveSurveySchedule({request:(path:string,init:RequestInit={})=>notionRequest(path,{...init,cache:'no-store',signal:AbortSignal.timeout(10000)}),
+   answer:page,student,date:body.date,time:body.time??'',expectedEditedAt:String(body.expectedEditedAt??''),
+   claim:async(id:string)=>{const r=await context!.dataClient.rpc('survey_bensuke_claim',{p_answer:id});if(r.error)throw new InterviewError(r.error.code==='PT409'?r.error.message:'ベンスケ連携の保存準備ができません。入力は保持しています。',r.error.code==='PT409'?409:503);return r.data;},
+   store:async(id:string,lease:string,value:unknown,release:boolean)=>{const r=await context!.dataClient.rpc('survey_bensuke_store',{p_answer:id,p_lease:lease,p_value:value,p_release:release});if(r.error)throw new InterviewError('ベンスケの反映状態を保存できません。再試行で確認してください。',503);},
+  });
+  return staffResponse(result,context);
  }
  if(['record','send'].includes(String(body.action))&&String(body.expectedSurveyEditedAt??'')!==page.last_edited_time)throw new InterviewError('アンケートの日程が更新されています。最新情報を読み直して確認してください。',409);
  if(body.action==='record'){

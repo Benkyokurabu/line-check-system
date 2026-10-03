@@ -1,5 +1,28 @@
 import {test,expect} from '@playwright/test';
 
+test('survey date save registers Bensuke, keeps drafts on failure, and can register an already saved date',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ const id='11111111-1111-4111-8111-111111111111';let state='new',attempts=0,time='';
+ await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill({json:{student:{name:'架空 生徒',number:'2019001',grade:'中2'},staffName:'工藤',scheduleTeacher:'金城',
+  survey:{id,url:'https://example.invalid',date:'2026-10-03',time,editedAt:'v1'},bensuke:{state,url:state==='synced'?'https://example.invalid/schedule':''},accounts:[],record:null}}));
+ await page.route('**/api/staff/survey-workflow',route=>{
+  const body=route.request().postDataJSON();expect(body.action).toBe('date');expect(body.date).toBe('2026-10-03');attempts++;
+  if(attempts===1)return route.fulfill({status:503,json:{error:'保存結果を確認できません。再試行してください。'}});
+  time=body.time;state='synced';return route.fulfill({json:{ok:true,bensuke:{state,url:'https://example.invalid/schedule'}}});
+ });
+ await page.goto(`/staff/survey-workflow?answer=${id}`);
+ await expect(page.getByRole('button',{name:'面談日を保存',exact:true})).toBeEnabled();
+ await page.getByRole('button',{name:'面談日を保存',exact:true}).click();
+ await expect(page.getByRole('region',{name:'面談入力'}).getByRole('alert')).toContainText('再試行');await expect(page.getByLabel('面談日',{exact:true})).toHaveValue('2026-10-03');
+ await page.getByRole('button',{name:'面談日を保存',exact:true}).click();
+ await expect(page.getByText('面談日をアンケートとベンスケに保存しました。')).toBeVisible();
+ await expect(page.getByRole('link',{name:'ベンスケの面談予定 ↗'})).toHaveAttribute('href','https://example.invalid/schedule');
+ await page.getByLabel('開始時刻（任意）').fill('18:15');await page.getByRole('button',{name:'面談日を保存',exact:true}).click();
+ await expect(page.getByRole('button',{name:'面談日を保存',exact:true})).toBeDisabled();
+ expect(attempts).toBe(3);expect(time).toBe('18:15');expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.screenshot({path:'analysis_outputs/survey-bensuke/mobile.png',fullPage:true});
+});
+
 for(const embedded of [true,false])for(const expiredInitially of [true,false])test(`inline relogin preserves interview drafts (initial expiry: ${expiredInitially}, embedded: ${embedded})`,async({page})=>{
  await page.setViewportSize({width:390,height:844});
  let authenticated=!expiredInitially,mutations=0,logins=0;
@@ -54,7 +77,7 @@ test('mobile survey workflow saves the date and previews only checked LINE recip
  await expect(page.getByRole('heading',{name:'アンケートから面談を進める'})).toBeVisible();
  await page.getByLabel('面談日').fill('2026-10-01');
  await page.getByRole('button',{name:'面談日を保存'}).click();
- await expect(page.getByText('面談日をアンケートのNotion原本に保存しました。')).toBeVisible();
+ await expect(page.getByText('面談日をアンケートとベンスケに保存しました。')).toBeVisible();
  const schedule=page.getByRole('heading',{name:'2　日程をLINEで連絡する'}).locator('..');
  await schedule.getByLabel(/母・確認済み/).check();
  await schedule.getByLabel(/本人・確認済み/).check();
@@ -110,7 +133,7 @@ test('survey list opens inline, preserves drafts and saves time without sending 
  await workspace.getByLabel('面談日',{exact:true}).fill('2026-10-02');
  await workspace.getByLabel('開始時刻（任意）').fill('18:00');
  await workspace.getByRole('button',{name:'面談日を保存',exact:true}).click();
- await expect(workspace.getByText('面談日をアンケートのNotion原本に保存しました。')).toBeVisible();
+ await expect(workspace.getByText('面談日をアンケートとベンスケに保存しました。')).toBeVisible();
  await workspace.getByText('最近のLINEのやり取り',{exact:true}).click();
  await expect(workspace.getByText('18時でお願いします',{exact:true})).toBeVisible();
  await workspace.getByRole('button',{name:'日程から文面を作る'}).click();
