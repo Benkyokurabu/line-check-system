@@ -6,6 +6,12 @@ import {matchingSurveyAvailability,archiveSurveyAvailability} from './survey-ben
 
 const plain=items=>(items??[]).map(x=>x.plain_text??x.text?.content??'').join('');
 const marker=id=>`勉たん面談アンケート:${id.replaceAll('-','').toLowerCase()}`;
+export async function activeSurveySchedule(request,pageId){
+ if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(pageId))throw new InterviewError('ベンスケのカードを選び直してください。',409);
+ const page=await request(`/pages/${pageId}`);
+ if(String(page.parent?.data_source_id).replaceAll('-','').toLowerCase()!==BENSUKE_SOURCE.replaceAll('-',''))throw new InterviewError('別のDBのカードは使用できません。',409);
+ return page.archived||page.in_trash?null:page;
+}
 export function surveyScheduleValue(page){
  const p=page.properties??{};
  if(p['担当者']?.has_more)throw new InterviewError('ベンスケの担当者を全件確認できません。',409);
@@ -40,7 +46,10 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
   const teacher=teacherName&&teacherName!=='未設定'?teacherMatch(teacherName,await staffDirectory(request,schema)):null;
   const campus=resolveCampus?null:['本校','南教室'].includes(student.campus)?student.campus:null;
   const desired={title:style.title,start,end:endTime?`${date}T${endTime}:00+09:00`:null,teachers:teacher?[teacher.id]:[],tags:[style.tag],note:marker(answer.id),campuses:campus?[campus]:[]};
-  let page=link.page_id?await checkedPage(request,link.page_id,BENSUKE_SOURCE):null;
+  let page=link.page_id?await activeSurveySchedule(request,link.page_id):null;
+  // A trashed appointment is no longer a schedule. Release its stale link
+  // under the answer lease, then use the current availability/new-save flow.
+  if(link.page_id&&!page)await persist({page_id:null,baseline:null,state:'new'});
   const inferCampus=resolveCampus?()=>resolveCampus(date,teacherName):undefined;
   const slot=await matchingSurveyAvailability(request,desired,link.page_id,inferCampus);
   if(slot){
@@ -50,10 +59,12 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
   }
   else if(inferCampus&&(!page||Date.parse(surveyScheduleValue(page).start)!==Date.parse(desired.start)||!surveyScheduleValue(page).campuses.length)){const inferred=await inferCampus();desired.campuses=inferred?[inferred]:[];}
   if(!link.page_id){
-   const found=await request(`/data_sources/${BENSUKE_SOURCE}/query`,{method:'POST',body:JSON.stringify({page_size:100,filter:{property:'備考',rich_text:{equals:marker(answer.id)}}})});
-   if(!Array.isArray(found.results)||found.has_more||found.results.length>1)throw new InterviewError('対応するベンスケの予定を一つに確認できません。',409);
-   if(found.results.length){
-    page=await checkedPage(request,found.results[0].id,BENSUKE_SOURCE);
+   const found=await request(`/data_sources/${BENSUKE_SOURCE}/query`,{method:'POST',body:JSON.stringify({page_size:100,filter:{property:'備考',rich_text:{contains:marker(answer.id)}}})});
+   if(!Array.isArray(found.results)||found.has_more)throw new InterviewError('対応するベンスケの予定を一つに確認できません。',409);
+   const active=found.results.filter(row=>!row.archived&&!row.in_trash);
+   if(active.length>1)throw new InterviewError('対応するベンスケの予定を一つに確認できません。',409);
+   if(active.length){
+    page=await checkedPage(request,active[0].id,BENSUKE_SOURCE);
     if(!link.expected||!sameSurveySchedule(surveyScheduleValue(page),link.expected))throw new InterviewError('ベンスケの予定が変更されています。原本を確認してください。',409);
     await persist({page_id:page.id,baseline:surveyScheduleValue(page),state:'saved'});
    }else{

@@ -6,7 +6,7 @@ import {loadInvitationSurveyResponses,loadVerifiedSurveyAnswer} from '@/lib/inte
 import {notionRequest} from '@/lib/notion';
 import {readLineResponse} from '@/lib/line-send-audit';
 import {validInterviewDate,notionRecordText,interviewLineRetryKey,interviewDateParts,recordBlockState,RECORD_CAPTION} from '@/lib/survey-workflow-core.mjs';
-import {saveSurveySchedule} from '@/lib/survey-bensuke.mjs';
+import {saveSurveySchedule,activeSurveySchedule} from '@/lib/survey-bensuke.mjs';
 import {surveyMeetingCampus} from '@/lib/survey-meeting-campus.mjs';
 import {surveyLineRecipients} from '@/lib/survey-line-recipients.mjs';
 import {methodFromSurveySchedule} from '@/lib/survey-schedule-style.mjs';
@@ -92,6 +92,11 @@ export async function GET(request:NextRequest){let context:StaffContext|undefine
  const storedDate=page.properties['面談日']?.date?.start??'';
  const {date,time}=interviewDateParts(storedDate);
  const {data:link,error:linkError}=await context.dataClient.from('survey_bensuke_links').select('page_id,state,baseline').eq('answer_id',page.id).maybeSingle();
+ let bensukeState=linkError?'unavailable':link?.state??'new';
+ if(!linkError&&link?.page_id){try{
+  const schedule=await activeSurveySchedule((path:string)=>notionRequest(path,{cache:'no-store',signal:AbortSignal.timeout(10000)}),link.page_id);
+  if(!schedule)bensukeState='deleted';
+ }catch{bensukeState='unavailable';}}
  const [accounts,record]=await Promise.all([linkedAccounts(context,String(student.student_number)),
   date?recordDetails(profile.id,date):Promise.resolve(null)]);
   const ids=accounts.map(account=>account.id);
@@ -104,7 +109,7 @@ export async function GET(request:NextRequest){let context:StaffContext|undefine
  return staffResponse({student:{name:student.student_name,number:student.student_number,grade:student.grade},
   staffName:context.staff.displayName,
   survey:{id:page.id,url:page.url,date,time,editedAt:page.last_edited_time},
-  bensuke:linkError?{state:'unavailable'}:{state:link?.state??'new',id:link?.page_id??'',url:link?.page_id?`https://www.notion.so/${String(link.page_id).replaceAll('-','')}`:'',
+  bensuke:linkError?{state:'unavailable'}:{state:bensukeState,id:bensukeState==='deleted'?'':link?.page_id??'',url:link?.page_id&&bensukeState!=='deleted'?`https://www.notion.so/${String(link.page_id).replaceAll('-','')}`:'',
    method:methodFromSurveySchedule(link?.baseline),endTime:interviewDateParts(link?.baseline?.end??'').time,styled:!!link?.baseline?.title?.includes('／')},
   scheduleTeacher:student.homeroom_teacher,
   accounts,record,history,historyError,answerFields:verifiedAnswer.fields},context);

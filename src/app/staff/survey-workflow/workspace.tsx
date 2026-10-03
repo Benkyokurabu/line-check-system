@@ -145,6 +145,7 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
    <section hidden={embedded&&tab!=='date'} className={styles.card}><h2>1　面談日を決める</h2><p>日程が決まったら、アンケートの「面談日」とベンスケに保存します。時刻を空欄にすると日付だけで登録します。</p>
     <p>ベンスケの担当者：{data.scheduleTeacher&&data.scheduleTeacher!=='未設定'?`${data.scheduleTeacher}先生`:'未設定（ベンスケで設定できます）'}</p>
     {data.bensuke?.url&&<a href={data.bensuke.url} target="_blank" rel="noreferrer">ベンスケの面談予定 ↗</a>}
+    {data.bensuke?.state==='deleted'&&<p className={styles.notice} role="status">以前のベンスケ予定はゴミ箱に入っています。下の保存ボタンで、現在の予約可から登録できます。</p>}
     <div className={styles.row}><label>面談日<input type="date" value={date} disabled={busy} onChange={e=>setDate(e.target.value)}/></label>
      <label>開始時刻（任意）<input type="time" value={time} disabled={busy} onChange={e=>{setTime(e.target.value);setEndTime(suggestedInterviewEnd(e.target.value,data.scheduleTeacher));}}/></label>
      <label>終了時刻（任意）<input type="time" value={endTime} disabled={busy||!time} onChange={e=>setEndTime(e.target.value)}/></label>

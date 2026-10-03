@@ -3,5 +3,6 @@
 <main><h1>面談を保存すると「予約可」が面談予定に変わります</h1><p>担当者と開始時刻で既存の枠を確認します。予約可を書き換える際は校舎・教室を更新せず、備考も引き継ぎます。終了時刻が未入力なら枠の終了を使用します。枠がない日時の新規予定は、予約可の自動入力と同じスケジュール判定で先生の勤務校舎を確認します。</p>
 <section><h2>新しい面談を保存</h2><div class="flow"><div class="step">アンケートで日時・面談方法を入力 → 保存</div><div class="arrow">↓</div><div class="step">同じ担当者・開始時刻の「予約可」を確認</div><div class="arrow">↓</div><div class="result">予約可の同じページを面談予定へ書き換え<br>同じ時間に2つの予定を作りません。</div></div><p>該当する予約可がない日時は、従来どおり新しい面談予定を作成します。</p></section>
 <section><h2>すでに保存した面談・日程変更</h2><div class="flow"><div class="step">既存の面談ページを更新・反映確認</div><div class="arrow">↓</div><div class="step">対応する予約可が残っていたら、その予約可をゴミ箱へ移動</div><div class="arrow">↓</div><div class="result">面談のページURLを保持し、重複を解消</div></div><p>同じ保存ボタンで再試行しても、面談予定を追加作成しません。同じ校舎・教室・時間の予約可が重複していたら、その重複も解消します。別の面談が使用中の枠や、場所を確定できない枠・別用途を含む枠は変更を止めて案内します。</p></section>
+<section><h2>前の面談予定がゴミ箱に入っている場合</h2><p>ゴミ箱の予定は無視します。「保存済み」と表示せず、保存ボタンを押せる状態にします。保存時に現在の予約可を面談予定へ書き換え、連携先をそのページへ切り替えます。予約可がない日時は新しい予定を作成します。ゴミ箱のページは復元しません。</p></section>
 <section><h2>動作例</h2><button id="save">面談日を保存（動作例）</button><p id="preview">18:00〜18:45　予約可</p><small>これは設計の動作例です。Notion・LINEへの通信はありません。</small></section></main>
 <script>document.querySelector('#save').onclick=()=>{document.querySelector('#preview').textContent='18:00〜18:45　三者面談（1件）／保存済み';document.querySelector('#save').disabled=true;};</script></html>

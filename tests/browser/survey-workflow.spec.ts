@@ -1,5 +1,25 @@
 import {test,expect} from '@playwright/test';
 
+for(const embedded of [false,true])test(`a trashed schedule is not marked saved and can be saved to the current availability (embedded: ${embedded})`,async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ const id='11111111-1111-4111-8111-111111111111';let saved=false,saves=0;
+ await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill({json:{student:{name:'架空 花子',number:'2019001',grade:'中2'},staffName:'工藤',scheduleTeacher:'工藤',
+  survey:{id,url:'https://example.invalid',date:'2026-10-08',time:'18:40',editedAt:'v1'},bensuke:{state:saved?'synced':'deleted',id:saved?'current-slot':'',url:saved?'https://example.invalid/current-slot':'',endTime:'19:25',method:'３者Zoom',styled:true},accounts:[],record:null}}));
+ await page.route('**/api/staff/survey-workflow',route=>{const body=route.request().postDataJSON();expect(body.action).toBe('date');expect(body.date).toBe('2026-10-08');expect(body.time).toBe('18:40');saves++;saved=true;return route.fulfill({json:{ok:true,bensuke:{id:'current-slot',state:'synced',url:'https://example.invalid/current-slot',endTime:'19:25',method:'３者Zoom',styled:true}}});});
+ if(embedded){
+  await page.route('**/api/interview-surveys',route=>route.fulfill({json:{groups:[{teacher:'工藤',students:[{grade:'中2',name:'架空 花子',notionUrl:`https://www.notion.so/${id.replaceAll('-','')}`,submittedAt:'2026-10-01T00:00:00Z'}]}]}}));
+  await page.route('**/api/interview-surveys/confirmations',route=>route.fulfill({json:{states:[]}}));await page.route('**/api/interview-surveys/scheduling',route=>route.fulfill({json:{states:{}}}));
+  await page.goto('/');await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');await page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'}).click();
+ }else await page.goto(`/staff/survey-workflow?answer=${id}`);
+ const ui=page.getByRole('region',{name:'面談入力'});
+ await expect(ui.getByText(/以前のベンスケ予定はゴミ箱/)).toBeVisible();await expect(ui.getByText('保存済み：アンケートとベンスケに登録されています。')).toHaveCount(0);
+ await expect(ui.getByRole('link',{name:'ベンスケの面談予定 ↗'})).toHaveCount(0);await expect(ui.getByRole('button',{name:'面談日を保存',exact:true})).toBeEnabled();
+ await ui.getByRole('button',{name:'面談日を保存',exact:true}).click();
+ await expect(ui.getByRole('button',{name:'保存済み',exact:true})).toBeDisabled();await expect(ui.getByRole('link',{name:'ベンスケの面談予定 ↗'})).toHaveAttribute('href','https://example.invalid/current-slot');
+ expect(saves).toBe(1);expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.screenshot({path:`analysis_outputs/trashed-survey-save-${embedded}.png`,fullPage:true});
+});
+
 test('survey date save registers Bensuke, keeps drafts on failure, and can register an already saved date',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  const id='11111111-1111-4111-8111-111111111111';let state='new',attempts=0,time='',endTime='';

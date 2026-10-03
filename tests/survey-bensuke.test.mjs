@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {saveSurveySchedule,surveyScheduleValue,sameSurveySchedule} from '../src/lib/survey-bensuke.mjs';
+import {saveSurveySchedule,surveyScheduleValue,sameSurveySchedule,activeSurveySchedule} from '../src/lib/survey-bensuke.mjs';
 import {BENSUKE_SOURCE} from '../src/lib/bensuke-booking.mjs';
 const answerId='11111111-1111-4111-8111-111111111111',teacherId='22222222-2222-4222-8222-222222222222',pageId='33333333-3333-4333-8333-333333333333';
 function fixture(){
  const answer={id:answerId,last_edited_time:'v1',properties:{'面談日':{date:null}}};
- const link={state:'new',lease:'lease'},calls=[],slots=[];let page,failCreate=false,failSurvey=false,failUpdate=false,failArchive=false;
+ const link={state:'new',lease:'lease'},calls=[],slots=[],createdPages=[];let page,failCreate=false,failSurvey=false,failUpdate=false,failArchive=false;
  const request=async(path,init={})=>{
   calls.push([path,init]);
   const body=init.body?JSON.parse(init.body):null;
@@ -13,8 +13,9 @@ function fixture(){
   if(path===`/data_sources/${BENSUKE_SOURCE}`)return {properties:{'担当者':{type:'relation',relation:{data_source_id:'staff'}},'名前':{type:'title'},'日時':{type:'date'},'校舎':{type:'multi_select'},'教室':{type:'select'},'備考':{type:'rich_text'},'内容':{type:'multi_select',multi_select:{options:['面談予定','面談(オンライン)','面談(対面)','電話'].map(name=>({name}))}}}};
   if(path==='/data_sources/staff/query')return {results:[{id:teacherId,properties:{name:{type:'title',title:[{plain_text:'工藤先生'}]}}}]};
   if(path.endsWith('/query'))return {results:body.filter.property==='備考'?(page?[page]:[]):slots.filter(p=>!p.archived)};
-  if(path==='/pages'){page={id:pageId,parent:{data_source_id:BENSUKE_SOURCE},properties:body.properties};if(failCreate)throw Error('lost response');return page;}
-  if(path===`/pages/${pageId}`){if(init.method==='PATCH'){Object.assign(page.properties,body.properties);if(failUpdate)throw Error('lost update');}return structuredClone(page);}
+  if(path==='/pages'){page={id:createdPages.length?'66666666-6666-4666-8666-666666666666':pageId,parent:{data_source_id:BENSUKE_SOURCE},properties:body.properties};createdPages.push(page);if(failCreate)throw Error('lost response');return page;}
+  const created=createdPages.find(p=>path===`/pages/${p.id}`);
+  if(created){if(init.method==='PATCH'){Object.assign(created.properties,body.properties);if(failUpdate)throw Error('lost update');}return structuredClone(created);}
   const slot=slots.find(p=>path===`/pages/${p.id}`);
   if(slot){if(init.method==='PATCH'){Object.assign(slot.properties,body.properties);if(body.archived)slot.archived=true;if(failArchive||failUpdate)throw Error('lost response');}return structuredClone(slot);}
   throw Error(path);
@@ -66,10 +67,9 @@ test('lost update responses are recovered without duplicate creation',async()=>{
  const f=fixture();await saveSurveySchedule(f.args);f.args.date='2026-10-04';f.args.expectedEditedAt='v2';f.failUpdate();await assert.rejects(()=>saveSurveySchedule(f.args));
  f.recover();await saveSurveySchedule(f.args);assert.equal(f.link.state,'synced');assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
 });
-test('direct Notion edits and deletion stop the write',async()=>{
+test('direct edits to an active Notion appointment stop the write',async()=>{
  const f=fixture();await saveSurveySchedule(f.args);f.page.properties['名前']={title:[{text:{content:'直接編集'}}]};f.args.date='2026-10-04';f.args.expectedEditedAt='v2';
  await assert.rejects(()=>saveSurveySchedule(f.args),/変更されています/);assert.equal(f.page.properties['名前'].title[0].text.content,'直接編集');
- f.page.archived=true;await assert.rejects(()=>saveSurveySchedule(f.args),/削除/);
 });
 test('invalid dates and stale survey versions make no external writes',async()=>{
  const f=fixture();await assert.rejects(()=>saveSurveySchedule({...f.args,date:'2026-02-30'}));
@@ -139,4 +139,26 @@ test('cleanup corrects the linked appointment campus to the availability campus'
 test('a direct availability edit during save stops the conversion',async()=>{
  const f=fixture(),slot=addSlot(f);f.args.reserve=async()=>{slot.last_edited_time='changed';slot.properties['教室'].select.name='本③';};
  await assert.rejects(()=>saveSurveySchedule(f.args),/更新されました/);assert.deepEqual(surveyScheduleValue(slot).tags,['本：予約可']);
+});
+
+test('a trashed linked appointment is ignored and the current availability is reused',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page;old.archived=old.in_trash=true;const slot=addSlot(f);
+ await saveSurveySchedule(f.args);assert.equal(f.link.page_id,slot.id);assert.equal(f.link.state,'synced');assert.equal(old.archived,true);assert.equal(old.in_trash,true);
+ assert.deepEqual(surveyScheduleValue(slot).tags,['面談(オンライン)']);assert.deepEqual(surveyScheduleValue(slot).campuses,['本校']);
+ assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
+ await saveSurveySchedule(f.args);assert.equal(f.link.page_id,slot.id);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
+});
+test('without current availability, a trashed appointment permits a fresh new save',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page;old.in_trash=true;await saveSurveySchedule(f.args);
+ assert.notEqual(f.link.page_id,old.id);assert.equal(old.in_trash,true);assert.equal(f.link.state,'synced');assert.equal(f.calls.filter(([p])=>p==='/pages').length,2);
+});
+test('a lost response after replacing a trashed link recovers the same availability',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);f.page.in_trash=true;const slot=addSlot(f);f.failUpdate();
+ await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(f.link.page_id,slot.id);
+ f.recover();await saveSurveySchedule(f.args);assert.equal(f.link.state,'synced');assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
+});
+test('display ignores trash and preserves source validation',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);assert.equal((await activeSurveySchedule(f.args.request,pageId)).id,pageId);
+ f.page.in_trash=true;assert.equal(await activeSurveySchedule(f.args.request,pageId),null);
+ f.page.parent.data_source_id=answerId;await assert.rejects(()=>activeSurveySchedule(f.args.request,pageId),/別のDB/);
 });
