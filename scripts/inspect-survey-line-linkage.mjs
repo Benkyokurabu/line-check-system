@@ -1,0 +1,16 @@
+import {createClient} from '@supabase/supabase-js';
+import {academicGrade} from '../src/lib/student-academic-grade.mjs';
+import {surveyLineRecipients} from '../src/lib/survey-line-recipients.mjs';
+process.loadEnvFile(process.argv[process.argv.indexOf('--env')+1]);
+const db=createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SECRET_KEY,{auth:{persistSession:false}});
+async function all(table,columns){const rows=[];for(let i=0;i<20000;i+=1000){const r=await db.from(table).select(columns).range(i,i+999).abortSignal(AbortSignal.timeout(15000));if(r.error)throw Error(`${table}: ${r.error.code}`);rows.push(...r.data);if(r.data.length<1000)return rows;}throw Error('read limit');}
+const [roster,accounts,links]=await Promise.all([all('student_registry','student_number,grade,enrollment_status'),all('student_line_accounts','student_number,line_user_id,relation,verification_status,source'),all('student_line_links','student_number,line_user_id')]);
+const students=roster.filter(x=>x.enrollment_status==='current_roster'&&/^(小[4-6]|中[1-3])$/.test(academicGrade(x.student_number,new Date())??x.grade));
+const guardian=new Set(['mother','father','guardian','family','shared']);
+const summary={eligibleStudents:students.length,withConfirmedGuardian:0,withOnlyUnverifiedGuardian:0,withLegacyLinkOnly:0,withNoAccount:0,statuses:{},sources:{}};
+for(const a of accounts){summary.statuses[a.verification_status]=(summary.statuses[a.verification_status]??0)+1;summary.sources[a.source]=(summary.sources[a.source]??0)+1;}
+for(const s of students){const rows=accounts.filter(a=>a.student_number===s.student_number);if(rows.some(a=>a.verification_status==='confirmed'&&guardian.has(a.relation)))summary.withConfirmedGuardian++;else if(rows.some(a=>a.verification_status==='unverified'&&guardian.has(a.relation)))summary.withOnlyUnverifiedGuardian++;else if(!rows.length&&links.some(l=>l.student_number===s.student_number))summary.withLegacyLinkOnly++;else if(!rows.length)summary.withNoAccount++;}
+const recent=await db.from('survey_bensuke_links').select('answer_id').order('updated_at',{ascending:false}).limit(3);if(recent.error)throw Error(recent.error.code);
+summary.recentSavedAnswers=[];
+for(const {answer_id} of recent.data){const r=await fetch(`https://api.notion.com/v1/pages/${answer_id}`,{headers:{Authorization:`Bearer ${process.env.NOTION_TOKEN??process.env.NOTION_API_KEY}`,'Notion-Version':'2025-09-03'},signal:AbortSignal.timeout(15000)});if(!r.ok)continue;const p=(await r.json()).properties,number=String(p['学籍番号']?.number??(p['学籍番号']?.rich_text??[]).map(t=>t.plain_text??t.text?.content??'').join(''));const rows=accounts.filter(a=>a.student_number===number),recipients=surveyLineRecipients(number,accounts,links);summary.recentSavedAnswers.push({studentNumberPresent:!!number,matchedRoster:roster.some(s=>s.student_number===number),relations:rows.map(a=>({relation:a.relation,status:a.verification_status,source:a.source})),legacyLinked:links.some(l=>l.student_number===number),newRecipientCounts:{guardian:recipients.filter(a=>a.category==='guardian').length,student:recipients.filter(a=>a.category==='student').length,unknown:recipients.filter(a=>a.category==='unknown').length}});}
+console.log(JSON.stringify(summary,null,2));

@@ -2,13 +2,13 @@ import {test,expect} from '@playwright/test';
 
 test('survey date save registers Bensuke, keeps drafts on failure, and can register an already saved date',async({page})=>{
  await page.setViewportSize({width:390,height:844});
- const id='11111111-1111-4111-8111-111111111111';let state='new',attempts=0,time='';
+ const id='11111111-1111-4111-8111-111111111111';let state='new',attempts=0,time='',endTime='';
  await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill({json:{student:{name:'架空 生徒',number:'2019001',grade:'中2'},staffName:'工藤',scheduleTeacher:'金城',
-  survey:{id,url:'https://example.invalid',date:'2026-10-03',time,editedAt:'v1'},bensuke:{state,url:state==='synced'?'https://example.invalid/schedule':''},accounts:[],record:null}}));
+  survey:{id,url:'https://example.invalid',date:'2026-10-03',time,editedAt:'v1'},bensuke:{state,endTime,method:'３者Zoom',styled:true,url:state==='synced'?'https://example.invalid/schedule':''},accounts:[],record:null}}));
  await page.route('**/api/staff/survey-workflow',route=>{
   const body=route.request().postDataJSON();expect(body.action).toBe('date');expect(body.date).toBe('2026-10-03');attempts++;
   if(attempts===1)return route.fulfill({status:503,json:{error:'保存結果を確認できません。再試行してください。'}});
-  time=body.time;state='synced';return route.fulfill({json:{ok:true,bensuke:{state,url:'https://example.invalid/schedule'}}});
+  time=body.time;endTime=body.endTime;state='synced';return route.fulfill({json:{ok:true,bensuke:{state,endTime,method:'３者Zoom',styled:true,url:'https://example.invalid/schedule'}}});
  });
  await page.goto(`/staff/survey-workflow?answer=${id}`);
  await expect(page.getByRole('button',{name:'面談日を保存',exact:true})).toBeEnabled();
@@ -18,7 +18,7 @@ test('survey date save registers Bensuke, keeps drafts on failure, and can regis
  await expect(page.getByText('面談日をアンケートとベンスケに保存しました。')).toBeVisible();
  await expect(page.getByRole('link',{name:'ベンスケの面談予定 ↗'})).toHaveAttribute('href','https://example.invalid/schedule');
  await page.getByLabel('開始時刻（任意）').fill('18:15');await page.getByRole('button',{name:'面談日を保存',exact:true}).click();
- await expect(page.getByRole('button',{name:'面談日を保存',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'保存済み',exact:true})).toBeDisabled();
  expect(attempts).toBe(3);expect(time).toBe('18:15');expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
  await page.screenshot({path:'analysis_outputs/survey-bensuke/mobile.png',fullPage:true});
 });
@@ -103,19 +103,20 @@ test('mobile survey workflow saves the date and previews only checked LINE recip
 test('survey list opens inline, preserves drafts and saves time without sending LINE',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  const answer='11111111111141118111111111111111';
- let date='',time='',content='',sends=0;
+ let date='',time='',endTime='',content='',sends=0;
  await page.route('**/api/interview-surveys',route=>route.fulfill({json:{groups:[{teacher:'工藤',students:[{grade:'中2',name:'架空 花子',notionUrl:`https://app.notion.com/p/${answer}`,submittedAt:'2026-10-01T00:00:00Z'}]}]}}));
  await page.route('**/api/interview-surveys/confirmations',route=>route.fulfill({json:{states:[]}}));
  await page.route('**/api/interview-surveys/scheduling',route=>route.fulfill({json:{states:{},updatedAt:'2026-10-01T00:00:00Z'}}));
  await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill({json:{
   student:{name:'架空 花子',number:'2019001',grade:'中2'},staffName:'工藤',survey:{id:answer,url:'https://example.invalid',date,time,editedAt:'version'},
+  bensuke:{state:date?'synced':'new',endTime,method:'３者Zoom',styled:true},
   answerFields:[{label:'ご相談内容',value:'勉強の進め方について相談したい'}],accounts:[{id:'mother',relation:'mother',label:'母・確認済み'}],
   record:date?{id:'record',body:content,existingText:'これまでの面談記録',blockId:content?'block':'',blockEditedAt:'version',editable:true}:null,
   history:[{id:'reply',line_user_id:'mother',direction:'inbound',text:'18時でお願いします',received_at:'2026-10-01T00:00:00Z'}]
  }}));
  await page.route('**/api/staff/survey-workflow',async route=>{
   const body=route.request().postDataJSON();
-  if(body.action==='date'){date=body.date;time=body.time;}
+  if(body.action==='date'){date=body.date;time=body.time;endTime=body.endTime;}
   if(body.action==='record')content=body.content;
   if(body.action==='send')sends++;
   await route.fulfill({json:{ok:true}});

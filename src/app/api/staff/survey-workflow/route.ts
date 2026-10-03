@@ -7,6 +7,8 @@ import {notionRequest} from '@/lib/notion';
 import {readLineResponse} from '@/lib/line-send-audit';
 import {validInterviewDate,notionRecordText,interviewLineRetryKey,interviewDateParts,recordBlockState,RECORD_CAPTION} from '@/lib/survey-workflow-core.mjs';
 import {saveSurveySchedule} from '@/lib/survey-bensuke.mjs';
+import {surveyLineRecipients} from '@/lib/survey-line-recipients.mjs';
+import {methodFromSurveySchedule} from '@/lib/survey-schedule-style.mjs';
 
 export const dynamic='force-dynamic';
 export const maxDuration=60;
@@ -55,19 +57,15 @@ async function selectedAnswer(context:StaffContext,answerId:string){
  return {student,page,profile,answer};
 }
 async function linkedAccounts(context:StaffContext,number:string){
- const {data,error}=await context.dataClient.from('student_line_accounts')
-  .select('line_user_id,relation,alias_name,friend_display_name,is_primary,verification_status')
-  .eq('student_number',number).eq('verification_status','confirmed').limit(20);
- if(error)throw new InterviewError('LINEの宛先候補を取得できません。',503);
- const unique=new Map<string,{id:string;relation:string;label:string}>();
- const relations:Record<string,string>={mother:'母',father:'父',student:'本人',guardian:'保護者',shared:'家族共用'};
- for(const item of data??[]){
-  const id=String(item.line_user_id??'');
-  if(!id||unique.has(id))continue;
-  const relation=String(item.relation??'');
-  unique.set(id,{id,relation,label:[relations[relation]||relation||'続柄未設定',item.alias_name||item.friend_display_name].filter(Boolean).join('・')});
- }
- return [...unique.values()];
+ const [accounts,links]=await Promise.all([
+  context.dataClient.from('student_line_accounts').select('student_number,line_user_id,relation,alias_name,friend_display_name,verification_status').eq('student_number',number).limit(1000),
+  context.dataClient.from('student_line_links').select('student_number,line_user_id').eq('student_number',number).limit(1000),
+ ]);
+ if(accounts.error||links.error||accounts.data.length===1000||links.data.length===1000)throw new InterviewError('学籍番号に登録されたLINE宛先を取得できません。',503);
+ const ids=[...new Set([...accounts.data,...links.data].map(x=>String(x.line_user_id)).filter(Boolean))];
+ const aliases=ids.length?await context.dataClient.from('line_user_aliases').select('line_user_id,alias_name').in('line_user_id',ids):{data:[],error:null};
+ if(aliases.error)throw new InterviewError('LINEの現在の登録名を取得できません。',503);
+ return surveyLineRecipients(number,accounts.data,links.data,aliases.data??[]);
 }
 async function matchingRecord(profileId:string,date:string){
  const result=await notionRequest(`/data_sources/${RECORD_SOURCE}/query`,{method:'POST',body:JSON.stringify({
@@ -92,7 +90,7 @@ export async function GET(request:NextRequest){let context:StaffContext|undefine
  const {student,page,profile,answer:verifiedAnswer}=await selectedAnswer(context,answer);
  const storedDate=page.properties['面談日']?.date?.start??'';
  const {date,time}=interviewDateParts(storedDate);
- const {data:link,error:linkError}=await context.dataClient.from('survey_bensuke_links').select('page_id,state').eq('answer_id',page.id).maybeSingle();
+ const {data:link,error:linkError}=await context.dataClient.from('survey_bensuke_links').select('page_id,state,baseline').eq('answer_id',page.id).maybeSingle();
  const [accounts,record]=await Promise.all([linkedAccounts(context,String(student.student_number)),
   date?recordDetails(profile.id,date):Promise.resolve(null)]);
   const ids=accounts.map(account=>account.id);
@@ -105,7 +103,8 @@ export async function GET(request:NextRequest){let context:StaffContext|undefine
  return staffResponse({student:{name:student.student_name,number:student.student_number,grade:student.grade},
   staffName:context.staff.displayName,
   survey:{id:page.id,url:page.url,date,time,editedAt:page.last_edited_time},
-  bensuke:linkError?{state:'unavailable'}:{state:link?.state??'new',id:link?.page_id??'',url:link?.page_id?`https://www.notion.so/${String(link.page_id).replaceAll('-','')}`:''},
+  bensuke:linkError?{state:'unavailable'}:{state:link?.state??'new',id:link?.page_id??'',url:link?.page_id?`https://www.notion.so/${String(link.page_id).replaceAll('-','')}`:'',
+   method:methodFromSurveySchedule(link?.baseline),endTime:interviewDateParts(link?.baseline?.end??'').time,styled:!!link?.baseline?.title?.includes('／')},
   scheduleTeacher:student.homeroom_teacher,
   accounts,record,history,historyError,answerFields:verifiedAnswer.fields},context);
  }catch(error){return responseError(error,context);}}
@@ -117,9 +116,11 @@ export async function POST(request:NextRequest){let context:StaffContext|undefin
  const storedDate=page.properties['面談日']?.date?.start??'';
  const {date}=interviewDateParts(storedDate);
  if(body.action==='date'){
-  if(typeof body.time!=='undefined'&&typeof body.time!=='string')throw new InterviewError('面談時刻を確認してください。',400);
+  if(body.time!==undefined&&typeof body.time!=='string')throw new InterviewError('開始時刻を確認してください。',400);
+  if(body.endTime!==undefined&&typeof body.endTime!=='string')throw new InterviewError('終了時刻を確認してください。',400);
+  if(body.method!==undefined&&typeof body.method!=='string')throw new InterviewError('面談方法を確認してください。',400);
   const result=await saveSurveySchedule({request:(path:string,init:RequestInit={})=>notionRequest(path,{...init,cache:'no-store',signal:AbortSignal.timeout(10000)}),
-   answer:page,student,date:body.date,time:body.time??'',expectedEditedAt:String(body.expectedEditedAt??''),
+   answer:page,student,date:body.date,time:body.time??'',endTime:body.endTime??'',method:body.method??'３者Zoom',expectedEditedAt:String(body.expectedEditedAt??''),
    claim:async(id:string)=>{const r=await context!.dataClient.rpc('survey_bensuke_claim',{p_answer:id});if(r.error)throw new InterviewError(r.error.code==='PT409'?r.error.message:'ベンスケ連携の保存準備ができません。入力は保持しています。',r.error.code==='PT409'?409:503);return r.data;},
    store:async(id:string,lease:string,value:unknown,release:boolean)=>{const r=await context!.dataClient.rpc('survey_bensuke_store',{p_answer:id,p_lease:lease,p_value:value,p_release:release});if(r.error)throw new InterviewError('ベンスケの反映状態を保存できません。再試行で確認してください。',503);},
   });

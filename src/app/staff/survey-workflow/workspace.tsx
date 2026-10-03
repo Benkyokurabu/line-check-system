@@ -2,11 +2,12 @@
 import Link from 'next/link';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import StaffEntry from '../self-study-room/staff-entry';
+import {scheduleMethods,suggestedInterviewEnd} from '@/lib/survey-schedule-style.mjs';
 import styles from './workspace.module.css';
 
-type Account={id:string;relation:string;label:string};
+type Account={id:string;relation:string;label:string;category?:string;studentNumber?:string;aliasName?:string;displayName?:string;verification?:string};
 type State={student:{name:string;number:string;grade:string};staffName:string;survey:{id:string;url:string;date:string;time?:string;editedAt:string};
- bensuke?:{state:string;id?:string;url?:string};scheduleTeacher?:string;
+ bensuke?:{state:string;id?:string;url?:string;method?:string;endTime?:string;styled?:boolean};scheduleTeacher?:string;
  historyError?:string;history?:Array<{id:string;line_user_id:string;direction:string;text:string;received_at:string;sent_by?:string}>;answerFields?:Array<{label:string;value:string}>;accounts:Account[];record:{id:string;url:string;body:string;existingText?:string;blockId:string;blockEditedAt:string;editable:boolean}|null};
 type Phase='schedule'|'summary';
 type Delivery={lineUserId:string;status:'sent'|'already_sent'|'failed'|'history_failed'|'unknown';detail?:string};
@@ -31,10 +32,12 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
  const [draftNotice,setDraftNotice]=useState('');
  const [authRequired,setAuthRequired]=useState(false),[code,setCode]=useState(''),[password,setPassword]=useState('');
  const [time,setTime]=useState('');
+ const [endTime,setEndTime]=useState(''),[scheduleMethod,setScheduleMethod]=useState('３者Zoom'),[savingDate,setSavingDate]=useState(false);
  const hydrated=useRef(false);
  const draftKey=`bentan:interview-draft:${answerId}`;
  const [data,setData]=useState<State|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState('');
- const [busy,setBusy]=useState(false),[date,setDate]=useState(''),[content,setContent]=useState(''),[method,setMethod]=useState('３者Zoom');
+ const [actionBusy,setBusy]=useState(false),[date,setDate]=useState(''),[content,setContent]=useState(''),[method,setMethod]=useState('３者Zoom');
+ const busy=actionBusy||savingDate;
  const [scheduleText,setScheduleText]=useState(''),[selected,setSelected]=useState<Record<Phase,string[]>>({schedule:[],summary:[]});
  const [summaryEdits,setSummaryEdits]=useState<Record<string,string>>({}),[review,setReview]=useState<Phase|null>(null);
  const [deliveries,setDeliveries]=useState<Record<string,Delivery['status']>>({});
@@ -46,8 +49,10 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
   const state=body as State;setData(state);
   if(!hydrated.current){
    setDate(state.survey.date||'');setTime(state.survey.time||'');setContent(state.record?.body||'');
+   setEndTime(state.bensuke?.endTime??'');setScheduleMethod(state.bensuke?.method??'３者Zoom');
    try{const raw=sessionStorage.getItem(draftKey);if(raw){const draft=JSON.parse(raw);
     if(typeof draft.time==='string')setTime(draft.time);if(typeof draft.date==='string')setDate(draft.date);if(typeof draft.content==='string')setContent(draft.content);
+    if(typeof draft.endTime==='string')setEndTime(draft.endTime);if(scheduleMethods.includes(draft.scheduleMethod))setScheduleMethod(draft.scheduleMethod);
     if(draft.summaryEdits&&typeof draft.summaryEdits==='object'&&!Array.isArray(draft.summaryEdits)&&Object.values(draft.summaryEdits).every(value=>typeof value==='string'))setSummaryEdits(draft.summaryEdits);
     if(typeof draft.scheduleText==='string')setScheduleText(draft.scheduleText);if(typeof draft.method==='string')setMethod(draft.method);
     setDraftNotice('このタブの入力途中の内容を復元しました。Notionへの保存は各保存ボタンで行ってください。');
@@ -61,11 +66,11 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
   return ()=>clearTimeout(timer);
  },[answerId,load]);
  useEffect(()=>{if(!data||!hydrated.current)return;
-  try{sessionStorage.setItem(draftKey,JSON.stringify({date,time,content,scheduleText,method,summaryEdits}));}catch{}
- },[data,draftKey,date,time,content,scheduleText,method,summaryEdits]);
- useEffect(()=>{const warn=(event:BeforeUnloadEvent)=>{if(data&&(date!==data.survey.date||time!==(data.survey.time??'')||content.trim()!==(data.record?.body??'').trim()))event.preventDefault();};
+  try{sessionStorage.setItem(draftKey,JSON.stringify({date,time,endTime,scheduleMethod,content,scheduleText,method,summaryEdits}));}catch{}
+ },[data,draftKey,date,time,endTime,scheduleMethod,content,scheduleText,method,summaryEdits]);
+ useEffect(()=>{const warn=(event:BeforeUnloadEvent)=>{if(data&&(date!==data.survey.date||time!==(data.survey.time??'')||endTime!==(data.bensuke?.endTime??'')||scheduleMethod!==(data.bensuke?.method??'３者Zoom')||content.trim()!==(data.record?.body??'').trim()))event.preventDefault();};
   window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);
- },[data,date,time,content]);
+ },[data,date,time,endTime,scheduleMethod,content]);
  async function action(payload:Record<string,unknown>){
   setBusy(true);setError('');setNotice('');
   try{const response=await fetch('/api/staff/survey-workflow',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -82,13 +87,15 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
    await load(answerId);setNotice('ログインしました。入力内容を確認してから、保存・送信してください。');
   }catch(e){setError(e instanceof Error?e.message:'ログインできませんでした。');}finally{setBusy(false);}
  }
- async function saveDate(){if(!data)return;try{
-  const result=await action({action:'date',date,time,expectedEditedAt:data.survey.editedAt});
-  setNotice('面談日をアンケートとベンスケに保存しました。');onSaved?.();
-  if(result.bensuke)setData(old=>old?{...old,bensuke:result.bensuke}:old);
+ async function saveDate(){if(!data||busy)return;setSavingDate(true);try{
+  const result=await action({action:'date',date,time,endTime,method:scheduleMethod,expectedEditedAt:data.survey.editedAt});
+  setData(old=>old?{...old,survey:{...old.survey,date,time},bensuke:{...old.bensuke,...result.bensuke,state:'synced',endTime,method:scheduleMethod,styled:true}}:old);
+  if(scheduleMethod)setMethod(scheduleMethod);
   try{const updated=await load(answerId);if(!recordChanged)setContent(updated.record?.body||'');}
   catch{setError('面談日は保存済みです。最新表示を取得できませんでした。「最新情報を読み直す」で確認してください。');}
- }catch(e){setError(e instanceof Error?e.message:'保存できませんでした。');}}
+  setNotice('面談日をアンケートとベンスケに保存しました。');onSaved?.();
+ }catch(e){setError(e instanceof Error?e.message:'保存できませんでした。');}finally{setSavingDate(false);}}
+ async function refreshRecipients(){if(busy)return;setBusy(true);setReview(null);try{await load(answerId);setError('');}catch(e){setError(e instanceof Error?e.message:'LINE宛先を取得できませんでした。');}finally{setBusy(false);}}
  async function saveRecord(){if(!data)return;try{
   await action({action:'record',content,method,expectedBlockId:data.record?.blockId??'',expectedBlockEditedAt:data.record?.blockEditedAt??''});
   await load(answerId);onSaved?.();setNotice('面談内容をNotionの面談記録に保存しました。');
@@ -115,7 +122,8 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
     failed?'送信できなかった宛先があります。文面とLINEの接続を確認してください。':'選択した宛先へのLINE送信を受け付けました。');
    setReview(null);
   }catch(e){setError(e instanceof Error?e.message:'送信結果を確認できません。再送せずLINEの履歴を確認してください。');}}
- const scheduleChanged=!!data&&(date!==data.survey.date||time!==(data.survey.time??''));
+ const scheduleChanged=!!data&&(date!==data.survey.date||time!==(data.survey.time??'')||endTime!==(data.bensuke?.endTime??'')||scheduleMethod!==(data.bensuke?.method??'３者Zoom'));
+ const dateSaved=!!date&&!scheduleChanged&&data?.bensuke?.state==='synced';
  const recordChanged=!!data&&content.trim()!==(data.record?.body??'').trim();
  const readySummary=!!data?.record?.id&&!recordChanged&&!scheduleChanged;
  return <section className={`${styles.main} ${embedded?styles.embedded:''}`} aria-label="面談入力">
@@ -137,16 +145,19 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
    <section hidden={embedded&&tab!=='date'} className={styles.card}><h2>1　面談日を決める</h2><p>日程が決まったら、アンケートの「面談日」とベンスケに保存します。時刻を空欄にすると日付だけで登録します。</p>
     <p>ベンスケの担当者：{data.scheduleTeacher&&data.scheduleTeacher!=='未設定'?`${data.scheduleTeacher}先生`:'未設定（ベンスケで設定できます）'}</p>
     {data.bensuke?.url&&<a href={data.bensuke.url} target="_blank" rel="noreferrer">ベンスケの面談予定 ↗</a>}
-    <div className={styles.row}><label>面談日<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
-     <label>開始時刻（任意）<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label>
-     <button disabled={busy||!date||(!scheduleChanged&&data.bensuke?.state==='synced'&&!error)} onClick={()=>void saveDate()}>{busy?'保存中…':'面談日を保存'}</button></div></section>
+    <div className={styles.row}><label>面談日<input type="date" value={date} disabled={busy} onChange={e=>setDate(e.target.value)}/></label>
+     <label>開始時刻（任意）<input type="time" value={time} disabled={busy} onChange={e=>{setTime(e.target.value);setEndTime(suggestedInterviewEnd(e.target.value,data.scheduleTeacher));}}/></label>
+     <label>終了時刻（任意）<input type="time" value={endTime} disabled={busy||!time} onChange={e=>setEndTime(e.target.value)}/></label>
+     <label>予定の面談方法<select value={scheduleMethod} disabled={busy} onChange={e=>setScheduleMethod(e.target.value)}>{scheduleMethods.map((x:string)=><option key={x} value={x}>{x||'未定'}</option>)}</select></label>
+     <button disabled={busy||!date||(dateSaved&&data.bensuke?.styled!==false&&!error)} onClick={()=>void saveDate()}>{savingDate?'保存中…':dateSaved&&data.bensuke?.styled!==false?'保存済み':'面談日を保存'}</button></div>
+    <p className={savingDate?styles.saving:dateSaved?styles.saved:undefined} role="status">{savingDate?'保存中：アンケートとベンスケに面談日を保存しています。':dateSaved?'保存済み：アンケートとベンスケに登録されています。':'日時・方法を確認して保存してください。'}</p></section>
    <section hidden={embedded&&tab!=='date'} className={styles.card}><h2>2　日程をLINEで連絡する</h2>
     <p>日程の調整中も返信できます。宛先を選び、文面を確認してから送信します。</p>
     <details className={styles.answers}><summary>最近のLINEのやり取り</summary><p>確認済みの家族アカウントの直近20件です。兄弟の連絡を含む場合があります。</p>{data.historyError&&<p role="alert">{data.historyError}</p>}{data.history?.length?data.history.map(item=><div className={styles.history} key={item.id}><strong>{data.accounts.find(account=>account.id===item.line_user_id)?.label}・{item.direction==='inbound'?'受信':'送信'}</strong><small>{new Date(item.received_at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}</small><p>{item.text||'文字以外のメッセージ'}</p></div>):<p>表示できるLINE履歴がありません。</p>}</details>
-    <RecipientChoices accounts={data.accounts} values={selected.schedule} statusFor={account=>deliveries[deliveryKey('schedule',account.id,scheduleText)]} disabled={busy} onToggle={id=>toggle('schedule',id)}/>
+    <RecipientChoices student={data.student} accounts={data.accounts} values={selected.schedule} statusFor={account=>deliveries[deliveryKey('schedule',account.id,scheduleText)]} disabled={busy} onRefresh={()=>void refreshRecipients()} onToggle={id=>toggle('schedule',id)}/>
     <label className={styles.blockLabel}>日程連絡の文面<textarea value={scheduleText} onChange={e=>{setScheduleText(e.target.value);setReview(null);}} placeholder="例：面談は10月1日（木）18時から、Zoomでお願いいたします。" rows={5}/></label>
     <div className={styles.actions}><button disabled={!date||busy} onClick={()=>{setScheduleText(`${data.student.name}さんの面談は${date}${time?` ${time}から`:""}にお願いいたします。\n\n${data.staffName}`);setReview(null);}}>日程から文面を作る</button><button disabled={busy||scheduleChanged||!scheduleText.trim()||!pendingMessages('schedule').length} onClick={()=>setReview('schedule')}>宛先・文面を確認</button></div>
-    {review==='schedule'&&<SendReview phase="schedule" entries={pendingMessages('schedule')} disabled={busy} onSend={()=>void send('schedule')} onCancel={()=>setReview(null)}/>}
+    {review==='schedule'&&<SendReview student={data.student} phase="schedule" entries={pendingMessages('schedule')} disabled={busy} onSend={()=>void send('schedule')} onCancel={()=>setReview(null)}/>}
    </section>
    <section hidden={embedded&&tab!=='record'} className={styles.card}><h2>3　面談後の内容を記録する</h2>
     <p>下の本文だけをNotionの面談記録に保存します。挨拶と結びはLINE文面を作るときに加えます。</p>
@@ -162,29 +173,35 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
    </section>
    <section hidden={embedded&&tab!=='summary'} className={styles.card}><h2>4　面談後のまとめをLINEで送る</h2>
     <p>本人・母・父などから宛先を選べます。相手ごとの文面を確認・修正してから送信します。</p>
-    <RecipientChoices accounts={data.accounts} values={selected.summary} statusFor={account=>deliveries[deliveryKey('summary',account.id,
-     summaryEdits[account.id]??summaryText(content,account,recipient('summary'),data.student.name,data.staffName))]} disabled={busy} onToggle={id=>toggle('summary',id)}/>
+    <RecipientChoices student={data.student} accounts={data.accounts} values={selected.summary} statusFor={account=>deliveries[deliveryKey('summary',account.id,
+     summaryEdits[account.id]??summaryText(content,account,recipient('summary'),data.student.name,data.staffName))]} disabled={busy} onRefresh={()=>void refreshRecipients()} onToggle={id=>toggle('summary',id)}/>
     {messages('summary').map(({account,text})=><label className={styles.blockLabel} key={account.id}>{account.label}への文面
      <textarea value={text} onChange={e=>{setSummaryEdits(old=>({...old,[account.id]:e.target.value}));setReview(null);}} rows={14}/></label>)}
     <div className={styles.actions}><button disabled={busy||!readySummary||!pendingMessages('summary').length||messages('summary').some(x=>!x.text.trim())} onClick={()=>setReview('summary')}>宛先・文面を確認</button></div>
     {!readySummary&&<p>面談記録を保存すると送信できます。</p>}
-    {review==='summary'&&<SendReview phase="summary" entries={pendingMessages('summary')} disabled={busy} onSend={()=>void send('summary')} onCancel={()=>setReview(null)}/>}
+    {review==='summary'&&<SendReview student={data.student} phase="summary" entries={pendingMessages('summary')} disabled={busy} onSend={()=>void send('summary')} onCancel={()=>setReview(null)}/>}
    </section>
   </>}
  </section>;
 }
-function RecipientChoices({accounts,values,statusFor,disabled,onToggle}:{accounts:Account[];values:string[];
- statusFor:(account:Account)=>Delivery['status']|undefined;disabled:boolean;onToggle:(id:string)=>void}){
- if(!accounts.length)return <p className={styles.error}>確認済みのLINE宛先がありません。生徒とLINEアカウントの照合を確認してください。</p>;
- return <fieldset className={styles.recipients}><legend>送信先をチェック</legend>{accounts.map(account=>{
+const accountCategory=(a:Account)=>a.category??(['mother','father','guardian','family','shared'].includes(a.relation)?'guardian':a.relation==='student'?'student':'unknown');
+function RecipientChoices({student,accounts,values,statusFor,disabled,onToggle,onRefresh}:{student:State['student'];accounts:Account[];values:string[];
+ statusFor:(account:Account)=>Delivery['status']|undefined;disabled:boolean;onToggle:(id:string)=>void;onRefresh:()=>void}){
+ const guardianCount=accounts.filter(a=>accountCategory(a)==='guardian').length;
+ return <div className={styles.recipientPanel}><p><strong>{student.name}さんのLINE宛先</strong><br/>学籍番号 <strong>{student.number}</strong> に登録された宛先です。保護者 {guardianCount}件・選択中 {accounts.filter(a=>values.includes(a.id)).length}件</p>
+ {!guardianCount&&<p className={styles.error}>この生徒の保護者LINEはまだ登録されていません。本人・続柄未確認の宛先は下に分けて表示します。</p>}
+ {!accounts.length&&<p>学籍番号に紐づくLINE宛先が見つかりませんでした。</p>}
+ {(['guardian','student','unknown'] as const).map(category=>{const rows=accounts.filter(a=>accountCategory(a)===category);if(!rows.length)return null;
+ return <fieldset key={category} className={styles.recipients}><legend>{({guardian:'保護者のLINE（送信先をチェック）',student:'本人のLINE（必要な場合に選択）',unknown:'続柄未確認のLINE（相手を確認して選択）'})[category]}</legend>{rows.map(account=>{
   const status=statusFor(account);
-  return <label key={account.id}><input type="checkbox" checked={values.includes(account.id)} disabled={disabled}
-   onChange={()=>onToggle(account.id)}/><span>{account.label}</span>{status&&<small>{({sent:'送信済み',already_sent:'送信済み',failed:'送信失敗',history_failed:'送信済み・履歴要確認',unknown:'結果要確認'} as Record<string,string>)[status]}</small>}</label>;
- })}</fieldset>;
+  return <label key={account.id}><input type="checkbox" aria-label={account.label} checked={values.includes(account.id)} disabled={disabled}
+   onChange={()=>onToggle(account.id)}/><span><strong>{account.label}</strong>{account.displayName&&account.displayName!==account.aliasName&&<small>LINE表示名：{account.displayName}</small>}<small>{account.verification==='confirmed'?'確認済み・学籍番号で連携':'学籍番号で登録済み・送信前に相手を確認'}</small></span>{status&&<small>{({sent:'送信済み',already_sent:'送信済み',failed:'送信失敗',history_failed:'送信済み・履歴要確認',unknown:'結果要確認'} as Record<string,string>)[status]}</small>}</label>;
+ })}</fieldset>;})}<div className={styles.actions}><button disabled={disabled} onClick={onRefresh}>LINE宛先を読み直す</button><a className={styles.linkButton} href="/contacts" target="_blank" rel="noreferrer">LINE連絡先の登録・確認 ↗</a></div></div>;
 }
-function SendReview({phase,entries,disabled,onSend,onCancel}:{phase:Phase;entries:Array<{account:Account;text:string}>;disabled:boolean;onSend:()=>void;onCancel:()=>void}){
+function SendReview({student,phase,entries,disabled,onSend,onCancel}:{student:State['student'];phase:Phase;entries:Array<{account:Account;text:string}>;disabled:boolean;onSend:()=>void;onCancel:()=>void}){
  return <div className={styles.review}><h3>{phase==='schedule'?'日程連絡':'面談後のまとめ'}の送信確認</h3>
-  {entries.map(({account,text})=><div key={account.id}><strong>{account.label}</strong><pre>{text}</pre></div>)}
+  <p>{student.name}さん・学籍番号 {student.number} の連絡です。以下の {entries.length}件だけに送信します。</p>
+  {entries.map(({account,text})=><div key={account.id}><strong>{account.label}</strong><p>{accountCategory(account)==='guardian'?`${student.name}さんの保護者宛て`:accountCategory(account)==='student'?`${student.name}さん本人宛て`:'続柄未確認：相手を確認してください'}</p><pre>{text}</pre></div>)}
   <div className={styles.actions}><button className={styles.send} disabled={disabled} onClick={onSend}>表示した宛先へLINE送信</button><button disabled={disabled} onClick={onCancel}>戻って修正</button></div>
  </div>;
 }

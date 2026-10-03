@@ -8,6 +8,7 @@ type MaterialStudent = {
   student_name: string | null;
   grade: string | null;
   homeroom_teacher: string | null;
+  campus: string | null;
   enrollment_status: string | null;
 };
 
@@ -17,7 +18,7 @@ export async function loadMaterialStudents(db: SupabaseClient): Promise<Material
   const at = new Date();
   for (let offset = 0; offset < 20000; offset += 500) {
     const { data, error } = await db.from('student_registry')
-      .select('student_number,student_name,grade,homeroom_teacher,enrollment_status')
+      .select('student_number,student_name,grade,homeroom_teacher,campus,enrollment_status')
       .eq('enrollment_status', 'current_roster').order('student_number').range(offset, offset + 499);
     if (error || !data) throw new InterviewError('生徒台帳を取得できません。接続・設定を確認してください。', 503);
     rows.push(...data);
