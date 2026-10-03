@@ -25,7 +25,7 @@
     "export:line-profiles": "node scripts/export-line-profiles.mjs",
     "link:students": "node scripts/link-students-from-line-history.mjs",
     "test:attendance": "node --test tests/attendance.test.mjs tests/attendance-human-review.test.mjs tests/classroom-attendance-display.test.mjs tests/line-alias-import.test.mjs tests/line-contact-registration.test.mjs tests/attendance-date-range.test.mjs tests/attendance-period-proposal.test.mjs",
-    "test:feedback": "node --test tests/feedback.test.mjs tests/recording-publication.test.mjs tests/recording-shared-progress.test.mjs tests/recording-notion-server.test.mjs tests/recording-notion-db.test.mjs",
+    "test:feedback": "node --test tests/feedback.test.mjs tests/recording-publication.test.mjs tests/recording-shared-progress.test.mjs tests/recording-notion-server.test.mjs tests/recording-notion-db.test.mjs tests/recording-publisher.test.mjs",
     "test:roster": "node --test tests/roster-import-logic.test.mjs tests/student-registry.test.mjs tests/student-academic-grade.test.mjs",
     "test:reservation": "node --test tests/reservation-date.test.mjs tests/reservation-access.test.mjs tests/reservation-slot-selection.test.mjs tests/study-room-workflow.test.mjs",
     "test:reservation-db": "node --test tests/study-room-workflow.test.mjs",

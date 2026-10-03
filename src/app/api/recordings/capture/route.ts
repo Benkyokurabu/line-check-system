@@ -2,6 +2,7 @@ import {NextRequest,NextResponse} from 'next/server';
 import {createSupabaseAdminClient} from '@/lib/supabase';
 import {automaticTestRules} from '@/lib/recording-notion';
 import {validRecordingKey} from '@/lib/recording-publication.mjs';
+import {recordingPublisherAllowed} from '@/lib/recording-publisher';
 export const dynamic='force-dynamic';
 export const maxDuration=60;
 // Publishers already have permission to push the public calendar repository.
@@ -10,8 +11,7 @@ export async function POST(request:NextRequest){
  try{
   const token=request.headers.get('Authorization')?.replace(/^Bearer /,'');
   if(!token)return NextResponse.json({error:'Publisher authentication required.'},{status:401});
-  const auth=await fetch('https://api.github.com/repos/Benkyokurabu/student-calendar',{headers:{Authorization:'Bearer '+token,'User-Agent':'BentanRecordingPublisher','Accept':'application/vnd.github+json'},cache:'no-store',signal:AbortSignal.timeout(10000)});
-  if(!auth.ok || (await auth.json()).permissions?.push!==true)return NextResponse.json({error:'Calendar publisher permission required.'},{status:403});
+  if(!await recordingPublisherAllowed(token))return NextResponse.json({error:'Calendar publisher permission required.'},{status:403});
   const input=await request.json();
   if(!Array.isArray(input.recordings)||input.recordings.length>100)return NextResponse.json({error:'Invalid recording list.'},{status:400});
   const rules=await automaticTestRules(),db=createSupabaseAdminClient();
