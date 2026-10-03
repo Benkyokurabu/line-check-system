@@ -12,6 +12,7 @@ export function releaseTime(value, now = Date.now()) {
   return new Date(stamp).toISOString();
 }
 export function publicationStatus(rule, now = Date.now()) {
+  if (rule.mode === 'notion') return rule.notion_ready === true ? 'public' : 'hidden';
   return rule.mode === 'private' || (rule.mode === 'scheduled' && now < Date.parse(rule.release_at)) ? 'hidden' : 'public';
 }
 export function publicRecordingRules(rules, now = Date.now()) {
