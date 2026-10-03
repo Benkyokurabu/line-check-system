@@ -7,6 +7,7 @@ import {notionRequest} from '@/lib/notion';
 import {readLineResponse} from '@/lib/line-send-audit';
 import {validInterviewDate,notionRecordText,interviewLineRetryKey,interviewDateParts,recordBlockState,RECORD_CAPTION} from '@/lib/survey-workflow-core.mjs';
 import {saveSurveySchedule} from '@/lib/survey-bensuke.mjs';
+import {surveyMeetingCampus} from '@/lib/survey-meeting-campus.mjs';
 import {surveyLineRecipients} from '@/lib/survey-line-recipients.mjs';
 import {methodFromSurveySchedule} from '@/lib/survey-schedule-style.mjs';
 
@@ -123,6 +124,8 @@ export async function POST(request:NextRequest){let context:StaffContext|undefin
    answer:page,student,date:body.date,time:body.time??'',endTime:body.endTime??'',method:body.method??'３者Zoom',expectedEditedAt:String(body.expectedEditedAt??''),
    claim:async(id:string)=>{const r=await context!.dataClient.rpc('survey_bensuke_claim',{p_answer:id});if(r.error)throw new InterviewError(r.error.code==='PT409'?r.error.message:'ベンスケ連携の保存準備ができません。入力は保持しています。',r.error.code==='PT409'?409:503);return r.data;},
    store:async(id:string,lease:string,value:unknown,release:boolean)=>{const r=await context!.dataClient.rpc('survey_bensuke_store',{p_answer:id,p_lease:lease,p_value:value,p_release:release});if(r.error)throw new InterviewError('ベンスケの反映状態を保存できません。再試行で確認してください。',503);},
+   reserve:async(id:string,lease:string,pageId:string)=>{const r=await context!.dataClient.rpc('survey_bensuke_reserve',{p_answer:id,p_lease:lease,p_page:pageId});if(r.error)throw new InterviewError(r.error.code==='PT409'?r.error.message:'予約可の保存準備ができません。入力は保持しています。',r.error.code==='PT409'?409:503);},
+   resolveCampus:(date:string,teacher:string)=>surveyMeetingCampus(context!.dataClient,date,teacher),
   });
   return staffResponse(result,context);
  }

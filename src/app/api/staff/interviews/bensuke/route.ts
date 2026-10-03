@@ -19,6 +19,9 @@ export async function GET(request:NextRequest){
   const {data:used,error:usedError}=await context.dataClient.from('interview_bookings').select('notion_page_id').not('notion_page_id','is',null);
   if(usedError)throw new InterviewError('面談の枠確保状況を確認できません。',503);
   const held=new Set((used??[]).map(r=>r.notion_page_id));
+  const {data:surveyUsed,error:surveyUsedError}=await context.dataClient.from('survey_bensuke_reservations').select('page_id');
+  if(surveyUsedError)throw new InterviewError('アンケートの面談枠の確保状況を確認できません。',503);
+  for(const row of surveyUsed??[])held.add(row.page_id);
   const schema=await notionRequest(`/data_sources/${BENSUKE_SOURCE}`,{cache:'no-store',signal:AbortSignal.timeout(8000)});
   const directory=await staffDirectory((path:string,init?:RequestInit)=>notionRequest(path,{...init,cache:'no-store',signal:AbortSignal.timeout(8000)}),schema);
   const rows=result.rows.map(row=>{

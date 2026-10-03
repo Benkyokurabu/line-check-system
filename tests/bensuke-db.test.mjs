@@ -13,7 +13,7 @@ before(async()=>{
  create function staff_authorize(uuid,uuid,text,boolean) returns jsonb language sql as $$ select jsonb_build_object('staffId',id,'role',role) from staff_accounts limit 1 $$;`);
  await db.query("insert into staff_accounts values($1,'admin')",[actor]);
  await db.query("insert into student_registry(student_number,student_name,grade) values('fixture','検証生徒','中1')");
- for(const name of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916'])await db.exec(await readFile(new URL(`../supabase/${name}.sql`,import.meta.url),'utf8'));
+ for(const name of ['interviews_20260914','interview_student_identity_20260914','interview_bensuke_20260916','survey_bensuke_20261003','survey_bensuke_availability_20261003'])await db.exec(await readFile(new URL(`../supabase/${name}.sql`,import.meta.url),'utf8'));
  student=(await db.query('select id from interview_students')).rows[0].id;
 });
 after(()=>db.close());
@@ -59,4 +59,12 @@ test('Notionの変更取り込みは認証・版・重複操作を確認し監�
  assert.deepEqual(await value(sql,args),result);
  const old=[...args];old[2]=randomUUID();await assert.rejects(()=>value(sql,old),/version_conflict/);
  await db.exec('set role anon');await assert.rejects(()=>value(sql,args),/permission denied/);await db.exec('reset role');
+});
+
+test('アンケートが確保した予約可は既存の面談登録でも受付せず、通常の枠は維持する',async()=>{
+ const answer=randomUUID(),pageId=randomUUID(),reserved=await value('select survey_bensuke_claim($1) v',[answer]);
+ await db.query('select survey_bensuke_reserve($1,$2,$3)',[answer,reserved.lease,pageId]);
+ await assert.rejects(()=>create(pageId),/アンケートの面談/);
+ const booking=await create();assert.ok(booking.notion_page_id);
+ await assert.rejects(()=>db.query('select survey_bensuke_reserve($1,$2,$3)',[answer,reserved.lease,booking.notion_page_id]),/別の面談/);
 });

@@ -5,6 +5,7 @@ import {interviewDateParts} from '../src/lib/survey-workflow-core.mjs';
 import {suggestedInterviewEnd,methodFromSurveySchedule} from '../src/lib/survey-schedule-style.mjs';
 import {BENSUKE_SOURCE} from '../src/lib/bensuke-booking.mjs';
 import {academicGrade} from '../src/lib/student-academic-grade.mjs';
+import {surveyMeetingCampus} from '../src/lib/survey-meeting-campus.mjs';
 process.loadEnvFile(process.argv[process.argv.indexOf('--env')+1]);
 const db=createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SECRET_KEY,{auth:{persistSession:false}});
 const request=async(path,init={})=>{const r=await fetch(`https://api.notion.com/v1${path}`,{...init,headers:{Authorization:`Bearer ${process.env.NOTION_TOKEN??process.env.NOTION_API_KEY}`,'Notion-Version':'2025-09-03','Content-Type':'application/json'},signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(`Notion request failed (${r.status})`);return r.json();};
@@ -27,6 +28,8 @@ if(!process.argv.includes('--apply')){console.log(JSON.stringify({preview:true,t
 const result=await saveSurveySchedule({request,answer,student,date,time,endTime,method,expectedEditedAt:answer.last_edited_time,
  claim:async(id)=>{const r=await db.rpc('survey_bensuke_claim',{p_answer:id});if(r.error)throw Error('保存の排他を開始できません。');return r.data;},
  store:async(id,lease,value,release)=>{const r=await db.rpc('survey_bensuke_store',{p_answer:id,p_lease:lease,p_value:value,p_release:release});if(r.error)throw Error('更新結果を保存できません。');},
+ reserve:async(id,lease,pageId)=>{const r=await db.rpc('survey_bensuke_reserve',{p_answer:id,p_lease:lease,p_page:pageId});if(r.error)throw Error('予約可の枠を確保できません。');},
+ resolveCampus:(date,teacher)=>surveyMeetingCampus(db,date,teacher),
 });
 const after=await request(`/pages/${page.id}`),row=await db.from('survey_bensuke_links').select('page_id,state,baseline').eq('answer_id',answer.id).single();
 if(row.error||row.data.page_id!==page.id||row.data.state!=='synced'||!sameSurveySchedule(surveyScheduleValue(after),row.data.baseline))throw Error('更新結果の検証に失敗しました。');
