@@ -4,6 +4,11 @@ const teacherId = '00000000-0000-4000-8000-000000000003';
 let summaryRequests = 0;
 test.beforeEach(async ({ page }) => {
   summaryRequests = 0;
+  await page.route('**/api/staff/interview-material-school-library', route => route.fulfill({ json: { items: [
+    { id: 'a'.repeat(64), school: '川口', reading: 'か川口', category: '公立', year: 2027, bytes: 100, previewUrl: 'https://example.com/material-school-a.pdf' },
+    { id: 'b'.repeat(64), school: '叡明', reading: 'え叡明', category: '私立', year: 2026, bytes: 100, previewUrl: 'https://example.com/material-school-b.pdf' },
+  ] } }));
+  await page.route('https://example.com/material-school-*.pdf', route => route.fulfill({ body: '%PDF-1.4\n%%EOF', contentType: 'application/pdf' }));
   await page.route('**/api/admin/teachers', route => route.fulfill({ json: {
     teachers: [{ id: teacherId, display_name: '工藤' },
       { id: '00000000-0000-4000-8000-000000000004', display_name: '金城' }],
@@ -169,6 +174,28 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByRole('button', { name: '成績通知を表示' })).toHaveText('塾内成績');
   await expect(page.getByRole('button', { name: '面談記録を表示' })).toHaveText('面談記録');
   await expect(page.getByRole('button', { name: '情報を表示' })).toHaveText('情報');
+  let firstLibraryRead = true;
+  await page.route('**/api/staff/interview-material-school-library', route => {
+    if (!firstLibraryRead) return route.fallback();
+    firstLibraryRead = false;
+    return route.fulfill({ status: 503, json: { error: '学校一覧の読み込みに失敗しました。' } });
+  });
+  await page.getByRole('button', { name: '北辰基礎資料の目次', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '北辰基礎資料の目次' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: '学校一覧の読み込みに失敗しました。' })).toBeVisible();
+  await page.getByRole('button', { name: '学校一覧を再読み込み' }).click();
+  await expect(page.getByText('2件 / 全2件')).toBeVisible();
+  await page.getByRole('searchbox', { name: '学校名で検索' }).fill('川口');
+  await expect(page.getByText('1件 / 全2件')).toBeVisible();
+  await page.getByRole('button', { name: '川口の北辰基礎資料を表示' }).click();
+  await expect(page.getByTitle('川口の北辰基礎資料')).toHaveAttribute('src', 'https://example.com/material-school-a.pdf#zoom=100&navpanes=0');
+  await page.getByRole('button', { name: '北辰基礎資料の目次', exact: true }).click();
+  await expect(page.getByRole('searchbox', { name: '学校名で検索' })).toHaveValue('川口');
+  await page.getByRole('searchbox', { name: '学校名で検索' }).fill('');
+  await page.getByRole('combobox', { name: '学校の種類' }).selectOption('私立');
+  await expect(page.getByRole('button', { name: '叡明の北辰基礎資料を表示' })).toContainText('2026年度');
+  expect(await page.locator('body').evaluate(element => element.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: 'analysis_outputs/hokushin-school-library-online-mobile.png', fullPage: true });
   expect(summaryRequests).toBe(1);
   await page.getByRole('button', { name: '面談記録を表示' }).click();
   await expect(page.getByRole('article').filter({ hasText: '進路相談' })).toContainText('志望校を確認した。');
@@ -219,10 +246,13 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(Object.keys(saved).sort()).toEqual([
     `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
     `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,
+    `${folderName}/hokushin-${'a'.repeat(64)}.pdf`, `${folderName}/hokushin-${'b'.repeat(64)}.pdf`,
     `${folderName}/面談記録.txt`, `${folderName}/生徒情報・注意点.txt`, `${folderName}/資料一覧.txt`,
     `${folderName}/面談資料.html`, `${folderName}/保存情報.json`, `${folderName}/AI要約.js`,
   ].sort());
-  expect(saved[`${folderName}/面談資料.html`]).toContain('material-${index}.pdf#zoom=100&navpanes=0');
+  expect(saved[`${folderName}/面談資料.html`]).toContain('file:`material-${tab}.pdf`');
+  expect(saved[`${folderName}/面談資料.html`]).toContain('"schoolLibrary":[{"id":');
+  expect(saved[`${folderName}/面談資料.html`]).toContain(`hokushin-${'b'.repeat(64)}.pdf`);
   expect(saved[`${folderName}/面談資料.html`]).toContain('staff-bundle.pdf#zoom=100&navpanes=0');
   expect(saved[`${folderName}/面談資料.html`]).toContain('面談アンケート回答');
   expect(saved[`${folderName}/面談資料.html`]).toContain('"kind":"塾内成績"');
@@ -232,6 +262,17 @@ test('central worker previews sources then builds and saves a PDF without browse
   expect(saved[`${folderName}/生徒情報・注意点.txt`]).toContain('面談連絡は保護者へ。');
   expect(jobs).toEqual(['preview', 'generate']);
   expect(generatedIds).toEqual(['guide', 'survey', 'term-report']);
+  await page.route('**/api/staff/interview-material-school-library', route => route.fulfill({ status: 503, json: { error: '学校一覧を取得できませんでした。' } }));
+  await page.getByRole('button', { name: /面談用フォルダを保存/ }).click();
+  await expect(page.getByText('学校一覧を取得できませんでした。')).toBeVisible();
+  const afterFailedSave = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
+  expect(afterFailedSave).toEqual(saved);
+});
+
+test('the school library requires a staff login', async ({ request }) => {
+  const response = await request.get('/api/staff/interview-material-school-library');
+  expect(response.status()).toBe(401);
+  expect(await response.json()).not.toHaveProperty('items');
 });
 
 test('when both creation PCs are offline the page prevents new work and can refresh', async ({ page }) => {

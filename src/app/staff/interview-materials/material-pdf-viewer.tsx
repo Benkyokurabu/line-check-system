@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import styles from './workspace.module.css';
 import { materialDockLabel } from './material-dock-label';
 import type { MaterialContext } from './material-context';
+import { fetchSchoolLibrary, type SchoolLibraryItem } from './school-library';
+import { filterHokushinSchools } from '@/lib/hokushin-school-library.mjs';
 
 type Item = { label: string; source?: string; previewUrl?: string };
-type Active = number | 'records' | 'info';
+type Active = number | 'records' | 'info' | 'schools' | `school:${string}`;
 type Props = { items: Item[]; pdfUrl: string; open: boolean; onClose: () => void;
   context: MaterialContext | null; contextLoading: boolean; contextError: string; showPastSchools: boolean; onNeedInfoSummary: () => void };
 const viewerUrl = (url: string) => `${url.split('#')[0]}#zoom=100&navpanes=0`;
@@ -16,7 +18,12 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
   const [active, setActive] = useState<Active>(0);
   const [hovered, setHovered] = useState<number | null>(null);
   const [cached, setCached] = useState<number[]>(() => items.slice(0, 8).map((_, index) => index));
-  const tabs: Active[] = [...items.map((_, index) => index), 'records', 'info'];
+  const [schools, setSchools] = useState<SchoolLibraryItem[] | null>(null);
+  const [schoolLoading, setSchoolLoading] = useState(false);
+  const [schoolError, setSchoolError] = useState('');
+  const [schoolQuery, setSchoolQuery] = useState('');
+  const [schoolCategory, setSchoolCategory] = useState('全て');
+  const tabs: Active[] = [...items.map((_, index) => index), 'schools', 'records', 'info'];
   useEffect(() => {
     if (!open) return;
     const oldOverflow = document.body.style.overflow;
@@ -31,19 +38,44 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
   function select(tab: Active) {
     setActive(tab);
     if (typeof tab === 'number') setCached(previous => previous.includes(tab) ? previous : [...previous, tab].slice(-12));
+    if (tab === 'schools' && !schools && !schoolLoading && !schoolError) void loadSchools();
+  }
+  async function loadSchools() {
+    setSchoolLoading(true); setSchoolError('');
+    try { setSchools(await fetchSchoolLibrary(AbortSignal.timeout(65000))); }
+    catch (error) { setSchoolError(error instanceof Error ? error.message : '学校一覧を読み込めませんでした。'); }
+    finally { setSchoolLoading(false); }
   }
   const selected = separate && typeof active === 'number' ? items[active] : null;
-  const selectedUrl = selected?.previewUrl || pdfUrl;
-  const title = active === 'records' ? '面談記録' : active === 'info' ? '情報' : selected?.label || '一式PDF';
-  const sourceUrl = active === 'records' ? context?.records[0]?.url : active === 'info' ? context?.studentUrl : viewerUrl(selectedUrl);
+  const selectedSchool = schools?.find(school => active === `school:${school.id}`);
+  const selectedUrl = selectedSchool?.previewUrl || selected?.previewUrl || pdfUrl;
+  const title = active === 'schools' ? '北辰基礎資料の目次' : selectedSchool ? `${selectedSchool.school} ／ ${selectedSchool.year}年度 北辰基礎資料`
+    : active === 'records' ? '面談記録' : active === 'info' ? '情報' : selected?.label || '一式PDF';
+  const sourceUrl = active === 'schools' ? null : active === 'records' ? context?.records[0]?.url : active === 'info' ? context?.studentUrl : viewerUrl(selectedUrl);
+  const shownSchools = filterHokushinSchools(schools || [], schoolQuery, schoolCategory) as SchoolLibraryItem[];
   return <div className={styles.viewerOverlay} role="dialog" aria-modal={open ? 'true' : undefined} aria-label="面談資料のプレビュー" aria-hidden={!open} style={{ display: open ? undefined : 'none' }}>
     <header className={styles.viewerHeader}>
       <button className={styles.viewerBack} type="button" onClick={onClose}>← 完成した資料に戻る</button>
       <strong>{title}</strong>
-      <div>{sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer">{typeof active === 'number' ? 'このPDFを別画面で開く' : 'Notionの原本を開く'}</a>}</div>
+      <div><button type="button" onClick={() => select('schools')}>北辰基礎資料の目次</button>{sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer">{typeof active === 'number' || selectedSchool ? 'このPDFを別画面で開く' : 'Notionの原本を開く'}</a>}</div>
     </header>
     <div className={styles.viewerBody}>
       {separate ? items.map((item, index) => cached.includes(index) && <iframe key={index} className={styles.viewerFrame} data-active={active === index ? 'true' : 'false'} src={viewerUrl(item.previewUrl!)} title={`${item.label}のPDFプレビュー`} tabIndex={active === index && open ? 0 : -1} aria-hidden={active !== index || !open} />) : <iframe className={styles.viewerFrame} data-active={typeof active === 'number' ? 'true' : 'false'} src={viewerUrl(pdfUrl)} title="一式PDFのプレビュー" tabIndex={typeof active === 'number' && open ? 0 : -1} />}
+      {selectedSchool && <iframe key={selectedSchool.id} className={styles.viewerFrame} data-active="true" src={viewerUrl(selectedSchool.previewUrl)} title={`${selectedSchool.school}の北辰基礎資料`} />}
+      {active === 'schools' && <section className={styles.viewerTextPanel} aria-label="北辰基礎資料の目次">
+        <h2>北辰基礎資料の目次</h2><p>全学校・学科から選べます。学校ごとに新しい年度を優先しています。</p>
+        <div className={styles.schoolFilters}>
+          <label>学校名で検索<input type="search" value={schoolQuery} placeholder="例：川口、叡明" onChange={event => setSchoolQuery(event.target.value)} /></label>
+          <label>学校の種類<select value={schoolCategory} onChange={event => setSchoolCategory(event.target.value)}>{['全て', '公立', '私立', 'その他'].map(category => <option key={category}>{category}</option>)}</select></label>
+        </div>
+        {schoolLoading && <p role="status">全学校の目次を読み込み中…</p>}
+        {schoolError && <div role="alert"><p>{schoolError}</p><button className={styles.schoolRetry} type="button" onClick={() => void loadSchools()}>学校一覧を再読み込み</button></div>}
+        {schools && <><p role="status">{shownSchools.length}件 / 全{schools.length}件</p><div className={styles.schoolList}>
+          {shownSchools.map(school => <button type="button" key={school.id} onClick={() => select(`school:${school.id}`)} aria-label={`${school.school}の北辰基礎資料を表示`}>
+            <strong>{school.school}</strong><small>{school.category} ／ {school.year}年度</small><span aria-hidden="true">開く →</span>
+          </button>)}
+        </div>{!shownSchools.length && <p>該当する学校はありません。学校名や絞り込みを変更してください。</p>}</>}
+      </section>}
       {active === 'records' && <section className={styles.viewerTextPanel} aria-label="面談記録">
         <h2>面談記録</h2><p>Notionの面談DBから取得した直近3回の記録を全文で表示します。</p>
         {!contextLoading && !contextError && context?.summary.status === 'completed' && <div className={styles.viewerSummary}>
@@ -83,8 +115,8 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
       </section>}
       <nav className={styles.viewerDock} aria-label="資料を切り替える">
         {tabs.map((tab, index) => {
-          const label = typeof tab === 'number' ? materialDockLabel(items[tab]) : tab === 'records' ? '面談記録' : '情報';
-          const fullLabel = typeof tab === 'number' ? items[tab].label : label;
+          const label = typeof tab === 'number' ? materialDockLabel(items[tab]) : tab === 'schools' ? '学校目次' : tab === 'records' ? '面談記録' : '情報';
+          const fullLabel = typeof tab === 'number' ? items[tab].label : tab === 'schools' ? '北辰基礎資料の全学校目次' : label;
           return <button key={String(tab)} type="button" className={styles.viewerDockButton} data-label={fullLabel}
             data-near={hovered !== null && Math.abs(index - hovered) === 1 ? 'true' : undefined} title={fullLabel}
             aria-label={`${fullLabel}を表示`} aria-pressed={active === tab}

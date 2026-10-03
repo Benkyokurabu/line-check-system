@@ -4,6 +4,39 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 
+for (const width of [390, 1365]) test(`all-school contents works offline at ${width}px and preserves the original materials`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const template = await readFile('public/interview-material-offline-template.html', 'utf8');
+  const html = template.replace('__ITEMS_JSON__', JSON.stringify([{ label: '指導簿', kind: '指導簿' }]))
+    .replace('__STUDENT_NAME_JSON__', JSON.stringify('確認用生徒'))
+    .replace('__CONTEXT_JSON__', JSON.stringify({ records: [], info: [], summary: { status: 'empty', items: [] }, schoolLibrary: [
+      { id: 'a', school: '川口（普通）', reading: 'か川口', category: '公立', year: 2027, file: 'hokushin-a.pdf' },
+      { id: 'b', school: '叡明', reading: 'え叡明', category: '私立', year: 2026, file: 'hokushin-b.pdf' },
+    ] }));
+  await page.route('**/*', route => route.abort());
+  await page.setContent(html);
+  await page.getByRole('button', { name: '北辰基礎資料の目次（全2件）' }).click();
+  await expect(page.getByRole('heading', { name: '北辰基礎資料の目次' })).toBeVisible();
+  await page.getByRole('searchbox', { name: '学校名で検索' }).fill('川口');
+  await expect(page.getByText('1件 / 全2件')).toBeVisible();
+  await page.getByRole('button', { name: '川口（普通）の北辰基礎資料を表示' }).click();
+  await expect(page.locator('#current-source')).toHaveAttribute('href', 'hokushin-a.pdf#zoom=100&navpanes=0');
+  await expect(page.locator('iframe.active')).toHaveAttribute('src', 'hokushin-a.pdf#zoom=100&navpanes=0');
+  await page.getByRole('button', { name: '北辰基礎資料の目次', exact: true }).click();
+  await expect(page.getByRole('searchbox', { name: '学校名で検索' })).toHaveValue('川口');
+  await page.getByRole('searchbox', { name: '学校名で検索' }).fill('');
+  await page.getByRole('combobox', { name: '学校の種類' }).selectOption('私立');
+  await expect(page.getByRole('button', { name: '叡明の北辰基礎資料を表示' })).toContainText('2026年度');
+  expect(await page.locator('body').evaluate(element => element.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: `analysis_outputs/hokushin-school-library-offline-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: '叡明の北辰基礎資料を表示' }).click();
+  await expect(page.locator('iframe.active')).toHaveAttribute('src', 'hokushin-b.pdf#zoom=100&navpanes=0');
+  await page.getByRole('button', { name: '指導簿を表示' }).click();
+  await expect(page.locator('iframe.active')).toHaveAttribute('src', 'material-0.pdf#zoom=100&navpanes=0');
+  await page.getByRole('button', { name: '← 表紙に戻る' }).click();
+  await expect(page.getByRole('button', { name: '資料を画面で見る' })).toBeFocused();
+});
+
 test('saved HTML opens interview records and information without a network connection', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const template = await readFile('public/interview-material-offline-template.html', 'utf8');

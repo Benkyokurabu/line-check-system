@@ -428,7 +428,7 @@ export default function MaterialsDesk() {
             <button type="button" disabled={!folderJob || downloadBusy || folderBusy} onClick={() => void savePdf()}>{downloadBusy ? '一式PDFを保存中…' : '一式PDFをダウンロード'}<small>印刷にも使える1つのPDF</small></button>
             <button type="button" disabled={!folderJob || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダを保存'}<small>生徒名のフォルダにHTML・全PDF・記録を保存</small></button>
           </div>
-          <p className={styles.note}>{folderSupported ? 'フォルダ保存では保存先を選びます。面談中はフォルダ内の「面談資料.html」を開けば、ネット接続なしで資料・面談記録・生徒情報を確認できます。AI要約は完成済みの場合に含まれます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
+          <p className={styles.note}>{folderSupported ? 'フォルダ保存では保存先を選びます。北辰基礎資料は全学校・学科も保存するため、取得に時間がかかります。面談中はフォルダ内の「面談資料.html」を開けば、ネット接続なしで学校の目次・資料・面談記録・生徒情報を確認できます。AI要約は完成済みの場合に含まれます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
         </div>}
         {downloadMessage && <p role="status" className={downloadFailed ? styles.error : styles.note}>{downloadMessage}</p>}
         {savedFile && <p role="status">{cloudSynced ? '作成PCとOneDriveのクラウドに保存しました' : '作成PCのOneDriveフォルダに保存しました'}：{savedFile}。別PCで開く前にOneDriveの同期完了を確認してください。</p>}

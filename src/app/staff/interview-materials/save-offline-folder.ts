@@ -1,5 +1,6 @@
 import { materialDockLabel } from './material-dock-label';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
+import { fetchSchoolLibrary } from './school-library';
 
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
 type FileHandle = { createWritable(): Promise<WritableFile>; getFile(): Promise<Blob> };
@@ -152,10 +153,11 @@ export async function saveInterviewFolder(
   // The picker must be the first asynchronous action after the button click.
   const parent = await pick({ mode: 'readwrite', startIn: 'downloads', id: 'interview-material-folder' });
   onProgress('資料を確認しています…');
-  const [jobResponse, templateResponse, details] = await Promise.all([
+  const [jobResponse, templateResponse, details, schoolLibrary] = await Promise.all([
     fetch(`/api/staff/interview-material-jobs?id=${encodeURIComponent(jobId)}`, { cache: 'no-store' }),
     fetch('/interview-material-offline-template.html'),
     snapshotMaterialContext(studentNumber, previousContext),
+    fetchSchoolLibrary(AbortSignal.timeout(65000)),
   ]);
   if (!jobResponse.ok || !templateResponse.ok) throw Error('資料を取得できませんでした。もう一度お試しください。');
   const { job } = await jobResponse.json();
@@ -166,12 +168,15 @@ export async function saveInterviewFolder(
   if (!template.includes('__ITEMS_JSON__') || !template.includes('__STUDENT_NAME_JSON__') || !template.includes('__CONTEXT_JSON__'))
     throw Error('面談用画面を作成できませんでした。');
   const html = template.replace('__ITEMS_JSON__', safeJson(items.map(item => ({ label: item.label, kind: materialDockLabel(item) }))))
-    .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson({ ...details, showPastSchools }));
+    .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson({ ...details, showPastSchools,
+      schoolLibrary: schoolLibrary.map(school => ({ id: school.id, school: school.school, reading: school.reading,
+        category: school.category, year: school.year, file: `hokushin-${school.id}.pdf` })) }));
   if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
   const folderPart = (value: string) => value.trim().replace(/\s+/g, ' ').replace(/[<>:"/\\|?*]/g, '_').replace(/[. ]+$/g, '').slice(0, 60);
   const folderName = `${folderPart(studentName) || '氏名不明'}_${studentNumber}`;
-  const files = [{ name: 'staff-bundle.pdf', url: job.pdfUrl },
-    ...items.map((item, index) => ({ name: `material-${index}.pdf`, url: item.previewUrl! }))];
+  const files = [{ name: 'staff-bundle.pdf', label: '印刷用の一式PDF', url: job.pdfUrl },
+    ...items.map((item, index) => ({ name: `material-${index}.pdf`, label: item.label, url: item.previewUrl! })),
+    ...schoolLibrary.map(school => ({ name: `hokushin-${school.id}.pdf`, label: `${school.school}の北辰基礎資料`, url: school.previewUrl }))];
   // Download and validate every PDF before touching a previously saved student folder.
   const pdfs: Blob[] = new Array(files.length);
   let next = 0;
@@ -181,7 +186,7 @@ export async function saveInterviewFolder(
       const index = next++;
       const file = files[index];
       try { pdfs[index] = await fetchPdf(file.url); }
-      catch { throw Error(`「${file.name === 'staff-bundle.pdf' ? '印刷用の一式PDF' : items[index - 1].label}」を取得できませんでした。フォルダ保存をもう一度お試しください。`); }
+      catch { throw Error(`「${file.label}」を取得できませんでした。フォルダ保存をもう一度お試しください。`); }
       saved++;
       onProgress(`PDFを取得しています… ${saved}/${files.length}`);
     }
@@ -196,6 +201,7 @@ export async function saveInterviewFolder(
   await writeFile(folder, '資料一覧.txt', ['面談資料.html：面談中はこのファイルを開く（保存後はネット接続不要）',
     'staff-bundle.pdf：印刷用の一式PDF',
     ...items.map((item, index) => `material-${index}.pdf：${item.label}`),
+    ...schoolLibrary.map(school => `hokushin-${school.id}.pdf：${school.school} ／ ${school.year}年度 北辰基礎資料`),
     '面談記録.txt：Notionの直近3回の面談記録の全文',
     '生徒情報・注意点.txt：生徒情報とAIによる確認点'].join('\n'));
   const savedInfo: SavedFolderInfo = { studentNumber, saveId: crypto.randomUUID(), sourceHash: details.summary.sourceHash || '', context: details, showPastSchools };
