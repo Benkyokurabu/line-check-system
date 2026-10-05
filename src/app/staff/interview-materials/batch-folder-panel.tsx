@@ -1,5 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
+import { materialAppointmentKey } from '@/lib/interview-material-batch.mjs';
 import { runInterviewFolderBatch, type BatchFolderEntry } from './batch-interview-folders';
 import { pickInterviewMaterialsFolder, interviewMaterialsSharePath, type DirectoryHandle, type MaterialAppointment } from './save-offline-folder';
 import styles from './workspace.module.css';
@@ -28,9 +29,9 @@ export default function BatchFolderPanel({ date, teacherId, appointments, folder
       setMessage('Notionの予定と生徒・最新アンケートを再確認しています…');
       await runInterviewFolderBatch({ date, teacherId, appointments, targets: selected, parent, shouldStop: () => stopRef.current,
         onEntry: entry => {
-          results = results.map(previous => previous.appointment.id === entry.appointment.id ? entry : previous);
+          results = results.map(previous => materialAppointmentKey(previous.appointment) === materialAppointmentKey(entry.appointment) ? entry : previous);
           // AI callbacks from a previous attempt may finish while a retry is running.
-          setEntries(previous => previous.map(saved => saved.appointment.id === entry.appointment.id ? entry : saved));
+          setEntries(previous => previous.map(saved => materialAppointmentKey(saved.appointment) === materialAppointmentKey(entry.appointment) ? entry : saved));
         },
       });
       const saved = results.filter(entry => entry.status === 'saved').length;
@@ -60,7 +61,7 @@ export default function BatchFolderPanel({ date, teacherId, appointments, folder
       .catch(() => setCopyMessage('表示した共有フォルダの場所を保存先のアドレス欄へ入力してください。')); }}>一括保存先の場所をコピー</button>
     {copyMessage && <p role="status">{copyMessage}</p>}
     {message && <p role="status" aria-live="polite">{message}</p>}
-    {!!entries.length && <ol className={styles.batchResults} aria-label="全員分の保存結果">{entries.map(entry => <li key={entry.appointment.id}
+    {!!entries.length && <ol className={styles.batchResults} aria-label="全員分の保存結果">{entries.map(entry => <li key={materialAppointmentKey(entry.appointment)}
       data-status={entry.status}>
       <strong>{entry.appointment.start}　{entry.appointment.grade} {entry.appointment.name}</strong>
       <span>{entry.message}</span>{entry.path && <small>{entry.path}</small>}

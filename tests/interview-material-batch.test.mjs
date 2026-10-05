@@ -13,6 +13,14 @@ test('selects only the requested Notion day and actual appointment teacher, in t
   assert.throws(() => materialBatchAppointments([], first.date, ''));
 });
 
+test('two students in one Notion appointment are separate batch targets; duplicate students are rejected', () => {
+  const first = { id: 'twins', number: '2018254', name: '川島清雅', teacherId: 'teacher-1', date: '2026-10-07', start: '20:30', source: 'notion-bensuke' };
+  const second = { ...first, number: '2018255', name: '川島颯真' };
+  assert.equal(materialBatchAppointments([first, second], first.date, first.teacherId).length, 2);
+  assert.equal(sameMaterialAppointment(first, second), false);
+  assert.throws(() => materialBatchAppointments([first, second, first], first.date, first.teacherId));
+});
+
 test('latest survey compares instants and does not mutate or silently choose ambiguous responses', () => {
   const old = { id: 'old', date: '2026-10-05T08:00:00Z' };
   const latest = { id: 'latest', date: '2026-10-05T18:00:00+09:00' };

@@ -5,6 +5,20 @@ const key = value => String(value ?? '').normalize('NFKC').replace(/\s/gu, '');
 const sameId = (a, b) => key(a).replaceAll('-', '').toLowerCase() === key(b).replaceAll('-', '').toLowerCase();
 const evidence = row => [row.title, ...row.fields.map(field => field.value)].join('\n');
 
+// Confirmed by the user: this pair shares an interview, but each has separate materials.
+const kawashimaTwins = [
+  { number: '2018254', name: '川島清雅' },
+  { number: '2018255', name: '川島颯真' },
+];
+function twinDecision(row) {
+  const title = key(row.title);
+  if (!/(?:面談|教育相談|進路相談)/u.test(title)
+    || /(?:取消|キャンセル|中止|延期|未確定|未定|候補|仮予定|打診|予約可)/u.test(evidence(row))
+    || !/(?:川島清雅[・、/／と＆&]+(?:川島)?颯真|川島颯真[・、/／と＆&]+(?:川島)?清雅)/u.test(title)) return null;
+  return { id: row.id, kind: 'interview', studentName: title.includes('川島清雅') ? '川島清雅' : '川島颯真',
+    studentNumber: '', teacherName: '', reason: '' };
+}
+
 export function checkedMaterialDecisions(result, rows) {
   if (!Array.isArray(result?.cards) || result.cards.length !== rows.length)
     throw new InterviewError('AIの予定判定を全件確認できません。再取得してください。', 503);
@@ -22,6 +36,12 @@ export function checkedMaterialDecisions(result, rows) {
 /** Read varied teacher notation as data; never accept instructions embedded in cards. */
 export async function extractMaterialDecisions(rows, { key: apiKey = '', fetcher = fetch } = {}) {
   if (!rows.length) return [];
+  const confirmed = rows.map(twinDecision).filter(Boolean);
+  if (confirmed.length) {
+    const remaining = rows.filter(row => !confirmed.some(card => card.id === row.id));
+    const extracted = await extractMaterialDecisions(remaining, { key: apiKey, fetcher });
+    return checkedMaterialDecisions({ cards: [...confirmed, ...extracted] }, rows);
+  }
   if (!apiKey) throw new InterviewError('予定を判定するAIに接続できません。管理者に接続設定の確認を依頼してください。', 503);
   if (rows.length > 200) throw new InterviewError('予定が多いため全件判定できません。Notionで確認してください。', 503);
   const batches = Array.from({ length: Math.ceil(rows.length / 25) }, (_, index) => rows.slice(index * 25, (index + 1) * 25));
@@ -52,7 +72,8 @@ export function resolveMaterialAppointments({ rows, decisions, students, directo
   checkedMaterialDecisions({ cards: decisions }, rows);
   const appointments = [], review = [];
   for (const row of rows) {
-    const card = decisions.find(item => item.id === row.id);
+    const twins = twinDecision(row);
+    const card = twins ?? decisions.find(item => item.id === row.id);
     if (row.availability || card.kind === 'other') continue;
     const reject = reason => {
       const teacherIds = directory.filter(staff => row.teacherIds.some(id => sameId(id, staff.id))).map(staff => staff.id);
@@ -75,8 +96,15 @@ export function resolveMaterialAppointments({ rows, decisions, students, directo
     if (matches.length !== 1 || !matches[0].student_number || !matches[0].student_name) {
       reject('生徒台帳の現役生徒と一意に照合できません。同名・学籍番号・氏名を確認してください。'); continue;
     }
+    const targets = twins ? kawashimaTwins.map(person => students.filter(student =>
+      student.enrollment_status === 'current_roster' && String(student.student_number) === person.number
+      && key(student.student_name) === person.name)) : [matches];
+    if (targets.some(group => group.length !== 1) || targets.some(group => group[0].grade !== matches[0].grade)) {
+      reject('川島君の双子二人を現在の生徒台帳と照合できません。学籍番号・氏名・学年を確認してください。'); continue;
+    }
+    const targetStudents = targets.map(group => group[0]);
     if (students.some(student => student.enrollment_status === 'current_roster'
-      && key(student.student_name) !== key(matches[0].student_name)
+      && !targetStudents.some(target => key(target.student_name) === key(student.student_name))
       && key(student.student_name).length >= 3 && normalized.includes(key(student.student_name)))) {
       reject('複数の生徒名が記載されています。対象を確認してください。'); continue;
     }
@@ -106,8 +134,8 @@ export function resolveMaterialAppointments({ rows, decisions, students, directo
     if (japan.slice(0, 10) !== date) { reject('指定日とNotionの日本時間の日時が一致しません。'); continue; }
     const student = matches[0];
     if (!/^(小[4-6]|中[1-3])$/u.test(String(student.grade))) { reject('台帳の学年を確認できません。'); continue; }
-    appointments.push({ id: row.id, number: String(student.student_number), name: student.student_name,
-      grade: student.grade, teacher: teacher.name.replace(/(?:先生|さん)$/u, ''), teacherId: teacher.id,
+    for (const target of targetStudents) appointments.push({ id: row.id, number: String(target.student_number), name: target.student_name,
+      grade: target.grade, teacher: teacher.name.replace(/(?:先生|さん)$/u, ''), teacherId: teacher.id,
       date, start: japan.slice(11, 16), editedAt: row.editedAt, url: row.url, source: 'notion-bensuke' });
   }
   return { appointments: appointments.sort((a, b) => a.start.localeCompare(b.start) || a.teacher.localeCompare(b.teacher, 'ja') || a.name.localeCompare(b.name, 'ja')), review };

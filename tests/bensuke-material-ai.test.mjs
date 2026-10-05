@@ -65,3 +65,59 @@ test('cloud extraction validates JSON, handles failure and treats cards as untru
   await assert.rejects(extractMaterialDecisions([row], { key: 'fixture', fetcher: async () => Response.json({}, { status: 429 }) }));
   await assert.rejects(extractMaterialDecisions([row], { key: 'fixture', fetcher: async () => Response.json({ choices: [{ message: { content: 'broken' } }] }) }));
 });
+
+const twinStudents = [
+  { ...student, student_number: '2018254', student_name: '川 島 清 雅' },
+  { ...student, student_number: '2018255', student_name: '川 島 颯 真' },
+];
+const twinRow = { ...row, title: '中３川島清雅・川島颯真／三者面談' };
+const twinReview = { ...card, kind: 'review', studentName: '', reason: '複数生徒' };
+const resolveTwins = (changes = {}) => resolve({ rows: [twinRow], decisions: [twinReview], students: twinStudents, ...changes });
+
+test('the confirmed Kawashima twins share a source appointment but retain separate student identities', async () => {
+  const decisions = await extractMaterialDecisions([twinRow], { fetcher: () => { throw Error('No AI needed for confirmed twins'); } });
+  assert.equal(decisions[0].kind, 'interview');
+  const result = resolveTwins();
+  assert.equal(result.review.length, 0);
+  assert.deepEqual(result.appointments.map(a => a.number), ['2018254', '2018255']);
+  for (const a of result.appointments) {
+    assert.equal(a.id, row.id); assert.equal(a.start, '20:30'); assert.equal(a.teacherId, 'teacher-1');
+  }
+  assert.deepEqual(resolveTwins({ rows: [{ ...twinRow, title: '中3川島颯真・清雅／面談' }] }).appointments.map(a => a.number), ['2018254', '2018255']);
+});
+
+test('confirmed twin extraction still validates and classifies all remaining cards', async () => {
+  let submitted;
+  const other = { ...row, id: 'other' }, otherCard = { ...card, id: 'other' };
+  const decisions = await extractMaterialDecisions([twinRow, other], { key: 'fixture', fetcher: async (_, init) => {
+    submitted = JSON.parse(JSON.parse(init.body).messages[1].content).cards;
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ cards: [otherCard] }) } }] });
+  } });
+  assert.deepEqual(submitted.map(c => c.id), ['other']);
+  assert.equal(decisions.length, 2);
+});
+
+for (const [name, changes] of [
+  ['missing twin', { students: twinStudents.slice(0, 1) }],
+  ['inactive twin', { students: [twinStudents[0], { ...twinStudents[1], enrollment_status: 'graduated' }] }],
+  ['wrong number', { students: [twinStudents[0], { ...twinStudents[1], student_number: '2018999' }] }],
+  ['different grade', { students: [twinStudents[0], { ...twinStudents[1], grade: '中2' }] }],
+  ['unrelated third student', { rows: [{ ...twinRow, title: twinRow.title + ' 確認用 生徒' }], students: [...twinStudents, student] }],
+  ['only surname', { rows: [{ ...twinRow, title: '中３川島／三者面談' }] }],
+  ['only one twin', { rows: [{ ...twinRow, title: '中３川島清雅／三者面談' }] }],
+  ['unrelated lesson', { rows: [{ ...twinRow, title: '自習室 中３川島清雅・川島颯真' }] }],
+  ['cancellation', { rows: [{ ...twinRow, title: twinRow.title + ' 取消' }] }],
+  ['tentative', { rows: [{ ...twinRow, title: twinRow.title + ' 候補' }] }],
+  ['missing teacher', { rows: [{ ...twinRow, teacherIds: [] }] }],
+  ['multiple teachers', { rows: [{ ...twinRow, teacherIds: ['teacher-1', 'teacher-2'] }] }],
+  ['changed day', { rows: [{ ...twinRow, date: { start: '2026-10-06T20:30:00+09:00' } }] }],
+]) test(`Kawashima twins: ${name} stays in review`, () => {
+  assert.equal(resolveTwins(changes).appointments.length, 0);
+  assert.equal(resolveTwins(changes).review.length, 1);
+});
+
+test('other Kawashima students keep their own single interview', () => {
+  const other = { ...student, student_number: '2018042', student_name: '川 島 夢 希' };
+  assert.equal(resolve({ rows: [{ ...row, title: '中３川島夢希／三者面談' }],
+    decisions: [{ ...card, studentName: '川島夢希' }], students: [...twinStudents, other] }).appointments.length, 1);
+});

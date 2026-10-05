@@ -15,10 +15,14 @@ export function sameMaterialAppointment(a, b) {
     .every(field => a[field] === b[field]);
 }
 
+export function materialAppointmentKey(appointment) {
+  return `${appointment.id}:${appointment.number ?? ''}`;
+}
+
 export function materialBatchAppointments(appointments, date, teacherId) {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(date) || !teacherId) throw Error('面談日と先生を選んでください。');
   const selected = appointments.filter(row => row.date === date && row.teacherId === teacherId);
-  if (selected.some(row => row.source !== 'notion-bensuke') || new Set(selected.map(row => row.id)).size !== selected.length)
+  if (selected.some(row => row.source !== 'notion-bensuke') || new Set(selected.map(materialAppointmentKey)).size !== selected.length)
     throw Error('Notionの面談予定を確認できません。再取得してください。');
   return selected.sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name, 'ja'));
 }

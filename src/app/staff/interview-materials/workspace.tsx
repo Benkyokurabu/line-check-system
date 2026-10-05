@@ -384,8 +384,8 @@ export default function MaterialsDesk() {
             disabled={appointmentBusy || Boolean(appointmentMessage) || busy || previewBusy || folderBusy || downloadBusy || schoolFolderBusy || summarySaveBusy}
             onBusyChange={setBatchBusy} />
           {appointmentDate && !appointmentBusy && !appointmentMessage && (dayAppointments.length
-            ? <div className={styles.studentResults} aria-label="選んだ日の面談予定">{dayAppointments.map(item => <button type="button" key={item.id} disabled={batchBusy}
-                className={styles.studentResult} aria-pressed={selectedAppointment?.id === item.id} onClick={() => {
+            ? <div className={styles.studentResults} aria-label="選んだ日の面談予定">{dayAppointments.map(item => <button type="button" key={`${item.id}:${item.number}`} disabled={batchBusy}
+                className={styles.studentResult} aria-pressed={selectedAppointment?.id === item.id && selectedAppointment?.number === item.number} onClick={() => {
                   const student = students.find(row => row.number === item.number);
                   if (!student) { setAppointmentMessage('面談予定の生徒が現在の台帳に見つかりません。'); return; }
                   chooseStudent(student); setSelectedAppointment(item);
