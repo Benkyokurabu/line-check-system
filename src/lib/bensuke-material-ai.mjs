@@ -54,7 +54,13 @@ export function resolveMaterialAppointments({ rows, decisions, students, directo
   for (const row of rows) {
     const card = decisions.find(item => item.id === row.id);
     if (row.availability || card.kind === 'other') continue;
-    const reject = reason => review.push({ id: row.id, title: row.title, url: row.url, reason });
+    const reject = reason => {
+      const teacherIds = directory.filter(staff => row.teacherIds.some(id => sameId(id, staff.id))).map(staff => staff.id);
+      if (!teacherIds.length && card.teacherName && key(evidence(row)).includes(key(card.teacherName))) {
+        try { teacherIds.push(teacherMatch(card.teacherName, directory).id); } catch { /* Keep the teacher unknown. */ }
+      }
+      review.push({ id: row.id, title: row.title, url: row.url, reason, teacherIds });
+    };
     if (card.kind === 'review') { reject(card.reason || '予定の内容を確認してください。'); continue; }
     const raw = evidence(row), normalized = key(raw);
     if (/(?:取消|キャンセル|中止|延期|未確定|日時未定)/u.test(raw)) { reject('取消・延期・未確定の記載があります。予定を確認してください。'); continue; }

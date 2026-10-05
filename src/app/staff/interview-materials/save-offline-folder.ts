@@ -7,7 +7,7 @@ import { interviewMaterialFolderParts } from '@/lib/interview-material-folder.mj
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
 type FileHandle = { createWritable(): Promise<WritableFile>; getFile(): Promise<Blob> };
 type SavedFolderInfo = { studentNumber: string; saveId: string; sourceHash: string; context: MaterialContext; showPastSchools: boolean; appointment?: MaterialAppointment };
-type DirectoryHandle = {
+export type DirectoryHandle = {
   name: string;
   getDirectoryHandle(name: string, options: { create: boolean }): Promise<DirectoryHandle>;
   getFileHandle(name: string, options: { create: boolean }): Promise<FileHandle>;
@@ -22,6 +22,14 @@ export const interviewMaterialsSharePath = '\\\\TS3210\\benko\\03 教務部\\015
 
 export const canSaveOfflineFolder = () => typeof window !== 'undefined'
   && typeof (window as DirectoryPicker).showDirectoryPicker === 'function';
+
+export async function pickInterviewMaterialsFolder(): Promise<DirectoryHandle> {
+  const pick = (window as DirectoryPicker).showDirectoryPicker;
+  if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
+  const folder = await pick({ mode: 'readwrite', startIn: 'downloads', id: 'interview-material-folder' });
+  if (folder.name !== '98面談資料') throw Error('保存先には共有フォルダ「98面談資料」を選んでください。');
+  return folder;
+}
 
 const safeJson = (value: unknown) => JSON.stringify(value)
   .replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026')
@@ -152,7 +160,7 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 export async function saveInterviewFolder(
   jobId: string, studentNumber: string, studentName: string, _studentGrade: string, previousContext: MaterialContext | null,
   onProgress: (message: string) => void, showPastSchools = false,
-  onSummaryProgress?: (message: string) => void, appointment?: MaterialAppointment
+  onSummaryProgress?: (message: string) => void, appointment?: MaterialAppointment, batchParent?: DirectoryHandle
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
   if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
@@ -161,7 +169,7 @@ export async function saveInterviewFolder(
     throw Error('Notionベンケイの面談日を選んでから保存してください。');
   const folderParts = interviewMaterialFolderParts(appointment);
   // The picker must be the first asynchronous action after the button click.
-  const parent = await pick({ mode: 'readwrite', startIn: 'downloads', id: 'interview-material-folder' });
+  const parent = batchParent ?? await pickInterviewMaterialsFolder();
   if (parent.name !== '98面談資料') throw Error('保存先には共有フォルダ「98面談資料」を選んでください。');
   onProgress('資料を確認しています…');
   const [jobResponse, templateResponse, details] = await Promise.all([

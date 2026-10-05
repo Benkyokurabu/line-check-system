@@ -38,7 +38,13 @@ export async function GET(request: NextRequest) {
       if (latest.last_edited_time !== selected.editedAt)
         throw new InterviewError('Notionの予定が判定中に更新されました。日付を選び直してください。', 409);
     }
-    return staffResponse({ ...result, source: 'notion-bensuke', checkedAt: day.checkedAt }, context);
+    const teachers = directory.filter(staff => day.rows.some(row => row.teacherIds.some((id: string) =>
+      id.replaceAll('-', '').toLowerCase() === staff.id.replaceAll('-', '').toLowerCase()))
+      || result.appointments.some(row => row.teacherId === staff.id)
+      || result.review.some(row => row.teacherIds.includes(staff.id)))
+      .map(staff => ({ id: staff.id, name: staff.name.replace(/(?:先生|さん)$/u, '') }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    return staffResponse({ ...result, teachers, source: 'notion-bensuke', checkedAt: day.checkedAt }, context);
   } catch (error) {
     if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);
     if (context) return staffResponse({ error: 'Notionベンケイの予定を取得できませんでした。接続状態を確認して再取得してください。' }, context, 503);

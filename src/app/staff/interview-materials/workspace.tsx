@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import styles from './workspace.module.css';
 import MaterialPdfViewer from './material-pdf-viewer';
+import BatchFolderPanel from './batch-folder-panel';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
 import { canSaveOfflineFolder, downloadInterviewPdf, interviewMaterialsSharePath, saveInterviewFolder, saveSchoolLibraryFolder, updateInterviewFolderSummary, type MaterialAppointment } from './save-offline-folder';
 import { interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
@@ -29,9 +30,11 @@ export default function MaterialsDesk() {
   const [loginTeachers, setLoginTeachers] = useState<Teacher[]>([]), [teacherId, setTeacherId] = useState(''), [password, setPassword] = useState('');
   const [students, setStudents] = useState<Student[]>([]), [query, setQuery] = useState('');
   const [appointmentDate, setAppointmentDate] = useState(''), [appointments, setAppointments] = useState<MaterialAppointment[]>([]);
+  const [appointmentTeachers, setAppointmentTeachers] = useState<{id: string; name: string}[]>([]);
+  const [appointmentTeacherId, setAppointmentTeacherId] = useState(''), [batchBusy, setBatchBusy] = useState(false);
   const [appointmentBusy, setAppointmentBusy] = useState(false), [appointmentMessage, setAppointmentMessage] = useState('');
   const [selectedAppointment, setSelectedAppointment] = useState<MaterialAppointment | null>(null);
-  const [appointmentReview, setAppointmentReview] = useState<{id: string; title: string; reason: string; url: string}[]>([]);
+  const [appointmentReview, setAppointmentReview] = useState<{id: string; title: string; reason: string; url: string; teacherIds?: string[]}[]>([]);
   const [appointmentReload, setAppointmentReload] = useState(0), [shareMessage, setShareMessage] = useState('');
   const [teacherFilter, setTeacherFilter] = useState(''), [gradeFilter, setGradeFilter] = useState(''), [displayLimit, setDisplayLimit] = useState(30);
   const [number, setNumber] = useState(''), [answerId, setAnswerId] = useState('');
@@ -90,6 +93,10 @@ export default function MaterialsDesk() {
     return terms.every(term => values.some(value => value.includes(searchable(term))));
   }), [students, query, teacherFilter, gradeFilter]);
   const visible = matching.slice(0, displayLimit);
+  const dayTeachers = useMemo(() => appointmentTeachers.length ? appointmentTeachers
+    : [...new Map(appointments.map(item => [item.teacherId, { id: item.teacherId, name: item.teacher }])).values()], [appointmentTeachers, appointments]);
+  const dayAppointments = appointments.filter(item => item.date === appointmentDate && (!appointmentTeacherId || item.teacherId === appointmentTeacherId));
+  const dayReview = appointmentReview.filter(item => !appointmentTeacherId || !item.teacherIds?.length || item.teacherIds.includes(appointmentTeacherId));
   useEffect(() => {
     let active = true;
     if (!number || !staff) return;
@@ -170,6 +177,7 @@ export default function MaterialsDesk() {
       if (!response.ok) throw Error(body.error || '面談予定を取得できません。');
       if (body.source !== 'notion-bensuke') throw Error('Notionベンケイの予定を確認できません。');
       setAppointments(body.appointments ?? []);
+      setAppointmentTeachers(body.teachers ?? []);
       setAppointmentReview(body.review ?? []);
     }).catch(error => { if (!controller.signal.aborted) setAppointmentMessage(requestError(error)); })
       .finally(() => { if (!controller.signal.aborted) setAppointmentBusy(false); });
@@ -270,7 +278,7 @@ export default function MaterialsDesk() {
     finally { setBusy(false); }
   }
   async function checkMaterials() {
-    if (!selected || (selected.responses.length > 1 && !answer)) return;
+    if (batchBusy || !selected || (selected.responses.length > 1 && !answer)) return;
     setPreviewBusy(true); setPreviewMessage(''); setPreview(null); setPreviewHokushin(null); setPreviewTermReport(null); setPreviewVmogi(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); setPdfUrl(''); setFolderJob(null); setDownloadOpen(false); setDownloadMessage('');
     try {
       const job = await submitJob('preview');
@@ -285,7 +293,7 @@ export default function MaterialsDesk() {
     finally { setPreviewBusy(false); }
   }
   async function generate() {
-    if (!selected || !preview || selectedMaterialIds.length === 0 || (selected.responses.length > 1 && !answer)) return;
+    if (batchBusy || !selected || !preview || selectedMaterialIds.length === 0 || (selected.responses.length > 1 && !answer)) return;
     setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null); setFolderJob(null); setDownloadOpen(false); setDownloadMessage('');
     try {
       const job = await submitJob('generate');
@@ -310,7 +318,7 @@ export default function MaterialsDesk() {
     finally { setDownloadBusy(false); }
   }
   async function saveFolder() {
-    if (!folderJob || folderBusy || downloadBusy) return;
+    if (batchBusy || !folderJob || folderBusy || downloadBusy) return;
     setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
     try {
       const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, selected?.grade || '', materialContext, setDownloadMessage, Boolean(showPastSchools), setSummarySaveMessage, selectedAppointment ?? undefined);
@@ -321,7 +329,7 @@ export default function MaterialsDesk() {
     } finally { setFolderBusy(false); }
   }
   async function saveSchoolFolder() {
-    if (schoolFolderBusy) return;
+    if (batchBusy || schoolFolderBusy) return;
     setSchoolFolderBusy(true); setSchoolFolderFailed(false); setSchoolFolderMessage('');
     try {
       const name = await saveSchoolLibraryFolder(setSchoolFolderMessage);
@@ -332,7 +340,7 @@ export default function MaterialsDesk() {
     } finally { setSchoolFolderBusy(false); }
   }
   async function updateSavedSummary() {
-    if (!selected || summarySaveBusy) return;
+    if (batchBusy || !selected || summarySaveBusy) return;
     setSummarySaveBusy(true);setSummarySaveMessage('');
     try { await updateInterviewFolderSummary(selected.number, setSummarySaveMessage); }
     catch (error) { setSummarySaveMessage(error instanceof DOMException && error.name === 'AbortError' ? '更新を取り消しました。' : requestError(error)); }
@@ -351,7 +359,7 @@ export default function MaterialsDesk() {
         <p>面談中にほかの学校を見たいときは、こちらを開いてください。生徒を選ぶ前でも使えます。</p>
         <div className={styles.actions}>
           <button type="button" ref={schoolViewerButtonRef} onClick={() => setSchoolViewerOpen(true)}>北辰基礎資料を見る</button>
-          <button type="button" disabled={!folderSupported || schoolFolderBusy} onClick={() => void saveSchoolFolder()}>{schoolFolderBusy ? '北辰用フォルダを保存中…' : '北辰用フォルダを保存'}</button>
+          <button type="button" disabled={batchBusy || !folderSupported || schoolFolderBusy} onClick={() => void saveSchoolFolder()}>{schoolFolderBusy ? '北辰用フォルダを保存中…' : '北辰用フォルダを保存'}</button>
         </div>
         <p className={styles.note}>全学校のPDFは「北辰基礎資料」フォルダに1セットだけ保存します（約750MB）。保存後は、その中の「北辰基礎資料.html」を必要なときに開いてください。2回目以降は確認済みのPDFを再利用します。{!folderSupported && 'フォルダ保存はChromeまたはEdgeで利用できます。'}</p>
         {schoolFolderMessage && <p role={schoolFolderFailed ? 'alert' : 'status'} className={schoolFolderFailed ? styles.error : styles.note}>{schoolFolderMessage}</p>}
@@ -359,24 +367,33 @@ export default function MaterialsDesk() {
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
         <div className={styles.appointmentPicker}>
           <h3>面談日から選ぶ</h3>
-          <label>面談日<input type="date" value={appointmentDate} onChange={event => {
+          <label>面談日<input type="date" value={appointmentDate} disabled={batchBusy} onChange={event => {
+            setAppointmentTeacherId(''); setAppointmentTeachers([]);
             setAppointmentDate(event.target.value); setSelectedAppointment(null); setAppointments([]); setAppointmentReview([]); setAppointmentBusy(Boolean(event.target.value)); setAppointmentMessage('');
           }} /></label>
+          <label>面談の先生<select value={appointmentTeacherId} disabled={batchBusy || appointmentBusy || !appointmentDate}
+            onChange={event => { setAppointmentTeacherId(event.target.value); setSelectedAppointment(null); }}>
+            <option value="">先生を選ぶ</option>{dayTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}先生</option>)}
+          </select></label>
           <p className={styles.note}>取得元：Notionベンケイ。先生ごとの予定の書き方をAIが読み取り、生徒台帳・職員DBと一致した面談から選べます。</p>
-          <button type="button" disabled={!appointmentDate || appointmentBusy} onClick={() => { setSelectedAppointment(null); setAppointments([]); setAppointmentReview([]); setAppointmentMessage(''); setAppointmentBusy(true); setAppointmentReload(value => value + 1); }}>Notionの予定を再取得</button>
+          <button type="button" disabled={!appointmentDate || appointmentBusy || batchBusy} onClick={() => { setAppointmentTeacherId(''); setAppointmentTeachers([]); setSelectedAppointment(null); setAppointments([]); setAppointmentReview([]); setAppointmentMessage(''); setAppointmentBusy(true); setAppointmentReload(value => value + 1); }}>Notionの予定を再取得</button>
           {appointmentBusy && <p role="status">面談予定を読み込んでいます…</p>}
           {appointmentMessage && <p role="alert" className={styles.error}>{appointmentMessage}</p>}
-          {appointmentDate && !appointmentBusy && !appointmentMessage && (appointments.length
-            ? <div className={styles.studentResults} aria-label="選んだ日の面談予定">{appointments.map(item => <button type="button" key={item.id}
+          <BatchFolderPanel key={`${appointmentDate}:${appointmentTeacherId}:${appointmentReload}`} date={appointmentDate} teacherId={appointmentTeacherId}
+            appointments={appointments} folderSupported={folderSupported} workerOnline={workerOnline}
+            disabled={appointmentBusy || Boolean(appointmentMessage) || busy || previewBusy || folderBusy || downloadBusy || schoolFolderBusy || summarySaveBusy}
+            onBusyChange={setBatchBusy} />
+          {appointmentDate && !appointmentBusy && !appointmentMessage && (dayAppointments.length
+            ? <div className={styles.studentResults} aria-label="選んだ日の面談予定">{dayAppointments.map(item => <button type="button" key={item.id} disabled={batchBusy}
                 className={styles.studentResult} aria-pressed={selectedAppointment?.id === item.id} onClick={() => {
                   const student = students.find(row => row.number === item.number);
                   if (!student) { setAppointmentMessage('面談予定の生徒が現在の台帳に見つかりません。'); return; }
                   chooseStudent(student); setSelectedAppointment(item);
                 }}><strong>{item.start}　{item.grade} {item.name}</strong><span>{item.teacher}先生 ／ {item.number}</span></button>)}</div>
             : <p>この日に保存できる面談予定はありません。</p>)}
-          {!!appointmentReview.length && <div className={styles.appointmentReview} aria-label="要確認の面談予定">
-            <h3>要確認 {appointmentReview.length}件（保存対象外）</h3>
-            {appointmentReview.map(item => <div key={item.id}><strong>{item.title}</strong><p>{item.reason}</p>
+          {!!dayReview.length && <div className={styles.appointmentReview} aria-label="要確認の面談予定">
+            <h3>要確認 {dayReview.length}件（保存対象外）</h3>
+            {dayReview.map(item => <div key={item.id}><strong>{item.title}</strong><p>{item.reason}</p>
               <div className={styles.actions}><a href={item.url} target="_blank" rel="noreferrer">Notionで予定を確認</a></div></div>)}
           </div>}
           {selectedAppointment && <div className={styles.appointmentReview}>
@@ -427,7 +444,7 @@ export default function MaterialsDesk() {
           {!answer && <div><h4>選択中の資料候補</h4>{schoolNames.map((school, index) => <label key={index}>資料候補 {index + 1}<input value={school} onChange={event => { setSchoolNames(names => names.map((name, position) => position === index ? event.target.value : name)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }} /></label>)}
             {schoolNames.length < 6 && <button type="button" onClick={() => { setSchoolNames(names => [...names, '']); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }}>資料候補を追加</button>}</div>}
         </div>}
-        <div className={styles.actions}><button className={styles.primary} disabled={!workerOnline || previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
+        <div className={styles.actions}><button className={styles.primary} disabled={batchBusy || !workerOnline || previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
         {selected.responses.length > 1 && !answer && <p className={styles.note}>上のアンケート回答を1つ選ぶと資料を確認できます。</p>}
         {previewMessage && <p className={styles.error} role="alert">{previewMessage}</p>}
         {preview && <div className={styles.preview}><h3>印刷する資料を選ぶ</h3>
@@ -478,13 +495,13 @@ export default function MaterialsDesk() {
           {previewHokushin && !previewHokushin.found && selected.grade.match(/^中[23]$/) && <p>北辰の個人成績票：{previewHokushin.message || '該当資料なし'}</p>}
           {previewTermReport && !previewTermReport.found && <p>成績通知の個人成績表：{previewTermReport.message || '該当資料なし'}</p>}
           {previewVmogi && !previewVmogi.found && selected.grade.match(/^中[23]$/) && <p>Vもぎ：{previewVmogi.message || '該当資料なし'}</p>}
-          <button className={styles.primary} disabled={!workerOnline || busy || Boolean(previewHokushin?.indexing) || selectedMaterialIds.length === 0} onClick={() => void generate()}>{busy ? 'PDFを作成中…' : `選んだ${selectedMaterialIds.length}点でPDFを作成`}</button>
+          <button className={styles.primary} disabled={batchBusy || !workerOnline || busy || Boolean(previewHokushin?.indexing) || selectedMaterialIds.length === 0} onClick={() => void generate()}>{busy ? 'PDFを作成中…' : `選んだ${selectedMaterialIds.length}点でPDFを作成`}</button>
           {previewHokushin?.indexing && <p className={styles.note}>索引の作成が終わったら「資料を作る」をもう一度押して確認してください。</p>}
         </div>}
         {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
         <p className={styles.note}>NASで資料の有無と年度を確認してからPDFを作成します。アンケート回答も最初から印刷対象に選ばれています。</p>
       </section>}
-      {selected && folderSupported && <section className={styles.card}><h2>保存済みフォルダのAI要約</h2><p>AIの完成後に勉たんを閉じていた場合も、生徒名のフォルダを選んで要約だけを追加できます。</p><button type="button" disabled={summarySaveBusy || folderBusy} onClick={() => void updateSavedSummary()}>{summarySaveBusy ? 'AI要約を更新中…' : '保存済みフォルダのAI要約を更新'}</button>{summarySaveMessage && <p role="status">{summarySaveMessage}</p>}</section>}
+      {selected && folderSupported && <section className={styles.card}><h2>保存済みフォルダのAI要約</h2><p>AIの完成後に勉たんを閉じていた場合も、生徒名のフォルダを選んで要約だけを追加できます。</p><button type="button" disabled={batchBusy || summarySaveBusy || folderBusy} onClick={() => void updateSavedSummary()}>{summarySaveBusy ? 'AI要約を更新中…' : '保存済みフォルダのAI要約を更新'}</button>{summarySaveMessage && <p role="status">{summarySaveMessage}</p>}</section>}
       {manifest && <section className={`${styles.card} ${styles.resultCard}`} ref={resultRef}><h2>3. 完成した資料を使う</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ。使い方を選んでください。</p>
         <div className={styles.actions}><button type="button" onClick={() => {
@@ -501,7 +518,7 @@ export default function MaterialsDesk() {
           <strong>保存する形式を選ぶ</strong>
           <div className={styles.downloadActions}>
             <button type="button" disabled={!folderJob || downloadBusy || folderBusy} onClick={() => void savePdf()}>{downloadBusy ? '一式PDFを保存中…' : '一式PDFをダウンロード'}<small>印刷にも使える1つのPDF</small></button>
-            <button type="button" disabled={!folderJob || !selectedAppointment || selectedAppointment.number !== folderJob.number || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダを保存'}<small>先生名／学年・秋の教育相談会／面談日時・生徒名</small></button>
+            <button type="button" disabled={batchBusy || !folderJob || !selectedAppointment || selectedAppointment.number !== folderJob.number || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}>{folderBusy ? 'フォルダを保存中…' : '面談用フォルダを保存'}<small>先生名／学年・秋の教育相談会／面談日時・生徒名</small></button>
           </div>
           <p className={styles.note}>{folderSupported ? '保存前に「面談日から選ぶ」で生徒を選び、保存先の選択画面で共有フォルダ「98面談資料」を選んでください。その下に先生・学年・日時別のフォルダを作ります。生徒フォルダの「面談資料.html」はネット接続なしで開けます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
           {folderSupported && <><p className={styles.sharePath}>{interviewMaterialsSharePath}</p><button type="button" onClick={() => {
