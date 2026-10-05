@@ -2,7 +2,7 @@ import {InterviewError} from './interview-core.mjs';
 import {BENSUKE_SOURCE,staffDirectory,teacherMatch,checkedPage} from './bensuke-booking.mjs';
 import {validInterviewDate,interviewDateParts} from './survey-workflow-core.mjs';
 import {surveyScheduleStyle,scheduleMethods} from './survey-schedule-style.mjs';
-import {matchingSurveyAvailability,archiveSurveyAvailability} from './survey-bensuke-availability.mjs';
+import {matchingSurveyAvailability,archiveSurveyAvailability,archiveReplacedSurveySchedule} from './survey-bensuke-availability.mjs';
 
 const plain=items=>(items??[]).map(x=>x.plain_text??x.text?.content??'').join('');
 const marker=id=>`勉たん面談アンケート:${id.replaceAll('-','').toLowerCase()}`;
@@ -45,7 +45,7 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
   const teacherName=String(student.homeroom_teacher??'').trim();
   const teacher=teacherName&&teacherName!=='未設定'?teacherMatch(teacherName,await staffDirectory(request,schema)):null;
   const campus=resolveCampus?null:['本校','南教室'].includes(student.campus)?student.campus:null;
-  const desired={title:style.title,start,end:endTime?`${date}T${endTime}:00+09:00`:null,teachers:teacher?[teacher.id]:[],tags:[style.tag],note:marker(answer.id),campuses:campus?[campus]:[]};
+  const desired={title:style.title,start,end:endTime?`${date}T${endTime}:00+09:00`:null,teachers:teacher?[teacher.id]:[],tags:[style.tag],note:marker(answer.id),campuses:campus?[campus]:[],...(link.expected?.replacedPage?{replacedPage:link.expected.replacedPage}:{})};
   let page=link.page_id?await activeSurveySchedule(request,link.page_id):null;
   // A trashed appointment is no longer a schedule. Release its stale link
   // under the answer lease, then use the current availability/new-save flow.
@@ -82,12 +82,35 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
     }
    }
   }
+  let cleanupSlot=null;
+  if(slot&&slot.page.id!==page.id&&desired.replacedPage){
+   const staged={...desired,note:link.expected.note,end:desired.end??link.expected.end};
+   if(!sameSurveySchedule(staged,link.expected)||JSON.stringify(desired.campuses)!==JSON.stringify(link.expected.campuses))throw new InterviewError('前回の付け替えの整理が未完了です。同じ面談日時で再試行してください。',409);
+   // A retry may still see identical extra availability. Finish the staged
+   // target instead of moving the link a second time.
+   cleanupSlot=slot;
+  }else if(slot&&slot.page.id!==page.id){
+   const previous=surveyScheduleValue(page);
+   if(!sameSurveySchedule(previous,link.baseline)&&!(link.state==='updating'&&sameSurveySchedule(previous,link.expected)))throw new InterviewError('ベンスケ側で予定が変更されています。原本を確認してください。',409);
+   if(!reserve)throw new InterviewError('予約可の保存準備ができません。再試行してください。',503);
+   // Keep both identities reserved while the durable link moves to the slot.
+   // This also lets a retry finish cleanup after a lost Notion/SQL response.
+   await reserve(answer.id,link.lease,page.id);
+   await reserve(answer.id,link.lease,slot.page.id);
+   const oldNote=previous.note.split('\n').filter(line=>line!==marker(answer.id)).join('\n');
+   const slotNote=slot.value.note.split('\n').filter(line=>line!==marker(answer.id)).join('\n');
+   const note=[...new Set([slotNote,oldNote].filter(Boolean))].join('\n');
+   desired.note=note?`${note}\n${marker(answer.id)}`:marker(answer.id);
+   desired.replacedPage={id:page.id,value:previous,editedAt:page.last_edited_time,note:desired.note};
+   page=slot.page;
+   await persist({page_id:page.id,baseline:slot.value,expected:desired,state:'updating'});
+  }
   let remote=surveyScheduleValue(page);
   if(!endTime&&remote.start.includes('T')&&Date.parse(remote.start)===Date.parse(desired.start))desired.end=remote.end??link.expected?.end??desired.end;
-  if(!slot&&remote.campuses.length&&remote.start===desired.start)desired.campuses=remote.campuses;
+  if(!slot&&remote.campuses.length&&Date.parse(remote.start)===Date.parse(desired.start))desired.campuses=remote.campuses;
   else if(!slot&&!desired.campuses.length&&remote.campuses.length)desired.campuses=remote.campuses;
   const oldNote=remote.note.split('\n').filter(line=>line!==marker(answer.id)).join('\n');
-  desired.note=oldNote?`${oldNote}\n${marker(answer.id)}`:marker(answer.id);
+  desired.note=desired.replacedPage?.note??(oldNote?`${oldNote}\n${marker(answer.id)}`:marker(answer.id));
   if(!sameSurveySchedule(remote,link.baseline)&&!(link.state==='updating'&&sameSurveySchedule(remote,link.expected)))throw new InterviewError('ベンスケ側で予定が変更されています。原本を確認してください。',409);
   if(slot&&slot.page.id!==page.id)await reserve(answer.id,link.lease,slot.page.id);
   for(const duplicate of slot?.duplicates??[])await reserve(answer.id,link.lease,duplicate.page.id);
@@ -101,14 +124,15 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
    if(!sameSurveySchedule(remote,desired)||JSON.stringify(remote.campuses)!==JSON.stringify(desired.campuses))throw new InterviewError('ベンスケの反映結果を確認できません。再試行してください。',409);
   }
   await persist({page_id:page.id,baseline:remote,expected:desired,state:'saved'});
-  // Existing linked appointments keep their URL. Remove only the verified
-  // matching availability after the appointment is durably saved.
-  if(slot&&slot.page.id!==page.id)await archiveSurveyAvailability({request,reserve,answerId:answer.id,lease:link.lease,slot});
+  // Confirmation consumes the existing slot itself; only extra cards are retired.
+  if(desired.replacedPage)await archiveReplacedSurveySchedule(request,desired.replacedPage);
+  if(cleanupSlot)await archiveSurveyAvailability({request,reserve,answerId:answer.id,lease:link.lease,slot:cleanupSlot});
   for(const duplicate of slot?.duplicates??[])await archiveSurveyAvailability({request,reserve,answerId:answer.id,lease:link.lease,slot:duplicate});
   const latest=await request(`/pages/${answer.id}`);
   if(latest.last_edited_time!==fresh.last_edited_time&&JSON.stringify(interviewDateParts(latest.properties?.['面談日']?.date?.start??''))!==JSON.stringify({date,time}))throw new InterviewError('ベンスケは保存しましたが、アンケートが更新されたため面談日の変更を停止しました。最新情報を確認してください。',409);
   if(!sameDate)await request(`/pages/${answer.id}`,{method:'PATCH',body:JSON.stringify({properties:{'面談日':{date:{start}}}})});
-  await persist({state:'synced'},true);
+  delete desired.replacedPage;
+  await persist({expected:desired,state:'synced'},true);
   return {ok:true,date,bensuke:{id:page.id,url:page.url??`https://www.notion.so/${page.id.replaceAll('-','')}`,state:'synced',method,endTime:interviewDateParts(remote.end??'').time,styled:true}};
  }catch(error){
   await persist({},true).catch(()=>{});

@@ -31,7 +31,8 @@ const result=await saveSurveySchedule({request,answer,student,date,time,endTime,
  reserve:async(id,lease,pageId)=>{const r=await db.rpc('survey_bensuke_reserve',{p_answer:id,p_lease:lease,p_page:pageId});if(r.error)throw Error('予約可の枠を確保できません。');},
  resolveCampus:(date,teacher)=>surveyMeetingCampus(db,date,teacher),
 });
-const after=await request(`/pages/${page.id}`),row=await db.from('survey_bensuke_links').select('page_id,state,baseline').eq('answer_id',answer.id).single();
-if(row.error||row.data.page_id!==page.id||row.data.state!=='synced'||!sameSurveySchedule(surveyScheduleValue(after),row.data.baseline))throw Error('更新結果の検証に失敗しました。');
+const after=await request(`/pages/${result.bensuke.id}`),row=await db.from('survey_bensuke_links').select('page_id,state,baseline').eq('answer_id',answer.id).single();
+if(row.error||row.data.page_id!==result.bensuke.id||row.data.state!=='synced'||after.archived||after.in_trash||!sameSurveySchedule(surveyScheduleValue(after),row.data.baseline))throw Error('更新結果の検証に失敗しました。');
+if(result.bensuke.id!==page.id){const previous=await request(`/pages/${page.id}`);if(!previous.archived&&!previous.in_trash)throw Error('付け替え前の面談の整理を確認できません。');}
 fs.writeFileSync(`analysis_outputs/survey-save-line-style/notion-after-${Date.now()}.json`,JSON.stringify({page:after,link:row.data}));
-console.log(JSON.stringify({applied:result.ok,targetCount:1,samePageUpdated:true,notionAndSavedStateVerified:true,date,time,endTime,method,lineSent:false}));
+console.log(JSON.stringify({applied:result.ok,targetCount:1,samePageUpdated:result.bensuke.id===page.id,originalAvailabilityUsed:result.bensuke.id!==page.id,notionAndSavedStateVerified:true,date,time,endTime,method,lineSent:false}));

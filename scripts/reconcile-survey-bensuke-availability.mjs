@@ -36,10 +36,10 @@ for(const c of candidates){
   resolveCampus:(date,teacher)=>surveyMeetingCampus(db,date,teacher),
  });
  const page=await request(`/pages/${c.page.id}`),slot=await request(`/pages/${c.slot.page.id}`),row=await db.from('survey_bensuke_links').select('*').eq('answer_id',c.answer.id).single();
- if(result.bensuke.id!==c.page.id||row.error||row.data.state!=='synced'||!sameSurveySchedule(surveyScheduleValue(page),row.data.baseline)||!slot.archived&&!slot.in_trash)throw Error('重複解消の結果を確認できません。');
+ if(result.bensuke.id!==c.slot.page.id||row.error||row.data.page_id!==c.slot.page.id||row.data.state!=='synced'||slot.archived||slot.in_trash||!sameSurveySchedule(surveyScheduleValue(slot),row.data.baseline)||!page.archived&&!page.in_trash)throw Error('重複解消の結果を確認できません。');
  const extras=[];
  for(const duplicate of c.slot.duplicates){const extra=await request(`/pages/${duplicate.page.id}`);if(!extra.archived&&!extra.in_trash)throw Error('追加の重複枠を解消できません。');extras.push(extra);}
  results.push({page,slot,extras,link:row.data});
 }
 fs.writeFileSync(`${snapshot}-after.json`,JSON.stringify(results));
-console.log(JSON.stringify({applied:true,targetCount:results.length,appointmentUrlsPreserved:true,availabilityArchived:true,lineSent:false}));
+console.log(JSON.stringify({applied:true,targetCount:results.length,availabilityUrlsPreserved:true,availabilityConsumed:true,extraAppointmentsArchived:true,lineSent:false}));

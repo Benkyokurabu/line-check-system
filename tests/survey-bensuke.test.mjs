@@ -15,9 +15,9 @@ function fixture(){
   if(path.endsWith('/query'))return {results:body.filter.property==='備考'?(page?[page]:[]):slots.filter(p=>!p.archived)};
   if(path==='/pages'){page={id:createdPages.length?'66666666-6666-4666-8666-666666666666':pageId,parent:{data_source_id:BENSUKE_SOURCE},properties:body.properties};createdPages.push(page);if(failCreate)throw Error('lost response');return page;}
   const created=createdPages.find(p=>path===`/pages/${p.id}`);
-  if(created){if(init.method==='PATCH'){Object.assign(created.properties,body.properties);if(failUpdate)throw Error('lost update');}return structuredClone(created);}
+  if(created){if(init.method==='PATCH'){Object.assign(created.properties,body.properties);if(body.archived)created.archived=true;if(body.archived?failArchive:failUpdate)throw Error('lost update');}return structuredClone(created);}
   const slot=slots.find(p=>path===`/pages/${p.id}`);
-  if(slot){if(init.method==='PATCH'){Object.assign(slot.properties,body.properties);if(body.archived)slot.archived=true;if(failArchive||failUpdate)throw Error('lost response');}return structuredClone(slot);}
+  if(slot){if(init.method==='PATCH'){Object.assign(slot.properties,body.properties);if(body.archived)slot.archived=true;if(body.archived?failArchive:failUpdate)throw Error('lost response');}return structuredClone(slot);}
   throw Error(path);
  };
  const jsonb=v=>Array.isArray(v)?v.map(jsonb):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,jsonb(v[k])])):v;
@@ -91,22 +91,23 @@ test('a matching availability becomes the appointment without creating another c
  const patch=f.calls.find(([p,i])=>p===`/pages/${slot.id}`&&i.method==='PATCH');assert.ok(!JSON.parse(patch[1].body).properties['校舎']);assert.ok(!JSON.parse(patch[1].body).properties['教室']);
  await saveSurveySchedule(f.args);assert.equal(surveyScheduleValue(slot).end,'2026-10-03T09:45:00Z');assert.equal(surveyScheduleValue(slot).note.split('勉たん面談アンケート:').length,2);
 });
-test('an already linked appointment keeps its URL and removes the matching availability',async()=>{
- const f=fixture();await saveSurveySchedule(f.args);const slot=addSlot(f);await saveSurveySchedule(f.args);
- assert.equal(f.link.page_id,pageId);assert.equal(slot.archived,true);assert.equal(f.page.properties['日時'].date.end,'2026-10-03T09:45:00Z');
+test('confirmation moves a linked appointment into the original availability and retires its extra card',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page,slot=addSlot(f);await saveSurveySchedule(f.args);
+ assert.equal(f.link.page_id,slot.id);assert.ok(!slot.archived);assert.equal(old.archived,true);assert.equal(f.page.properties['日時'].date.end,'2026-10-03T09:45:00Z');
  assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);assert.equal(f.link.state,'synced');
+ assert.deepEqual(surveyScheduleValue(slot).tags,['面談(オンライン)']);assert.ok(!f.link.expected.replacedPage);
 });
 test('a lost reuse response recovers the same card and its original end',async()=>{
  const f=fixture(),slot=addSlot(f);f.failUpdate();await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(f.link.page_id,slot.id);
  f.recover();await saveSurveySchedule(f.args);assert.equal(f.link.state,'synced');assert.equal(f.calls.filter(([p])=>p==='/pages').length,0);assert.ok(surveyScheduleValue(slot).end);
 });
-test('a lost archive response retries without creating or archiving another card',async()=>{
- const f=fixture();await saveSurveySchedule(f.args);const slot=addSlot(f);f.failArchive();await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(slot.archived,true);
- f.recover();await saveSurveySchedule(f.args);assert.equal(f.link.state,'synced');assert.equal(f.calls.filter(([p,i])=>p===`/pages/${slot.id}`&&i.method==='PATCH').length,1);
+test('a lost retirement response recovers the original slot without repeating the archive or POST',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page,slot=addSlot(f);f.failArchive();await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(old.archived,true);assert.ok(!slot.archived);assert.equal(f.link.page_id,slot.id);assert.ok(f.link.expected.replacedPage);
+ f.recover();await saveSurveySchedule(f.args);assert.equal(f.link.state,'synced');assert.ok(!f.link.expected.replacedPage);assert.equal(f.calls.filter(([p,i])=>p===`/pages/${old.id}`&&i.method==='PATCH'&&JSON.parse(i.body).archived).length,1);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
 });
-test('rescheduling consumes the new availability and preserves the linked appointment',async()=>{
- const f=fixture();await saveSurveySchedule(f.args);const slot=addSlot(f);slot.properties['日時'].date={start:'2026-10-04T18:00:00+09:00',end:'2026-10-04T18:45:00+09:00'};
- f.args.date='2026-10-04';f.args.expectedEditedAt='v2';await saveSurveySchedule(f.args);assert.equal(f.link.page_id,pageId);assert.equal(slot.archived,true);
+test('rescheduling consumes the new original availability and retires the old appointment',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page,slot=addSlot(f);slot.properties['日時'].date={start:'2026-10-04T18:00:00+09:00',end:'2026-10-04T18:45:00+09:00'};
+ f.args.date='2026-10-04';f.args.expectedEditedAt='v2';await saveSurveySchedule(f.args);assert.equal(f.link.page_id,slot.id);assert.ok(!slot.archived);assert.equal(old.archived,true);
 });
 test('ambiguous, mixed-purpose, overlong and reserved availability cannot be consumed',async()=>{
  for(const mode of ['ambiguous','mixed','long','reserved']){
@@ -161,4 +162,46 @@ test('display ignores trash and preserves source validation',async()=>{
  const f=fixture();await saveSurveySchedule(f.args);assert.equal((await activeSurveySchedule(f.args.request,pageId)).id,pageId);
  f.page.in_trash=true;assert.equal(await activeSurveySchedule(f.args.request,pageId),null);
  f.page.parent.data_source_id=answerId;await assert.rejects(()=>activeSurveySchedule(f.args.request,pageId),/別のDB/);
+});
+
+test('a cleared card renamed to exactly 予約可 is converted even if its former interview tag remains',async()=>{
+ const f=fixture(),slot=addSlot(f);slot.properties['名前']={title:[{text:{content:'予約可'}}]};slot.properties['内容']={multi_select:[{name:'面談(オンライン)'}]};slot.properties['備考']={rich_text:[]};
+ await saveSurveySchedule(f.args);assert.equal(f.link.page_id,slot.id);assert.equal(f.calls.filter(([p])=>p==='/pages').length,0);assert.deepEqual(surveyScheduleValue(slot).tags,['面談(オンライン)']);assert.equal(surveyScheduleValue(slot).title,'中２架空生徒／三者面談');
+});
+
+test('a named appointment or a card retaining another survey marker cannot be treated as reopened availability',async()=>{
+ for(const mode of ['named','linked','mixed']){
+  const f=fixture(),slot=addSlot(f);slot.properties['名前']={title:[{text:{content:mode==='named'?'面談：別の生徒':'予約可'}}]};slot.properties['内容']={multi_select:[{name:'面談(オンライン)'}]};slot.properties['備考']={rich_text:mode==='linked'?[{text:{content:'勉たん面談アンケート:other'}}]:[]};
+  if(mode==='mixed')slot.properties['内容'].multi_select.push({name:'会議'});
+  await assert.rejects(()=>saveSurveySchedule(f.args),/別の用途/);assert.equal(f.calls.filter(([p,i])=>p==='/pages'||i.method==='PATCH').length,0);
+ }
+});
+
+test('lost conversion response during a linked transfer recovers the same slot and both original notes',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page;old.properties['備考'].rich_text.unshift({text:{content:'旧面談のメモ\n'}});f.link.baseline=surveyScheduleValue(old);const slot=addSlot(f);
+ f.failUpdate();await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(f.link.page_id,slot.id);assert.ok(f.link.expected.replacedPage);assert.ok(!old.archived);
+ f.recover();await saveSurveySchedule(f.args);assert.equal(old.archived,true);assert.ok(!slot.archived);assert.match(surveyScheduleValue(slot).note,/既存のメモ\n旧面談のメモ\n勉たん面談アンケート:/);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);assert.ok(!f.link.expected.replacedPage);
+});
+
+test('a concurrent edit to the displaced appointment stops retirement and preserves the pending cleanup',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page,slot=addSlot(f),request=f.args.request;let edited=false;
+ f.args.request=async(path,init={})=>{const value=await request(path,init);if(path===`/pages/${slot.id}`&&init.method==='PATCH'&&!edited){edited=true;old.properties['備考'].rich_text.push({text:{content:'別職員の追記'}});}return value;};
+ await assert.rejects(()=>saveSurveySchedule(f.args),/付け替え前の面談が変更/);assert.ok(!old.archived);assert.ok(!slot.archived);assert.equal(f.link.page_id,slot.id);assert.ok(f.link.expected.replacedPage);
+});
+
+test('when another workflow reserves a target, the existing appointment remains linked and untouched',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page,slot=addSlot(f);f.args.reserve=async(_answer,_lease,id)=>{if(id===slot.id)throw Error('already used');};const count=f.calls.length;
+ await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(f.link.page_id,old.id);assert.ok(!old.archived);assert.deepEqual(surveyScheduleValue(slot).tags,['本：予約可']);assert.equal(f.calls.slice(count).filter(([,i])=>i.method==='PATCH').length,0);
+});
+
+test('the prior appointment is retired only after the converted slot and link are saved',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page,slot=addSlot(f),request=f.args.request;
+ f.args.request=async(path,init={})=>{if(path===`/pages/${old.id}`&&init.method==='PATCH'&&JSON.parse(init.body).archived){assert.equal(f.link.page_id,slot.id);assert.equal(f.link.state,'saved');assert.ok(sameSurveySchedule(surveyScheduleValue(slot),f.link.baseline));assert.ok(!f.calls.some(([p,i])=>p===`/pages/${slot.id}`&&i.body&&JSON.parse(i.body).archived));}return request(path,init);};
+ await saveSurveySchedule(f.args);assert.equal(old.archived,true);assert.ok(!slot.archived);
+});
+
+test('retry after a lost transfer response cleans duplicate availability without moving the link again',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page,a=addSlot(f),b=addSlot(f,{id:'55555555-5555-4555-8555-555555555555'});f.failUpdate();
+ await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(f.link.page_id,a.id);f.recover();await saveSurveySchedule(f.args);
+ assert.equal(f.link.page_id,a.id);assert.ok(!a.archived);assert.equal(b.archived,true);assert.equal(old.archived,true);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
 });
