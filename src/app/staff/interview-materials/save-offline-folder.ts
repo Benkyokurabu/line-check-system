@@ -2,11 +2,13 @@ import { materialDockLabel } from './material-dock-label';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
 import { fetchSchoolLibrary } from './school-library';
 import { renderOfflineSchoolLibrary } from '@/lib/hokushin-school-library.mjs';
+import { interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
 
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
 type FileHandle = { createWritable(): Promise<WritableFile>; getFile(): Promise<Blob> };
-type SavedFolderInfo = { studentNumber: string; saveId: string; sourceHash: string; context: MaterialContext; showPastSchools: boolean };
+type SavedFolderInfo = { studentNumber: string; saveId: string; sourceHash: string; context: MaterialContext; showPastSchools: boolean; appointment?: MaterialAppointment };
 type DirectoryHandle = {
+  name: string;
   getDirectoryHandle(name: string, options: { create: boolean }): Promise<DirectoryHandle>;
   getFileHandle(name: string, options: { create: boolean }): Promise<FileHandle>;
 };
@@ -14,6 +16,9 @@ type DirectoryPicker = Window & {
   showDirectoryPicker?: (options: { mode: 'readwrite'; startIn: 'downloads'; id: string }) => Promise<DirectoryHandle>;
 };
 type Material = { label: string; source?: string; previewUrl?: string };
+export type MaterialAppointment = { id: string; number: string; name: string; grade: string; teacher: string; teacherId: string;
+  date: string; start: string; editedAt: string; url: string; source: 'notion-bensuke' };
+export const interviewMaterialsSharePath = '\\\\TS3210\\benko\\03 教務部\\015 各面談行事／文化会館も含む\\98面談資料';
 
 export const canSaveOfflineFolder = () => typeof window !== 'undefined'
   && typeof (window as DirectoryPicker).showDirectoryPicker === 'function';
@@ -147,19 +152,24 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 export async function saveInterviewFolder(
   jobId: string, studentNumber: string, studentName: string, _studentGrade: string, previousContext: MaterialContext | null,
   onProgress: (message: string) => void, showPastSchools = false,
-  onSummaryProgress?: (message: string) => void
+  onSummaryProgress?: (message: string) => void, appointment?: MaterialAppointment
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
   if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
+  if (!appointment || appointment.number !== studentNumber || appointment.name !== studentName
+    || appointment.source !== 'notion-bensuke' || !appointment.editedAt || !appointment.teacherId)
+    throw Error('Notionベンケイの面談日を選んでから保存してください。');
+  const folderParts = interviewMaterialFolderParts(appointment);
   // The picker must be the first asynchronous action after the button click.
   const parent = await pick({ mode: 'readwrite', startIn: 'downloads', id: 'interview-material-folder' });
+  if (parent.name !== '98面談資料') throw Error('保存先には共有フォルダ「98面談資料」を選んでください。');
   onProgress('資料を確認しています…');
   const [jobResponse, templateResponse, details] = await Promise.all([
     fetch(`/api/staff/interview-material-jobs?id=${encodeURIComponent(jobId)}`, { cache: 'no-store' }),
     fetch('/interview-material-offline-template.html'),
     snapshotMaterialContext(studentNumber, previousContext),
   ]);
-  if (!jobResponse.ok || !templateResponse.ok) throw Error('資料を取得できませんでした。もう一度お試しください。');
+  if (!jobResponse.ok || !templateResponse.ok) throw Error('資料を確認できませんでした。もう一度お試しください。');
   const { job } = await jobResponse.json();
   const items = job?.result?.items as Material[] | undefined;
   if (job?.status !== 'completed' || !job.pdfUrl || !Array.isArray(items) || !items.length
@@ -170,8 +180,6 @@ export async function saveInterviewFolder(
   const html = template.replace('__ITEMS_JSON__', safeJson(items.map(item => ({ label: item.label, kind: materialDockLabel(item) }))))
     .replace('__STUDENT_NAME_JSON__', safeJson(studentName)).replace('__CONTEXT_JSON__', safeJson({ ...details, showPastSchools }));
   if (!/^\d{5,12}$/.test(studentNumber)) throw Error('生徒番号を確認できませんでした。');
-  const folderPart = (value: string) => value.trim().replace(/\s+/g, ' ').replace(/[<>:"/\\|?*]/g, '_').replace(/[. ]+$/g, '').slice(0, 60);
-  const folderName = `${folderPart(studentName) || '氏名不明'}_${studentNumber}`;
   const files = [{ name: 'staff-bundle.pdf', label: '印刷用の一式PDF', url: job.pdfUrl },
     ...items.map((item, index) => ({ name: `material-${index}.pdf`, label: item.label, url: item.previewUrl! }))];
   // Download and validate every PDF before touching a previously saved student folder.
@@ -188,7 +196,28 @@ export async function saveInterviewFolder(
       onProgress(`PDFを取得しています… ${saved}/${files.length}`);
     }
   }));
-  const folder = await parent.getDirectoryHandle(folderName, { create: true });
+  // Recheck after PDF transfers, immediately before creating any destination.
+  onProgress('保存直前にNotionの面談予定を再確認しています…');
+  const appointmentsResponse = await fetch(`/api/staff/interview-material-appointments?date=${encodeURIComponent(appointment.date)}&verify=${encodeURIComponent(appointment.id)}`,
+    { cache: 'no-store', signal: AbortSignal.timeout(60000) });
+  const latest = await appointmentsResponse.json();
+  if (!appointmentsResponse.ok) throw Error(latest.error || 'Notionの面談予定を再確認できませんでした。');
+  const appointments = latest.appointments as MaterialAppointment[];
+  if (latest.source !== 'notion-bensuke' || !appointments?.some(row =>
+    (['id', 'number', 'name', 'grade', 'teacher', 'teacherId', 'date', 'start', 'editedAt', 'source'] as const)
+      .every(field => row[field] === appointment[field])))
+    throw Error('面談予定が変更されました。日付を選び直してから保存してください。');
+  let container = parent;
+  for (const part of folderParts.slice(0, -1)) container = await container.getDirectoryHandle(part, { create: true });
+  let leaf = folderParts[2];
+  // Preserve every previous PDF and unknown file, including partial saves.
+  try {
+    await container.getDirectoryHandle(leaf, { create: false });
+    leaf += `（再保存 ${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}_${crypto.randomUUID().slice(0, 8)}）`;
+  } catch (error) {
+    if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error;
+  }
+  const folder = await container.getDirectoryHandle(leaf, { create: true });
   for (let index = 0; index < files.length; index++) {
     onProgress(`ファイルを保存・確認しています… ${index + 1}/${files.length}`);
     await writeFile(folder, files[index].name, pdfs[index]);
@@ -200,12 +229,12 @@ export async function saveInterviewFolder(
     ...items.map((item, index) => `material-${index}.pdf：${item.label}`),
     '面談記録.txt：Notionの直近3回の面談記録の全文',
     '生徒情報・注意点.txt：生徒情報とAIによる確認点'].join('\n'));
-  const savedInfo: SavedFolderInfo = { studentNumber, saveId: crypto.randomUUID(), sourceHash: details.summary.sourceHash || '', context: details, showPastSchools };
+  const savedInfo: SavedFolderInfo = { studentNumber, saveId: crypto.randomUUID(), sourceHash: details.summary.sourceHash || '', context: details, showPastSchools, appointment };
   await writeFile(folder, '保存情報.json', JSON.stringify(savedInfo));
   await writeFile(folder, 'AI要約.js', summaryScript(savedInfo));
   await writeFile(folder, '面談資料.html', html);
   watchSummary(folder, savedInfo, onSummaryProgress);
-  return folderName;
+  return [...folderParts.slice(0, -1), leaf].join('／');
 }
 
 export async function saveSchoolLibraryFolder(onProgress: (message: string) => void): Promise<string> {

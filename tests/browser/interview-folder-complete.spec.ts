@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,stat} from 'node:fs/promises';
 import {resolve,sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
@@ -7,29 +7,35 @@ function pdfFixture(){
  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>','<< /Length 40 >>\nstream\nBT /F1 12 Tf 40 750 Td (Fixture) Tj ET\nendstream'];
  let text='%PDF-1.4\n';const offsets=[0];for(let i=0;i<objects.length;i++){offsets.push(Buffer.byteLength(text));text+=`${i+1} 0 obj\n${objects[i]}\nendobj\n`;}const xref=Buffer.byteLength(text);text+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset=>String(offset).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;return text;
 }
-for(const initial of ['queued','running','failed','broken-pdf','changed-source'] as const){
+for(const initial of ['queued','running','failed','broken-pdf','changed-source','changed-appointment','wrong-root'] as const){
  test(`AI ${initial}: saves every file to disk and uses HTML offline`,async({page,browser},testInfo)=>{
   const root=resolve('analysis_outputs/offline-folder-verification',`${testInfo.workerIndex}-${initial}-${Date.now()}`);
-  const folder='確認用 生徒_2018998';await mkdir(root,{recursive:true});
+  const folder='98面談資料/工藤先生/2026中３秋の教育相談会/2026.10.05 20：30- 確認用 生徒';await mkdir(root,{recursive:true});
   let status:string=['broken-pdf','changed-source'].includes(initial)?'queued':initial;let sourceHash='source-v1';let contextReads=0;
   const summary=()=>({status,sourceHash,items:status==='completed'?[{note:'自動追加した注意点',source:'備考',original:'原文'}]:[]});
+  await page.exposeBinding('folderExists',async(_,directory:string)=>{
+   const path=resolve(root,directory);if(!path.startsWith(root+sep))throw Error('Path escaped');return (await stat(path).catch(()=>null))?.isDirectory()??false;
+  });
   await page.exposeBinding('folderRead',async(_,directory:string,name:string)=>{
    const path=resolve(root,directory,name);if(!path.startsWith(root+sep))throw Error('Path escaped');return Array.from(await readFile(path));
   });
   await page.exposeBinding('folderWrite',async(_,directory:string,name:string,bytes:number[])=>{
    const path=resolve(root,directory,name);if(!path.startsWith(root+sep))throw Error('Path escaped');await mkdir(resolve(root,directory),{recursive:true});await writeFile(path,Buffer.from(bytes));
   });
-  await page.addInitScript(({folder})=>{
-   const win=window as unknown as {folderRead:(directory:string,name:string)=>Promise<number[]>;folderWrite:(directory:string,name:string,bytes:number[])=>Promise<void>};
-   const directory=(name:string):unknown=>({getDirectoryHandle:async(child:string)=>directory(child),getFileHandle:async(file:string)=>({
+  await page.addInitScript(({folder,initial})=>{
+   const win=window as unknown as {folderExists:(directory:string)=>Promise<boolean>;folderRead:(directory:string,name:string)=>Promise<number[]>;folderWrite:(directory:string,name:string,bytes:number[])=>Promise<void>};
+   const directory=(name:string):unknown=>({name:name.split('/').at(-1),getDirectoryHandle:async(child:string,options:{create:boolean})=>{
+    if(!options.create&&!await win.folderExists(`${name}/${child}`))throw new DOMException('Missing directory','NotFoundError');return directory(`${name}/${child}`);
+   },getFileHandle:async(file:string)=>({
     getFile:async()=>new Blob([new Uint8Array(await win.folderRead(name,file))]),
     createWritable:async()=>({write:async(value:string|Blob)=>{const blob=typeof value==='string'?new Blob([value]):value;await win.folderWrite(name,file,Array.from(new Uint8Array(await blob.arrayBuffer())));},close:async()=>{}})
    })});
-   Object.defineProperty(window,'showDirectoryPicker',{value:async(options:{id:string})=>directory(options.id.endsWith('-update')?folder:'')});
-  },{folder});
+   Object.defineProperty(window,'showDirectoryPicker',{value:async(options:{id:string})=>directory(options.id.endsWith('-update')?folder:initial==='wrong-root'?'Downloads':'98面談資料')});
+  },{folder,initial});
   await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{role:'admin'}}}));
   await page.route('**/api/admin/teachers',route=>route.fulfill({json:{teachers:[]}}));
   await page.route('**/api/staff/interview-materials',route=>route.fulfill({json:{students:[{number:'2018998',name:'確認用 生徒',grade:'中3',teacher:'工藤',responses:[]}]}}));
+  await page.route('**/api/staff/interview-material-appointments**',route=>route.fulfill({json:{source:'notion-bensuke',review:[],appointments:[{id:'appointment-1',number:'2018998',name:'確認用 生徒',grade:'中3',teacher:'工藤',teacherId:'teacher-1',date:'2026-10-05',start:'20:30',source:'notion-bensuke',url:'https://www.notion.so/appointment1',editedAt:initial==='changed-appointment'&&new URL(route.request().url()).searchParams.has('verify')?'2026-10-05T01:00:00.000Z':'2026-10-05T00:00:00.000Z'}]}}));
   await page.route('**/api/staff/interview-material-context**',route=>{contextReads++;return route.fulfill({json:{studentNumber:'2018998',capturedAt:new Date().toISOString(),records:[{id:'record',date:'2026-05-23',title:'進路相談',body:'保存した面談記録の全文',url:'https://notion.so/record'}],info:[{source:'備考',value:'保存した生徒情報の原文'}],summary:summary(),studentUrl:'https://notion.so/student',source:'notion'}});});
   await page.route('**/api/staff/interview-material-info**',route=>route.fulfill({json:route.request().method()==='POST'?{status:'queued'}:{summary:summary()}}));
   await page.route('https://fixture.invalid/*.pdf',route=>route.fulfill({body:initial==='broken-pdf'?'Not a PDF':pdfFixture(),contentType:'application/pdf',headers:{'Access-Control-Allow-Origin':'*'}}));
@@ -39,10 +45,14 @@ for(const initial of ['queued','running','failed','broken-pdf','changed-source']
    if(!id)return route.fulfill({json:{available:[{id:'primary',priority:1}]}});
    return route.fulfill({json:{job:id==='preview'?{status:'completed',result:{schools:[],materials:[{id:'guide',label:'指導簿',group:'生徒本人の資料',detail:'本人の資料',staffOnly:false}]}}:{status:'completed',pdfUrl:'https://fixture.invalid/bundle.pdf',result:{items:[{label:'指導簿',source:'guide',previewUrl:'https://fixture.invalid/guide.pdf',staffOnly:false}],missing:[],pages:1}}}});
   });
-  await page.goto('/staff/interview-materials');await page.getByRole('button',{name:/中3 確認用 生徒/}).click();
+  await page.goto('/staff/interview-materials');await page.getByLabel('面談日').fill('2026-10-05');await page.getByRole('button',{name:/20:30.*中3 確認用 生徒/}).click();
   await page.getByRole('button',{name:'資料を作る',exact:true}).click();await page.getByRole('button',{name:'選んだ1点でPDFを作成'}).click();
   await page.getByRole('button',{name:/PCに保存/}).click();await page.getByRole('button',{name:/面談用フォルダを保存/}).click();
   if(initial==='broken-pdf'){await expect(page.getByRole('status').filter({hasText:'を取得できませんでした'})).toBeVisible();expect(await readFile(resolve(root,folder,'面談資料.html')).catch(()=>null)).toBeNull();return;}
+  if(initial==='changed-appointment'||initial==='wrong-root'){
+   await expect(page.getByRole('status').filter({hasText:initial==='changed-appointment'?'面談予定が変更されました':'共有フォルダ「98面談資料」を選んで'})).toBeVisible();
+   expect(await stat(resolve(root,'98面談資料')).catch(()=>null)).toBeNull();return;
+  }
   expect(contextReads).toBe(1);
   await expect(page.getByRole('status').filter({hasText:'ネット接続なしで資料・面談記録・生徒情報'})).toBeVisible();
   for(const name of ['material-0.pdf','staff-bundle.pdf','面談資料.html','面談記録.txt','生徒情報・注意点.txt','AI要約.js','保存情報.json','資料一覧.txt'])expect((await readFile(resolve(root,folder,name))).length).toBeGreaterThan(0);

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>面談日から先生別フォルダへ保存</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f8f7;color:#172735;font:16px/1.7 system-ui,sans-serif}main{max-width:920px;margin:auto;padding:26px 18px}h1{font-size:1.8rem;line-height:1.4}h2{font-size:1.15rem}section{background:white;padding:20px;border:1px solid #b6d0ca;border-radius:14px;margin:18px 0}button,select,a{font:inherit}button{padding:11px 15px;background:#fff;border:1px solid #07586b;border-radius:8px;color:#07586b;font-weight:700;cursor:pointer;min-height:44px}button:focus-visible{outline:3px solid #147b83;outline-offset:2px}button:disabled{opacity:.45;cursor:default}.actions{display:flex;gap:10px;flex-wrap:wrap}.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.flow div{padding:14px;border-radius:8px;background:#eaf4f2}pre,.path{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.8 system-ui}label{display:block;margin:12px 0}select{padding:8px;min-height:44px;max-width:100%}#status{background:#eaf4f2;padding:12px}small{color:#536870}@media(max-width:560px){.flow{grid-template-columns:1fr}main{padding:18px 12px}section{padding:16px}h1{font-size:1.4rem}.actions button{width:100%}}
+</style>
+<main><h1>面談日を選び、先生別フォルダへ保存</h1><p>面談資料画面の操作と保存先の設計。以下の生徒は説明用の架空データです。</p>
+<section><h2>日程の正本と照合</h2><div class="flow"><div>① Notionベンケイ<br><small>選んだ日の予定を全件取得。予約可カードは除外。</small></div><div>② AIが表記を読み取る<br><small>予定の書き方の違いから面談対象を抽出。日時はNotionの値を使う。</small></div><div>③ 台帳・職員DBで照合<br><small>一意に一致した生徒・先生だけが保存候補。</small></div></div><p>同名生徒、複数担当者、未確定・取消などは「要確認」。Notion原本を開くボタンを表示し、保存対象には含めません。</p></section>
+<section><h2>画面遷移を試す</h2><label>説明用の学年 <select id="grade"><option value="中３">中3</option><option value="中２">中2</option></select></label><div class="actions"><button id="choose">① 面談予定を選ぶ</button><button id="generate" disabled>② 資料を作る</button><button id="save" disabled>③ 面談用フォルダを保存</button><button id="change">日付を変更する</button></div><p id="status" role="status" aria-live="polite">面談日を入力してNotionの予定を取得します。</p><p>生徒・面談日時を選択 → アンケート・資料を確認 → PDF作成 →「PCに保存」→「面談用フォルダを保存」。日付を変更すると面談の選択を解除します。</p></section>
+<section><h2>共有フォルダの構成</h2><p class="path">\\TS3210\benko\03 教務部\015 各面談行事／文化会館も含む\98面談資料</p><pre id="tree"></pre><p>時刻の区切りはWindowsで使用できる全角「：」に統一します。手作業で作る場合も同じ階層・名称を使います。保存先選択画面で上の共有パスを確認し、「98面談資料」を選択します。画面の「共有フォルダの場所をコピー」でアドレス欄へ貼り付けられます。</p><p>生徒フォルダの「面談資料.html」を開くと、ネット接続なしで各PDF・面談記録・生徒情報を閲覧できます。北辰基礎資料の全学校セットは別の共通フォルダに保存します。</p></section>
+<section><h2>保存時の確認と再保存</h2><p>全PDFを取得・検証後、Notionの予定を再取得し、AIの判定結果・台帳・担当者・日時・更新時刻を照合。選んだカードを最後にもう一度読み、判定中の編集・削除も確認します。一致しなければフォルダを作成しません。</p><p>既に同じ名前の生徒フォルダがある場合は「（再保存 日時_ID）」を末尾に付けた別フォルダへ保存し、前の資料を残します。保存情報には学籍番号、NotionカードID、担当者IDと更新時刻を記録します。</p><p>AI要約が作成途中の場合もPDF・原文は保存できます。完成した要約は同じ保存IDのフォルダに追記します。元の記録が変わった場合は自動追記を停止します。</p></section>
+</main><script>
+const el=id=>document.getElementById(id);let selected=false;
+function tree(){el('tree').textContent=`98面談資料\n└ 工藤先生\n  └ 2026${el('grade').value}秋の教育相談会\n    └ 2026.10.05 20：30- 確認用 生徒\n      ├ 面談資料.html\n      ├ staff-bundle.pdf ／ material-0.pdf …\n      ├ 面談記録.txt ／ 生徒情報・注意点.txt\n      └ 保存情報.json ／ AI要約.js ／ 資料一覧.txt`;}
+el('choose').onclick=()=>{selected=true;el('generate').disabled=false;el('save').disabled=true;el('status').textContent='20:30 確認用 生徒・工藤先生を選択しました。Notion原本と保存予定を確認できます。';};
+el('generate').onclick=()=>{el('save').disabled=!selected;el('status').textContent='資料が完成しました。「PCに保存」から「面談用フォルダを保存」へ進みます。';};
+el('save').onclick=()=>{el('status').textContent='保存先「98面談資料」を選択 → 全PDFを取得 → Notionを保存直前に再確認 → 先生・学年・日時別フォルダに保存。';};
+el('change').onclick=()=>{selected=false;el('generate').disabled=true;el('save').disabled=true;el('status').textContent='日付を変更したため、面談の選択を解除しました。Notionから予定を再取得します。';};
+el('grade').onchange=tree;tree();
+</script></html>

@@ -34,6 +34,9 @@ const student = { number: '2018998', name: '確認用 生徒', grade: '中3', te
     { label: '第三志望校（任意回答）', value: 'えいめい' },
   ], url: 'https://notion.so/example',
 }] };
+const appointment = { id: 'appointment-1', number: student.number, name: student.name, grade: student.grade,
+  teacher: '工藤', teacherId, date: '2026-10-05', start: '20:30', editedAt: '2026-10-05T00:00:00.000Z',
+  source: 'notion-bensuke', url: 'https://www.notion.so/appointment1' };
 const materials = [
   { id: 'guide', group: '生徒本人の資料', label: '指導簿', detail: '生徒のページ', staffOnly: false },
   { id: 'survey', group: '生徒本人の資料', label: '面談アンケート回答', detail: '選択した回答', staffOnly: false },
@@ -85,6 +88,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.route('https://example.com/material-*.pdf', route => route.fulfill(pdfResponse));
   const jobs: string[] = [];
   let generatedIds: string[] = [];
+  await page.route('**/api/staff/interview-material-appointments**', route => route.fulfill({ json: { source: 'notion-bensuke', review: [], appointments: [appointment] } }));
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
   await page.route('**/api/staff/interview-material-jobs**', route => {
@@ -119,21 +123,27 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.addInitScript(() => {
     const saved: Record<string, string> = {};
     Object.defineProperty(window, '__savedFiles', { value: saved });
-    Object.defineProperty(window, 'showDirectoryPicker', { value: async () => ({
-      getDirectoryHandle: async (folderName: string) => ({
-        getFileHandle: async (fileName: string) => ({
-          getFile: async () => new Blob([saved[`${folderName}/${fileName}`] ?? '']),
-          createWritable: async () => ({
-            write: async (data: Blob | string) => { saved[`${folderName}/${fileName}`] = typeof data === 'string' ? data : await data.text(); },
-            close: async () => {},
-          }),
-        }),
-      }),
-    }) });
+    const directory = (path: string): unknown => ({ name: path.split('/').at(-1),
+      getDirectoryHandle: async (folderName: string, options: { create: boolean }) => {
+        const child = `${path}/${folderName}`;
+        if (!options.create && !Object.keys(saved).some(key => key.startsWith(`${child}/`))) throw new DOMException('Missing directory', 'NotFoundError');
+        return directory(child);
+      },
+      getFileHandle: async (fileName: string, options: { create: boolean }) => {
+        const key = `${path}/${fileName}`;
+        if (!options.create && !(key in saved)) throw Error('NotFound');
+        return { getFile: async () => new Blob([saved[key] ?? '']), createWritable: async () => ({
+          write: async (data: Blob | string) => { saved[key] = typeof data === 'string' ? data : await data.text(); },
+          close: async () => {},
+        }) };
+      },
+    });
+    Object.defineProperty(window, 'showDirectoryPicker', { value: async () => directory('98面談資料') });
   });
   await page.goto('/staff/interview-materials');
   await expect(page.getByText('主担当PCが稼働中です')).toBeVisible();
-  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
+  await page.getByLabel('面談日').fill('2026-10-05');
+  await page.getByRole('button', { name: /20:30.*中3 確認用 生徒/ }).click();
   await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
   await expect.poll(() => summaryRequests).toBe(1);
   await expect(page.getByRole('textbox', { name: '第3志望' })).toHaveValue('叡明');
@@ -241,8 +251,7 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.getByRole('button', { name: /面談用フォルダを保存/ }).click();
   await expect(page.getByRole('status').filter({ hasText: '面談資料.html' })).toBeVisible();
   const saved = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
-  const folderName = Object.keys(saved)[0].split('/')[0];
-  expect(folderName).toBe('確認用 生徒_2018998');
+  const folderName = '98面談資料/工藤先生/2026中３秋の教育相談会/2026.10.05 20：30- 確認用 生徒';
   expect(Object.keys(saved).sort()).toEqual([
     `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
     `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,
@@ -269,6 +278,9 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.getByRole('button', { name: /面談用フォルダを保存/ }).click();
   await expect(page.getByRole('status').filter({ hasText: '面談資料.html' })).toBeVisible();
   expect(studentLibraryReads).toBe(0);
+  const after = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
+  for (const [name, contents] of Object.entries(saved)) expect(after[name]).toBe(contents);
+  expect(Object.keys(after).some(name => name.includes('（再保存 '))).toBe(true);
 });
 
 test('the school library requires a staff login', async ({ request }) => {
