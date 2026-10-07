@@ -845,6 +845,7 @@ def make_bundle(payload: dict):
         raise ValueError('印刷する資料の選択を確認してください。')
     selected = set(selected_ids) if selected_ids is not None else None
     added_ids = set()
+    material_failures = {}
     wants = lambda item_id: selected is None or item_id in selected
     wants_kind = lambda kind: selected is None or any(item.startswith(kind + ':') for item in selected)
     all_roots = roots()
@@ -879,6 +880,7 @@ def make_bundle(payload: dict):
                 add('指導簿', guide, item_id='guide')
             except Exception as exc:
                 missing.append(str(exc))
+                material_failures['guide'] = '指導簿：' + str(exc)
         survey = payload.get('survey')
         if survey is not None and wants('survey'):
             if not isinstance(survey, dict):
@@ -900,8 +902,9 @@ def make_bundle(payload: dict):
             label = f'{["", "", "", "晶文社", "実施内容", "私立推薦基準", "北辰基礎資料", "併願校"][source_id]}：{path.name}'
             try:
                 add(label, path, sensitive, item_id=item_id)
-            except Exception:
+            except Exception as exc:
                 missing.append(label + '：PDF化できません')
+                material_failures[item_id] = label + '：' + str(exc)
         if grade in ('中2', '中3') and wants_kind('hokushin'):
             path, error = hokushin(all_roots, grade, name, number, str(payload.get('campus', '')))
             if path:
@@ -927,12 +930,17 @@ def make_bundle(payload: dict):
                     selected_report = extract_report_pages(report, report_pages_found, base / 'term-report.pdf')
                     add('成績通知：' + report.parent.parent.name + '／' + report.name + '（本人のページ）', selected_report,
                         item_id=material_id('term-report', report))
-                except Exception:
+                except Exception as exc:
                     missing.append('成績通知：個人成績表をPDFにできませんでした')
+                    material_failures[material_id('term-report', report)] = '成績通知：' + str(exc)
             elif report_error:
                 missing.append(report_error)
         if selected is not None and not selected.issubset(added_ids):
-            raise RuntimeError('選択した資料が更新・移動されたか、PDF化できませんでした。資料を再確認してください。')
+            names = {'guide': '指導簿', 'survey': '面談アンケート回答', 'hokushin': '北辰成績',
+                     'vmogi': 'Vもぎ', 'term-report': '成績通知', 'common': '共通資料'}
+            reasons = [material_failures.get(item_id, names.get(item_id.split(':')[0], '志望校の資料')
+                       + '：資料が更新・移動されたか、本人の資料を確認できません。') for item_id in sorted(selected - added_ids)]
+            raise RuntimeError('選択した資料を作成できませんでした。' + ' ／ '.join(reasons) + ' 資料を再確認してください。')
         if not pdfs:
             raise RuntimeError('印刷できる資料が見つかりません')
         writer = PdfWriter()

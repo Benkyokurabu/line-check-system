@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import styles from './workspace.module.css';
 import MaterialPdfViewer from './material-pdf-viewer';
 import BatchFolderPanel from './batch-folder-panel';
+import DailyMaterialPanel from './daily-material-panel';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
 import { canSaveOfflineFolder, downloadInterviewPdf, interviewMaterialsSharePath, saveInterviewFolder, saveSchoolLibraryFolder, updateInterviewFolderSummary, type MaterialAppointment } from './save-offline-folder';
 import { interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
@@ -376,6 +377,7 @@ export default function MaterialsDesk() {
       <button disabled={busy || loginTeachers.length === 0}>ログイン</button>
     </form> : <>
       <p role="status" className={styles.note}>{workerStatus} <button type="button" onClick={() => void refreshWorkers()}>稼働状況を再確認</button></p>
+      <DailyMaterialPanel />
       <section className={styles.card} aria-label="共通の北辰基礎資料"><h2>北辰基礎資料（全学校）</h2>
         <p>面談中にほかの学校を見たいときは、こちらを開いてください。生徒を選ぶ前でも使えます。</p>
         <div className={styles.actions}>

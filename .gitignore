@@ -30,6 +30,8 @@
 /local_helper/dist_final2/
 /local_helper/build_final3/
 /local_helper/dist_final3/
+/local_helper/build_daily/
+/local_helper/dist_daily/
 /local_helper/*.spec
 /local_helper/__pycache__/
 /local_helper/sources.txt

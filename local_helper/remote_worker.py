@@ -7,6 +7,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from daily_auto import DailyFolder, fingerprint
 
 
 class RemoteWorker:
@@ -19,6 +21,9 @@ class RemoteWorker:
         self.sync_bundle = sync_bundle
         self.index_status = index_status
         self.root = root
+        self.daily_scan_at = 0.0
+        self.daily_scanning = threading.Event()
+        self.daily_status = {}
 
     def request(self, body: dict) -> dict:
         config = json.loads(self.config_path.read_text(encoding='utf-8-sig'))
@@ -30,8 +35,15 @@ class RemoteWorker:
             'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config['token'],
             'x-material-worker': config['id'], 'User-Agent': 'BentanMaterialWorker/1',
         })
-        with urlopen(request, timeout=25) as response:
-            return json.load(response)
+        try:
+            with urlopen(request, timeout=70 if body.get('action') in ('daily-scan', 'daily-prepare', 'daily-verify') else 25) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            try:
+                error = json.loads(exc.read(4096)).get('error')
+            except (ValueError, AttributeError):
+                error = None
+            raise RuntimeError(error[:300] if isinstance(error, str) and error else f'作成サーバーとの通信に失敗しました（HTTP {exc.code}）。') from None
 
     def ready(self) -> bool:
         try:
@@ -67,7 +79,8 @@ class RemoteWorker:
         def renew():
             while not keep_renewing.wait(15):
                 try:
-                    self.request({'action': 'heartbeat', 'ready': self.ready(), 'status': {'busy': True}})
+                    self.request({'action': 'heartbeat', 'ready': self.ready(), 'status': {'busy': True,
+                                  'capabilities': ['daily-offline-v1'], 'daily': self.daily_status}})
                     if not self.request({'action': 'renew', 'id': id_, 'lease': lease}).get('ok'):
                         lost_lease.set()
                         return
@@ -82,6 +95,30 @@ class RemoteWorker:
                 paths = self.roots()
                 result = self.preview_bundle(paths, payload)
             else:
+                automatic = isinstance(payload.get('autoDaily'), dict)
+                prepared = None
+                daily_folder = None
+                input_hash = None
+                if automatic:
+                    prepared = self.request({'action': 'daily-prepare', 'id': id_, 'lease': lease})
+                    payload = prepared['payload']
+                    preview = self.preview_bundle(self.roots(), payload)
+                    if preview.get('hokushin', {}).get('indexing'):
+                        raise RuntimeError('北辰の索引を作成中です。資料は更新せず、次回巡回で再試行します。')
+                    selected_ids = [item['id'] for item in preview['materials']]
+                    if not selected_ids or 'guide' not in selected_ids:
+                        raise RuntimeError('本人の指導簿を含む資料一式を確認できません。')
+                    payload = {**payload, 'selectedMaterialIds': selected_ids}
+                    input_hash = fingerprint(prepared, preview, self.root)
+                    daily_folder = DailyFolder(prepared)
+                    if daily_folder.unchanged(input_hash):
+                        if not self.request({'action': 'daily-verify', 'id': id_, 'lease': lease, 'sourceHash': prepared['sourceHash']}).get('ok'):
+                            raise RuntimeError('元の回答・面談記録・生徒情報が更新されました。以前の資料は保持しています。')
+                        if fingerprint(prepared, self.preview_bundle(self.roots(), prepared['payload']), self.root) != input_hash:
+                            raise RuntimeError('元の資料が確認中に更新されました。以前の資料は保持しています。')
+                        self.request({'action': 'complete', 'id': id_, 'lease': lease,
+                                      'result': {'skipped': True, 'savedFolder': str(daily_folder.folder), 'inputHash': input_hash}})
+                        return
                 folder, manifest = self.make_bundle(payload)
                 try:
                     source = Path(folder.name) / 'staff-bundle.pdf'
@@ -113,6 +150,17 @@ class RemoteWorker:
                     result = {**manifest, 'storagePath': upload['path'],
                               'savedPath': str(saved) if saved else None, 'cloudSynced': cloud_synced,
                               'saveError': save_error}
+                    if automatic:
+                        def authorize():
+                            if not self.request({'action': 'daily-verify', 'id': id_, 'lease': lease, 'sourceHash': prepared['sourceHash']}).get('ok'):
+                                raise RuntimeError('作成中に回答・面談記録・生徒情報が更新されました。以前の資料は保持しています。')
+                            refreshed = self.preview_bundle(self.roots(), prepared['payload'])
+                            if fingerprint(prepared, refreshed, self.root) != input_hash:
+                                raise RuntimeError('作成中に元の資料が更新されました。以前の資料は保持しています。')
+                            if lost_lease.is_set() or not self.request({'action': 'renew', 'id': id_, 'lease': lease}).get('ok'):
+                                raise RuntimeError('作成権限の期限が切れました。以前の資料は保持しています。')
+                        result['savedFolder'] = daily_folder.publish(Path(folder.name), manifest, input_hash, authorize)
+                        result['inputHash'] = input_hash
                 finally:
                     folder.cleanup()
             if lost_lease.is_set():
@@ -136,7 +184,19 @@ class RemoteWorker:
             try:
                 ready = self.ready()
                 self.request({'action': 'heartbeat', 'ready': ready,
-                              'status': {'hokushinIndexed': self.index_status.get('completed', 0)}})
+                              'status': {'hokushinIndexed': self.index_status.get('completed', 0),
+                                         'capabilities': ['daily-offline-v1'], 'daily': self.daily_status}})
+                if ready and time.monotonic() - self.daily_scan_at >= 60 and not self.daily_scanning.is_set():
+                    self.daily_scan_at = time.monotonic()
+                    self.daily_scanning.set()
+                    def scan():
+                        try:
+                            self.daily_status = self.request({'action': 'daily-scan'})
+                        except Exception as exc:
+                            self.daily_status = {'ok': False, 'error': str(exc)[:200]}
+                        finally:
+                            self.daily_scanning.clear()
+                    threading.Thread(target=scan, daemon=True).start()
                 if ready:
                     job = self.request({'action': 'claim'}).get('job')
                     if job:

@@ -61,9 +61,9 @@ async function queryAll(dataSourceId: string, filter: Record<string, unknown>) {
 }
 
 /** Uses the same active campaign as the existing interview survey screen. No write-back or guessed identities. */
-export async function loadInvitationSurveyResponses(students:Record<string,unknown>[]){
+export async function loadInvitationSurveyResponses(students:Record<string,unknown>[], grades?: string[]){
  const roster=students.filter(s=>s.enrollment_status==='current_roster').map(s=>({name:String(s.student_name??''),number:String(s.student_number??''),grade:String(s.grade??''),teacher:String(s.homeroom_teacher??'')}));
- const results=await Promise.all(SOURCES.map(async([grade,id])=>({grade,pages:await queryAll(id,{timestamp:'created_time',created_time:{on_or_after:SURVEY_STARTED_ON}})})));
+ const results=await Promise.all(SOURCES.filter(([grade])=>!grades||grades.includes(grade)).map(async([grade,id])=>({grade,pages:await queryAll(id,{timestamp:'created_time',created_time:{on_or_after:SURVEY_STARTED_ON}})})));
  const synced_at=new Date().toISOString(),base={campaign_id:INTERVIEW_SURVEY_CAMPAIGN.id,campaign_label:INTERVIEW_SURVEY_CAMPAIGN.label,source_name:'面談アンケート',school_year:SURVEY_STARTED_ON.slice(0,4)+'年度',round_label:SURVEY_STARTED_ON+'開始分',subject:'',synced_at,eligible_grades:SOURCES.map(([grade])=>grade)};
  const rows:Record<string,unknown>[]=[{...base,student_number:null,link_status:'campaign',answered_at:null}];let unmatched=0;
  for(const {grade,pages} of results)for(const page of pages){
