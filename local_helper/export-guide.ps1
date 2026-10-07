@@ -24,7 +24,9 @@ try {
   $selected = [string]$sheet.Range('C3').Value2
   $db = $book.Worksheets.Item('DB_氏名学籍番号')
   # Read values directly: Excel Find may miss rows hidden by a saved filter.
-  $lastRow = [int]$db.Cells.Item($db.Rows.Count, 1).End(-4162).Row
+  # End(xlUp) also skips filtered rows; UsedRange includes every populated row.
+  $used = $db.UsedRange
+  $lastRow = [int]($used.Row + $used.Rows.Count - 1)
   if ($lastRow -lt 2) { throw 'Student number not found in the guide workbook.' }
   $numbers = $db.Range('A1:A' + $lastRow).Value2
   $matchingRows = @()
