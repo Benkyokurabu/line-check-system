@@ -6,6 +6,9 @@ test('shared folder design exposes HTML saving directly and fits a mobile screen
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(pathToFileURL(resolve('docs/interview-shared-folder-save-design-20261007.html')).href);
   await page.getByRole('button', { name: /共有フォルダに保存/ }).click();
+  await expect(page.getByRole('region', { name: '保存先の面談予定を選ぶ' })).toBeVisible();
+  await page.getByRole('button', { name: '20:30 確認用 生徒　工藤先生' }).click();
+  await page.getByRole('button', { name: /共有フォルダに保存/ }).click();
   await expect(page.getByRole('status')).toContainText('先生別フォルダを作成 → HTML・PDF・面談記録・生徒情報を保存');
   await expect(page.locator('pre').last()).toContainText('面談資料.html ← ダブルクリックして閲覧');
   await page.getByRole('button', { name: /画面で見る/ }).click();

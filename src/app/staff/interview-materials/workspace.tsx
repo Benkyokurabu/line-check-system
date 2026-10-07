@@ -66,12 +66,14 @@ export default function MaterialsDesk() {
   const summaryRequests = useRef(new Set<string>());
   const currentNumber = useRef('');
   const selectionHeadingRef = useRef<HTMLHeadingElement>(null);
-  const appointmentDateRef = useRef<HTMLInputElement>(null);
+  const folderDateRef = useRef<HTMLInputElement>(null);
+  const folderButtonRef = useRef<HTMLButtonElement>(null);
   const viewerButtonRef = useRef<HTMLButtonElement>(null);
   const resultRef = useRef<HTMLElement>(null);
   const folderSupported = useSyncExternalStore(subscribeToBrowserSupport, canSaveOfflineFolder, () => false);
   const [folderJob, setFolderJob] = useState<{ id: string; number: string; name: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
+  const [folderAppointmentOpen, setFolderAppointmentOpen] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadMessage, setDownloadMessage] = useState('');
   const [downloadFailed, setDownloadFailed] = useState(false);
@@ -97,6 +99,14 @@ export default function MaterialsDesk() {
     : [...new Map(appointments.map(item => [item.teacherId, { id: item.teacherId, name: item.teacher }])).values()], [appointmentTeachers, appointments]);
   const dayAppointments = appointments.filter(item => item.date === appointmentDate && (!appointmentTeacherId || item.teacherId === appointmentTeacherId));
   const dayReview = appointmentReview.filter(item => !appointmentTeacherId || !item.teacherIds?.length || item.teacherIds.includes(appointmentTeacherId));
+  const folderAppointments = dayAppointments.filter(item => item.number === folderJob?.number);
+  const folderSaveIssue = !folderSupported ? 'フォルダ保存はChromeまたはEdgeで開いてください。'
+    : !folderJob ? '保存する資料を確認できません。資料を作成し直してください。'
+    : !manifest?.items.length || manifest.items.some(item => !item.previewUrl)
+      ? '資料別のPDFを取得できていないため、HTMLを含むフォルダ保存はできません。資料を作成し直してください。' : '';
+  useEffect(() => {
+    if (folderAppointmentOpen) folderDateRef.current?.focus();
+  }, [folderAppointmentOpen]);
   useEffect(() => {
     let active = true;
     if (!number || !staff) return;
@@ -160,6 +170,7 @@ export default function MaterialsDesk() {
       ?? (student.responses.length === 1 ? student.responses[0] : undefined);
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
     setSelectedAppointment(null);
+    setFolderAppointmentOpen(false);
     currentNumber.current = student.number;
     setMaterialContext(null); setContextError(''); setContextLoading(true);
     setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
@@ -328,6 +339,16 @@ export default function MaterialsDesk() {
       else { setDownloadFailed(true); setDownloadMessage(requestError(error)); }
     } finally { setFolderBusy(false); }
   }
+  function chooseFolderAppointment() {
+    setFolderAppointmentOpen(true);
+    setDownloadFailed(false);
+    setDownloadMessage('保存先の面談予定を選んでください。資料を作り直す必要はありません。');
+  }
+  function changeAppointmentDate(value: string) {
+    setAppointmentTeacherId(''); setAppointmentTeachers([]);
+    setAppointmentDate(value); setSelectedAppointment(null); setAppointments([]); setAppointmentReview([]);
+    setAppointmentBusy(Boolean(value)); setAppointmentMessage('');
+  }
   async function saveSchoolFolder() {
     if (batchBusy || schoolFolderBusy) return;
     setSchoolFolderBusy(true); setSchoolFolderFailed(false); setSchoolFolderMessage('');
@@ -367,10 +388,7 @@ export default function MaterialsDesk() {
       <section className={styles.card}><h2>1. 生徒を選ぶ</h2>
         <div className={styles.appointmentPicker}>
           <h3>面談日から選ぶ</h3>
-          <label>面談日<input ref={appointmentDateRef} type="date" value={appointmentDate} disabled={batchBusy} onChange={event => {
-            setAppointmentTeacherId(''); setAppointmentTeachers([]);
-            setAppointmentDate(event.target.value); setSelectedAppointment(null); setAppointments([]); setAppointmentReview([]); setAppointmentBusy(Boolean(event.target.value)); setAppointmentMessage('');
-          }} /></label>
+          <label>面談日<input type="date" value={appointmentDate} disabled={batchBusy} onChange={event => changeAppointmentDate(event.target.value)} /></label>
           <label>面談の先生<select value={appointmentTeacherId} disabled={batchBusy || appointmentBusy || !appointmentDate}
             onChange={event => { setAppointmentTeacherId(event.target.value); setSelectedAppointment(null); }}>
             <option value="">先生を選ぶ</option>{dayTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}先生</option>)}
@@ -389,7 +407,7 @@ export default function MaterialsDesk() {
                   const student = students.find(row => row.number === item.number);
                   if (!student) { setAppointmentMessage('面談予定の生徒が現在の台帳に見つかりません。'); return; }
                   if (number !== student.number || !manifest || folderJob?.number !== student.number) chooseStudent(student);
-                  setSelectedAppointment(item);
+                  setSelectedAppointment(item); setFolderAppointmentOpen(false);
                 }}><strong>{item.start}　{item.grade} {item.name}</strong><span>{item.teacher}先生 ／ {item.number}</span></button>)}</div>
             : <p>この日に保存できる面談予定はありません。</p>)}
           {!!dayReview.length && <div className={styles.appointmentReview} aria-label="要確認の面談予定">
@@ -512,19 +530,37 @@ export default function MaterialsDesk() {
         {pdfUrl && <div className={styles.resultChoices} role="group" aria-label="完成した面談資料の使い方">
           <a className={styles.resultChoice} href={`${pdfUrl.split('#')[0]}#zoom=100&navpanes=0`} target="_blank" rel="noreferrer" aria-label="印刷用の一式PDFを開く"><strong>印刷</strong><span>一式PDFを開く</span></a>
           <button ref={viewerButtonRef} type="button" className={styles.resultChoice} onClick={() => setViewerOpen(true)}><strong>画面で見る</strong><span>資料を切り替える</span></button>
-          <button type="button" className={styles.resultChoice} disabled={batchBusy || !folderJob || !selectedAppointment || selectedAppointment.number !== folderJob.number || !manifest.items.length || manifest.items.some(item => !item.previewUrl) || !folderSupported || folderBusy || downloadBusy} onClick={() => void saveFolder()}><strong>{folderBusy ? 'フォルダを保存中…' : '共有フォルダに保存'}</strong><span>HTML・PDFを先生別に保存</span></button>
+          <button ref={folderButtonRef} type="button" className={styles.resultChoice} disabled={batchBusy || Boolean(folderSaveIssue) || folderBusy || downloadBusy} onClick={() => {
+            if (!selectedAppointment || selectedAppointment.number !== folderJob?.number) chooseFolderAppointment();
+            else { setFolderAppointmentOpen(false); void saveFolder(); }
+          }}><strong>{folderBusy ? 'フォルダを保存中…' : '共有フォルダに保存'}</strong><span>{!selectedAppointment ? '面談予定を選んで保存' : 'HTML・PDFを先生別に保存'}</span></button>
         </div>}
         {pdfUrl && <p className={styles.note}>別タブで開いたPDFから戻るときは、元の勉たんのタブを選んでください。</p>}
         {pdfUrl && <div className={styles.downloadOptions} aria-label="HTMLとPDFの保存先">
           <strong>保存後は「面談資料.html」を開く</strong>
           <p>資料を切り替えて画面で見るためのHTML、PDF、面談記録、生徒情報を同じフォルダに保存します。</p>
+          {folderSaveIssue && <p className={styles.error} role="status">{folderSaveIssue}</p>}
           {folderSupported && (!selectedAppointment || selectedAppointment.number !== folderJob?.number) && <>
-            <p className={styles.note}>保存先の先生と面談日時が未選択です。「面談日から選ぶ」でこの生徒の予定を選んでください。作成済みの資料はそのまま使えます。</p>
-            <button type="button" disabled={batchBusy || folderBusy || downloadBusy} onClick={() => {
-              appointmentDateRef.current?.focus({ preventScroll: true });
-              appointmentDateRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }}>面談日・先生を選ぶ</button>
+            <p className={styles.note}>「共有フォルダに保存」を押すと、この画面で保存先の面談予定を選べます。作成済みの資料はそのまま使えます。</p>
           </>}
+          {folderAppointmentOpen && <section className={styles.appointmentReview} aria-label="保存先の面談予定を選ぶ">
+            <h3>保存先の面談予定を選ぶ</h3>
+            <p>{folderJob?.name}さんの面談予定を選んでください。担当先生と日時から保存フォルダを作ります。</p>
+            <label>保存用の面談日<input ref={folderDateRef} type="date" value={appointmentDate} disabled={batchBusy || folderBusy || downloadBusy} onChange={event => changeAppointmentDate(event.target.value)} /></label>
+            <label>保存用の面談の先生<select value={appointmentTeacherId} disabled={batchBusy || appointmentBusy || !appointmentDate} onChange={event => { setAppointmentTeacherId(event.target.value); setSelectedAppointment(null); }}>
+              <option value="">すべての先生</option>{dayTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}先生</option>)}
+            </select></label>
+            {appointmentBusy ? <p role="status">面談予定を読み込んでいます…</p>
+              : appointmentMessage ? <p className={styles.error} role="alert">{appointmentMessage}</p>
+              : appointmentDate && (folderAppointments.length ? <div className={styles.studentResults}>{folderAppointments.map(item => <button type="button" key={`${item.id}:${item.number}`} onClick={() => {
+                setSelectedAppointment(item); setFolderAppointmentOpen(false);
+                setDownloadMessage('保存先の面談予定を選びました。「共有フォルダに保存」を押して保存先「98面談資料」を選んでください。');
+                requestAnimationFrame(() => folderButtonRef.current?.focus());
+              }}><strong>{item.start}　{item.name}</strong><span>{item.teacher}先生 ／ {item.date}</span></button>)}</div>
+                : <p>この日に{folderJob?.name}さんの保存できる面談予定がありません。日付・先生を確認してください。</p>)}
+            <div className={styles.actions}><button type="button" disabled={!appointmentDate || appointmentBusy || batchBusy} onClick={() => { setAppointments([]); setAppointmentReview([]); setAppointmentMessage(''); setAppointmentBusy(true); setAppointmentReload(value => value + 1); }}>保存用の予定を再取得</button>
+              <button type="button" onClick={() => { setFolderAppointmentOpen(false); folderButtonRef.current?.focus(); }}>面談予定の選択を閉じる</button></div>
+          </section>}
           {selectedAppointment && <p className={styles.sharePath}>保存するフォルダ：98面談資料／{interviewMaterialFolderParts(selectedAppointment).join('／')}／面談資料.html</p>}
           <p className={styles.note}>{folderSupported ? '「共有フォルダに保存」を押し、保存先の選択画面で下記の「98面談資料」を選んでください。その下に先生別のフォルダを自動で作ります。保存したフォルダの「面談資料.html」をダブルクリックすると、ネット接続なしで資料を閲覧できます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
           {folderSupported && <><p className={styles.sharePath}>{interviewMaterialsSharePath}</p><button type="button" onClick={() => {
