@@ -92,3 +92,16 @@ test('旧版PCは手動専用、新版予備は旧版主担当が起動中でも
   assert.equal(await claim('primary'), undefined);
   assert.equal((await claim('standby')).daily_key, 'old-worker-protected');
 });
+
+test('button-triggered jobs use the online capable PC while daily scheduling stays disabled', async () => {
+  await db.exec(`delete from interview_material_jobs;
+    update interview_material_daily_settings set enabled=false;
+    update interview_material_workers set ready=(id='standby'),last_seen_at=now();
+    insert into interview_material_jobs(kind,staff_code,payload,daily_key) values
+      ('generate','teacher','{"autoDaily":{"manual":true}}','manual:button'),
+      ('generate','__daily_materials__','{"autoDaily":{}}','daily:stopped');`);
+  assert.equal(await scan('standby'), null);
+  assert.equal((await claim('standby')).daily_key, 'manual:button');
+  assert.equal(await claim('standby'), undefined);
+  assert.equal(await claim('primary'), undefined);
+});

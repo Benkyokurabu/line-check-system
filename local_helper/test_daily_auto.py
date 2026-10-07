@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -94,6 +95,38 @@ class DailyFolderTests(unittest.TestCase):
         target.write_text(target.read_text(encoding='utf-8') + '\n先生の編集', encoding='utf-8')
         with self.assertRaisesRegex(RuntimeError, '編集'):
             self.folder()
+
+    def test_actual_concurrent_switch_allows_only_one_publication(self):
+        first = self.folder()
+        first.publish(self.bundle, self.manifest, 'a' * 64, lambda: None)
+        writers = [self.folder(), self.folder()]
+        locked, release = threading.Event(), threading.Event()
+        errors = []
+        def authorize():
+            locked.set()
+            if not release.wait(10):
+                raise RuntimeError('test timed out')
+        def publish_first():
+            try:
+                writers[0].publish(self.bundle, self.manifest, 'b' * 64, authorize)
+            except Exception as error:
+                errors.append(error)
+        thread = threading.Thread(target=publish_first)
+        thread.start()
+        try:
+            self.assertTrue(locked.wait(10))
+            with self.assertRaisesRegex(RuntimeError, '保存処理中'):
+                writers[1].publish(self.bundle, self.manifest, 'c' * 64, lambda: None)
+        finally:
+            release.set()
+            thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertTrue(self.folder().unchanged('b' * 64))
+        with self.assertRaisesRegex(RuntimeError, '処理中に変更'):
+            writers[1].publish(self.bundle, self.manifest, 'c' * 64, lambda: None)
+        self.folder().publish(self.bundle, self.manifest, 'c' * 64, lambda: None)
+        self.assertTrue(self.folder().unchanged('c' * 64))
 
     def browser_saved_folder(self):
         folder = self.folder().folder

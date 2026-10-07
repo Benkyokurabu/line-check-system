@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 SHARE_ROOT = Path(r'\\TS3210\benko\03 教務部\015 各面談行事／文化会館も含む\98面談資料')
@@ -64,6 +65,33 @@ def information_text(context):
 def digest(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+@contextmanager
+def publication_lock(folder):
+    # An OS byte-range lock is shared across processes/PCs over SMB and released on exit.
+    # Keep the lock file; deleting it would allow another process to lock a different file.
+    with (folder / '.bentan-publication.lock').open('a+b', buffering=0) as stream:
+        if stream.seek(0, os.SEEK_END) == 0:
+            stream.write(b'0')
+        stream.seek(0)
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise RuntimeError('同じ面談資料を保存処理中です。以前の資料は保持し、後で再試行します。') from None
+        try:
+            yield
+        finally:
+            stream.seek(0)
+            if os.name == 'nt':
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 class DailyFolder:
@@ -182,12 +210,13 @@ class DailyFolder:
         if temporary.read_text(encoding='utf-8') != rendered:
             raise RuntimeError('共有フォルダへ画面を完全に保存できません。以前の資料は保持しています。')
         # The previous entry point is untouched until originals, schedule, sources and lease are rechecked.
-        authorize()
-        current_html = self.folder / '面談資料.html'
-        if (digest(current_html) if current_html.is_file() else None) != self.initial_html_hash or any(
-                digest(original) != original_hash for original, original_hash in self.legacy_files):
-            raise RuntimeError('保存済みの資料が処理中に変更されました。自動上書きを保留しました。')
-        os.replace(temporary, self.folder / '面談資料.html')
-        if not self.unchanged(input_hash):
-            raise RuntimeError('保存後の資料確認に失敗しました。')
+        with publication_lock(self.folder):
+            authorize()
+            current_html = self.folder / '面談資料.html'
+            if (digest(current_html) if current_html.is_file() else None) != self.initial_html_hash or any(
+                    digest(original) != original_hash for original, original_hash in self.legacy_files):
+                raise RuntimeError('保存済みの資料が処理中に変更されました。自動上書きを保留しました。')
+            os.replace(temporary, self.folder / '面談資料.html')
+            if not self.unchanged(input_hash):
+                raise RuntimeError('保存後の資料確認に失敗しました。')
         return str(self.folder)

@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
     if (action === 'daily-prepare' || action === 'daily-verify') {
       if (!job.daily_key || !job.payload?.autoDaily?.appointment) return response({ error: '自動作成の依頼ではありません。' }, 400);
-      const prepared = await prepareDailyMaterials(context.client, job.payload.autoDaily.appointment);
+      const prepared = await prepareDailyMaterials(context.client, job.payload.autoDaily.appointment, job.payload.autoDaily.manual === true);
       if (action === 'daily-verify') return response({ ok: prepared.sourceHash === body.sourceHash, sourceHash: prepared.sourceHash });
       const template = await fetch(new URL('/interview-material-offline-template.html', request.url), { cache: 'no-store' });
       if (!template.ok) throw Error('面談資料のHTML原本を取得できません。');
@@ -57,11 +57,11 @@ export async function POST(request: NextRequest) {
       if (job.kind !== 'generate') return response({ error: 'PDFの作成依頼ではありません。' }, 400);
       const parts = body.parts === undefined ? 0 : body.parts;
       if (!Number.isInteger(parts) || Number(parts) < 0 || Number(parts) > 300) return response({ error: '資料の件数を確認してください。' }, 400);
-      const path = `jobs/${id}/bundle.pdf`;
+      const path = `jobs/${id}/${lease}/bundle.pdf`;
       const { data, error } = await context.client.storage.from(MATERIAL_BUCKET).createSignedUploadUrl(path, { upsert: true });
       if (error) throw error;
       const uploads = await Promise.all(Array.from({ length: Number(parts) }, async (_, index) => {
-        const materialPath = `jobs/${id}/material-${index}.pdf`;
+        const materialPath = `jobs/${id}/${lease}/material-${index}.pdf`;
         const { data: material, error: materialError } = await context.client.storage.from(MATERIAL_BUCKET)
           .createSignedUploadUrl(materialPath, { upsert: true });
         if (materialError) throw materialError;
@@ -73,16 +73,16 @@ export async function POST(request: NextRequest) {
       if (!body.result || typeof body.result !== 'object' || Array.isArray(body.result)) return response({ error: '作成結果を確認してください。' }, 400);
       const result = body.result as Record<string, unknown>;
       if (job.kind === 'generate' && !(job.daily_key && result.skipped === true && typeof result.savedFolder === 'string')) {
-        const path = `jobs/${id}/bundle.pdf`;
+        const path = `jobs/${id}/${lease}/bundle.pdf`;
         const { data, error } = await context.client.storage.from(MATERIAL_BUCKET).info(path);
         if (error || !data || result.storagePath !== path) return response({ error: '完成PDFが見つかりません。' }, 409);
         const items = Array.isArray(result.items) ? result.items : [];
         if (items.length > 300) return response({ error: '資料の件数を確認してください。' }, 400);
         if (items.some(item => item?.storagePath)) {
-          if (items.some((item, index) => item?.storagePath !== `jobs/${id}/material-${index}.pdf`))
+          if (items.some((item, index) => item?.storagePath !== `jobs/${id}/${lease}/material-${index}.pdf`))
             return response({ error: '資料ごとのPDFを確認してください。' }, 409);
           const checks = await Promise.all(items.map((_, index) => context.client.storage.from(MATERIAL_BUCKET)
-            .info(`jobs/${id}/material-${index}.pdf`)));
+            .info(`jobs/${id}/${lease}/material-${index}.pdf`)));
           if (checks.some(check => check.error || !check.data)) return response({ error: '資料ごとのPDFが見つかりません。' }, 409);
         }
       }

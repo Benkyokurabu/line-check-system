@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       pdfUrl = data.signedUrl;
       const items = Array.isArray(job.result.items) ? job.result.items : [];
       const paths = items.map((item: { storagePath?: string }) => item.storagePath);
-      if (items.length && paths.every((path: unknown) => typeof path === 'string' && path.startsWith(`jobs/${jobId}/material-`))) {
+      if (items.length && paths.every((path: unknown) => typeof path === 'string' && new RegExp(`^jobs/${jobId}/(?:[a-f0-9-]{36}/)?material-\\d+\\.pdf$`).test(path))) {
         const { data: signedParts, error: partsError } = await context.dataClient.storage.from(MATERIAL_BUCKET)
           .createSignedUrls(paths as string[], 600);
         if (partsError) throw partsError;

@@ -54,10 +54,10 @@ export async function scanDailyMaterials(client: SupabaseClient, workerId: strin
 }
 
 /** Reads the same identity-checked originals used by the interactive folder saver. */
-export async function prepareDailyMaterials(client: SupabaseClient, expected: Appointment) {
+export async function prepareDailyMaterials(client: SupabaseClient, expected: Appointment, manual = false) {
   const { data: settings, error: settingsError } = await client.from('interview_material_daily_settings').select('enabled').eq('id', true).single();
   if (settingsError) throw settingsError;
-  if (!settings.enabled) throw new DailyMaterialError('自動作成は停止中です。以前の資料は保持しています。');
+  if (!settings.enabled && !manual) throw new DailyMaterialError('自動作成は停止中です。以前の資料は保持しています。');
   const [planned, students] = await Promise.all([loadInterviewMaterialAppointments(client, expected.date), loadMaterialStudents(client)]);
   verifiedDailyAppointment(expected, planned.appointments);
   const matching = students.filter(row => String(row.student_number) === expected.number
