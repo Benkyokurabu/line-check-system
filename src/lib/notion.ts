@@ -2,6 +2,13 @@ import "server-only";
 
 const NOTION_VERSION = process.env.NOTION_VERSION ?? "2025-09-03";
 
+export class NotionRequestError extends Error {
+  constructor(message: string, public status: number, public retryAfterMs: number) {
+    super(message);
+    this.name = 'NotionRequestError';
+  }
+}
+
 function token() {
   const value = process.env.NOTION_TOKEN ?? process.env.NOTION_API_KEY;
   if (!value) throw new Error("NOTION_TOKEN is not configured");
@@ -21,7 +28,8 @@ export async function notionRequest(path: string, init: RequestInit = {}) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = typeof body?.message === "string" ? body.message : `Notion API ${response.status}`;
-    throw new Error(message);
+    const retrySeconds = Number(response.headers.get('Retry-After'));
+    throw new NotionRequestError(message, response.status, Number.isFinite(retrySeconds) && retrySeconds > 0 ? retrySeconds * 1000 : 1000);
   }
   return body;
 }

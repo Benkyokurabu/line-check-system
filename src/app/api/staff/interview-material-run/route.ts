@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { assertStaffMutationOrigin, staffContext, staffErrorResponse, staffJsonBody, staffResponse } from '@/lib/staff-auth-http';
 import { InterviewError } from '@/lib/interview-core.mjs';
 import { online } from '@/lib/interview-material-worker';
-import { loadInterviewMaterialAppointments } from '@/lib/interview-material-appointments-loader';
+import { loadInterviewMaterialAppointmentRange } from '@/lib/interview-material-appointments-loader';
 import { futureMaterialAppointment, tokyoMaterialNow } from '@/lib/interview-material-daily-core.mjs';
 import { materialRunDates, materialRunJobs, materialRunReviews } from '@/lib/interview-material-run-core.mjs';
 import { teacherMatch } from '@/lib/bensuke-booking.mjs';
@@ -25,10 +25,8 @@ async function planFor(client: Awaited<ReturnType<typeof staffContext>>['dataCli
   let dates;
   try { dates = materialRunDates(from, to, tokyoMaterialNow().date); }
   catch (error) { throw new InterviewError((error as Error).message, 400); }
-  const planned = [];
   const deadline = AbortSignal.timeout(55000);
-  for (let index = 0; index < dates.length; index += 2) planned.push(...await Promise.all(
-    dates.slice(index, index + 2).map(date => loadInterviewMaterialAppointments(client, date, deadline))));
+  const planned = await loadInterviewMaterialAppointmentRange(client, dates, deadline);
   // The login selector uses teachers.id; appointment relations use Notion staff page IDs.
   let notionTeacherId = '';
   if (teacherId) {
@@ -58,6 +56,7 @@ export async function GET(request: NextRequest) {
       skipped: job.result?.skipped === true, missing: job.result?.missing ?? [], error: job.error, attempts: job.attempts })) }, context);
   } catch (error) {
     if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);
+    console.error('Material run read failed', { type: error instanceof Error ? error.name : 'Unknown', status: (error as {status?: number})?.status });
     if (context) return staffResponse({ error: '確認が必要な予定を取得できませんでした。時間をおいて再確認してください。' }, context, 503);
     return staffErrorResponse(error, context);
   }
