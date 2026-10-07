@@ -5,6 +5,7 @@ import { online } from '@/lib/interview-material-worker';
 import { loadInterviewMaterialAppointments } from '@/lib/interview-material-appointments-loader';
 import { futureMaterialAppointment, tokyoMaterialNow } from '@/lib/interview-material-daily-core.mjs';
 import { materialRunDates, materialRunJobs } from '@/lib/interview-material-run-core.mjs';
+import { teacherMatch } from '@/lib/bensuke-booking.mjs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -52,8 +53,16 @@ export async function POST(request: NextRequest) {
     for (let index = 0; index < dates.length; index += 2) planned.push(...await Promise.all(
       dates.slice(index, index + 2).map(date => loadInterviewMaterialAppointments(client, date, deadline))));
     const appointments = planned.flatMap(day => day.appointments).filter(row => futureMaterialAppointment(row));
+    // The login selector uses teachers.id; appointment relations use Notion staff page IDs.
+    let notionTeacherId = '';
+    if (teacherId) {
+      const { data: teacher, error } = await client.from('teachers').select('display_name').eq('id', teacherId).maybeSingle();
+      if (error) throw error;
+      if (!teacher) throw new InterviewError('選択した先生を確認できません。先生を選び直してください。', 400);
+      notionTeacherId = teacherMatch(teacher.display_name, planned[0].directory).id;
+    }
     let jobs;
-    try { jobs = materialRunJobs(appointments, { runId, staffCode: context.staff.staffCode, teacherId, from: dates[0], to: dates.at(-1) }); }
+    try { jobs = materialRunJobs(appointments, { runId, staffCode: context.staff.staffCode, teacherId: notionTeacherId, from: dates[0], to: dates.at(-1) }); }
     catch (error) { throw new InterviewError((error as Error).message, 400); }
     if (jobs.length) {
       const { error } = await context.dataClient.from('interview_material_jobs').upsert(jobs, { onConflict: 'daily_key', ignoreDuplicates: true });
