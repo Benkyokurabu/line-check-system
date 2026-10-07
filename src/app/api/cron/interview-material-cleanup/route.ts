@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { requireAttendanceCronToken } from '@/lib/env';
 import { createSupabaseAdminClient } from '@/lib/supabase';
 import { MATERIAL_BUCKET } from '@/lib/interview-material-worker';
+import { removeMaterialJobFiles } from '@/lib/interview-material-cleanup.mjs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -16,15 +17,8 @@ export async function GET(request: Request) {
     if (error) throw error;
     let removed = 0;
     for (const job of jobs || []) {
-      const folder = `jobs/${job.id}`;
       const storage = client.storage.from(MATERIAL_BUCKET);
-      const { data: files, error: listError } = await storage.list(folder, { limit: 1000 });
-      if (listError) throw listError;
-      const paths = (files || []).filter(file => file.name).map(file => `${folder}/${file.name}`);
-      if (paths.length) {
-        const { error: storageError } = await storage.remove(paths);
-        if (storageError) throw storageError;
-      }
+      await removeMaterialJobFiles(storage, job.id);
       const { error: deleteError } = await client.from('interview_material_jobs').delete().eq('id', job.id);
       if (deleteError) throw deleteError;
       removed++;

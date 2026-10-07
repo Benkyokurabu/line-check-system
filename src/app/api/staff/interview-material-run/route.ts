@@ -61,5 +61,9 @@ export async function POST(request: NextRequest) {
     }
     return staffResponse({ accepted: jobs.length, worker: workers[0].name,
       reviewCount: planned.reduce((count, day) => count + day.review.length, 0) }, context, 201);
-  } catch (error) { return error instanceof InterviewError ? staffResponse({ error: error.message }, context, error.status) : staffErrorResponse(error, context); }
+  } catch (error) {
+    if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);
+    if (context) return staffResponse({ error: '確定面談の取得または作成依頼の保存に失敗しました。資料作成は受け付けていません。再試行してください。' }, context, 503);
+    return staffErrorResponse(error, context);
+  }
 }

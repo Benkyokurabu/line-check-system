@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { BENSUKE_SOURCE, staffDirectory } from '@/lib/bensuke-booking.mjs';
 import { readBensukeDay } from '@/lib/bensuke-reader.mjs';
-import { extractMaterialDecisions, resolveMaterialAppointments } from '@/lib/bensuke-material-ai.mjs';
+import { rosterMaterialDecisions, resolveMaterialAppointments } from '@/lib/bensuke-material-ai.mjs';
 import { loadMaterialStudents } from '@/lib/interview-material-students';
 import { notionRequest } from '@/lib/notion';
 
@@ -15,7 +15,7 @@ export async function loadInterviewMaterialAppointments(client: SupabaseClient, 
     ]);
     const directory = await staffDirectory(read, schema);
     const rows = day.rows.filter(row => !row.availability);
-    const decisions = await extractMaterialDecisions(rows, { key: process.env.GROQ_API_KEY });
+    const decisions = rosterMaterialDecisions(rows, students);
     const result = resolveMaterialAppointments({ rows, decisions, students, directory, date });
     return { ...result, directory, day, sourceId, read };
 }

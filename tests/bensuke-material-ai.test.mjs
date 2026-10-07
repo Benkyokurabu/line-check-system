@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkedMaterialDecisions, extractMaterialDecisions, resolveMaterialAppointments } from '../src/lib/bensuke-material-ai.mjs';
+import { checkedMaterialDecisions, extractMaterialDecisions, resolveMaterialAppointments, rosterMaterialDecisions } from '../src/lib/bensuke-material-ai.mjs';
 
 const student = { student_number: '2018998', student_name: '確認用 生徒', grade: '中3', enrollment_status: 'current_roster', homeroom_teacher: '佐藤' };
 const directory = [{ id: 'teacher-1', name: '工藤' }, { id: 'teacher-2', name: '佐藤' }];
@@ -8,6 +8,30 @@ const row = { id: 'page-1', title: '確認用 生徒さんの保護者と進路�
   date: { start: '2026-10-05T11:30:00Z' }, editedAt: '2026-10-04T00:00:00Z', url: 'https://www.notion.so/page1' };
 const card = { id: row.id, kind: 'interview', studentName: '確認用 生徒', studentNumber: '', teacherName: '', reason: '' };
 const resolve = (changes = {}) => resolveMaterialAppointments({ rows: [row], decisions: [card], students: [student], directory, date: '2026-10-05', ...changes });
+
+test('roster decisions read interview tags, spaced names and staff relations without an AI request', () => {
+  const tagged = { ...row, title: '中３ 確 認 用 生 徒', fields: [{name:'内容',value:'面談(オンライン)'}] };
+  const decisions = rosterMaterialDecisions([tagged], [student]);
+  assert.equal(resolve({rows:[tagged],decisions}).appointments[0].number, student.student_number);
+  assert.equal(rosterMaterialDecisions([{...tagged,title:'確認用 生徒 個別指導',fields:[]}],[student])[0].kind,'other');
+  assert.equal(rosterMaterialDecisions([{...tagged,title:'確認用（姓だけ）'}],[student])[0].kind,'review');
+  assert.equal(rosterMaterialDecisions([{...tagged,title:'中３確認用 生徒美'}],[student])[0].kind,'review');
+});
+
+test('roster extraction preserves ambiguity, cancellation and teacher checks', () => {
+  const duplicate={...student,student_number:'2018999'};
+  assert.equal(rosterMaterialDecisions([row],[student,duplicate])[0].kind,'review');
+  const numbered={...row,title:row.title+' 2018998'};
+  assert.equal(resolve({rows:[numbered],students:[student,duplicate],decisions:rosterMaterialDecisions([numbered],[student,duplicate])}).appointments.length,1);
+  for(const changed of [{...row,title:row.title+' 取消'},{...row,title:row.title+' 候補'},{...row,title:row.title+' 仮予定'},{...row,teacherIds:[]},{...row,teacherIds:['teacher-1','teacher-2']}])
+    assert.equal(resolve({rows:[changed],decisions:rosterMaterialDecisions([changed],[student])}).appointments.length,0);
+});
+
+test('roster extraction keeps confirmed twins as two separate students', () => {
+  const twins = [{...student,student_number:'2018254',student_name:'川島清雅'},{...student,student_number:'2018255',student_name:'川島颯真'}];
+  const twin = {...row,title:'川島清雅・颯真／三者面談'};
+  assert.deepEqual(resolve({rows:[twin],students:twins,decisions:rosterMaterialDecisions([twin],twins)}).appointments.map(a=>a.number),['2018254','2018255']);
+});
 
 test('varied notation uses Notion time in Japan and the related teacher, not homeroom', () => {
   const result = resolve();

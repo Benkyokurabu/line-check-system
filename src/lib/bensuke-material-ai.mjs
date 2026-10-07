@@ -19,6 +19,32 @@ function twinDecision(row) {
     studentNumber: '', teacherName: '', reason: '' };
 }
 
+/** Only source text and the current roster identify a student; ambiguous cards stay in review. */
+export function rosterMaterialDecisions(rows, students) {
+  return rows.map(row => {
+    const empty = { id: row.id, studentName: '', studentNumber: '', teacherName: '', reason: '' };
+    if (row.availability) return { ...empty, kind: 'other' };
+    const raw = evidence(row);
+    const interview = /(?:面談|教育相談|進路相談|三者.*相談|保護者.*相談)/u.test(raw);
+    if (!interview) return /相談/u.test(raw) ? { ...empty, kind: 'review', reason: '面談の予定か確認してください。' } : { ...empty, kind: 'other' };
+    if (/(?:取消|キャンセル|中止|延期|未確定|未定|候補|仮予定|打診|予約可)/u.test(raw))
+      return { ...empty, kind: 'review', reason: '取消・未確定などの記載があります。面談予定を確認してください。' };
+    const twins = twinDecision(row);
+    if (twins) return twins;
+    const normalized = key(row.title);
+    const fullNameInTitle = name => {
+      const escaped = key(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(?:^|[^\\p{L}])${escaped}(?:$|[^\\p{L}]|さん|くん|君|様|の保護者|との|面談|三者面談|教育相談|進路相談)`, 'u').test(normalized);
+    };
+    const matches = students.filter(student => student.enrollment_status === 'current_roster'
+      && key(student.student_name).length >= 3 && fullNameInTitle(student.student_name));
+    const numbers = matches.filter(student => new RegExp(`(?<!\\d)${student.student_number}(?!\\d)`, 'u').test(row.title.normalize('NFKC')));
+    const unique = matches.length === 1 ? matches[0] : numbers.length === 1 && matches.every(student => key(student.student_name) === key(numbers[0].student_name)) ? numbers[0] : null;
+    if (!unique) return { ...empty, kind: 'review', reason: matches.length ? '複数または同名の生徒がいます。氏名・学籍番号を確認してください。' : '生徒のフルネームを現在の生徒台帳と照合できません。' };
+    return { ...empty, kind: 'interview', studentName: unique.student_name, studentNumber: numbers.includes(unique) ? String(unique.student_number) : '' };
+  });
+}
+
 export function checkedMaterialDecisions(result, rows) {
   if (!Array.isArray(result?.cards) || result.cards.length !== rows.length)
     throw new InterviewError('AIの予定判定を全件確認できません。再取得してください。', 503);
