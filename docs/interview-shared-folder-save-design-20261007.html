@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>面談資料：HTMLの共有フォルダ保存</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f7f7;color:#193c3a;font:16px/1.7 system-ui,sans-serif}main{max-width:920px;margin:32px auto;padding:20px}section{background:white;border:1px solid #c7dedb;border-radius:16px;padding:24px;margin:20px 0}h1{font-size:26px}h2{font-size:21px}button{font:inherit;cursor:pointer;border:1px solid #197467;border-radius:10px;background:#f3fcfa;color:#194d46;padding:12px}button:focus-visible{outline:3px solid #e59826}button small{display:block;font-size:12px}nav{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}nav button{min-height:96px}p,pre{overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f3f7f7;padding:16px;border-radius:10px}#status{padding:12px;background:#e9f5ef}details{margin-top:16px}@media(max-width:560px){main{margin:0;padding:12px}section{padding:16px}nav{gap:6px}nav button{padding:8px;font-size:14px}h1{font-size:22px}}
+</style>
+<main><h1>面談資料をHTMLで保存する動線</h1><p>画面の動作を説明する見本です。ここでは共有フォルダへ書き込みません。</p>
+<section><h2>3. 完成した資料を使う</h2><p>資料の使い方を、完成画面で直接選べます。</p>
+<nav aria-label="完成した資料の使い方"><button onclick="show('印刷用の一式PDFを開きます。')"><strong>印刷</strong><small>一式PDFを開く</small></button><button onclick="document.querySelector('#viewer').hidden=false;show('オンラインで資料を切り替えて確認できます。')"><strong>画面で見る</strong><small>資料を切り替える</small></button><button onclick="save()"><strong>共有フォルダに保存</strong><small>HTML・PDFを先生別に保存</small></button></nav>
+<h3>保存後は「面談資料.html」を開く</h3><p>資料を切り替えて画面で見るためのHTML、PDF、面談記録、生徒情報を同じフォルダに保存します。</p>
+<p>保存先の選択画面で、以下の「98面談資料」を選びます。</p>
+<pre>\\TS3210\benko\03 教務部\015 各面談行事／文化会館も含む\98面談資料</pre>
+<pre>98面談資料
+└ 工藤先生
+  └ 2026中３秋の教育相談会
+    └ 2026.10.07 20：30- 確認用 生徒
+      ├ 面談資料.html ← ダブルクリックして閲覧
+      ├ staff-bundle.pdf
+      ├ material-0.pdf …
+      ├ 面談記録.txt
+      └ 生徒情報・注意点.txt …</pre>
+<p>先生・学年・日時のフォルダは自動で作成します。同じ面談の再保存は別フォルダに保存し、前の資料を残します。</p><button onclick="show('PDFを1つのファイルとしてダウンロードします。HTMLを含む保存は、上の「共有フォルダに保存」を使います。')">一式PDFをダウンロード</button>
+<p id="status" role="status">「共有フォルダに保存」を押して、動線を確認できます。</p></section>
+<section id="viewer" hidden><h2>画面で見る</h2><p>指導簿・アンケート・成績・面談記録・生徒情報を切り替えられます。保存後は「面談資料.html」から同じように閲覧できます。</p><button onclick="document.querySelector('#viewer').hidden=true;document.querySelector('nav button:nth-child(2)').focus()">完成した資料に戻る</button></section>
+</main><script>function show(message){document.querySelector('#status').textContent=message}function save(){show('保存先で「98面談資料」を選択 → Notionの面談予定を再確認 → 先生別フォルダを作成 → HTML・PDF・面談記録・生徒情報を保存 → 「面談資料.html」を開いて閲覧します。')}</script></html>

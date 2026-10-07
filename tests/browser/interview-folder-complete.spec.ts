@@ -47,7 +47,7 @@ for(const initial of ['queued','running','failed','broken-pdf','changed-source',
   });
   await page.goto('/staff/interview-materials');await page.getByLabel('面談日').fill('2026-10-05');await page.getByRole('button',{name:/20:30.*中3 確認用 生徒/}).click();
   await page.getByRole('button',{name:'資料を作る',exact:true}).click();await page.getByRole('button',{name:'選んだ1点でPDFを作成'}).click();
-  await page.getByRole('button',{name:/PCに保存/}).click();await page.getByRole('button',{name:/面談用フォルダを保存/}).click();
+  await page.getByRole('button',{name:/共有フォルダに保存/}).click();
   if(initial==='broken-pdf'){await expect(page.getByRole('status').filter({hasText:'を取得できませんでした'})).toBeVisible();expect(await readFile(resolve(root,folder,'面談資料.html')).catch(()=>null)).toBeNull();return;}
   if(initial==='changed-appointment'||initial==='wrong-root'){
    await expect(page.getByRole('status').filter({hasText:initial==='changed-appointment'?'面談予定が変更されました':'共有フォルダ「98面談資料」を選んで'})).toBeVisible();
