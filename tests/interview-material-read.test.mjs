@@ -17,3 +17,8 @@ test('permanent errors, exhausted retries and aborted requests stop without pret
  for(const status of [401,403,429,503]){let calls=0;const read=materialReadRequest(async()=>{calls++;throw Object.assign(Error('failure'),{status});},AbortSignal.timeout(1000),async()=>{});await assert.rejects(read('/schema'));assert.equal(calls,status<429?1:3);}
  const controller=new AbortController();controller.abort();let called=false;const read=materialReadRequest(async()=>{called=true;},controller.signal);await assert.rejects(read('/schema'));assert.equal(called,false);
 });
+test('long Retry-After is never shortened and the request deadline can cancel the wait',async()=>{
+ let calls=0, pause=0;const controller=new AbortController();
+ const read=materialReadRequest(async()=>{calls++;throw Object.assign(Error('rate'),{status:429,retryAfterMs:30000});},controller.signal,async(ms,signal)=>{pause=ms;controller.abort();signal.throwIfAborted();});
+ await assert.rejects(read('/schema'));assert.equal(pause,30000);assert.equal(calls,1);
+});

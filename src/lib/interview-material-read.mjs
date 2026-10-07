@@ -14,7 +14,9 @@ export function materialReadRequest(request, signal, wait = (ms, signal) => dela
         catch (error) {
           const temporary = error.status === 429 || error.status >= 500 || ['TypeError','TimeoutError','AbortError'].includes(error.name);
           if (signal.aborted || !temporary || attempt >= 2) throw error;
-          await wait(Math.min(10000, Math.max(1000 * (attempt + 1), Number(error.retryAfterMs) || 0)), signal);
+          const pause = Math.max(1000 * (attempt + 1), Number(error.retryAfterMs) || 0);
+          if (!Number.isFinite(pause) || pause > 2147483647) throw error;
+          await wait(pause, signal);
         }
       }
     })());
