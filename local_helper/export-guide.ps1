@@ -23,9 +23,16 @@ try {
   $excel.CalculateFull()
   $selected = [string]$sheet.Range('C3').Value2
   $db = $book.Worksheets.Item('DB_氏名学籍番号')
-  $found = $db.Columns.Item(1).Find($StudentNumber)
-  if (-not $found -or [string]$found.Value2 -ne $StudentNumber) { throw 'Student number not found in the guide workbook.' }
-  $name = [string]$db.Cells.Item($found.Row, 2).Value2
+  # Read values directly: Excel Find may miss rows hidden by a saved filter.
+  $lastRow = [int]$db.Cells.Item($db.Rows.Count, 1).End(-4162).Row
+  if ($lastRow -lt 2) { throw 'Student number not found in the guide workbook.' }
+  $numbers = $db.Range('A1:A' + $lastRow).Value2
+  $matchingRows = @()
+  for ($row = 2; $row -le $lastRow; $row++) {
+    if (([string]$numbers.GetValue($row, 1)).Trim() -eq $StudentNumber) { $matchingRows += $row }
+  }
+  if ($matchingRows.Count -ne 1) { throw 'Student number must match exactly one guide row.' }
+  $name = [string]$db.Cells.Item([int]$matchingRows[0], 2).Value2
   $actual = ($name.Normalize([Text.NormalizationForm]::FormKC) -replace '[\s　]', '')
   $expected = ($StudentName.Normalize([Text.NormalizationForm]::FormKC) -replace '[\s　]', '')
   if ($selected -ne $StudentNumber -or $actual -ne $expected -or -not $sheet.Range('F2').Value2) {
