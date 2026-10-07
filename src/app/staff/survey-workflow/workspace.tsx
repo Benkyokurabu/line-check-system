@@ -198,7 +198,7 @@ function RecipientChoices({student,accounts,values,statusFor,disabled,onToggle,o
   const status=statusFor(account);
   return <label key={account.id}><input type="checkbox" aria-label={account.label} checked={values.includes(account.id)} disabled={disabled}
    onChange={()=>onToggle(account.id)}/><span><strong>{account.label}</strong>{account.displayName&&account.displayName!==account.aliasName&&<small>LINE表示名：{account.displayName}</small>}<small>{account.verification==='confirmed'?'確認済み・学籍番号で連携':'学籍番号で登録済み・送信前に相手を確認'}</small></span>{status&&<small>{({sent:'送信済み',already_sent:'送信済み',failed:'送信失敗',history_failed:'送信済み・履歴要確認',unknown:'結果要確認'} as Record<string,string>)[status]}</small>}</label>;
- })}</fieldset>;})}<div className={styles.actions}><a className={styles.linkButton} href={`/contacts?${contactParams}`} target="_blank" rel="noreferrer">保護者LINEを確認・登録 ↗</a><button disabled={disabled} onClick={onRefresh}>LINE宛先を読み直す</button></div><p className={styles.recipientHelp}>別のタブで登録状況とLINE連絡先を確認できます。確認後は元の面談タブに戻り、「LINE宛先を読み直す」を押してください。</p></div>;
+ })}</fieldset>;})}<div className={styles.actions}>{!guardianCount&&<a className={styles.linkButton} href={`/contacts?${contactParams}`} target="_blank" rel="noreferrer">保護者LINEを確認・登録 ↗</a>}<button disabled={disabled} onClick={onRefresh}>LINE宛先を読み直す</button></div>{!guardianCount&&<p className={styles.recipientHelp}>別のタブで登録状況とLINE連絡先を確認できます。確認後は元の面談タブに戻り、「LINE宛先を読み直す」を押してください。</p>}</div>;
 }
 function SendReview({student,phase,entries,disabled,onSend,onCancel}:{student:State['student'];phase:Phase;entries:Array<{account:Account;text:string}>;disabled:boolean;onSend:()=>void;onCancel:()=>void}){
  return <div className={styles.review}><h3>{phase==='schedule'?'日程連絡':'面談後のまとめ'}の送信確認</h3>

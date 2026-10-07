@@ -4,10 +4,12 @@ const number = '2019001', name = '架空 花子';
 const motherId = 'U' + '1'.repeat(32), fatherId = 'U' + '2'.repeat(32), otherId = 'U' + '3'.repeat(32);
 const entry = '/contacts?' + new URLSearchParams({ source: 'survey-workflow', student: number, studentName: name });
 const account = (relation: string, status: string, studentNumber = number) => ({ student_number: studentNumber, student_name: name, grade: '中2', relation, verification_status: status, instruction_type: '集団' });
+type WorkflowAccount = { id: string; relation: string; label: string; verification?: string };
 async function setup(context: BrowserContext, options: { noGuardian?: boolean; failed?: boolean; confirmedSibling?: boolean } = {}) {
   const writes: string[] = [];
   let fail = options.failed === true;
   let reads = 0;
+  let workflowAccounts: WorkflowAccount[] = [];
   const contacts = [
     { line_user_id: motherId, display_name: 'はなの母', alias_name: '本 架空花子 母', group_name: '保護者', system_verified: !options.noGuardian, registered_accounts: options.noGuardian ? [] : [account('mother', 'confirmed')] },
     { line_user_id: fatherId, display_name: 'はなの父', alias_name: '本 架空 花子 父', group_name: null, pending_evidence: true, registered_accounts: options.noGuardian ? [] : [account('father', 'unverified')] },
@@ -18,7 +20,7 @@ async function setup(context: BrowserContext, options: { noGuardian?: boolean; f
     const req = route.request(), url = new URL(req.url()), path = url.pathname;
     if (req.method() !== 'GET') { writes.push(path); return route.fulfill({ status: 403, json: { error: 'この検証では更新・送信は禁止' } }); }
     if (path === '/api/admin/contacts') return route.fulfill(fail ? { status: 503, json: { error: '連絡先の読み込みに失敗しました' } } : { json: { contacts: url.searchParams.has('userId') ? contacts.filter(c => c.line_user_id === url.searchParams.get('userId')) : contacts } });
-    if (path === '/api/staff/survey-workflow') { reads++; return route.fulfill({ json: { student: { name, number, grade: '中2' }, staffName: '試験職員', survey: { id: answer, url: 'https://example.invalid', date: '2026-10-03', time: '18:00', editedAt: 'v1' }, bensuke: { state: 'synced', method: '３者Zoom', endTime: '18:45', styled: true }, accounts: [], record: null } }); }
+    if (path === '/api/staff/survey-workflow') { reads++; return route.fulfill({ json: { student: { name, number, grade: '中2' }, staffName: '試験職員', survey: { id: answer, url: 'https://example.invalid', date: '2026-10-03', time: '18:00', editedAt: 'v1' }, bensuke: { state: 'synced', method: '３者Zoom', endTime: '18:45', styled: true }, accounts: workflowAccounts, record: null } }); }
     if (path === '/api/interview-surveys') return route.fulfill({ json: { groups: [{ teacher: '工藤', students: [{ grade: '中2', name, notionUrl: `https://www.notion.so/${answer.replaceAll('-', '')}`, submittedAt: '2026-10-01T00:00:00Z' }] }] } });
     if (path === '/api/interview-surveys/confirmations') return route.fulfill({ json: { states: [] } });
     if (path === '/api/interview-surveys/scheduling') return route.fulfill({ json: { states: {} } });
@@ -26,8 +28,51 @@ async function setup(context: BrowserContext, options: { noGuardian?: boolean; f
     if (path === '/api/admin/contacts/students') return route.fulfill({ json: { students: [{ student_number: number, student_name: name, grade: '中2', campus: '本校', instruction_type: '集団' }, { student_number: '2019002', student_name: '架空 太郎', grade: '中2', campus: '本校', instruction_type: '集団' }] } });
     return route.fulfill({ json: {} });
   });
-  return { writes, recover: () => { fail = false; }, readCount: () => reads };
+  return { writes, recover: () => { fail = false; }, readCount: () => reads, setWorkflowAccounts: (accounts: WorkflowAccount[]) => { workflowAccounts = accounts; } };
 }
+
+for (const verification of ['confirmed', 'registered']) test(`registered guardian hides registration entry in both LINE sections (${verification})`, async ({ page, context }) => {
+  const state = await setup(context);
+  state.setWorkflowAccounts([{ id: motherId, relation: 'mother', label: '母・登録済み', verification }]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/staff/survey-workflow?answer=${answer}`);
+  const ui = page.getByRole('region', { name: '面談入力' });
+  await expect(ui.getByRole('heading', { name: '2　日程をLINEで連絡する' })).toBeVisible();
+  await expect(ui.getByRole('link', { name: '保護者LINEを確認・登録 ↗', exact: true })).toHaveCount(0);
+  await expect(ui.getByText(/別のタブで登録状況とLINE連絡先/)).toHaveCount(0);
+  await expect(ui.getByRole('button', { name: 'LINE宛先を読み直す' })).toHaveCount(2);
+  const schedule = ui.getByRole('heading', { name: '2　日程をLINEで連絡する' }).locator('..');
+  await schedule.getByLabel('母・登録済み', { exact: true }).check();
+  await schedule.getByLabel('日程連絡の文面').fill('面談日程のお知らせ');
+  await schedule.getByRole('button', { name: '宛先・文面を確認' }).click();
+  await expect(schedule.getByRole('button', { name: '表示した宛先へLINE送信' })).toBeEnabled();
+  await expect(ui.getByText('この生徒に紐づく保護者LINEが見つかりません。', { exact: false })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  if (verification === 'registered') await schedule.screenshot({ path: 'analysis_outputs/guardian-line-lookup/registered-send-mobile.png' });
+  expect(state.writes).toEqual([]);
+});
+
+test('registration entry follows refreshed guardian status and preserves the LINE draft', async ({ page, context }) => {
+  const state = await setup(context);
+  state.setWorkflowAccounts([{ id: otherId, relation: 'student', label: '本人・登録済み' }, { id: fatherId, relation: 'unknown', label: '続柄未確認' }]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/staff/survey-workflow?answer=${answer}`);
+  const ui = page.getByRole('region', { name: '面談入力' });
+  const schedule = ui.getByRole('heading', { name: '2　日程をLINEで連絡する' }).locator('..');
+  const entryLink = ui.getByRole('link', { name: '保護者LINEを確認・登録 ↗', exact: true });
+  await expect(entryLink).toHaveCount(2);
+  await schedule.getByLabel('日程連絡の文面').fill('保存しておく下書き');
+  state.setWorkflowAccounts([{ id: motherId, relation: 'mother', label: '母・登録済み', verification: 'registered' }]);
+  await schedule.getByRole('button', { name: 'LINE宛先を読み直す' }).click();
+  await expect(schedule.getByLabel('母・登録済み', { exact: true })).toBeVisible();
+  await expect(entryLink).toHaveCount(0);
+  await expect(schedule.getByLabel('日程連絡の文面')).toHaveValue('保存しておく下書き');
+  state.setWorkflowAccounts([]);
+  await schedule.getByRole('button', { name: 'LINE宛先を読み直す' }).click();
+  await expect(entryLink).toHaveCount(2);
+  await expect(schedule.getByLabel('日程連絡の文面')).toHaveValue('保存しておく下書き');
+  expect(state.writes).toEqual([]);
+});
 
 for (const width of [390, 1280]) test(`survey → search → registration → return preserves the interview draft (${width}px)`, async ({ page, context }) => {
   await page.setViewportSize({ width, height: 844 });
