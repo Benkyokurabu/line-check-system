@@ -16,3 +16,18 @@ export function materialRunJobs(appointments, { runId, staffCode, teacherId, fro
     payload: { number: appointment.number, name: appointment.name, grade: appointment.grade, schools: [], campus: '',
       autoDaily: { appointment, manual: true, runId, from, to, teacherId } } }));
 }
+
+export function materialRunReviews(planned, teacherId = '') {
+  return planned.flatMap(({ day, review, directory }) => review
+    .filter(item => !teacherId || !item.teacherIds?.length || item.teacherIds.includes(teacherId))
+    .map(item => {
+      const row = day.rows.find(row => row.id === item.id);
+      const start = row?.date?.start;
+      const instant = typeof start === 'string' && start.includes('T')
+        ? Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/u.test(start) ? start : `${start}+09:00`) : NaN;
+      const local = Number.isFinite(instant) ? new Date(instant + 9 * 3600000).toISOString() : '';
+      return { id: item.id, title: item.title, reason: item.reason, url: item.url,
+        date: local.slice(0, 10) || day.date, start: local.slice(11, 16),
+        teachers: directory.filter(staff => item.teacherIds?.includes(staff.id)).map(staff => staff.name.replace(/(?:先生|さん)$/u, '')) };
+    }));
+}
