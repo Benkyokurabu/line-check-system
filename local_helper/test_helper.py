@@ -15,6 +15,17 @@ import helper
 from helper import hokushin, preview_schools, save_bundle_to_onedrive, school_name_matches, selected_schools, sync_bundle_to_cloud
 
 
+class LocalWorkerIdentityTests(unittest.TestCase):
+    def test_health_identity_comes_from_this_installation_without_exposing_token(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(helper, 'ROOT', Path(folder)):
+            config = Path(folder) / 'worker.json'
+            self.assertIsNone(helper.local_worker_id())
+            config.write_text(json.dumps({'id': 'standby', 'token': 'private'}), encoding='utf-8')
+            self.assertEqual(helper.local_worker_id(), 'standby')
+            config.write_text(json.dumps({'id': '../primary', 'token': 'private'}), encoding='utf-8')
+            self.assertIsNone(helper.local_worker_id())
+
+
 class MaterialSelectionTests(unittest.TestCase):
     def test_preview_and_bundle_use_same_document_ids_and_only_selected_pages(self):
         with tempfile.TemporaryDirectory() as folder:

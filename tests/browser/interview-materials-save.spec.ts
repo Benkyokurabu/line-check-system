@@ -78,6 +78,31 @@ test('an incorrect teacher password keeps the material page locked', async ({ pa
   await expect(page.getByLabel('いつものパスワード')).toHaveValue('');
 });
 
+test('this PC targets the worker ID reported by the local helper', async ({ page }) => {
+  const submitted: Record<string, unknown>[] = [];
+  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
+  await page.route('http://127.0.0.1:38473/health', route => route.fulfill({
+    json: { ready: true, workerId: 'standby' }, headers: { 'Access-Control-Allow-Origin': '*' },
+  }));
+  await page.route('**/api/staff/interview-material-jobs**', route => {
+    if (route.request().method() === 'POST') {
+      submitted.push(route.request().postDataJSON());
+      return route.fulfill({ status: 201, json: { id: 'preview-id' } });
+    }
+    if (new URL(route.request().url()).searchParams.has('id')) return route.fulfill({ json: { job: {
+      status: 'completed', result: { schools: [], materials: [{ id: 'guide', group: '本人', label: '学習簿', detail: '', staffOnly: false }] },
+    } } });
+    return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }, { id: 'standby', priority: 2 }] } });
+  });
+  await page.goto(`/staff/interview-materials?answer=${student.responses[0].id.replaceAll('-', '')}`);
+  await page.getByRole('button', { name: 'このPCで処理' }).click();
+  await expect(page.getByText('このPC（standby）で今回の資料を作成します。')).toBeVisible();
+  await page.getByRole('button', { name: '資料を作る' }).click();
+  await expect.poll(() => submitted.length).toBe(1);
+  expect(submitted[0].targetWorkerId).toBe('standby');
+});
+
 test('central worker previews sources then builds and saves a PDF without browser loopback access', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const pdfResponse = { body: '%PDF-1.4\n%%EOF', contentType: 'application/pdf', headers: { 'Access-Control-Allow-Origin': '*' } };

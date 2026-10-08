@@ -56,8 +56,9 @@ begin
   where expires_at>now() and ((status='queued' and (daily_key is not null or created_at>now()-interval '10 minutes'))
    or (status='running' and lease_until<now() and attempts<3)
    or (status='failed' and daily_key is not null and attempts<3 and completed_at<now()-interval '5 minutes'))
-   and ((daily_key is null and not exists(select 1 from interview_material_workers
-      where priority<v_priority and ready and last_seen_at>now()-interval '35 seconds'))
+   and (payload->>'targetWorkerId' is null or payload->>'targetWorkerId'=p_worker)
+   and ((daily_key is null and (payload->>'targetWorkerId'=p_worker or not exists(select 1 from interview_material_workers
+      where priority<v_priority and ready and last_seen_at>now()-interval '35 seconds')))
     or (daily_key is not null and v_daily and (payload->'autoDaily'->>'manual'='true'
       or exists(select 1 from interview_material_daily_settings where id and enabled))
       and not exists(select 1 from interview_material_workers

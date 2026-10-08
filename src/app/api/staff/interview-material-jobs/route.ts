@@ -81,11 +81,13 @@ export async function POST(request: NextRequest) {
     const schools = body.schools;
     const campus = String(body.campus || '');
     const answerId = typeof body.answerId === 'string' ? body.answerId : '';
+    const targetWorkerId = body.targetWorkerId === undefined ? '' : body.targetWorkerId;
     const selectedMaterialIds = Array.isArray(body.selectedMaterialIds) ? body.selectedMaterialIds : null;
     if (!['preview', 'generate'].includes(String(kind)) || !/^\d{5,12}$/.test(number)
       || !Array.isArray(schools) || schools.length > 6 || schools.some(name => typeof name !== 'string' || name.length > 80)
       || !['', '本校', '南教室'].includes(campus)
       || (answerId && !/^[a-f0-9-]{36}$/i.test(answerId))
+      || typeof targetWorkerId !== 'string' || targetWorkerId !== '' && !/^[a-z0-9_-]{3,32}$/.test(targetWorkerId)
       || kind === 'generate' && (!selectedMaterialIds || selectedMaterialIds.length < 1
         || selectedMaterialIds.length > 300 || selectedMaterialIds.some(id => typeof id !== 'string' || !/^[a-z0-9:-]{1,64}$/.test(id))
         || new Set(selectedMaterialIds).size !== selectedMaterialIds.length))
@@ -94,9 +96,11 @@ export async function POST(request: NextRequest) {
     const student = roster.find(row => String(row.student_number) === number);
     if (!student || !/^(小[4-6]|中[1-3])$/.test(String(student.grade || ''))) throw new InterviewError('生徒を確認してください。', 404);
     const { data: workers, error: workerError } = await context.dataClient.from('interview_material_workers')
-      .select('ready,last_seen_at');
+      .select('id,ready,last_seen_at');
     if (workerError) throw workerError;
     if (!(workers || []).some(online)) throw new InterviewError('作成PCは停止中です。起動後にもう一度お試しください。', 503);
+    if (targetWorkerId && !(workers || []).some(worker => worker.id === targetWorkerId && online(worker)))
+      throw new InterviewError('指定した作成PCを確認できません。稼働状況を再確認してください。', 409);
     let survey;
     if (kind === 'generate' && answerId && selectedMaterialIds?.includes('survey')) {
       try { survey = await loadVerifiedSurveyAnswer(answerId, student, roster); }
@@ -105,6 +109,7 @@ export async function POST(request: NextRequest) {
     const payload = { number, name: String(student.student_name), grade: String(student.grade), campus,
       schools: schools.map(name => String(name).trim()).filter(Boolean),
       ...(kind === 'preview' ? { surveyExpected: Boolean(answerId) } : { selectedMaterialIds: selectedMaterialIds || [] }),
+      ...(targetWorkerId ? { targetWorkerId } : {}),
       ...(survey ? { survey } : {}) };
     const { data: job, error } = await context.dataClient.from('interview_material_jobs')
       .insert({ kind, staff_code: context.staff.staffCode, payload }).select('id').single();

@@ -19,6 +19,7 @@ type SchoolPreview = { rank: number; surveyName: string; name: string; found: bo
 type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; round?: string; filename?: string; message?: string };
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
 type MaterialChoice = { id: string; group: string; label: string; detail: string; staffOnly: boolean };
+const LOCAL_HELPER_HEALTH = 'http://127.0.0.1:38473/health';
 const searchable = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s/g, '');
 const answerKey = (value: string) => value.replaceAll('-', '').toLowerCase();
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
@@ -80,6 +81,8 @@ export default function MaterialsDesk() {
   const [summarySaveBusy, setSummarySaveBusy] = useState(false);
   const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
   const [workerOnline, setWorkerOnline] = useState(false);
+  const [targetWorkerId, setTargetWorkerId] = useState('');
+  const [localWorkerMessage, setLocalWorkerMessage] = useState('');
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
   const showPastSchools = selected?.grade === '中2' && (selected.responses.length === 0 || Boolean(answer && answer.schools.length === 0));
@@ -164,6 +167,7 @@ export default function MaterialsDesk() {
     const selectedAnswer = student.responses.find(response => answerKey(response.id) === answerKey(preferredAnswer))
       ?? (student.responses.length === 1 ? student.responses[0] : undefined);
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
+    setTargetWorkerId(''); setLocalWorkerMessage('');
     setSelectedAppointment(null);
     currentNumber.current = student.number;
     setMaterialContext(null); setContextError(''); setContextLoading(true);
@@ -227,13 +231,37 @@ export default function MaterialsDesk() {
       else setMessage('このアンケート回答と生徒を照合できませんでした。担任・学年・氏名で生徒を探してください。');
     }
   }, [refreshWorkers, chooseStudent]);
+  async function readThisPcWorkerId() {
+    const response = await fetch(LOCAL_HELPER_HEALTH, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    if (!response.ok) throw Error('このPCの資料作成アプリに接続できません。');
+    const health = await response.json();
+    if (!health.ready || typeof health.workerId !== 'string' || !/^[a-z0-9_-]{3,32}$/.test(health.workerId))
+      throw Error('このPCの資料作成アプリのworker設定を確認できません。');
+    return health.workerId as string;
+  }
+  async function selectThisPc() {
+    setLocalWorkerMessage('');
+    try {
+      const workerId = await readThisPcWorkerId();
+      const response = await fetch('/api/staff/interview-material-jobs', { cache: 'no-store' });
+      if (!response.ok) throw Error('作成PCの稼働状況を確認できません。');
+      const body = await response.json();
+      if (!Array.isArray(body.available) || !body.available.some((worker: { id: string }) => worker.id === workerId))
+        throw Error('このPCの資料作成アプリは待機状態ではありません。');
+      setTargetWorkerId(workerId);
+      setLocalWorkerMessage(`このPC（${workerId}）で今回の資料を作成します。`);
+    } catch (error) { setLocalWorkerMessage(requestError(error)); }
+  }
   async function submitJob(kind: 'preview' | 'generate') {
+    if (targetWorkerId && await readThisPcWorkerId() !== targetWorkerId)
+      throw Error('このPCのworker設定が変わりました。作成PCを選び直してください。');
     if (!selected) throw Error('生徒を選択してください。');
     const response = await fetch('/api/staff/interview-material-jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, number: selected.number, campus, schools: kind === 'preview'
         ? schoolNames.map(name => name.trim()).filter(Boolean) : preview?.map(school => school.name) || [],
         ...(answer ? { answerId: answer.id } : {}),
+        ...(targetWorkerId ? { targetWorkerId } : {}),
         ...(kind === 'generate' ? { selectedMaterialIds } : {}) }),
     });
     const created = await response.json();
@@ -309,6 +337,7 @@ export default function MaterialsDesk() {
       setSavedFile(job.result.savedPath || '');
       setCloudSynced(Boolean(job.result.cloudSynced));
       setSaveMessage(job.result.saveError || '');
+      setTargetWorkerId(''); setLocalWorkerMessage('');
       await refreshWorkers();
     } catch (error) { setGenerationMessage(requestError(error)); }
     finally { setBusy(false); }
@@ -454,6 +483,11 @@ export default function MaterialsDesk() {
           {!answer && <div><h4>選択中の資料候補</h4>{schoolNames.map((school, index) => <label key={index}>資料候補 {index + 1}<input value={school} onChange={event => { setSchoolNames(names => names.map((name, position) => position === index ? event.target.value : name)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }} /></label>)}
             {schoolNames.length < 6 && <button type="button" onClick={() => { setSchoolNames(names => [...names, '']); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }}>資料候補を追加</button>}</div>}
         </div>}
+        <div className={styles.actions}>
+          <button type="button" disabled={batchBusy || previewBusy || busy || Boolean(preview)} onClick={() => void selectThisPc()}>このPCで処理</button>
+          {targetWorkerId && <button type="button" disabled={batchBusy || previewBusy || busy || Boolean(preview)} onClick={() => { setTargetWorkerId(''); setLocalWorkerMessage(''); }}>自動選択に戻す</button>}
+        </div>
+        {localWorkerMessage && <p className={styles.note} role="status">{localWorkerMessage}</p>}
         <div className={styles.actions}><button className={styles.primary} disabled={batchBusy || !workerOnline || previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
         {selected.responses.length > 1 && !answer && <p className={styles.note}>上のアンケート回答を1つ選ぶと資料を確認できます。</p>}
         {previewMessage && <p className={styles.error} role="alert">{previewMessage}</p>}

@@ -45,6 +45,14 @@ INDEX_FILE = ROOT / 'hokushin-index.json'
 INDEX_STATUS = {'running': False, 'completed': 0, 'total': 0, 'year': ''}
 
 
+def local_worker_id() -> str | None:
+    try:
+        worker_id = json.loads((ROOT / 'worker.json').read_text(encoding='utf-8-sig')).get('id')
+    except (OSError, ValueError, AttributeError):
+        return None
+    return worker_id if isinstance(worker_id, str) and re.fullmatch(r'[a-z0-9_-]{3,32}', worker_id) else None
+
+
 def save_bundle_to_onedrive(source: Path, student_number: str) -> Path:
     onedrive = os.environ.get('OneDrive') or os.environ.get('OneDriveConsumer') or os.environ.get('OneDriveCommercial')
     if not onedrive or not Path(onedrive).is_dir():
@@ -1010,7 +1018,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/health':
-            self.reply(200, {'ready': True, 'version': 2, 'hokushinIndex': INDEX_STATUS})
+            self.reply(200, {'ready': True, 'version': 2, 'workerId': local_worker_id(), 'hokushinIndex': INDEX_STATUS})
             return
         path, _, query = self.path.partition('?')
         match = re.fullmatch(r'/pdf/([a-f0-9]{32})/(staff-bundle|guide)\.pdf', path)

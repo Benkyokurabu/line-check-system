@@ -105,3 +105,30 @@ test('button-triggered jobs use the online capable PC while daily scheduling sta
   assert.equal(await claim('standby'), undefined);
   assert.equal(await claim('primary'), undefined);
 });
+
+test('an explicit worker claims only its own job while ordinary jobs retain priority', async () => {
+  await db.exec(`delete from interview_material_jobs;
+    update interview_material_workers set ready=true,last_seen_at=now();
+    insert into interview_material_jobs(kind,staff_code,payload) values
+      ('preview','teacher','{"targetWorkerId":"standby"}'),
+      ('preview','teacher','{}');`);
+  const ordinary = await claim('primary');
+  assert.ok(ordinary);
+  assert.equal(ordinary.payload.targetWorkerId, undefined);
+  const targeted = await claim('standby');
+  assert.ok(targeted);
+  assert.equal(targeted.payload.targetWorkerId, 'standby');
+  assert.equal(await claim('primary'), undefined);
+  assert.equal(await claim('standby'), undefined);
+
+  await db.exec(`insert into interview_material_jobs(kind,staff_code,payload)
+    values('generate','teacher','{"targetWorkerId":"standby"}');
+    update interview_material_workers set ready=false where id='standby';`);
+  assert.equal(await claim('primary'), undefined);
+  assert.equal(await claim('standby'), undefined);
+  await db.exec("update interview_material_workers set ready=true,last_seen_at=now() where id='standby'");
+  const generated = await claim('standby');
+  assert.ok(generated);
+  assert.equal(generated.kind, 'generate');
+  assert.equal(generated.worker_id, 'standby');
+});
