@@ -6,6 +6,7 @@ import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useStat
 import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
 import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registration/navigation";
+import ConfirmerPicker from "@/app/line-registration/confirmer-picker";
 import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
 import { isAttendanceCrossCampus, normalizeCampus } from "@/lib/attendance-campus-consistency.mjs";
 import {
@@ -463,7 +464,7 @@ export default function AttendancePage() {
 
   async function hideSelectedCandidates() {
     if (bulkBusy || selectedCandidates.length === 0) return;
-    if (!confirmedBy.trim()) { setBulkMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setBulkMessage("画面上部で確認担当者を選択してください。"); return; }
     const targets = [...selectedCandidates];
     const names = targets.slice(0, 20).map((candidate) => {
       const name = candidate.student_roster?.student_name ?? candidate.suggested_student_name ?? candidate.sender_profile?.alias_names?.[0] ?? candidate.line_messages?.display_name ?? "名前未登録";
@@ -514,7 +515,7 @@ export default function AttendancePage() {
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 16 }}>
         <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, borderRadius: 12, background: "var(--accent-soft)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end" }}>
-          <label style={{ display: "grid", gap: 6, minWidth: 220 }}><span>確認者名</span><input style={inputStyle} value={confirmedBy} onChange={(e) => setConfirmedBy(e.target.value)} placeholder="例：吉川" /></label>
+          <ConfirmerPicker onActiveChange={setConfirmedBy} />
           <button type="button" style={buttonStyle} disabled={busy || bulkBusy} onClick={analyze}>{busy ? "最新のLINEを確認中…" : "最新のLINEを確認して更新"}</button>
         </div>
       </div>
@@ -569,7 +570,7 @@ export default function AttendancePage() {
       {visibleCandidates.length === 0 && <section className="panel" style={{ padding: 24 }}>{reviewTab === "action" ? includePastPending ? "表示中の連絡はありません。" : "今日以降の表示中の連絡はありません。過去分は「過去の連絡も表示」で確認できます。" : reviewTab === "done" ? `直近${historyDays}日間の消去済み連絡はありません。` : "表示する連絡候補はありません。"}</section>}
       {displayedCandidates.map((candidate) => <fieldset key={candidate.id} disabled={bulkBusy} style={{ margin: 0, padding: selectionMode ? 8 : 0, minWidth: 0, border: selectionMode ? `2px solid ${selectedCandidateIds.includes(candidate.id) ? "var(--accent)" : "var(--line)"}` : 0, borderRadius: 8, background: selectionMode && selectedCandidateIds.includes(candidate.id) ? "#f0f7ff" : undefined }}>
         {selectionMode && reviewTab === "action" && <label style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 4px 12px", cursor: "pointer", fontWeight: 700 }}><input type="checkbox" style={{ width: 20, height: 20, accentColor: "var(--accent)" }} checked={selectedCandidateIds.includes(candidate.id)} onChange={(event) => setSelectedCandidateIds((current) => event.target.checked ? [...new Set([...current, candidate.id])] : current.filter((id) => id !== candidate.id))} aria-label={`${candidate.student_roster?.student_name ?? candidate.suggested_student_name ?? candidate.line_messages?.display_name ?? "名前未登録"}の連絡を選択`} />この連絡を選択</label>}
-        <CandidateCard candidate={candidate} students={students} confirmedBy={confirmedBy} onConfirmedByChange={setConfirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />
+        <CandidateCard candidate={candidate} students={students} confirmedBy={confirmedBy} replyTemplates={replyTemplates} onReplyTemplatesChanged={updateReplyTemplates} onChanged={() => load(candidate.id, reviewTab)} setMessage={setMessage} />
       </fieldset>)}
       {visibleCandidateCount < visibleCandidates.length && <button type="button" style={secondaryButtonStyle} disabled={bulkBusy} onClick={() => setVisibleCandidateCount((count) => count + 20)}>続きを表示（残り{visibleCandidates.length - visibleCandidateCount}件）</button>}
     </div>
@@ -1043,7 +1044,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
   }
 
   async function cancelEvent(event: ManualEvent) {
-    if (!confirmedBy.trim()) { setMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setMessage("画面上部で確認担当者を選択してください。"); return; }
     if (!window.confirm(`${eventStudent(event)} / ${event.lessons?.label ?? "授業未取得"} を取り消しますか？`)) return;
     const busyKey = `cancel:${event.id}`;
     setActionBusy(busyKey);
@@ -1123,7 +1124,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
     </div>}
   </section>;
 }
-function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; onConfirmedByChange: (value: string) => void; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
+function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onReplyTemplatesChanged, onChanged, setMessage }: { candidate: Candidate; students: Student[]; confirmedBy: string; replyTemplates: string[]; onReplyTemplatesChanged: (templates: string[]) => Promise<void>; onChanged: () => Promise<void>; setMessage: (value: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
   const [manualPeriod, setManualPeriod] = useState(false);
@@ -1437,7 +1438,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       return selected.length ? selected : group.items.slice(0, 1);
     });
     if (busy || !registrationRows.length || registrationRows.length > 80) return;
-    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
     const invalidStudent = registrationRows.find((item) => !item.student_number);
     if (invalidStudent) { setCardMessage("すべての登録行で名前を選択してください。"); return; }
     const invalid = registrationRows.find((item) => !item.event_date || !item.campus || !item.lesson_id || !item.ai_summary.trim());
@@ -1482,7 +1483,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
 
   async function sendReply() {
     if (hasSentReply && !additionalMessageMode) { setCardMessage("この欠席連絡にはLINEで送信済みです。"); return; }
-    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
     if (!replyText.trim()) { setCardMessage("返信文を入力してください。"); return; }
     const sendLabel = hasSentReply ? "別のメッセージ" : "LINE返信";
     if (!window.confirm(`${titleName} に${sendLabel}を送信します。よろしいですか？`)) return;
@@ -1518,7 +1519,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   }
 
   async function dismiss() {
-    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
     if (!window.confirm("この候補を対応不要にしますか？")) return;
     setDismissing(true);
     setCardMessage("対応不要として処理しています...");
@@ -1541,7 +1542,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
   }
 
   async function changeReviewVisibility() {
-    if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
     const hide = !candidate.review_hidden_at;
     if (hide && !window.confirm("この連絡を表示中の一覧から消しますか？\n消去済みから後で確認できます。")) return;
     setVisibilityBusy(true);
@@ -1658,9 +1659,9 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       </div>
     </div>
 
-    {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} confirmedBy={confirmedBy} onConfirmedByChange={onConfirmedByChange} registrationMessage={cardMessage} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {
+    {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} confirmedBy={confirmedBy} registrationMessage={cardMessage} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {
       const rows: EditableItem[] = lessons.map((lesson) => ({ client_id: makeClientId(), student_number: studentNumber, event_type: eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: eventType === "late" ? periodProposal.arrival : "", note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }));
-      if (!confirmedBy.trim()) { setCardMessage("画面上部の「確認者名」を入力してください。"); return; }
+      if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
       setItems(rows);
       await confirmCandidate(rows, lessons);
     }} /></div>}
@@ -1750,7 +1751,7 @@ function CandidateCard({ candidate, students, confirmedBy, onConfirmedByChange, 
       })}
     </div>}
 
-    {draftStatus && <div role="status" style={{ marginTop: 10, color: draftStatus.includes("できません") ? "#b42318" : "#087a3d", fontSize: 13 }}>{draftStatus}{!confirmedBy.trim() ? "（担当者名は未入力）" : ""}</div>}
+    {draftStatus && <div role="status" style={{ marginTop: 10, color: draftStatus.includes("できません") ? "#b42318" : "#087a3d", fontSize: 13 }}>{draftStatus}{!confirmedBy.trim() ? "（確認担当者は未選択）" : ""}</div>}
     <div style={{ marginTop: 10 }}><button type="button" style={ghostButtonStyle} aria-expanded={historyOpen} onClick={() => void toggleReviewHistory()}>{historyOpen ? "変更履歴を閉じる" : "生徒・授業の変更履歴"}</button></div>
     {historyOpen && <div style={{ display: "grid", gap: 6, marginTop: 8, fontSize: 13 }}>{reviewHistory.length === 0 ? <div>変更履歴はありません。</div> : reviewHistory.map((entry) => <div key={entry.id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
       {formatReceivedAt(entry.created_at)} / {entry.actor || "担当者名未入力"}：{studentOptions.find((student) => student.student_number === entry.before_student_number)?.student_name ?? entry.before_student_number ?? "未選択"} → {studentOptions.find((student) => student.student_number === entry.after_student_number)?.student_name ?? entry.after_student_number ?? "未選択"}、授業 {entry.before_lessons.filter((lesson) => lesson.lesson_id).length}件 → {entry.after_lessons.filter((lesson) => lesson.lesson_id).length}件

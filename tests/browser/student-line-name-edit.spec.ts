@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { selectConfirmer } from "./confirmer-helper";
 import { setupRegistration } from "./registration-fixture";
 for (const reject of [false, true]) test(`student name editing uses audited endpoint and preserves draft; reject=${reject}`, async ({ page }) => {
   const { writes } = await setupRegistration(page, { reject });
@@ -10,7 +11,7 @@ for (const reject of [false, true]) test(`student name editing uses audited endp
   const dialog = page.getByRole("dialog", { name: "LINE登録・修正", exact: true });
   await expect(dialog.getByText("相手のLINE表示名：登録試験LINE")).toBeVisible();
   await dialog.getByLabel("勉たんに表示する名前").fill("本　試験一郎（新）");
-  await dialog.getByLabel("変更した先生・スタッフ名").fill("確認職員");
+  await selectConfirmer(page, "確認職員");
   await dialog.getByRole("button", { name: "この名前で保存", exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes).toEqual([{ path: "/api/students/UI-ONE/line-name", body: { line_user_id: "ui-line", alias_name: "本　試験一郎（新）", performed_by: "確認職員" } }]);

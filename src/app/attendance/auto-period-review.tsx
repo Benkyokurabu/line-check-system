@@ -7,9 +7,9 @@ import type { PeriodLesson } from "./period-lesson-picker";
 
 export type PeriodProposal = { start: string; end: string; eventType: string; reason: string; subject: string; className: string; arrival: string };
 
-export default function AutoPeriodReview({ studentNumber, studentName, proposal, disabled, confirmedBy, onConfirmedByChange, registrationMessage, onConfirm, onManual }: {
+export default function AutoPeriodReview({ studentNumber, studentName, proposal, disabled, confirmedBy, registrationMessage, onConfirm, onManual }: {
   studentNumber: string; studentName: string; proposal: PeriodProposal; disabled: boolean;
-  confirmedBy: string; onConfirmedByChange: (value: string) => void; registrationMessage: string;
+  confirmedBy: string; registrationMessage: string;
   onConfirm: (lessons: PeriodLesson[], reason: string, eventType: "absence" | "late") => Promise<void>; onManual: () => void;
 }) {
   const [lessons, setLessons] = useState<PeriodLesson[]>([]);
@@ -75,8 +75,7 @@ export default function AutoPeriodReview({ studentNumber, studentName, proposal,
         <p style={{ margin: 0, fontSize: 13 }}>授業がない日は登録しません。対象外の授業だけチェックを外してください。</p>
         <label style={{ display: "grid", gap: 6 }}>まとめて登録する理由<input value={reason} onChange={(event) => setReason(event.target.value)} style={{ padding: 10, border: "1px solid var(--line)", borderRadius: 6 }} /></label>
         {eventType === "late" && proposal.arrival && <p>到着予定：{proposal.arrival}</p>}
-        <label style={{ display: "grid", gap: 6 }}>登録する確認者名<input value={confirmedBy} onChange={(event) => onConfirmedByChange(event.target.value)} placeholder="例：工藤" style={{ padding: 10, border: "1px solid var(--line)", borderRadius: 6 }} /></label>
-        {!confirmedBy.trim() && <p style={{ margin: 0 }}>登録する確認者名を入力してください。画面上部の確認者名と共通です。</p>}
+        <p style={{ margin: 0 }}>登録する確認者名：{confirmedBy || "未選択（画面上部で選択してください）"}</p>
         {!selected.length && <p role="status" style={{ margin: 0 }}>登録する授業に1件以上チェックを入れてください。</p>}
         {!reason.trim() && <p role="status" style={{ margin: 0 }}>まとめて登録する理由を入力してください。</p>}
         {registrationMessage && <p role="status" style={{ margin: 0, fontWeight: 700 }}>{registrationMessage}</p>}

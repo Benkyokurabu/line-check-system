@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { selectConfirmer } from "./confirmer-helper";
 
 test("south campus X student selects one broadcasting campus for an absence", async ({ page }) => {
   const student = { student_number: "x-student", student_name: "山田 花子", grade: "中2", campus: "南教室", homeroom_teacher: "佐藤" };
@@ -33,7 +34,7 @@ test("south campus X student selects one broadcasting campus for an absence", as
   });
 
   await page.goto("/attendance");
-  await page.getByLabel("確認者名").fill("テスト担当");
+  await selectConfirmer(page, "テスト担当");
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   const row = page.getByRole("group", { name: "1行目の登録内容" });
   const main = row.getByRole("button", { name: /配信元 本校/ });
@@ -198,7 +199,7 @@ test("ambiguous siblings remain unselected and lesson buttons toggle independent
   await expect(english).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await math.click();
   await expect(math).toHaveAttribute("aria-pressed", "false");
-  await page.getByLabel("確認者名").fill("テスト担当");
+  await selectConfirmer(page, "テスト担当");
   await page.getByRole("button", { name: "確認してNotionへ登録" }).click();
   await expect(page.getByText("すべての登録行で、日付・校舎・授業・理由を入力してください。")).toBeVisible();
   expect(saveAttempts).toBe(0);
@@ -318,7 +319,7 @@ test("changing a row to a student already listed below merges the selected lesso
   await expect(page.getByRole("group", { name: /行目の登録内容/ })).toHaveCount(1);
   await expect(row.getByRole("button", { name: /英語B/ })).toHaveAttribute("aria-pressed", "true");
   await expect(row.getByRole("button", { name: /数学A/ })).toHaveAttribute("aria-pressed", "true");
-  await page.getByLabel("確認者名").fill("テスト担当");
+  await selectConfirmer(page, "テスト担当");
   await page.getByRole("button", { name: "確認してNotionへ登録" }).click();
   await expect.poll(() => savedItems.length).toBe(2);
   await expect(page.getByText("Notionに新規0行・既存更新2行を反映しました。既存更新は行が増えません。").first()).toBeVisible();
@@ -407,7 +408,7 @@ test("human student and white lesson choices survive a reload without auto-selec
   });
 
   await page.goto("/attendance");
-  await page.getByLabel("確認者名").fill("テスト担当");
+  await selectConfirmer(page, "テスト担当");
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   await page.getByRole("group", { name: "連絡した生徒の候補" }).getByRole("button", { name: "中2 山田 花子" }).click();
   await expect(page.getByRole("button", { name: /数学A/ })).toHaveAttribute("aria-pressed", "true");

@@ -11,7 +11,7 @@ export type LineRegistrationResult = { relation: string; alias: string; studentN
 type Props = {
   userId: string; displayName?: string | null; source: string;
   students?: Student[]; initialStudentNumber?: string; initialStudentNumbers?: string[]; initialRelation?: string; initialRelations?: Record<string, string>; initialEvidenceId?: string; initialAlias?: string; onSavingChange?: (saving: boolean) => void;
-  evidence?: Evidence | null; confirmedBy?: string; onConfirmedByChange?: (name: string) => void;
+  evidence?: Evidence | null; confirmedBy: string;
   onSaved: (result: LineRegistrationResult) => Promise<void>; onClose: () => void;
 };
 const field = { display: "grid", gap: 6 } as const;
@@ -30,8 +30,7 @@ export function LineRegistrationForm(props: Props) {
   const [query, setQuery] = useState("");
   const [aliases, setAliases] = useState<Record<string, string>>(props.initialAlias && (props.initialStudentNumbers?.[0] || props.initialStudentNumber) ? { [props.initialStudentNumbers?.[0] || props.initialStudentNumber!]: props.initialAlias } : {});
   const [staffName, setStaffName] = useState(props.initialRelation === "staff" ? props.initialAlias ?? "" : "");
-  const [localOperator, setLocalOperator] = useState("");
-  const operator = props.confirmedBy ?? localOperator;
+  const operator = props.confirmedBy;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -121,7 +120,7 @@ export function LineRegistrationForm(props: Props) {
         {selected.map(s => <div key={s.student_number} style={{ padding: 10, background: "#eff8f3", borderRadius: 7, display: "grid", gap: 6 }}><strong>{studentRegistrationLabel(s)}</strong><span style={{ fontSize: 12 }}>選択先：生徒番号 {s.student_number}（{recordLabel(s)}）</span>{Boolean(s.merged_record_count) && <span style={{ fontSize: 12, color: "#9a3412" }}>同じ生徒の古いNotion重複 {s.merged_record_count}件は候補から除外済みです。</span>}<button type="button" style={button} onClick={() => setSelectedIds(ids => ids.filter(id => id !== s.student_number))}>{s.student_name} を外す</button></div>)}
       </div>}
       <div style={field}><strong>3. 表示名を確認して登録</strong><small>登録すると、この一覧と連絡先管理の名前が更新されます。</small>
-        {!staff && <>{selected.length > 1 ? <label style={field}>登録後に一覧へ表示する共通の名前<input style={input} maxLength={200} disabled={!relation} value={commonAlias} onChange={e => setFamilyAlias(e.target.value)} /></label> : selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}{props.confirmedBy === undefined ? <label style={field}>LINE登録の確認者名<input style={input} value={localOperator} onChange={e => setLocalOperator(e.target.value)} /></label> : <label style={field}>LINE登録の確認者名<input style={input} value={operator} onChange={e => props.onConfirmedByChange?.(e.target.value)} /></label>}</>}
+        {!staff && <>{selected.length > 1 ? <label style={field}>登録後に一覧へ表示する共通の名前<input style={input} maxLength={200} disabled={!relation} value={commonAlias} onChange={e => setFamilyAlias(e.target.value)} /></label> : selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}<label style={field}>LINE登録の確認者名<input style={input} value={operator} readOnly /></label></>}
         <button type="button" style={primary} disabled={!canSave} onClick={() => void save()}>{saving ? "登録中..." : staff ? "先生・スタッフとして保存して一覧を更新" : "この内容で登録して一覧の名前を更新"}</button>
       </div>
     </fieldset>

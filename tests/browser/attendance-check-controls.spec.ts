@@ -37,7 +37,7 @@ test("opening and explicit refresh process pending LINE before reloading", async
   await expect(page.getByText(/直近5分間に限らず/)).toBeHidden();
   await expect(page.getByText(/一覧の更新時刻：/)).toBeHidden();
   await expect(page.getByText(/画面を開いたとき・戻ったとき・表示中の1分ごとに、/)).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "最新の遅刻・欠席連絡を確認" }).getByRole("textbox", { name: "確認者名", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "最新の遅刻・欠席連絡を確認" }).getByLabel("確認担当者を選択")).toBeVisible();
   await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("2件をチェックしました");
   expect(state.checks).toBe(2);

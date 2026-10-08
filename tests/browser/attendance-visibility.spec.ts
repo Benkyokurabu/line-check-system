@@ -1,3 +1,4 @@
+import { selectConfirmer } from "./confirmer-helper";
 import { test, expect, type Page } from "@playwright/test";
 
 async function setup(page: Page) {
@@ -31,14 +32,14 @@ async function setup(page: Page) {
 test("a collapsed card shows the missing reviewer instruction without sending a request", async ({ page }) => {
   const state = await setup(page);
   await page.getByRole("button", { name: "表示を消す", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "画面上部の「確認者名」を入力してください。" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "画面上部で確認担当者を選択してください。" })).toBeVisible();
   await expect(page.getByRole("button", { name: "内容を見る", exact: true })).toHaveAttribute("aria-expanded", "false");
   expect(state.writes).toBe(0);
 });
 
 test("collapsed cards show save errors, retry, move to hidden and restore across reloads", async ({ page }) => {
   const state = await setup(page);
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   page.on("dialog", (dialog) => dialog.accept());
   state.fail = true;
   await page.getByRole("button", { name: "表示を消す", exact: true }).click();
@@ -49,7 +50,7 @@ test("collapsed cards show save errors, retry, move to hidden and restore across
   await page.reload();
   await page.getByRole("button", { name: "消去済み 1件", exact: true }).click();
   await expect(page.getByRole("button", { name: "表示に戻す", exact: true })).toBeVisible();
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   await page.getByRole("button", { name: "表示に戻す", exact: true }).click();
   await expect(page.getByRole("button", { name: "表示中 1件", exact: true })).toBeVisible();
   await page.reload();
@@ -59,7 +60,7 @@ test("collapsed cards show save errors, retry, move to hidden and restore across
 
 test("canceling the confirmation keeps the card visible", async ({ page }) => {
   const state = await setup(page);
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   page.on("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "表示を消す", exact: true }).click();
   await expect(page.getByRole("button", { name: "表示を消す", exact: true })).toBeEnabled();

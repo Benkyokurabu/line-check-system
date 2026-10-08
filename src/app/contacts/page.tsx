@@ -1,5 +1,6 @@
 "use client";
 import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registration/navigation";
+import ConfirmerPicker from "@/app/line-registration/confirmer-picker";
 
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
@@ -155,17 +156,6 @@ function ContactsWorkspace() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
   }, [fetchContacts]);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem("line-contact-operator-name") ?? "";
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setOperatorName(saved);
-  }, []);
-
-  function updateOperatorName(value: string) {
-    setOperatorName(value);
-    window.localStorage.setItem("line-contact-operator-name", value);
-  }
 
   useRegistrationRefresh(async change => {
     await fetchContacts();
@@ -655,9 +645,8 @@ function ContactsWorkspace() {
       <section className={styles.management} aria-label="連絡先の管理機能">
         <h2>同期・取り込み・一斉送信などの管理機能</h2>
       <div style={{ display: "grid", gap: 6, marginBottom: 16, maxWidth: 360 }}>
-        <label htmlFor="contact-operator" style={{ fontSize: "0.85rem", fontWeight: 700 }}>操作するスタッフ名</label>
-        <input id="contact-operator" value={operatorName} onChange={(event) => updateOperatorName(event.target.value)} placeholder="例：吉川" style={inputStyle} />
-        <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>本人確認の履歴に保存されます。この端末では次回も同じ名前を表示します。</span>
+        <ConfirmerPicker onActiveChange={setOperatorName} />
+        <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>本人確認の履歴に保存されます。このブラウザでは次回も同じ名前を表示します。</span>
       </div>
 
       <section className={styles.staffEntry} aria-label="先生・スタッフのLINE登録">

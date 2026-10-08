@@ -1,3 +1,4 @@
+import { selectConfirmer } from "./confirmer-helper";
 import { test, expect, type Page } from "@playwright/test";
 
 async function setup(page: Page, count = 3) {
@@ -44,7 +45,7 @@ test("select all affects only rendered cards and loading more never silently sel
   await page.getByRole("button", { name: "続きを表示（残り3件）" }).click();
   await expect(page.getByRole("checkbox")).toHaveCount(23);
   await expect(page.getByRole("checkbox", { checked: true })).toHaveCount(20);
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   page.on("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "選択した20件の表示を消す" }).click();
   await expect(page.getByRole("status")).toContainText("20件の表示を消しました。");
@@ -58,9 +59,9 @@ test("missing reviewer and cancelled confirmation make no changes", async ({ pag
   const state = await setup(page);
   await page.getByRole("checkbox", { name: "試験生徒1の連絡を選択" }).check();
   await page.getByRole("button", { name: "選択した1件の表示を消す" }).click();
-  await expect(page.getByRole("status")).toContainText("確認者名");
+  await expect(page.getByRole("status")).toContainText("確認担当者");
   expect(state.writes).toEqual([]);
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   page.once("dialog", async (dialog) => { expect(dialog.message()).toContain("試験生徒1"); await dialog.dismiss(); });
   await page.getByRole("button", { name: "選択した1件の表示を消す" }).click();
   expect(state.writes).toEqual([]);
@@ -70,7 +71,7 @@ test("missing reviewer and cancelled confirmation make no changes", async ({ pag
 test("partial failure keeps only failed cards selected, retry persists and hidden cards can be restored", async ({ page }) => {
   const state = await setup(page);
   state.failId = "bulk-2";
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   await page.getByRole("button", { name: "表示中の3件をすべて選択" }).click();
   page.on("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "選択した3件の表示を消す" }).click();
@@ -85,7 +86,7 @@ test("partial failure keeps only failed cards selected, retry persists and hidde
   await page.reload();
   await page.getByRole("button", { name: "消去済み 3件", exact: true }).click();
   await expect(page.getByRole("button", { name: "表示に戻す", exact: true })).toHaveCount(3);
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   await page.getByRole("button", { name: "表示に戻す", exact: true }).first().click();
   await expect(page.getByRole("button", { name: "表示中 1件", exact: true })).toBeVisible();
   expect(state.unexpected).toEqual([]);

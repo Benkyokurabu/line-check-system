@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { selectConfirmer } from "./confirmer-helper";
 import { setupRegistration } from "./registration-fixture";
 for (const [label, relation] of [["生徒本人", "student"], ["保護者", "guardian"], ["本人・保護者で共有", "shared"]]) {
   test(`attendance opens the dedicated page and registers ${relation}`, async ({ page }) => {
     const { writes } = await setupRegistration(page);
     await page.goto("/attendance");
-    await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("試験職員");
+    await selectConfirmer(page, "試験職員");
     await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
     await expect(page).toHaveURL(/\/line-registration\?/);
     const form = page.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true });
@@ -16,14 +17,14 @@ for (const [label, relation] of [["生徒本人", "student"], ["保護者", "gua
     expect(writes[0].body).toMatchObject({ verified_by: "試験職員", evidence_message_id: "ui-evidence", source: "attendance_review", targets: [{ student_number: "UI-ONE", relation, is_primary: relation === "student" }] });
     await page.getByRole("button", { name: "保存しました。欠席確認に戻る", exact: true }).click();
     await expect(page).toHaveURL(/\/attendance$/);
-    await expect(page.getByRole("textbox", { name: "確認者名", exact: true })).toHaveValue("試験職員");
+    await expect(page.locator('[aria-label="LINE確認担当者"]')).toContainText("確認担当者：試験職員");
   });
 }
 for (const reject of [false, true]) test(`siblings preserve existing registration on mobile; reject=${reject}`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { writes } = await setupRegistration(page, { relation: "mother", reject });
   await page.goto("/attendance");
-  await page.getByRole("textbox", { name: "確認者名", exact: true }).fill("試験職員");
+  await selectConfirmer(page, "試験職員");
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   const reply = page.locator("textarea").last();
   await reply.fill("保存前の返信下書き");
@@ -51,8 +52,8 @@ for (const reject of [false, true]) test(`siblings preserve existing registratio
 test("missing evidence and cancel do not write", async ({ page }) => {
   const { writes } = await setupRegistration(page, { evidence: false, relation: "guardian" });
   await page.goto("/attendance");
+  await selectConfirmer(page, "試験職員");
   await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
-  await page.getByLabel("LINE登録の確認者名").fill("試験職員");
   await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
   await page.getByRole("button", { name: "← 欠席確認に戻る", exact: true }).click();
   expect(writes).toHaveLength(0);

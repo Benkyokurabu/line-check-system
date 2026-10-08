@@ -1,3 +1,4 @@
+import { selectConfirmer } from "./confirmer-helper";
 import { expect, test, type Page } from "@playwright/test";
 const student = { student_number: "period-student", student_name: "期間試験生徒", grade: "中1", campus: "南教室", homeroom_teacher: "試験担任" };
 const lessons = [
@@ -39,7 +40,7 @@ async function setup(page: Page, line = false) {
     return route.fulfill({ json: {} });
   });
   await page.goto("/attendance");
-  await page.getByLabel("確認者名", { exact: true }).fill("操作試験");
+  await selectConfirmer(page, "操作試験");
   if (line) {
     await page.getByRole("button", { name: "対応する", exact: true }).click();
     await page.getByRole("button", { name: "期間を指定して登録行を作る" }).click();

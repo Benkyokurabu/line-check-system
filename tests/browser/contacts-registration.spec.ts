@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { setupRegistration } from "./registration-fixture";
+import { selectConfirmer } from "./confirmer-helper";
 for (const staff of [false, true]) test(`contacts register in the dedicated page; staff=${staff}`, async ({ page }) => {
   const { writes } = await setupRegistration(page, { linked: false });
   await page.goto("/contacts");
-  await page.getByLabel("操作するスタッフ名").fill("試験職員");
+  await selectConfirmer(page, "試験職員");
   await page.getByRole("link", { name: staff ? "先生・スタッフとして登録" : "生徒・保護者の登録を確認・修正", exact: true }).click();
   await expect(page).toHaveURL(/\/line-registration\?/);
   const form = page.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true });
