@@ -136,7 +136,7 @@ test('blocked loopback with multiple live workers does not create a job', async 
   await page.goto('/staff/interview-materials');
   await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
   await page.getByRole('button', { name: '資料を作る' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: '資料作成アプリを特定できません' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'ローカルネットワークへのアクセス' })).toBeVisible();
   expect(created).toBe(0);
 });
 

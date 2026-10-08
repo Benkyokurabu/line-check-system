@@ -255,7 +255,7 @@ export default function MaterialsDesk() {
       return localWorkerId;
     }
     if (available.length === 1 && typeof available[0].id === 'string') return available[0].id;
-    throw Error('このPCの資料作成アプリを特定できません。稼働状況を確認してください。');
+    throw Error('このPCの資料作成アプリを特定できません。ブラウザでこのサイトの「ローカルネットワークへのアクセス」を許可し、画面を再読み込みしてください。');
   }
   async function submitJob(kind: 'preview' | 'generate') {
     if (!selected) throw Error('生徒を選んでください。');
