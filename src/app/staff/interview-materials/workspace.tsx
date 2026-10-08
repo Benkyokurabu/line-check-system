@@ -81,8 +81,6 @@ export default function MaterialsDesk() {
   const [summarySaveBusy, setSummarySaveBusy] = useState(false);
   const [workerStatus, setWorkerStatus] = useState('作成PCを確認中…');
   const [workerOnline, setWorkerOnline] = useState(false);
-  const [targetWorkerId, setTargetWorkerId] = useState('');
-  const [localWorkerMessage, setLocalWorkerMessage] = useState('');
   const selected = students.find(s => s.number === number);
   const answer = selected?.responses.find(r => r.id === answerId);
   const showPastSchools = selected?.grade === '中2' && (selected.responses.length === 0 || Boolean(answer && answer.schools.length === 0));
@@ -167,7 +165,6 @@ export default function MaterialsDesk() {
     const selectedAnswer = student.responses.find(response => answerKey(response.id) === answerKey(preferredAnswer))
       ?? (student.responses.length === 1 ? student.responses[0] : undefined);
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
-    setTargetWorkerId(''); setLocalWorkerMessage('');
     setSelectedAppointment(null);
     currentNumber.current = student.number;
     setMaterialContext(null); setContextError(''); setContextLoading(true);
@@ -239,29 +236,36 @@ export default function MaterialsDesk() {
       throw Error('このPCの資料作成アプリのworker設定を確認できません。');
     return health.workerId as string;
   }
-  async function selectThisPc() {
-    setLocalWorkerMessage('');
+  async function resolveIndividualWorkerId() {
+    let localWorkerId = '';
     try {
-      const workerId = await readThisPcWorkerId();
-      const response = await fetch('/api/staff/interview-material-jobs', { cache: 'no-store' });
-      if (!response.ok) throw Error('作成PCの稼働状況を確認できません。');
-      const body = await response.json();
-      if (!Array.isArray(body.available) || !body.available.some((worker: { id: string }) => worker.id === workerId))
+      localWorkerId = await readThisPcWorkerId();
+    } catch (error) {
+      // Chrome may deny a public site access to loopback. Fall back only when
+      // the server reports exactly one live worker.
+      if (!(error instanceof TypeError) && !(error instanceof DOMException && error.name === 'TimeoutError')) throw error;
+    }
+    const response = await fetch('/api/staff/interview-material-jobs', { cache: 'no-store' });
+    const body = await response.json();
+    if (!response.ok) throw Error(body.error || '作成PCの稼働状況を確認できません。');
+    const available: { id: string }[] = Array.isArray(body.available) ? body.available : [];
+    if (localWorkerId) {
+      if (!available.some(worker => worker.id === localWorkerId))
         throw Error('このPCの資料作成アプリは待機状態ではありません。');
-      setTargetWorkerId(workerId);
-      setLocalWorkerMessage(`このPC（${workerId}）で今回の資料を作成します。`);
-    } catch (error) { setLocalWorkerMessage(requestError(error)); }
+      return localWorkerId;
+    }
+    if (available.length === 1 && typeof available[0].id === 'string') return available[0].id;
+    throw Error('このPCの資料作成アプリを特定できません。稼働状況を確認してください。');
   }
   async function submitJob(kind: 'preview' | 'generate') {
-    if (targetWorkerId && await readThisPcWorkerId() !== targetWorkerId)
-      throw Error('このPCのworker設定が変わりました。作成PCを選び直してください。');
-    if (!selected) throw Error('生徒を選択してください。');
+    if (!selected) throw Error('生徒を選んでください。');
+    const targetWorkerId = await resolveIndividualWorkerId();
     const response = await fetch('/api/staff/interview-material-jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, number: selected.number, campus, schools: kind === 'preview'
         ? schoolNames.map(name => name.trim()).filter(Boolean) : preview?.map(school => school.name) || [],
         ...(answer ? { answerId: answer.id } : {}),
-        ...(targetWorkerId ? { targetWorkerId } : {}),
+        targetWorkerId,
         ...(kind === 'generate' ? { selectedMaterialIds } : {}) }),
     });
     const created = await response.json();
@@ -337,7 +341,6 @@ export default function MaterialsDesk() {
       setSavedFile(job.result.savedPath || '');
       setCloudSynced(Boolean(job.result.cloudSynced));
       setSaveMessage(job.result.saveError || '');
-      setTargetWorkerId(''); setLocalWorkerMessage('');
       await refreshWorkers();
     } catch (error) { setGenerationMessage(requestError(error)); }
     finally { setBusy(false); }
@@ -483,11 +486,6 @@ export default function MaterialsDesk() {
           {!answer && <div><h4>選択中の資料候補</h4>{schoolNames.map((school, index) => <label key={index}>資料候補 {index + 1}<input value={school} onChange={event => { setSchoolNames(names => names.map((name, position) => position === index ? event.target.value : name)); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }} /></label>)}
             {schoolNames.length < 6 && <button type="button" onClick={() => { setSchoolNames(names => [...names, '']); setPreview(null); setPreviewMaterials([]); setSelectedMaterialIds([]); setManifest(null); }}>資料候補を追加</button>}</div>}
         </div>}
-        <div className={styles.actions}>
-          <button type="button" disabled={batchBusy || previewBusy || busy || Boolean(preview)} onClick={() => void selectThisPc()}>このPCで処理</button>
-          {targetWorkerId && <button type="button" disabled={batchBusy || previewBusy || busy || Boolean(preview)} onClick={() => { setTargetWorkerId(''); setLocalWorkerMessage(''); }}>自動選択に戻す</button>}
-        </div>
-        {localWorkerMessage && <p className={styles.note} role="status">{localWorkerMessage}</p>}
         <div className={styles.actions}><button className={styles.primary} disabled={batchBusy || !workerOnline || previewBusy || selected.responses.length > 1 && !answer} onClick={() => void checkMaterials()}>{previewBusy ? 'NASの資料を確認中…' : '資料を作る'}</button></div>
         {selected.responses.length > 1 && !answer && <p className={styles.note}>上のアンケート回答を1つ選ぶと資料を確認できます。</p>}
         {previewMessage && <p className={styles.error} role="alert">{previewMessage}</p>}

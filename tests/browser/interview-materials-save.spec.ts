@@ -96,11 +96,48 @@ test('this PC targets the worker ID reported by the local helper', async ({ page
     return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }, { id: 'standby', priority: 2 }] } });
   });
   await page.goto(`/staff/interview-materials?answer=${student.responses[0].id.replaceAll('-', '')}`);
-  await page.getByRole('button', { name: 'このPCで処理' }).click();
-  await expect(page.getByText('このPC（standby）で今回の資料を作成します。')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'このPCで処理' })).toHaveCount(0);
   await page.getByRole('button', { name: '資料を作る' }).click();
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0].targetWorkerId).toBe('standby');
+});
+
+test('blocked loopback uses the only live worker and does not require another click', async ({ page }) => {
+  const submitted: Record<string, unknown>[] = [];
+  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
+  await page.route('http://127.0.0.1:38473/health', route => route.abort());
+  await page.route('**/api/staff/interview-material-jobs**', route => {
+    if (route.request().method() === 'POST') {
+      submitted.push(route.request().postDataJSON());
+      return route.fulfill({ status: 201, json: { id: 'preview-id' } });
+    }
+    if (new URL(route.request().url()).searchParams.has('id')) return route.fulfill({ json: { job: {
+      status: 'completed', result: { schools: [], materials: [] },
+    } } });
+    return route.fulfill({ json: { available: [{ id: 'standby', priority: 2 }] } });
+  });
+  await page.goto('/staff/interview-materials');
+  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
+  await page.getByRole('button', { name: '資料を作る' }).click();
+  await expect.poll(() => submitted.length).toBe(1);
+  expect(submitted[0].targetWorkerId).toBe('standby');
+});
+
+test('blocked loopback with multiple live workers does not create a job', async ({ page }) => {
+  let created = 0;
+  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
+  await page.route('http://127.0.0.1:38473/health', route => route.abort());
+  await page.route('**/api/staff/interview-material-jobs**', route => {
+    if (route.request().method() === 'POST') { created++; return route.fulfill({ status: 201, json: { id: 'unexpected' } }); }
+    return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }, { id: 'standby', priority: 2 }] } });
+  });
+  await page.goto('/staff/interview-materials');
+  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
+  await page.getByRole('button', { name: '資料を作る' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: '資料作成アプリを特定できません' })).toBeVisible();
+  expect(created).toBe(0);
 });
 
 test('central worker previews sources then builds and saves a PDF without browser loopback access', async ({ page }) => {
@@ -145,7 +182,7 @@ test('central worker previews sources then builds and saves a PDF without browse
       savedPath: 'C:\\Users\\test\\OneDrive\\面談準備\\保存済み資料\\sample.pdf', cloudSynced: true,
     } } } });
   });
-  await page.route('http://127.0.0.1:38473/**', route => { throw Error(`unexpected loopback request: ${route.request().url()}`); });
+  await page.route('http://127.0.0.1:38473/**', route => route.abort());
   await page.addInitScript(() => {
     const saved: Record<string, string> = {};
     Object.defineProperty(window, '__savedFiles', { value: saved });
