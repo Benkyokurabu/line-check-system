@@ -518,7 +518,7 @@ export default function MaterialsDesk() {
       </section>}
       {selected && folderSupported && <section className={styles.card}><h2>保存済み資料にAI要約を反映</h2>
         <p id="summary-update-help">選択中の{selected.name}さんについて、完成したAI要約を保存済み資料に追加します。まだ完成していない場合は作成を依頼または待機し、完成後に反映します。</p>
-        <p className={styles.note}>押すとフォルダ選択が開きます。保存時にできた{selected.name}さんの生徒名フォルダを選んでください。前回選んだ別のフォルダが開く場合は選び直してください。生徒番号と保存情報が一致しない場合は更新しません。選択をキャンセルしても変更はありません。</p>
+        <p className={styles.note}>保存済みファイルを更新するため、押すとブラウザがフォルダへのアクセスを確認する画面を開きます。保存時にできた{selected.name}さんの生徒名フォルダを選んでください。前回選んだ別のフォルダが開く場合は選び直してください。生徒番号と保存情報が一致しない場合は更新しません。選択をキャンセルしても変更はありません。</p>
         <p className={styles.note}>反映時はフォルダ内の「AI要約.js」と「生徒情報・注意点.txt」を更新します。PDFと面談資料.htmlは作り直しません。</p>
         <button type="button" aria-describedby="summary-update-help" disabled={batchBusy || summarySaveBusy || folderBusy} onClick={() => void updateSavedSummary()}>{summarySaveBusy ? 'AI要約を確認・反映中…' : '生徒の保存済みフォルダを選んでAI要約を反映'}</button>
         {summarySaveMessage && <p role="status">{summarySaveMessage}</p>}
