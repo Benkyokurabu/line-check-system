@@ -9,18 +9,17 @@ import {surveyPageId} from '@/lib/survey-confirmations.mjs';
 import {useSurveyScheduling} from './use-survey-scheduling';
 import {surveyProgress,surveyProgressLabels} from '@/lib/survey-scheduling.mjs';
 
-type Group = "all" | "student" | "lesson" | "communication" | "reservation" | "admin";
+type Group = "all" | "daily" | "interview" | "management" | "prelaunch";
 type MenuItem = { href: string; title: string; description: string; group: Exclude<Group, "all">; icon: string; trial?: boolean };
 type InterviewSurveyTeacherGroup = { teacher: string; students: Array<{ grade: string; name: string; notionUrl: string; submittedAt: string }> };
 const groups: { id: Group; label: string; icon: string }[] = [
   { id: "all", label: "ホーム", icon: "home" },
-  { id: "student", label: "生徒", icon: "users" },
-  { id: "lesson", label: "授業・出欠", icon: "calendar" },
-  { id: "communication", label: "連絡", icon: "message" },
-  { id: "reservation", label: "予約", icon: "room" },
-  { id: "admin", label: "設定・管理", icon: "sync" },
+  { id: "daily", label: "日常業務", icon: "message" },
+  { id: "interview", label: "面談", icon: "calendar" },
+  { id: "management", label: "授業・管理", icon: "sync" },
+  { id: "prelaunch", label: "本番運用前", icon: "room" },
 ];
-const frequentLinks = ["/attendance", "/dashboard", "/students", "/karte"];
+const frequentLinks = ["/attendance", "/classroom-office"];
 const SURVEY_HIDDEN_KEY = "bentan:2026-autumn-survey-hidden";
 const SURVEY_DATA_KEY = "bentan:2026-autumn-survey-data";
 function isSurveyGroups(value: unknown): value is InterviewSurveyTeacherGroup[] {
@@ -178,7 +177,7 @@ export default function HomeDashboard({
       <p className={styles.sidebarFooter}>勉強クラブ<br /><span>Integrated Assistant</span></p>
     </aside>
     <main className={styles.main}>
-      <header className={styles.topbar}><span>BENKYO KURABU</span><Link href="/karte" prefetch={false}>生徒を探す →</Link></header>
+      <header className={styles.topbar}><span>BENKYO KURABU</span></header>
       <div className={styles.content}>
         <section className={styles.hero} aria-label="勉たん">
           <div><p className={styles.eyebrow}>INTEGRATED ASSISTANT</p><h1>勉<span>たん</span></h1>
@@ -277,9 +276,8 @@ export default function HomeDashboard({
               </>}
             </div>
             <div className={styles.quickLinks}>
-              <Link href="/attendance" prefetch={false}><Icon name="calendar" /><span>欠席連絡を確認する</span><span>→</span></Link>
-              <Link href="/dashboard" prefetch={false}><Icon name="message" /><span>未対応メッセージを確認する</span><span>→</span></Link>
-              <Link href="/classroom-office" prefetch={false}><Icon name="message" /><span>教室との連絡を確認する</span><span>→</span></Link>
+              <Link href="/attendance" prefetch={false}><Icon name="calendar" /><span>欠席連絡の確認</span><span>→</span></Link>
+              <Link href="/classroom-office" prefetch={false}><Icon name="message" /><span>教室への連絡</span><span>→</span></Link>
             </div>
           </section>
           <section className={styles.section} aria-labelledby="favorites-title">
@@ -290,7 +288,7 @@ export default function HomeDashboard({
         {groups.filter(category => category.id !== "all").map(category => {
           const categoryItems = visible.filter(item => item.group === category.id);
           return categoryItems.length > 0 && <section className={styles.section} aria-labelledby={`group-${category.id}`} key={category.id}>
-            <h2 id={`group-${category.id}`}>{category.label}{category.id === "reservation" && <small>操作確認用</small>}</h2>
+            <h2 id={`group-${category.id}`}>{category.label}</h2>
             <div className={styles.secondary}>{categoryItems.map(item => card(item))}</div>
           </section>;
         })}
