@@ -382,7 +382,7 @@ def build_hokushin_index() -> None:
     year_match = re.search(r'20\d{2}', year_root.name)
     year = int(year_match[0]) if year_match else 0
     paths = [path for path in files(year_root) if path.suffix.lower() == '.pdf' and
-             '個人成績表' in str(path.parent)]
+             '個人成績表' in str(path.parent) and not is_hokushin_class_list(path)]
     paths.sort(key=lambda path: (hokushin_rank(path, year), '南教室' in path.parent.name), reverse=True)
     existing = read_hokushin_index()
     previous = {record['source']: record for record in existing.get('records', [])} if existing.get('year') == year_root.name else {}
@@ -437,6 +437,23 @@ def build_hokushin_index() -> None:
         INDEX_STATUS['running'] = False
 
 
+def is_hokushin_class_list(path: Path) -> bool:
+    """The first four two-page scans of each round contain class-wide lists."""
+    match = re.fullmatch(r'NO_NAME_(0[1-4])_p(\d+)-(\d+)', path.stem, re.IGNORECASE)
+    if not match:
+        return False
+    number, first, last = map(int, match.groups())
+    return first == 2 * number - 1 and last == 2 * number
+
+
+def choose_hokushin_match(matches: list[Path], name: str) -> Path | None:
+    """Prefer the one exact personal filename when several PDF candidates match."""
+    if len(matches) == 1:
+        return matches[0]
+    exact = [path for path in matches if norm(path.stem) == norm(name)]
+    return exact[0] if len(exact) == 1 else None
+
+
 def indexed_hokushin(year_root: Path, grade: str, name: str, number: str, campus: str) -> tuple[Path | None, str | None]:
     index = read_hokushin_index()
     if INDEX_STATUS.get('error'):
@@ -446,6 +463,7 @@ def indexed_hokushin(year_root: Path, grade: str, name: str, number: str, campus
         return None, f'北辰：事前索引を作成中です（{done}/{total}件）。完了後に資料を再確認してください'
     target = norm(name)
     matches = [record for record in index['records'] if record.get('grade') == grade and 'text' in record and
+               not is_hokushin_class_list(Path(record['source'])) and
                ((target and target in record['text']) or (number and number in re.sub(r'\D', '', record['text'])))]
     matches.sort(key=lambda record: (record['rank'], record['campus'] == campus), reverse=True)
     if not matches:
@@ -455,7 +473,10 @@ def indexed_hokushin(year_root: Path, grade: str, name: str, number: str, campus
     best = matches[0]
     ambiguous = [record for record in matches if record['rank'] == best['rank'] and record['campus'] == best['campus']]
     if len(ambiguous) != 1:
-        return None, '北辰：同じ最新回に複数の候補があるため選べません'
+        chosen = choose_hokushin_match([Path(record['source']) for record in ambiguous], name)
+        if chosen is None:
+            return None, '北辰：同じ最新回に複数の候補があるため選べません'
+        best = next(record for record in ambiguous if Path(record['source']) == chosen)
     return Path(best['local']), None
 
 
@@ -473,7 +494,8 @@ def hokushin(all_roots: list[Path], grade: str, name: str, number: str = '', cam
         return indexed_hokushin(year_root, grade, name, number, campus)
     year = int(re.search(r'20\d{2}', year_root.name)[0]) if re.search(r'20\d{2}', year_root.name) else 0
     paths = [path for path in files(year_root) if path.suffix.lower() == '.pdf' and
-             '個人成績表' in str(path.parent) and norm(grade) in norm(path.parent.name)]
+             '個人成績表' in str(path.parent) and norm(grade) in norm(path.parent.name)
+             and not is_hokushin_class_list(path)]
     paths.sort(key=lambda path: hokushin_rank(path, year), reverse=True)
 
     def is_match(content: str) -> bool:
@@ -501,9 +523,10 @@ def hokushin(all_roots: list[Path], grade: str, name: str, number: str = '', cam
                     except OSError:
                         pass
                     break
-            if len(sidecar_matches) == 1:
-                return sidecar_matches[0], None
-            if len(sidecar_matches) > 1:
+            chosen = choose_hokushin_match(sidecar_matches, name)
+            if chosen:
+                return chosen, None
+            if sidecar_matches:
                 return None, '北辰：同じ最新回に複数の候補があるため選べません'
             def read_page(path: Path) -> tuple[Path, str]:
                 try:
@@ -516,9 +539,10 @@ def hokushin(all_roots: list[Path], grade: str, name: str, number: str = '', cam
                     return path, ''
             with ThreadPoolExecutor(max_workers=4) as pool:
                 matches = [path for path, content in pool.map(read_page, group) if is_match(content)]
-            if len(matches) == 1:
-                return matches[0], None
-            if len(matches) > 1:
+            chosen = choose_hokushin_match(matches, name)
+            if chosen:
+                return chosen, None
+            if matches:
                 return None, '北辰：同じ最新回に複数の候補があるため選べません'
     return None, '北辰：個人成績票を特定できません'
 

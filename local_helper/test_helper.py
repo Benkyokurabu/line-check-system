@@ -289,8 +289,8 @@ class MaterialSelectionTests(unittest.TestCase):
             for day in ('06月21日', '09月06日'):
                 sub = roots[1] / f'北辰中３第１回{day}号個人成績表本校'
                 sub.mkdir()
-                (sub / 'NO_NAME_01_p1-2.pdf').touch()
-                (sub / 'NO_NAME_01_p1-2_ocr.txt').write_text('山田 太郎', encoding='utf-8')
+                (sub / 'NO_NAME_05_p9-10.pdf').touch()
+                (sub / 'NO_NAME_05_p9-10_ocr.txt').write_text('山田 太郎', encoding='utf-8')
             found, error = hokushin(roots, '中3', '山田太郎')
             self.assertIsNone(error)
             self.assertIn('09月06日', str(found))
@@ -384,6 +384,95 @@ class MaterialSelectionTests(unittest.TestCase):
                 found, error = helper.indexed_hokushin(sub.parent, '中3', '山田太郎', '', '南教室')
                 self.assertIsNone(error)
                 self.assertTrue(found.is_file())
+
+    def test_class_list_scan_names_exclude_only_first_four_pairs(self):
+        for number in range(1, 5):
+            self.assertTrue(helper.is_hokushin_class_list(
+                Path(f'NO_NAME_{number:02}_p{2 * number - 1}-{2 * number}.pdf')))
+        self.assertFalse(helper.is_hokushin_class_list(Path('NO_NAME_05_p9-10.pdf')))
+        self.assertFalse(helper.is_hokushin_class_list(Path('山田太郎.pdf')))
+
+    def test_preindex_skips_class_list_before_reading_pdf(self):
+        from reportlab.pdfgen import canvas
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            round_root = base / 'nas' / '2026年度' / '北辰中3第4回09月06日個人成績表南教室'
+            round_root.mkdir(parents=True)
+            for filename in ('NO_NAME_04_p7-8.pdf', '山田太郎.pdf'):
+                document = canvas.Canvas(str(round_root / filename))
+                document.drawString(40, 800, 'score sheet')
+                document.save()
+            roots = [base / str(index) for index in range(7)]
+            roots[1] = round_root.parent
+            with patch('helper.ROOT', base / 'app'), patch('helper.INDEX_FILE', base / 'app' / 'hokushin-index.json'), \
+                    patch('helper.roots', return_value=roots), \
+                    patch('helper.tesseract_path', return_value=Path('tesseract.exe')), \
+                    patch('helper.ocr_pdf', return_value='山田太郎') as ocr:
+                helper.build_hokushin_index()
+                records = helper.read_hokushin_index()['records']
+            self.assertEqual(ocr.call_count, 1)
+            self.assertEqual([Path(record['source']).name for record in records], ['山田太郎.pdf'])
+
+    def test_indexed_hokushin_selects_personal_pdf_over_class_list(self):
+        with tempfile.TemporaryDirectory() as folder:
+            year_root = Path(folder) / '2026年度'
+            round_root = year_root / '北辰中3第4回09月06日個人成績表南教室'
+            round_root.mkdir(parents=True)
+            class_list = round_root / 'NO_NAME_04_p7-8.pdf'
+            anonymous_personal = round_root / 'NO_NAME_05_p9-10.pdf'
+            personal = round_root / '山田太郎.pdf'
+            local_list = Path(folder) / 'list.pdf'
+            local_anonymous = Path(folder) / 'anonymous.pdf'
+            local_personal = Path(folder) / 'personal.pdf'
+            for path in (class_list, anonymous_personal, personal, local_list, local_anonymous, local_personal):
+                path.write_bytes(b'%PDF-1.4\n')
+            records = [
+                {'source': str(class_list), 'local': str(local_list), 'grade': '中3', 'campus': '南教室',
+                 'rank': [2026, 9, 6, 4], 'text': '山田太郎'},
+                {'source': str(anonymous_personal), 'local': str(local_anonymous), 'grade': '中3', 'campus': '南教室',
+                 'rank': [2026, 9, 6, 4], 'text': '山田太郎'},
+                {'source': str(personal), 'local': str(local_personal), 'grade': '中3', 'campus': '南教室',
+                 'rank': [2026, 9, 6, 4], 'text': '山田太郎'},
+            ]
+            with patch('helper.read_hokushin_index', return_value={
+                    'year': '2026年度', 'complete': True, 'records': records}):
+                found, error = helper.indexed_hokushin(year_root, '中3', '山田 太郎', '2018999', '')
+                self.assertIsNone(error)
+                self.assertEqual(found, local_personal)
+                with patch('helper.hokushin', return_value=(found, error)):
+                    with patch('helper.hokushin_source', return_value=personal):
+                        preview = helper.preview_hokushin([], '中3', '山田 太郎', '2018999')
+                self.assertTrue(preview['found'])
+                self.assertEqual(preview['filename'], '山田太郎.pdf')
+                self.assertEqual(preview['id'], helper.material_id('hokushin', personal))
+
+    def test_indexed_hokushin_keeps_ambiguous_personal_filenames_unselected(self):
+        year_root = Path('2026年度')
+        records = [
+            {'source': str(Path(section) / '山田太郎.pdf'), 'local': str(Path(section) / 'cached.pdf'),
+             'grade': '中3', 'campus': '南教室', 'rank': [2026, 9, 6, 4], 'text': '山田太郎'}
+            for section in ('scan-a', 'scan-b')
+        ]
+        with patch('helper.read_hokushin_index', return_value={
+                'year': '2026年度', 'complete': True, 'records': records}):
+            found, error = helper.indexed_hokushin(year_root, '中3', '山田太郎', '', '南教室')
+        self.assertIsNone(found)
+        self.assertIn('複数', error)
+
+    def test_direct_hokushin_prefers_personal_pdf_when_class_list_also_matches(self):
+        with tempfile.TemporaryDirectory() as folder:
+            year_root = Path(folder) / '2026年度'
+            round_root = year_root / '北辰中3第4回09月06日個人成績表南教室'
+            round_root.mkdir(parents=True)
+            personal = round_root / '山田太郎.pdf'
+            for filename in ('NO_NAME_04_p7-8.pdf', 'NO_NAME_05_p9-10.pdf', '山田太郎.pdf'):
+                (round_root / filename).touch()
+                (round_root / (Path(filename).stem + '_ocr.txt')).write_text('山田太郎', encoding='utf-8')
+            roots = [Path(folder) / str(index) for index in range(7)]
+            roots[1] = year_root
+            found, error = hokushin(roots, '中3', '山田 太郎', '', '南教室')
+            self.assertIsNone(error)
+            self.assertEqual(found, personal)
 
     def test_term_report_uses_latest_available_term_for_matching_grade_and_student(self):
         from reportlab.pdfgen import canvas
