@@ -19,7 +19,6 @@ type SchoolPreview = { rank: number; surveyName: string; name: string; found: bo
 type HokushinPreview = { found: boolean; indexing?: boolean; year?: string; round?: string; filename?: string; message?: string };
 type TermReportPreview = { found: boolean; year?: string; term?: string; filename?: string; pages?: number[]; message?: string };
 type MaterialChoice = { id: string; group: string; label: string; detail: string; staffOnly: boolean };
-const LOCAL_HELPER_HEALTH = 'http://127.0.0.1:38473/health';
 const searchable = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s/g, '');
 const answerKey = (value: string) => value.replaceAll('-', '').toLowerCase();
 const suggestedSchools = (schools: string[]) => schools.map(name => /^えいめい(?:高校|高等学校)?$/u.test(name.trim()) ? '叡明' : name);
@@ -228,44 +227,13 @@ export default function MaterialsDesk() {
       else setMessage('このアンケート回答と生徒を照合できませんでした。担任・学年・氏名で生徒を探してください。');
     }
   }, [refreshWorkers, chooseStudent]);
-  async function readThisPcWorkerId() {
-    const response = await fetch(LOCAL_HELPER_HEALTH, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
-    if (!response.ok) throw Error('このPCの資料作成アプリに接続できません。');
-    const health = await response.json();
-    if (!health.ready || typeof health.workerId !== 'string' || !/^[a-z0-9_-]{3,32}$/.test(health.workerId))
-      throw Error('このPCの資料作成アプリのworker設定を確認できません。');
-    return health.workerId as string;
-  }
-  async function resolveIndividualWorkerId() {
-    let localWorkerId = '';
-    try {
-      localWorkerId = await readThisPcWorkerId();
-    } catch (error) {
-      // Chrome may deny a public site access to loopback. Fall back only when
-      // the server reports exactly one live worker.
-      if (!(error instanceof TypeError) && !(error instanceof DOMException && error.name === 'TimeoutError')) throw error;
-    }
-    const response = await fetch('/api/staff/interview-material-jobs', { cache: 'no-store' });
-    const body = await response.json();
-    if (!response.ok) throw Error(body.error || '作成PCの稼働状況を確認できません。');
-    const available: { id: string }[] = Array.isArray(body.available) ? body.available : [];
-    if (localWorkerId) {
-      if (!available.some(worker => worker.id === localWorkerId))
-        throw Error('このPCの資料作成アプリは待機状態ではありません。');
-      return localWorkerId;
-    }
-    if (available.length === 1 && typeof available[0].id === 'string') return available[0].id;
-    throw Error('このPCの資料作成アプリを特定できません。ブラウザでこのサイトの「ローカルネットワークへのアクセス」を許可し、画面を再読み込みしてください。');
-  }
   async function submitJob(kind: 'preview' | 'generate') {
-    if (!selected) throw Error('生徒を選んでください。');
-    const targetWorkerId = await resolveIndividualWorkerId();
+    if (!selected) throw Error('生徒を選択してください。');
     const response = await fetch('/api/staff/interview-material-jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, number: selected.number, campus, schools: kind === 'preview'
         ? schoolNames.map(name => name.trim()).filter(Boolean) : preview?.map(school => school.name) || [],
         ...(answer ? { answerId: answer.id } : {}),
-        targetWorkerId,
         ...(kind === 'generate' ? { selectedMaterialIds } : {}) }),
     });
     const created = await response.json();

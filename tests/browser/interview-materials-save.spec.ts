@@ -78,68 +78,6 @@ test('an incorrect teacher password keeps the material page locked', async ({ pa
   await expect(page.getByLabel('いつものパスワード')).toHaveValue('');
 });
 
-test('this PC targets the worker ID reported by the local helper', async ({ page }) => {
-  const submitted: Record<string, unknown>[] = [];
-  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
-  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
-  await page.route('http://127.0.0.1:38473/health', route => route.fulfill({
-    json: { ready: true, workerId: 'standby' }, headers: { 'Access-Control-Allow-Origin': '*' },
-  }));
-  await page.route('**/api/staff/interview-material-jobs**', route => {
-    if (route.request().method() === 'POST') {
-      submitted.push(route.request().postDataJSON());
-      return route.fulfill({ status: 201, json: { id: 'preview-id' } });
-    }
-    if (new URL(route.request().url()).searchParams.has('id')) return route.fulfill({ json: { job: {
-      status: 'completed', result: { schools: [], materials: [{ id: 'guide', group: '本人', label: '学習簿', detail: '', staffOnly: false }] },
-    } } });
-    return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }, { id: 'standby', priority: 2 }] } });
-  });
-  await page.goto(`/staff/interview-materials?answer=${student.responses[0].id.replaceAll('-', '')}`);
-  await expect(page.getByRole('button', { name: 'このPCで処理' })).toHaveCount(0);
-  await page.getByRole('button', { name: '資料を作る' }).click();
-  await expect.poll(() => submitted.length).toBe(1);
-  expect(submitted[0].targetWorkerId).toBe('standby');
-});
-
-test('blocked loopback uses the only live worker and does not require another click', async ({ page }) => {
-  const submitted: Record<string, unknown>[] = [];
-  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
-  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
-  await page.route('http://127.0.0.1:38473/health', route => route.abort());
-  await page.route('**/api/staff/interview-material-jobs**', route => {
-    if (route.request().method() === 'POST') {
-      submitted.push(route.request().postDataJSON());
-      return route.fulfill({ status: 201, json: { id: 'preview-id' } });
-    }
-    if (new URL(route.request().url()).searchParams.has('id')) return route.fulfill({ json: { job: {
-      status: 'completed', result: { schools: [], materials: [] },
-    } } });
-    return route.fulfill({ json: { available: [{ id: 'standby', priority: 2 }] } });
-  });
-  await page.goto('/staff/interview-materials');
-  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
-  await page.getByRole('button', { name: '資料を作る' }).click();
-  await expect.poll(() => submitted.length).toBe(1);
-  expect(submitted[0].targetWorkerId).toBe('standby');
-});
-
-test('blocked loopback with multiple live workers does not create a job', async ({ page }) => {
-  let created = 0;
-  await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
-  await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
-  await page.route('http://127.0.0.1:38473/health', route => route.abort());
-  await page.route('**/api/staff/interview-material-jobs**', route => {
-    if (route.request().method() === 'POST') { created++; return route.fulfill({ status: 201, json: { id: 'unexpected' } }); }
-    return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }, { id: 'standby', priority: 2 }] } });
-  });
-  await page.goto('/staff/interview-materials');
-  await page.getByRole('button', { name: /中3 確認用 生徒/ }).click();
-  await page.getByRole('button', { name: '資料を作る' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'ローカルネットワークへのアクセス' })).toBeVisible();
-  expect(created).toBe(0);
-});
-
 test('central worker previews sources then builds and saves a PDF without browser loopback access', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const pdfResponse = { body: '%PDF-1.4\n%%EOF', contentType: 'application/pdf', headers: { 'Access-Control-Allow-Origin': '*' } };
@@ -159,12 +97,13 @@ test('central worker previews sources then builds and saves a PDF without browse
     if (route.request().method() === 'POST') {
       const body = JSON.parse(route.request().postData() || '{}');
       jobs.push(body.kind);
+      expect(body).not.toHaveProperty('targetWorkerId');
       expect(body.schools).toEqual(['柏の葉', '国府台', '叡明']);
       expect(body.answerId).toBe(student.responses[0].id);
       if (body.kind === 'generate') generatedIds = body.selectedMaterialIds;
       return route.fulfill({ status: 201, json: { id: body.kind === 'preview' ? 'preview-id' : 'generate-id' } });
     }
-    if (!url.searchParams.has('id')) return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } });
+    if (!url.searchParams.has('id')) return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }, { id: 'standby', priority: 2 }] } });
     if (url.searchParams.get('id') === 'preview-id') return route.fulfill({ json: { job: {
       status: 'completed', result: { schools: [
         { rank: 1, name: '柏の葉', found: true, files: [{ kind: '高校案内', year: '2027年度', filename: '柏の葉.jpg' }] },
@@ -182,7 +121,7 @@ test('central worker previews sources then builds and saves a PDF without browse
       savedPath: 'C:\\Users\\test\\OneDrive\\面談準備\\保存済み資料\\sample.pdf', cloudSynced: true,
     } } } });
   });
-  await page.route('http://127.0.0.1:38473/**', route => route.abort());
+  await page.route('http://127.0.0.1:38473/**', route => { throw Error(`unexpected loopback request: ${route.request().url()}`); });
   await page.addInitScript(() => {
     const saved: Record<string, string> = {};
     Object.defineProperty(window, '__savedFiles', { value: saved });
@@ -204,7 +143,7 @@ test('central worker previews sources then builds and saves a PDF without browse
     Object.defineProperty(window, 'showDirectoryPicker', { value: async () => directory('98面談資料') });
   });
   await page.goto(`/staff/interview-materials?answer=${student.responses[0].id.replaceAll('-', '')}`);
-  await expect(page.getByText('主担当PCが稼働中です')).toBeVisible();
+  await expect(page.getByText('主担当PCと予備PCが稼働中です')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'アンケート回答', exact: true })).toBeVisible();
   await expect.poll(() => summaryRequests).toBe(1);
   await expect(page.getByRole('textbox', { name: '第3志望' })).toHaveValue('叡明');
