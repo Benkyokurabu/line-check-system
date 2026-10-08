@@ -103,10 +103,10 @@ function watchSummary(folder: DirectoryHandle, saved: SavedFolderInfo, onProgres
         if (updated) onProgress?.('AI要約を同じフォルダに追加しました。開いている面談資料.htmlにも反映されます。');
         return;
       }
-      if (summary.status === 'failed') { onProgress?.('資料は利用できます。AI要約は失敗しました。「保存済みフォルダのAI要約を更新」で再依頼できます。'); return; }
+      if (summary.status === 'failed') { onProgress?.('資料は利用できます。AI要約は失敗しました。「生徒の保存済みフォルダを選んでAI要約を反映」で再依頼できます。'); return; }
     } catch { /* Keep the complete saved folder usable and retry without duplicate writes. */ }
     if (Date.now() < expires) window.setTimeout(() => { void poll(); }, 3000);
-    else onProgress?.('資料は保存済みです。AI要約の自動追記を終了しました。後から「保存済みフォルダのAI要約を更新」で追加できます。');
+    else onProgress?.('資料は保存済みです。AI要約の自動追記を終了しました。後から「生徒の保存済みフォルダを選んでAI要約を反映」で追加できます。');
   };
   window.setTimeout(() => { void poll(); }, 3000);
 }
@@ -123,7 +123,7 @@ export async function updateInterviewFolderSummary(studentNumber: string, onProg
   if (summary.sourceHash !== saved.sourceHash) throw Error('元の記録が更新されています。AI要約だけを追加せず、最新の面談フォルダを保存してください。');
   if (summary.status === 'completed') {
     if (!await writeSummary(folder, saved, summary)) throw Error('フォルダが更新されました。もう一度選んでください。');
-    onProgress('AI要約を保存済みフォルダに追加しました。PDFを保存し直す必要はありません。');
+    onProgress('保存済みフォルダの「AI要約.js」と「生徒情報・注意点.txt」を更新しました。PDFと面談資料.htmlを保存し直す必要はありません。');
   } else {
     if (['prepared', 'failed'].includes(summary.status)) { await requestInfoSummary(studentNumber); summary = { ...summary, status: 'queued' }; }
     watchSummary(folder, { ...saved, context: { ...saved.context, summary } }, onProgress);

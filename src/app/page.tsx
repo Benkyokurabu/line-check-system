@@ -5,7 +5,7 @@ const menuItems = [
   { href: "/attendance", group: "daily" as const, icon: "message", title: "欠席連絡の確認", description: "LINEから抽出した欠席候補を確認し、Notionへ登録します。" },
   { href: "/classroom-office", group: "daily" as const, icon: "message", title: "教室への連絡", description: "教室ごとの欠席・遅刻情報を確認し、事務部から教室へメッセージを出します。" },
   { href: "/staff/interviews", group: "interview" as const, icon: "calendar", title: "面談の予定・入力", description: "授業の空き時間を確認し、面談予定の登録・承認・変更と実施内容を入力します。" },
-  { href: "/staff/interview-materials", group: "interview" as const, icon: "calendar", title: "面談資料を作る", description: "秋のアンケートから生徒を選び、指導簿・志望校・模試の資料を表示して印刷します。" },
+  { href: "/staff/interview-materials", group: "interview" as const, icon: "calendar", title: "面談資料を作る", description: "面談日または生徒名から対象を選び、資料の確認・PDF作成・保存へ進みます。面談の予定や実施内容の入力は「面談の予定・入力」へ。" },
   { href: "/staff/interview-availability", group: "interview" as const, icon: "calendar", title: "予約可能枠を作る", description: "毎月のスケジュール表から、自分の勤務校舎と空き時間を確認してNotionへ予約可を作成します。" },
   { href: "/staff/recordings", group: "management" as const, icon: "calendar", title: "録画の公開設定", description: "単元テスト解説などの録画を、非公開・日時指定・今すぐ公開に設定します。" },
   { href: "/schedule-import", group: "management" as const, icon: "calendar", title: "授業スケジュール取込", description: "スケジュール原本と登録済み授業を照合し、追加・変更・休講候補を確認します。" },

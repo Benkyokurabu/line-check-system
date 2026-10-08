@@ -353,11 +353,16 @@ export default function MaterialsDesk() {
     if (batchBusy || !selected || summarySaveBusy) return;
     setSummarySaveBusy(true);setSummarySaveMessage('');
     try { await updateInterviewFolderSummary(selected.number, setSummarySaveMessage); }
-    catch (error) { setSummarySaveMessage(error instanceof DOMException && error.name === 'AbortError' ? '更新を取り消しました。' : requestError(error)); }
+    catch (error) { setSummarySaveMessage(error instanceof DOMException && error.name === 'AbortError' ? 'フォルダの選択を取り消しました。保存済み資料は変更していません。' : requestError(error)); }
     finally { setSummarySaveBusy(false); }
   }
   return <main className={styles.page}>
-    <header><Link href="/">勉たんに戻る</Link><h1>面談資料を作る</h1><p>2026年 秋の面談アンケート ／ 先生の手元用</p></header>
+    <header>
+      <nav className={styles.breadcrumb} aria-label="現在の場所"><Link href="/">勉たん</Link><span aria-hidden="true">›</span><span aria-current="page">面談資料を作る</span></nav>
+      <h1>面談資料を作る</h1>
+      <p>面談日または生徒を選び、資料の確認、PDF作成、保存へ進みます。</p>
+      <p className={styles.note}>面談の予定や実施内容の入力は <Link href="/staff/interviews">面談の予定・入力</Link> に戻ってください。</p>
+    </header>
     {message && <p className={styles.error} role="status">{message}</p>}
     {!ready ? <p>読み込んでいます…</p> : !staff ? <form className={styles.card} onSubmit={login}>
       <h2>先生ログイン</h2><label>先生の名前<select value={teacherId} onChange={event => setTeacherId(event.target.value)} required><option value="">選択してください</option>{loginTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.display_name}先生</option>)}</select></label>
@@ -511,7 +516,13 @@ export default function MaterialsDesk() {
         {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
         <p className={styles.note}>NASで資料の有無と年度を確認してからPDFを作成します。アンケート回答も最初から印刷対象に選ばれています。</p>
       </section>}
-      {selected && folderSupported && <section className={styles.card}><h2>保存済みフォルダのAI要約</h2><p>AIの完成後に勉たんを閉じていた場合も、生徒名のフォルダを選んで要約だけを追加できます。</p><button type="button" disabled={batchBusy || summarySaveBusy || folderBusy} onClick={() => void updateSavedSummary()}>{summarySaveBusy ? 'AI要約を更新中…' : '保存済みフォルダのAI要約を更新'}</button>{summarySaveMessage && <p role="status">{summarySaveMessage}</p>}</section>}
+      {selected && folderSupported && <section className={styles.card}><h2>保存済み資料にAI要約を反映</h2>
+        <p id="summary-update-help">選択中の{selected.name}さんについて、完成したAI要約を保存済み資料に追加します。まだ完成していない場合は作成を依頼または待機し、完成後に反映します。</p>
+        <p className={styles.note}>押すとフォルダ選択が開きます。保存時にできた{selected.name}さんの生徒名フォルダを選んでください。前回選んだ別のフォルダが開く場合は選び直してください。生徒番号と保存情報が一致しない場合は更新しません。選択をキャンセルしても変更はありません。</p>
+        <p className={styles.note}>反映時はフォルダ内の「AI要約.js」と「生徒情報・注意点.txt」を更新します。PDFと面談資料.htmlは作り直しません。</p>
+        <button type="button" aria-describedby="summary-update-help" disabled={batchBusy || summarySaveBusy || folderBusy} onClick={() => void updateSavedSummary()}>{summarySaveBusy ? 'AI要約を確認・反映中…' : '生徒の保存済みフォルダを選んでAI要約を反映'}</button>
+        {summarySaveMessage && <p role="status">{summarySaveMessage}</p>}
+      </section>}
       {manifest && <section className={`${styles.card} ${styles.resultCard}`} ref={resultRef}><h2>3. 完成した資料を使う</h2>
         <p>{manifest.items.length}点 ／ 計{manifest.pages}ページ。使い方を選んでください。</p>
         <div className={styles.actions}><button type="button" onClick={() => {
