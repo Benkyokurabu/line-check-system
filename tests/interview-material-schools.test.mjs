@@ -21,3 +21,12 @@ test('sorts shuffled survey fields by first, second, third choice and resolves E
     { label: '第三志望校（任意回答）', value: 'えいめい' },
   ]), ['柏の葉', '国府台', '叡明']);
 });
+
+test('resolves verified survey variants to the exact NAS school names', () => {
+  assert.deepEqual(schoolsFromAnswer([
+    { label: '第一志望校', value: '中央大学付属高校' },
+    { label: '第二志望校', value: '三郷工業' },
+    { label: '第三志望校', value: '埼玉県立越谷南高等学校' },
+  ]), ['中央大学附属高等学校', '三郷工業技術高等学校', '越谷南高等学校']);
+  assert.deepEqual(schoolsFromAnswer([{ label: '志望校', value: '中央大学杉並高等学校' }]), ['中央大学杉並高等学校']);
+});

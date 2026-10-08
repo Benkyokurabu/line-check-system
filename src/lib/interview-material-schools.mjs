@@ -3,7 +3,14 @@ const schoolField = /^(?:現状の)?(?:第?[一二三1-3])?志望校(?:[（(].*[
 
 export function canonicalSchoolName(value) {
   const name = String(value ?? '').normalize('NFKC').trim();
-  return normalize(name) === 'えいめい' ? '叡明' : name;
+  const key = normalize(name);
+  if (key === 'えいめい') return '叡明';
+  // These exact survey variants refer to the named schools in the NAS library.
+  // Keep the mapping narrow so similarly named schools are never combined.
+  if (key === '中央大学付属') return '中央大学附属高等学校';
+  if (key === '三郷工業') return '三郷工業技術高等学校';
+  if (key === '埼玉県立越谷南') return '越谷南高等学校';
+  return name;
 }
 
 function rankFromLabel(label) {
