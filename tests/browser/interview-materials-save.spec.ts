@@ -34,9 +34,6 @@ const student = { number: '2018998', name: '確認用 生徒', grade: '中3', te
     { label: '第三志望校（任意回答）', value: 'えいめい' },
   ], url: 'https://notion.so/example',
 }] };
-const appointment = { id: 'appointment-1', number: student.number, name: student.name, grade: student.grade,
-  teacher: '工藤', teacherId, date: '2026-10-05', start: '20:30', editedAt: '2026-10-05T00:00:00.000Z',
-  source: 'notion-bensuke', url: 'https://www.notion.so/appointment1' };
 const materials = [
   { id: 'guide', group: '生徒本人の資料', label: '指導簿', detail: '生徒のページ', staffOnly: false },
   { id: 'survey', group: '生徒本人の資料', label: '面談アンケート回答', detail: '選択した回答', staffOnly: false },
@@ -88,9 +85,11 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.route('https://example.com/material-*.pdf', route => route.fulfill(pdfResponse));
   const jobs: string[] = [];
   let generatedIds: string[] = [];
-  await page.route('**/api/staff/interview-material-appointments**', route => route.fulfill({ json: { source: 'notion-bensuke', review: [], appointments: [appointment,
-    { ...appointment, id: 'other-appointment', number: '2018997', name: '別の生徒', teacher: '佐藤', teacherId: 'other-teacher' },
-  ] } }));
+  let appointmentReads = 0;
+  await page.route('**/api/staff/interview-material-appointments**', route => {
+    appointmentReads++;
+    return route.fulfill({ status: 503, json: { error: '面談予定を取得できません。' } });
+  });
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
   await page.route('**/api/staff/interview-material-jobs**', route => {
@@ -173,25 +172,13 @@ test('central worker previews sources then builds and saves a PDF without browse
   await expect(page.getByLabel('HTMLとPDFの保存先')).toContainText('保存後は「面談資料.html」を開く');
   await expect(page.getByLabel('HTMLとPDFの保存先')).toContainText('\\\\TS3210\\benko\\03 教務部\\015 各面談行事／文化会館も含む\\98面談資料');
   await downloadButton.click();
-  const folderPicker = page.getByRole('region', { name: '保存先の面談予定を選ぶ' });
-  await expect(folderPicker).toBeVisible();
-  await expect(folderPicker.getByLabel('保存用の面談日')).toBeFocused();
-  await folderPicker.getByLabel('保存用の面談日').fill('2026-10-06');
-  await expect(folderPicker.getByRole('button', { name: /20:30/ })).toHaveCount(0);
-  await folderPicker.getByLabel('保存用の面談日').fill('2026-10-05');
-  await expect(folderPicker.getByRole('button', { name: /20:30/ })).toBeVisible();
-  await expect(folderPicker.getByText('別の生徒', { exact: false })).toHaveCount(0);
-  await folderPicker.getByLabel('保存用の面談の先生').selectOption('other-teacher');
-  await expect(folderPicker.getByRole('button', { name: /20:30/ })).toHaveCount(0);
-  await folderPicker.getByLabel('保存用の面談の先生').selectOption('');
-  await page.screenshot({ path: 'analysis_outputs/interview-folder-appointment-picker-mobile.png', fullPage: true });
-  await folderPicker.getByRole('button', { name: /20:30.*確認用 生徒/ }).click();
-  await expect(folderPicker).toBeHidden();
-  await expect(downloadButton).toBeFocused();
+  await expect(page.getByRole('status').filter({ hasText: '「個別保存／中3 確認用 生徒（2018998）」を保存しました' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '保存先の面談予定を選ぶ' })).toHaveCount(0);
+  expect(appointmentReads).toBe(0);
   await expect(downloadButton).toBeEnabled();
   await expect(page.getByRole('heading', { name: '3. 完成した資料を使う' })).toBeVisible();
   expect(jobs).toEqual(['preview', 'generate']);
-  await expect(page.getByLabel('HTMLとPDFの保存先')).toContainText('工藤先生／2026中３秋の教育相談会／2026.10.05 20：30- 確認用 生徒／面談資料.html');
+  await expect(page.getByLabel('HTMLとPDFの保存先')).toContainText('個別保存／中3 確認用 生徒（2018998）／面談資料.html');
   await expect(print).toHaveAttribute('href', 'https://example.com/signed.pdf#zoom=100&navpanes=0');
   await expect(page.getByRole('dialog', { name: '面談資料のプレビュー' })).toBeHidden();
   const positions = await Promise.all([print, screen, downloadButton].map(element => element.boundingBox()));
@@ -274,10 +261,8 @@ test('central worker previews sources then builds and saves a PDF without browse
   await page.getByRole('button', { name: /一式PDFをダウンロード/ }).click();
   expect((await pdfDownload).suggestedFilename()).toBe('面談資料_2018998_generate.pdf');
   await expect(page.getByRole('status').filter({ hasText: '面談資料_2018998_generate.pdf' })).toBeVisible();
-  await downloadButton.click();
-  await expect(page.getByRole('status').filter({ hasText: '面談資料.html' })).toBeVisible();
   const saved = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
-  const folderName = '98面談資料/工藤先生/2026中３秋の教育相談会/2026.10.05 20：30- 確認用 生徒';
+  const folderName = '98面談資料/個別保存/中3 確認用 生徒（2018998）';
   expect(Object.keys(saved).sort()).toEqual([
     `${folderName}/material-0.pdf`, `${folderName}/material-1.pdf`,
     `${folderName}/material-2.pdf`, `${folderName}/staff-bundle.pdf`,
@@ -307,6 +292,12 @@ test('central worker previews sources then builds and saves a PDF without browse
   const after = await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {});
   for (const [name, contents] of Object.entries(saved)) expect(after[name]).toBe(contents);
   expect(Object.keys(after).some(name => name.includes('（再保存 '))).toBe(true);
+  expect(appointmentReads).toBe(0);
+  await page.route('https://example.com/signed.pdf', route => route.fulfill({ status: 503, body: 'Unavailable' }));
+  await downloadButton.click();
+  await expect(page.getByRole('status').filter({ hasText: '「印刷用の一式PDF」を取得できませんでした' })).toBeVisible();
+  expect(await page.evaluate(() => (window as Window & { __savedFiles?: Record<string, string> }).__savedFiles ?? {})).toEqual(after);
+  await expect(downloadButton).toBeEnabled();
 });
 
 test('the school library requires a staff login', async ({ request }) => {

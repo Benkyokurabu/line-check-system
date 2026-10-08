@@ -8,7 +8,7 @@ import DailyMaterialPanel from './daily-material-panel';
 import ManualMaterialPanel from './manual-material-panel';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
 import { canSaveOfflineFolder, downloadInterviewPdf, interviewMaterialsSharePath, saveInterviewFolder, saveSchoolLibraryFolder, updateInterviewFolderSummary, type MaterialAppointment } from './save-offline-folder';
-import { interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
+import { individualInterviewMaterialFolderParts, interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
 
 type Field = { label: string; value: string };
 type Answer = { id: string; date: string; schools: string[]; fields: Field[]; url: string };
@@ -68,14 +68,11 @@ export default function MaterialsDesk() {
   const summaryRequests = useRef(new Set<string>());
   const currentNumber = useRef('');
   const selectionHeadingRef = useRef<HTMLHeadingElement>(null);
-  const folderDateRef = useRef<HTMLInputElement>(null);
-  const folderButtonRef = useRef<HTMLButtonElement>(null);
   const viewerButtonRef = useRef<HTMLButtonElement>(null);
   const resultRef = useRef<HTMLElement>(null);
   const folderSupported = useSyncExternalStore(subscribeToBrowserSupport, canSaveOfflineFolder, () => false);
-  const [folderJob, setFolderJob] = useState<{ id: string; number: string; name: string } | null>(null);
+  const [folderJob, setFolderJob] = useState<{ id: string; number: string; name: string; grade: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
-  const [folderAppointmentOpen, setFolderAppointmentOpen] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadMessage, setDownloadMessage] = useState('');
   const [downloadFailed, setDownloadFailed] = useState(false);
@@ -101,14 +98,10 @@ export default function MaterialsDesk() {
     : [...new Map(appointments.map(item => [item.teacherId, { id: item.teacherId, name: item.teacher }])).values()], [appointmentTeachers, appointments]);
   const dayAppointments = appointments.filter(item => item.date === appointmentDate && (!appointmentTeacherId || item.teacherId === appointmentTeacherId));
   const dayReview = appointmentReview.filter(item => !appointmentTeacherId || !item.teacherIds?.length || item.teacherIds.includes(appointmentTeacherId));
-  const folderAppointments = dayAppointments.filter(item => item.number === folderJob?.number);
   const folderSaveIssue = !folderSupported ? 'フォルダ保存はChromeまたはEdgeで開いてください。'
     : !folderJob ? '保存する資料を確認できません。資料を作成し直してください。'
     : !manifest?.items.length || manifest.items.some(item => !item.previewUrl)
       ? '資料別のPDFを取得できていないため、HTMLを含むフォルダ保存はできません。資料を作成し直してください。' : '';
-  useEffect(() => {
-    if (folderAppointmentOpen) folderDateRef.current?.focus();
-  }, [folderAppointmentOpen]);
   useEffect(() => {
     let active = true;
     if (!number || !staff) return;
@@ -172,7 +165,6 @@ export default function MaterialsDesk() {
       ?? (student.responses.length === 1 ? student.responses[0] : undefined);
     setNumber(student.number); setAnswerId(selectedAnswer?.id ?? '');
     setSelectedAppointment(null);
-    setFolderAppointmentOpen(false);
     currentNumber.current = student.number;
     setMaterialContext(null); setContextError(''); setContextLoading(true);
     setSchoolNames(suggestedSchools(selectedAnswer?.schools ?? []));
@@ -313,7 +305,7 @@ export default function MaterialsDesk() {
       setManifest(job.result);
       setViewerOpen(false);
       setPdfUrl(job.pdfUrl || '');
-      setFolderJob({ id: job.id, number: selected.number, name: selected.name });
+      setFolderJob({ id: job.id, number: selected.number, name: selected.name, grade: selected.grade });
       setSavedFile(job.result.savedPath || '');
       setCloudSynced(Boolean(job.result.cloudSynced));
       setSaveMessage(job.result.saveError || '');
@@ -334,17 +326,12 @@ export default function MaterialsDesk() {
     if (batchBusy || !folderJob || folderBusy || downloadBusy) return;
     setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
     try {
-      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, selected?.grade || '', materialContext, setDownloadMessage, Boolean(showPastSchools), setSummarySaveMessage, selectedAppointment ?? undefined);
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, folderJob.grade, materialContext, setDownloadMessage, Boolean(showPastSchools), setSummarySaveMessage);
       setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開けば、ネット接続なしで資料・面談記録・生徒情報を確認できます。AI要約は完成済みの場合に含まれます。`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setDownloadMessage('保存を取り消しました。');
       else { setDownloadFailed(true); setDownloadMessage(requestError(error)); }
     } finally { setFolderBusy(false); }
-  }
-  function chooseFolderAppointment() {
-    setFolderAppointmentOpen(true);
-    setDownloadFailed(false);
-    setDownloadMessage('保存先の面談予定を選んでください。資料を作り直す必要はありません。');
   }
   function changeAppointmentDate(value: string) {
     setAppointmentTeacherId(''); setAppointmentTeachers([]);
@@ -411,7 +398,7 @@ export default function MaterialsDesk() {
                   const student = students.find(row => row.number === item.number);
                   if (!student) { setAppointmentMessage('面談予定の生徒が現在の台帳に見つかりません。'); return; }
                   if (number !== student.number || !manifest || folderJob?.number !== student.number) chooseStudent(student);
-                  setSelectedAppointment(item); setFolderAppointmentOpen(false);
+                  setSelectedAppointment(item);
                 }}><strong>{item.start}　{item.grade} {item.name}</strong><span>{item.teacher}先生 ／ {item.number}</span></button>)}</div>
             : <p>この日に保存できる面談予定はありません。</p>)}
           {!!dayReview.length && <div className={styles.appointmentReview} aria-label="要確認の面談予定">
@@ -534,44 +521,20 @@ export default function MaterialsDesk() {
         {pdfUrl && <div className={styles.resultChoices} role="group" aria-label="完成した面談資料の使い方">
           <a className={styles.resultChoice} href={`${pdfUrl.split('#')[0]}#zoom=100&navpanes=0`} target="_blank" rel="noreferrer" aria-label="印刷用の一式PDFを開く"><strong>印刷</strong><span>一式PDFを開く</span></a>
           <button ref={viewerButtonRef} type="button" className={styles.resultChoice} onClick={() => setViewerOpen(true)}><strong>画面で見る</strong><span>資料を切り替える</span></button>
-          <button ref={folderButtonRef} type="button" className={styles.resultChoice} disabled={batchBusy || Boolean(folderSaveIssue) || folderBusy || downloadBusy} onClick={() => {
-            if (!selectedAppointment || selectedAppointment.number !== folderJob?.number) chooseFolderAppointment();
-            else { setFolderAppointmentOpen(false); void saveFolder(); }
-          }}><strong>{folderBusy ? 'フォルダを保存中…' : '共有フォルダに保存'}</strong><span>{!selectedAppointment ? '面談予定を選んで保存' : 'HTML・PDFを先生別に保存'}</span></button>
+          <button type="button" className={styles.resultChoice} disabled={batchBusy || Boolean(folderSaveIssue) || folderBusy || downloadBusy} onClick={() => void saveFolder()}><strong>{folderBusy ? 'フォルダを保存中…' : '共有フォルダに保存'}</strong><span>HTML・PDFを生徒別に保存</span></button>
         </div>}
         {pdfUrl && <p className={styles.note}>別タブで開いたPDFから戻るときは、元の勉たんのタブを選んでください。</p>}
         {pdfUrl && <div className={styles.downloadOptions} aria-label="HTMLとPDFの保存先">
           <strong>保存後は「面談資料.html」を開く</strong>
           <p>資料を切り替えて画面で見るためのHTML、PDF、面談記録、生徒情報を同じフォルダに保存します。</p>
           {folderSaveIssue && <p className={styles.error} role="status">{folderSaveIssue}</p>}
-          {folderSupported && (!selectedAppointment || selectedAppointment.number !== folderJob?.number) && <>
-            <p className={styles.note}>「共有フォルダに保存」を押すと、この画面で保存先の面談予定を選べます。作成済みの資料はそのまま使えます。</p>
-          </>}
-          {folderAppointmentOpen && <section className={styles.appointmentReview} aria-label="保存先の面談予定を選ぶ">
-            <h3>保存先の面談予定を選ぶ</h3>
-            <p>{folderJob?.name}さんの面談予定を選んでください。担当先生と日時から保存フォルダを作ります。</p>
-            <label>保存用の面談日<input ref={folderDateRef} type="date" value={appointmentDate} disabled={batchBusy || folderBusy || downloadBusy} onChange={event => changeAppointmentDate(event.target.value)} /></label>
-            <label>保存用の面談の先生<select value={appointmentTeacherId} disabled={batchBusy || appointmentBusy || !appointmentDate} onChange={event => { setAppointmentTeacherId(event.target.value); setSelectedAppointment(null); }}>
-              <option value="">すべての先生</option>{dayTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}先生</option>)}
-            </select></label>
-            {appointmentBusy ? <p role="status">面談予定を読み込んでいます…</p>
-              : appointmentMessage ? <p className={styles.error} role="alert">{appointmentMessage}</p>
-              : appointmentDate && (folderAppointments.length ? <div className={styles.studentResults}>{folderAppointments.map(item => <button type="button" key={`${item.id}:${item.number}`} onClick={() => {
-                setSelectedAppointment(item); setFolderAppointmentOpen(false);
-                setDownloadMessage('保存先の面談予定を選びました。「共有フォルダに保存」を押して保存先「98面談資料」を選んでください。');
-                requestAnimationFrame(() => folderButtonRef.current?.focus());
-              }}><strong>{item.start}　{item.name}</strong><span>{item.teacher}先生 ／ {item.date}</span></button>)}</div>
-                : <p>この日に{folderJob?.name}さんの保存できる面談予定がありません。日付・先生を確認してください。</p>)}
-            <div className={styles.actions}><button type="button" disabled={!appointmentDate || appointmentBusy || batchBusy} onClick={() => { setAppointments([]); setAppointmentReview([]); setAppointmentMessage(''); setAppointmentBusy(true); setAppointmentReload(value => value + 1); }}>保存用の予定を再取得</button>
-              <button type="button" onClick={() => { setFolderAppointmentOpen(false); folderButtonRef.current?.focus(); }}>面談予定の選択を閉じる</button></div>
-          </section>}
-          {selectedAppointment && <p className={styles.sharePath}>保存するフォルダ：98面談資料／{interviewMaterialFolderParts(selectedAppointment).join('／')}／面談資料.html</p>}
-          <p className={styles.note}>{folderSupported ? '「共有フォルダに保存」を押し、保存先の選択画面で下記の「98面談資料」を選んでください。その下に先生別のフォルダを自動で作ります。保存したフォルダの「面談資料.html」をダブルクリックすると、ネット接続なしで資料を閲覧できます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
+          {folderJob && <p className={styles.sharePath}>保存するフォルダ：98面談資料／{individualInterviewMaterialFolderParts(folderJob).join('／')}／面談資料.html</p>}
+          <p className={styles.note}>{folderSupported ? '「共有フォルダに保存」を押し、保存先の選択画面で下記の「98面談資料」を選んでください。「個別保存」の中に生徒名と学籍番号のフォルダを作ります。日程や先生を選ぶ必要はありません。保存した「面談資料.html」をダブルクリックすると、ブラウザで資料を閲覧できます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
           {folderSupported && <><p className={styles.sharePath}>{interviewMaterialsSharePath}</p><button type="button" onClick={() => {
             void navigator.clipboard.writeText(interviewMaterialsSharePath).then(() => setShareMessage('共有フォルダの場所をコピーしました。保存先の選択画面のアドレス欄へ貼り付けてください。'))
               .catch(() => setShareMessage('表示した共有フォルダの場所を保存先のアドレス欄へ入力してください。'));
           }}>共有フォルダの場所をコピー</button>{shareMessage && <p role="status">{shareMessage}</p>}
-          <p className={styles.note}>保存先のアドレス欄が上の共有パスであることを確認してください。同じ面談を再保存すると、末尾に「再保存」を付けた新しいフォルダを作り、前の資料を残します。</p></>}
+          <p className={styles.note}>保存先のアドレス欄が上の共有パスであることを確認してください。同じ生徒の資料を再保存すると、末尾に「再保存」を付けた新しいフォルダを作り、前の資料を残します。</p></>}
           <div className={styles.downloadActions}><button type="button" disabled={!folderJob || downloadBusy || folderBusy} onClick={() => void savePdf()}>{downloadBusy ? '一式PDFを保存中…' : '一式PDFをダウンロード'}<small>PDFを1つのファイルとして保存</small></button></div>
         </div>}
         {downloadMessage && <p role="status" className={downloadFailed ? styles.error : styles.note}>{downloadMessage}</p>}

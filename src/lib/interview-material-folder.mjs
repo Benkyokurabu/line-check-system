@@ -3,6 +3,14 @@ export function safeFolderPart(value) {
   return String(value).trim().replace(/\s+/gu, ' ').replace(/[<>:"/\\|?*\u0000-\u001f]/gu, '_').replace(/[. ]+$/u, '').slice(0, 60);
 }
 
+/** @param {{number:string,name:string,grade:string}} student */
+export function individualInterviewMaterialFolderParts(student) {
+  const { number, name, grade } = student;
+  if (!/^\d{5,12}$/u.test(number) || !name?.trim() || !grade?.trim())
+    throw Error('生徒の学籍番号・氏名・学年を確認できません。');
+  return ['個別保存', `${safeFolderPart(grade)} ${safeFolderPart(name)}（${number}）`];
+}
+
 /** @param {{date:string,start:string,teacher:string,grade:string,name:string}} appointment */
 export function interviewMaterialFolderParts(appointment) {
   const { date, start, teacher, grade, name } = appointment;

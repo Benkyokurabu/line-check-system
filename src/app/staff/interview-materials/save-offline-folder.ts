@@ -2,7 +2,7 @@ import { materialDockLabel } from './material-dock-label';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
 import { fetchSchoolLibrary } from './school-library';
 import { renderOfflineSchoolLibrary } from '@/lib/hokushin-school-library.mjs';
-import { interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
+import { individualInterviewMaterialFolderParts, interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
 
 type WritableFile = { write(data: Blob | string): Promise<void>; close(): Promise<void> };
 type FileHandle = { createWritable(): Promise<WritableFile>; getFile(): Promise<Blob> };
@@ -158,16 +158,18 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 }
 
 export async function saveInterviewFolder(
-  jobId: string, studentNumber: string, studentName: string, _studentGrade: string, previousContext: MaterialContext | null,
+  jobId: string, studentNumber: string, studentName: string, studentGrade: string, previousContext: MaterialContext | null,
   onProgress: (message: string) => void, showPastSchools = false,
   onSummaryProgress?: (message: string) => void, appointment?: MaterialAppointment, batchParent?: DirectoryHandle
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
   if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
-  if (!appointment || appointment.number !== studentNumber || appointment.name !== studentName
-    || appointment.source !== 'notion-bensuke' || !appointment.editedAt || !appointment.teacherId)
-    throw Error('Notionベンケイの面談日を選んでから保存してください。');
-  const folderParts = interviewMaterialFolderParts(appointment);
+  if (batchParent && !appointment) throw Error('一括保存の面談予定を確認できません。');
+  if (appointment && (appointment.number !== studentNumber || appointment.name !== studentName
+    || appointment.source !== 'notion-bensuke' || !appointment.editedAt || !appointment.teacherId))
+    throw Error('保存する生徒と面談予定が一致しません。');
+  const folderParts = appointment ? interviewMaterialFolderParts(appointment)
+    : individualInterviewMaterialFolderParts({ number: studentNumber, name: studentName, grade: studentGrade });
   // The picker must be the first asynchronous action after the button click.
   const parent = batchParent ?? await pickInterviewMaterialsFolder();
   if (parent.name !== '98面談資料') throw Error('保存先には共有フォルダ「98面談資料」を選んでください。');
@@ -194,7 +196,7 @@ export async function saveInterviewFolder(
   const pdfs: Blob[] = new Array(files.length);
   let next = 0;
   let saved = 0;
-  await Promise.all(Array.from({ length: Math.min(3, files.length) }, async () => {
+  const transfers = await Promise.allSettled(Array.from({ length: Math.min(3, files.length) }, async () => {
     while (next < files.length) {
       const index = next++;
       const file = files[index];
@@ -204,20 +206,24 @@ export async function saveInterviewFolder(
       onProgress(`PDFを取得しています… ${saved}/${files.length}`);
     }
   }));
+  const failedTransfer = transfers.find(result => result.status === 'rejected');
+  if (failedTransfer?.status === 'rejected') throw failedTransfer.reason;
   // Recheck after PDF transfers, immediately before creating any destination.
-  onProgress('保存直前にNotionの面談予定を再確認しています…');
-  const appointmentsResponse = await fetch(`/api/staff/interview-material-appointments?date=${encodeURIComponent(appointment.date)}&verify=${encodeURIComponent(appointment.id)}`,
-    { cache: 'no-store', signal: AbortSignal.timeout(60000) });
-  const latest = await appointmentsResponse.json();
-  if (!appointmentsResponse.ok) throw Error(latest.error || 'Notionの面談予定を再確認できませんでした。');
-  const appointments = latest.appointments as MaterialAppointment[];
-  if (latest.source !== 'notion-bensuke' || !appointments?.some(row =>
-    (['id', 'number', 'name', 'grade', 'teacher', 'teacherId', 'date', 'start', 'editedAt', 'source'] as const)
-      .every(field => row[field] === appointment[field])))
-    throw Error('面談予定が変更されました。日付を選び直してから保存してください。');
+  if (appointment) {
+    onProgress('保存直前にNotionの面談予定を再確認しています…');
+    const appointmentsResponse = await fetch(`/api/staff/interview-material-appointments?date=${encodeURIComponent(appointment.date)}&verify=${encodeURIComponent(appointment.id)}`,
+      { cache: 'no-store', signal: AbortSignal.timeout(60000) });
+    const latest = await appointmentsResponse.json();
+    if (!appointmentsResponse.ok) throw Error(latest.error || 'Notionの面談予定を再確認できませんでした。');
+    const appointments = latest.appointments as MaterialAppointment[];
+    if (latest.source !== 'notion-bensuke' || !appointments?.some(row =>
+      (['id', 'number', 'name', 'grade', 'teacher', 'teacherId', 'date', 'start', 'editedAt', 'source'] as const)
+        .every(field => row[field] === appointment[field])))
+      throw Error('面談予定が変更されました。日付を選び直してから保存してください。');
+  }
   let container = parent;
   for (const part of folderParts.slice(0, -1)) container = await container.getDirectoryHandle(part, { create: true });
-  let leaf = folderParts[2];
+  let leaf = folderParts[folderParts.length - 1];
   // Preserve every previous PDF and unknown file, including partial saves.
   try {
     await container.getDirectoryHandle(leaf, { create: false });
