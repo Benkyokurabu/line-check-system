@@ -36,11 +36,13 @@ export function sharedProgressState(key, row, progress, ranges) {
 }
 export function testRange(page) {
  if(page.archived||page.is_archived||page.in_trash||page.parent?.data_source_id!==recordingRangeSource)return null;
- const p=page.properties ?? {},title=plain(p['授業名']),match=/^(本|南)(\d)([A-Z]+)(数|算|英|国|理|社)$/.exec(normalized(title));
+ const p=page.properties ?? {},title=plain(p['授業名']),match=/^(?:本|南)?(\d)([A-Z]+)(数|算|英|国|理|社)$/.exec(normalized(title));
+ // English lesson titles omit the campus; the campus property is authoritative.
+ const campus={本校:'hon',南教室:'minami'}[normalized(p['校舎']?.select?.name)];
  const date=p['実施日']?.date?.start?.slice(0,10),test=p['テスト名']?.select?.name;
- if(!match||!/^20\d{2}-\d{2}-\d{2}$/.test(date ?? '')||!test?.startsWith('単元テスト'))return null;
- const campus=match[1]==='本'?'hon':'minami',level=Number(match[2])<=3?'j':'e';
- const subject={数:'math',算:'arith',英:'eng',国:'jp',理:'sci',社:'soc'}[match[4]];
- return {id:page.id,date,group:`${campus}_${level}${match[2]}_${match[3]}_${subject}`,campus,title,test};
+ if(!match||!campus||!/^20\d{2}-\d{2}-\d{2}$/.test(date ?? '')||!test?.startsWith('単元テスト'))return null;
+ const level=Number(match[1])<=3?'j':'e';
+ const subject={数:'math',算:'arith',英:'eng',国:'jp',理:'sci',社:'soc'}[match[3]];
+ return {id:page.id,date,group:`${campus}_${level}${match[1]}_${match[2]}_${subject}`,campus,title,test};
 }
 export function rangeMatchesKey(range,key){const fields=String(key).split('|');return fields.length===5&&fields[0]===range.date&&fields[2]===range.campus&&fields[3]===range.group;}

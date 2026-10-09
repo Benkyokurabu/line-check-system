@@ -7,7 +7,7 @@ import * as core from '../src/lib/recording-notion-core.mjs';
 const key='2026-10-01|18:00～19:00|hon|hon_j1_S_math|2';
 const ids=['00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002'];
 function progress(campus,id,ready){return {id,parent:{data_source_id:core.recordingProgressSources[0].id},properties:{'授業':{title:[{plain_text:'数学1S'}]},'クラス':{rich_text:[{plain_text:'1S'}]},'教室':{select:{name:campus}},'科目':{select:{name:'数学'}},'欠席なし':{type:'checkbox',checkbox:ready},'振替者採点・入力':{type:'checkbox',checkbox:false}}};}
-function range(campus,date){return {id:campus,parent:{data_source_id:core.recordingRangeSource},properties:{'授業名':{title:[{plain_text:campus+'1S数'}]},'実施日':{date:{start:date}},'テスト名':{select:{name:'単元テスト③'}}}};}
+function range(campus,date){return {id:campus,parent:{data_source_id:core.recordingRangeSource},properties:{'授業名':{title:[{plain_text:campus+'1S数'}]},'校舎':{select:{name:campus==='本'?'本校':'南教室'}},'実施日':{date:{start:date}},'テスト名':{select:{name:'単元テスト③'}}}};}
 function server({ready=false,fail=false,rangeFail=false,missing=false,malformed=false}={}){
  const exports={};let calls=0;
  const code=ts.transpileModule(fs.readFileSync('src/lib/recording-notion.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;

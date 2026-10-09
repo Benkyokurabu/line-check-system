@@ -24,12 +24,27 @@ test('Notion release uses either human checkbox and fails closed for unknown or 
 });
 
 test('test detection trusts lesson title and exact date, ignoring incorrect class selection',()=>{
- const page={id:'range',parent:{data_source_id:recordingRangeSource},properties:{'授業名':{title:[{plain_text:'本１Ｓ数'}]},'実施日':{date:{start:'2026-10-01'}},'テスト名':{select:{name:'単元テスト③'}},'クラス':{select:{name:'Ａ'}}}};
+ const page={id:'range',parent:{data_source_id:recordingRangeSource},properties:{'授業名':{title:[{plain_text:'本１Ｓ数'}]},'校舎':{select:{name:'本校'}},'実施日':{date:{start:'2026-10-01'}},'テスト名':{select:{name:'単元テスト③'}},'クラス':{select:{name:'Ａ'}}}};
  const range=testRange(page);assert.equal(range.group,'hon_j1_S_math');assert(rangeMatchesKey(range,key));
  assert(!rangeMatchesKey(range,key.replace('2026-10-01','2026-10-08')));
  assert(!rangeMatchesKey(range,key.replace('hon_j1_S_math','hon_j1_A_math')));
  assert.equal(testRange({...page,in_trash:true}),null);
- assert.equal(testRange({...page,properties:{...page.properties,'授業名':{title:[{plain_text:'南６Ａ算'}]}}}).group,'minami_e6_A_arith');
+ assert.equal(testRange({...page,properties:{...page.properties,'校舎':{select:{name:'南教室'}},'授業名':{title:[{plain_text:'南６Ａ算'}]}}}).group,'minami_e6_A_arith');
+});
+test('English test titles without a campus use the campus property for exact lesson matching',()=>{
+ const page={id:'english-range',parent:{data_source_id:recordingRangeSource},properties:{'授業名':{title:[{plain_text:'１Ａ英'}]},'校舎':{select:{name:'南教室'}},'実施日':{date:{start:'2026-10-09'}},'テスト名':{select:{name:'単元テスト③'}},'クラス':{select:{name:'Ｓ'}}}};
+ for(const [title,group] of [['１Ａ英','j1_A_eng'],['２Ａ英','j2_A_eng'],['６Ｓ英 ','e6_S_eng']]){
+  const range=testRange({...page,properties:{...page.properties,'授業名':{title:[{plain_text:title}]}}});
+  assert.equal(range.group,`minami_${group}`);
+  const recordingKey=`2026-10-09|6:35～8:05|minami|minami_${group}|1`;
+  assert(rangeMatchesKey(range,recordingKey));
+  assert(!rangeMatchesKey(range,recordingKey.replaceAll('minami','hon')));
+  assert(!rangeMatchesKey(range,recordingKey.replace('2026-10-09','2026-10-16')));
+ }
+ assert.equal(testRange({...page,properties:{...page.properties,'校舎':{select:{name:'本校'}}}}).group,'hon_j1_A_eng');
+ // A title prefix never overrides the campus property.
+ assert.equal(testRange({...page,properties:{...page.properties,'授業名':{title:[{plain_text:'本１Ａ英'}]}}}).group,'minami_j1_A_eng');
+ for(const campus of [null,{name:'不明'}])assert.equal(testRange({...page,properties:{...page.properties,'校舎':{select:campus}}}),null);
 });
 test('recording keys and Japanese release timestamps are validated',()=>{
  assert.equal(validRecordingKey(key),true);assert.equal(validRecordingKey('../../recording'),false);
