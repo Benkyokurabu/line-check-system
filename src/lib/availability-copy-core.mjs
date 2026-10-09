@@ -25,6 +25,6 @@ export function formatAvailabilityCopy(rows) {
           : number <= 50 ? String.fromCodePoint(0x32b0 + number - 35) : `（${number}）`;
       const [, month, day] = row.date.split('-').map(Number);
       const weekday = '日月火水木金土'[new Date(`${row.date}T00:00:00Z`).getUTCDay()];
-      return `${mark} ${month}月${day}日（${weekday}）${row.start}〜${row.end || '（終了時刻なし）'}`;
+      return `${mark} ${month}月${day}日（${weekday}）${row.start}${row.end ? `〜${row.end}` : ''}`;
     }).join('\n');
 }

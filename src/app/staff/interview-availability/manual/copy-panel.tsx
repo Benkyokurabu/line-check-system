@@ -42,7 +42,7 @@ export default function AvailabilityCopyPanel() {
       <label>担当の先生<select value={teacherId} onChange={event => {setTeacherId(event.target.value); setResult(null); setMessage('');}}><option value="">先生を選んでください</option>{teachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>
       <label>開始日<input type="date" value={range.from} onChange={event => changeRange({...range, from: event.target.value})}/></label>
       <label>終了日<input type="date" value={range.to} onChange={event => changeRange({...range, to: event.target.value})}/></label>
-      <div className={styles.actions}><button onClick={() => changeRange(nextWeekCopyRange())}>来週の月曜〜土曜</button><button className={styles.primary} disabled={!teacherId} onClick={() => void load()}>{busy ? '取得中…' : 'Notionから予約可を取得'}</button></div>
+      <div className={styles.actions}><button className={styles.primary} disabled={!teacherId} onClick={() => void load()}>{busy ? '取得中…' : 'Notionから予約可を取得'}</button></div>
     </fieldset>
     {loading && <p role="status">先生の一覧を読み込んでいます…</p>}
     {!loading && teachers.length === 0 && <button onClick={() => window.location.reload()}>先生の一覧を再取得</button>}

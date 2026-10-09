@@ -38,7 +38,7 @@ test('実在する日付と31日以内の期間だけ受付',()=>{
  for(const range of [['2026-02-30','2026-03-01'],['2026-10-10','2026-10-09'],['2026-10-01','2026-11-01'],['','']])assert.throws(()=>validateCopyRange(...range));
 });
 test('日時順・曜日・丸数字・終了時刻なしを正確に整形',()=>{
- assert.equal(formatAvailabilityCopy([{date:'2026-10-14',start:'22:05',end:''},{date:'2026-10-12',start:'14:00',end:'14:45'}]),'① 10月12日（月）14:00〜14:45\n② 10月14日（水）22:05〜（終了時刻なし）');
+ assert.equal(formatAvailabilityCopy([{date:'2026-10-14',start:'22:05',end:''},{date:'2026-10-12',start:'14:00',end:'14:45'}]),'① 10月12日（月）14:00〜14:45\n② 10月14日（水）22:05');
  const rows=Array.from({length:51},()=>({date:'2026-10-12',start:'14:00',end:'14:45'}));
  const text=formatAvailabilityCopy(rows).split('\n');assert.ok(text[20].startsWith('㉑'));assert.ok(text[35].startsWith('㊱'));assert.ok(text[49].startsWith('㊿'));assert.ok(text[50].startsWith('（51）'));
 });
@@ -64,7 +64,7 @@ test('5名だけを指定順に選べる。髙山は別人の高山の職員ID�
 test('予約可の枠の長さ・ほかのタグ・担当数を予約確定のルールで制限しない',async()=>{
  const pages=[card('hour','2026-10-12T14:00:00+09:00','2026-10-12T15:00:00+09:00',['本：予約可','休み']),card('short','2026-10-12T15:00:00+09:00','2026-10-12T15:30:00+09:00',['南：予約可'],[teacherId,'other']),card('open','2026-10-12T16:00:00+09:00',null),card('untimed','2026-10-12',null),card('overnight','2026-10-12T23:30:00+09:00','2026-10-13T00:30:00+09:00')];
  const {request}=fixture(pages),result=await readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId,actor});
- assert.equal(result.text,'① 10月12日（月）14:00〜15:00\n② 10月12日（月）15:00〜15:30\n③ 10月12日（月）16:00〜（終了時刻なし）');assert.equal(result.reviewCount,2);
+ assert.equal(result.text,'① 10月12日（月）14:00〜15:00\n② 10月12日（月）15:00〜15:30\n③ 10月12日（月）16:00');assert.equal(result.reviewCount,2);
 });
 test('未知の先生・途中取得失敗では一覧を返さない',async()=>{
  const {request}=fixture([card('a','2026-10-12T14:00:00+09:00','2026-10-12T14:45:00+09:00'),card('b','2026-10-13T14:00:00+09:00','2026-10-13T14:45:00+09:00')],{broken:true});

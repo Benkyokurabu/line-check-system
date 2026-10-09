@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import fs from 'node:fs';
 const id='00000000-0000-4000-8000-000000000001';
-const expected='① 10月12日（月）14:00〜14:45\n② 10月14日（水）15:00〜15:45';
+const expected='① 10月12日（月）14:00〜14:45\n② 10月14日（水）15:00';
 test('トップページの左メニュー面談にコピーカードを並べ、直接移動できる',async({page})=>{
  await page.route('**/api/interview-surveys**',route=>route.fulfill({json:{groups:[],states:[],scheduling:[]}}));
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{displayName:'工藤謙'}}}));
@@ -34,7 +34,7 @@ test('設計HTMLの操作例と表示を確認する',async({page})=>{
   await page.setViewportSize({width,height:844});await page.getByRole('button',{name:'日程の表示例を見る'}).click();await expect(page.getByLabel('コピーする日程')).toHaveValue('① 10月12日（月）14:00〜14:45\n② 10月12日（月）15:00〜15:45');
   await page.locator('summary').click();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:`test-results/availability-copy-design-${width}.png`,fullPage:true});await page.locator('summary').click();
  }
- await page.getByLabel('開始日').fill('2026-10-26');await expect(page.getByLabel('コピーする日程')).toBeHidden();await page.getByRole('button',{name:'来週の月曜〜土曜'}).click();await expect(page.getByLabel('開始日')).toHaveValue('2026-10-12');
+ await page.getByLabel('開始日').fill('2026-10-26');await expect(page.getByLabel('コピーする日程')).toBeHidden();await expect(page.getByRole('button',{name:'来週の月曜〜土曜'})).toHaveCount(0);
 });
 test('来週の期間・先生切替・コピー・失敗・0件をスマートフォンで確認する',async({page,context})=>{
  await page.clock.install({time:new Date('2026-10-09T02:00:00Z')});
@@ -65,7 +65,7 @@ test('来週の期間・先生切替・コピー・失敗・0件をスマート�
  expect(queries.at(-1)?.get('from')).toBe('2026-10-26');expect(queries.at(-1)?.get('teacherId')).toBe('other');
  mode='fail';await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();await expect(panel.getByRole('status')).toContainText('失敗');await expect(panel.getByLabel('コピーする日程')).toHaveCount(0);
  mode='empty';await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();await expect(panel).toContainText('この期間の予約可能枠はありません。');await expect(panel.getByRole('button',{name:'日程一覧をコピー'})).toHaveCount(0);
- await panel.getByRole('button',{name:'来週の月曜〜土曜'}).click();await expect(panel.getByLabel('開始日')).toHaveValue('2026-10-12');
+ await expect(panel.getByRole('button',{name:'来週の月曜〜土曜'})).toHaveCount(0);
  expect(posts).toBe(0);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 test('コピーが拒否された場合は一覧を選択する',async({page})=>{
