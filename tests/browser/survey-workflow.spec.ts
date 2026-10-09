@@ -9,7 +9,7 @@ for(const embedded of [false,true])test(`a trashed schedule is not marked saved 
  if(embedded){
   await page.route('**/api/interview-surveys',route=>route.fulfill({json:{groups:[{teacher:'工藤',students:[{grade:'中2',name:'架空 花子',notionUrl:`https://www.notion.so/${id.replaceAll('-','')}`,submittedAt:'2026-10-01T00:00:00Z'}]}]}}));
   await page.route('**/api/interview-surveys/confirmations',route=>route.fulfill({json:{states:[]}}));await page.route('**/api/interview-surveys/scheduling',route=>route.fulfill({json:{states:{}}}));
-  await page.goto('/');await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');await page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'}).click();
+  await page.goto('/staff/surveys/2026-autumn');await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');await page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'}).click();
  }else await page.goto(`/staff/survey-workflow?answer=${id}`);
  const ui=page.getByRole('region',{name:'面談入力'});
  await expect(ui.getByText(/以前のベンスケ予定はゴミ箱/)).toBeVisible();await expect(ui.getByText('保存済み：アンケートとベンスケに登録されています。')).toHaveCount(0);
@@ -58,7 +58,7 @@ for(const embedded of [true,false])for(const expiredInitially of [true,false])te
   await page.route('**/api/interview-surveys',route=>route.fulfill({json:{groups:[{teacher:'工藤',students:[{grade:'中2',name:'架空 花子',notionUrl:`https://app.notion.com/p/${answer.replaceAll('-','')}`,submittedAt:'2026-10-01T00:00:00Z'}]}]}}));
   await page.route('**/api/interview-surveys/confirmations',route=>route.fulfill({json:{states:[]}}));
   await page.route('**/api/interview-surveys/scheduling',route=>route.fulfill({json:{states:{}}}));
-  await page.goto('/');await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');await page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'}).click();
+  await page.goto('/staff/surveys/2026-autumn');await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');await page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'}).click();
  }else await page.goto(`/staff/survey-workflow?answer=${answer}`);
  if(!expiredInitially){if(embedded)await page.getByRole('button',{name:'面談記録',exact:true}).click();await page.getByLabel('面談内容',{exact:true}).fill('未保存の面談メモ');authenticated=false;await page.getByRole('button',{name:'面談記録を更新'}).click();}
  const form=page.getByRole('form',{name:'面談の職員ログイン'});
@@ -141,13 +141,13 @@ test('survey list opens inline, preserves drafts and saves time without sending 
   if(body.action==='send')sends++;
   await route.fulfill({json:{ok:true}});
  });
- await page.goto('/');
+ await page.goto('/staff/surveys/2026-autumn');
  await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空');
  const open=page.getByRole('button',{name:'架空 花子：日程連絡・面談記録・LINE'});
  await open.click();
  const workspace=page.getByRole('region',{name:'面談入力'});
  await expect(workspace.getByText('勉強の進め方について相談したい')).toBeVisible();
- await expect(page).toHaveURL(/\/$/);
+ await expect(page).toHaveURL(/\/staff\/surveys\/2026-autumn$/);
  await workspace.getByRole('button',{name:'面談記録',exact:true}).click();
  await workspace.getByLabel('面談内容',{exact:true}).fill('相談の記録を書きかけ');
  await workspace.getByRole('button',{name:'日程・LINE返信',exact:true}).click();

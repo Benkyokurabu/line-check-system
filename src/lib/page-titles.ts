@@ -22,6 +22,8 @@ export const pageTitles:Record<string,string>={
  '/self-study-room/menu-preview':'自習室予約',
  '/staff/self-study-room':'自習室の申請管理',
  '/staff/self-study-room/trial':'自習室の申請管理',
+ '/staff/surveys':'アンケートを確認する',
+ '/staff/surveys/2026-autumn':'2026年秋のアンケート',
  '/staff/interviews':'面談の予定・入力',
  '/staff/interview-materials':'面談資料を作る',
  '/staff/interview-availability':'予約可能枠を作る',

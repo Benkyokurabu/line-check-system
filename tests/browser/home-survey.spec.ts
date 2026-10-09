@@ -7,7 +7,7 @@ test('スマホで生徒検索・担任・業務進捗を分かりやすく絞�
   {grade:'中3',name:'架空　花子',notionUrl:'https://app.notion.com/p/11111111111141118111111111111111',submittedAt:'2026-09-16T00:00:00Z'},
   {grade:'中1',name:'架空　太郎',notionUrl:'https://app.notion.com/p/22222222222242228222222222222222',submittedAt:'2026-09-16T01:00:00Z'},
  ]}]}}));
- await page.goto('/');await expect(page.getByRole('combobox',{name:'アンケートの担任'})).toContainText('工藤先生（2件）');
+ await page.goto('/staff/surveys/2026-autumn');await expect(page.getByRole('combobox',{name:'アンケートの担任'})).toContainText('工藤先生（2件）');
  await page.getByRole('searchbox',{name:'アンケートの生徒を検索'}).fill('架空花子');
  await expect(page.locator('a[href^="https://app.notion.com/p/"]').filter({hasText:'架空　花子'})).toBeVisible();
  await expect(page.getByRole('link',{name:'架空　花子：資料をつくる'})).toHaveAttribute('href','/staff/interview-materials?answer=11111111111141118111111111111111');
@@ -29,14 +29,14 @@ test('古い担任未特定のキャッシュを自動更新し確認状態は�
   localStorage.setItem('bentan:2026-autumn-survey-confirmed',JSON.stringify([s.notionUrl]));
  },student);
  await page.route('**/api/interview-surveys',r=>r.fulfill({json:{groups:[{teacher:'工藤',students:[student]}]}}));
- await page.goto('/');
+ await page.goto('/staff/surveys/2026-autumn');
  await page.getByRole('combobox',{name:'アンケートの担任'}).selectOption('工藤');
  await expect(page.getByRole('combobox',{name:'アンケートの担任'})).not.toContainText('担任未特定先生');
  await expect(page.getByRole('combobox',{name:'照合確認生徒の対応状況'})).toHaveValue('handled');
 });
 
 test("確認状態の切替・行の非表示・提出日時の古い順表示ができる", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/staff/surveys/2026-autumn");
 
   await expect(page.getByRole("heading", { name: "担当生徒の回答を確認してください" })).toBeVisible();
   await expect(page.getByText("表示中 31件")).toBeVisible();
@@ -99,7 +99,7 @@ test("一覧を最新に更新でNotionから受け取った一覧に差し替�
       }),
     });
   });
-  await page.goto("/");
+  await page.goto("/staff/surveys/2026-autumn");
 
   await page.getByRole("button", { name: "一覧を最新に更新" }).click();
   await expect(page.getByText("Notionから最新の回答を更新しました。",{exact:true})).toBeVisible();
