@@ -75,11 +75,13 @@ export function planTeacherNotionLessons(lessons, month) {
     const dual = group.length === 2;
     if (dual && new Set(campuses).size !== 2) throw Error(`${teacher.name}の授業に同じ校舎の重複があります。`);
     const range = timeRange(source.date, source.time);
-    const title = source.isSpecialLesson ? `授業／${source.label.replace(/\s/gu, '')}`
+    const lessonTitle = source.isSpecialLesson ? `授業／${source.label.replace(/\s/gu, '')}`
       : `授業／${fullWidth(`${grades[source.grade]}${source.class}${subjects[source.subject]}`)}${source.faceToFace ? '対面' : ''}`;
+    const title = teacher.key === '金城' ? '授業' : lessonTitle;
     const campus = dual ? '' : source.campus === 'hon' ? '本校' : '南教室';
     const room = dual || !source.room ? '' : `${source.campus === 'hon' ? '本' : '南'}${roomNumbers[Number(source.room) - 1]}`;
-    items.push({ date: source.date, title, teacherId: teacher.id, teacherName: teacher.name,
+    items.push({ date: source.date, title, legacyTitle: teacher.key === '金城' ? lessonTitle : null,
+      teacherId: teacher.id, teacherName: teacher.name,
       ...range, campus, room, roomNumber: dual ? '' : source.room,
       note: dual ? LOCATION_PENDING : '' });
   }
@@ -124,7 +126,9 @@ function classify(item, pages, schema) {
     .filter(x => x.value.teachers.includes(item.teacherId));
   const sameTime = teacherPages.filter(x => sameStart(x.value.date?.start, item.start));
   if (sameTime.length) {
-    if (sameTime.length !== 1 || !equivalentSchedule(sameTime[0].value, expected)
+    const matchesTitle = sameTime.length === 1 && (equivalentSchedule(sameTime[0].value, expected)
+      || item.legacyTitle && equivalentSchedule(sameTime[0].value, { ...expected, title: item.legacyTitle }));
+    if (!matchesTitle
       || noteValue(sameTime[0].page, schema) !== item.note) {
       throw Error(`${item.date}の${item.teacherName}の既存授業と内容が異なります。`);
     }

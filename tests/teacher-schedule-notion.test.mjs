@@ -92,9 +92,11 @@ test('groups both-campus Kinjo lessons as one card with location pending', () =>
   ], month);
   assert.equal(items.length, 2);
   assert.deepEqual([items[0].title, items[0].campus, items[0].room, items[0].note],
-    ['授業／６Ｘ国', '', '', '校舎・教室は確認中']);
+    ['授業', '', '', '校舎・教室は確認中']);
+  assert.equal(items[0].legacyTitle, '授業／６Ｘ国');
   assert.deepEqual([items[1].title, items[1].campus, items[1].room, items[1].note],
-    ['授業／６Ｘ国対面', '本校', '本①', '']);
+    ['授業', '本校', '本①', '']);
+  assert.equal(items[1].legacyTitle, '授業／６Ｘ国対面');
   assert.equal(items[0].start, '2026-10-05T17:00:00+09:00');
 });
 
@@ -130,6 +132,18 @@ test('an already-created card is reused and a partial retry creates only the mis
   assert.equal(second.existing, 2);
   assert.deepEqual(await applyTeacherNotionSync(second), { created: 0, existing: 2, locationPending: 1 });
   assert.equal(notion.calls.filter(([path, init]) => path === '/pages' && init.method === 'POST').length, 1);
+});
+
+test('an older Kinjo title remains untouched while its exact schedule is recognized', async () => {
+  const rows = [row('2026-10-05', 'hon')];
+  const [planned] = planTeacherNotionLessons(rows, month);
+  const older = page({ ...planned, title: planned.legacyTitle }, 'older-card');
+  const notion = fakeNotion([older]);
+  const prepared = await prepareTeacherNotionSync(rows, month, notion.request);
+  assert.equal(prepared.existing, 1);
+  assert.deepEqual(await applyTeacherNotionSync(prepared), { created: 0, existing: 1, locationPending: 0 });
+  assert.equal(notion.pages[0].properties.title.title[0].plain_text, '授業／６Ｘ国');
+  assert.equal(notion.calls.filter(([path]) => path === '/pages').length, 0);
 });
 
 test('a failure after one new card resumes with only the two missing cards', async () => {
