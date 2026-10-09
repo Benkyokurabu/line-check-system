@@ -1,6 +1,8 @@
 const accessible = new Set([
   '/api/staff/session',
   '/api/staff/interview-auto-availability',
+  '/api/staff/interview-availability-copy',
+  '/api/staff/interview-manual-availability',
   '/api/staff/interview-materials',
   '/api/staff/interview-material-appointments',
   '/api/staff/interview-material-context',
