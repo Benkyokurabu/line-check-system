@@ -6,15 +6,20 @@ const teacherId='00000000-0000-4000-8000-000000000001';
 const source='00000000-0000-4000-8000-000000000002';
 const schema={properties:{'名前':{id:'title',type:'title'},'日時':{id:'date',type:'date'},'担当者':{id:'teacher',type:'relation',relation:{data_source_id:source}},'校舎':{id:'campus',type:'multi_select'},'教室':{id:'room',type:'select'},'内容':{id:'tag',type:'multi_select'}}};
 function card(id,start,end,tags=['本：予約可'],teachers=[teacherId]) {return {id,properties:{'名前':{id:'title',title:[{plain_text:'予約可'}]},'日時':{id:'date',date:{start,end}},'担当者':{id:'teacher',relation:teachers.map(id=>({id}))},'校舎':{id:'campus',multi_select:[{name:'本校'}]},'教室':{id:'room',select:null},'内容':{id:'tag',multi_select:tags.map(name=>({name}))}}};}
-function fixture(pages,{broken=false}={}) {
+function fixture(pages,{broken=false,staff=[{id:teacherId,name:'工藤先生'}]}={}) {
  const calls=[];
  const request=async(path,init={})=>{
   calls.push({path,...init});
   assert.ok(!init.method||init.method==='POST'&&path.endsWith('/query'),'No Notion mutations');
   if(!path.endsWith('/query'))return schema;
-  if(path===`/data_sources/${source}/query`)return {results:[{id:teacherId,properties:{'氏名':{type:'title',title:[{plain_text:'工藤先生'}]}}}]};
+  if(path===`/data_sources/${source}/query`)return {results:staff.map(person=>({id:person.id,properties:{'氏名':{type:'title',title:[{plain_text:person.name}]}}}))};
   const body=JSON.parse(init.body);
   assert.equal(body.filter.and[0].relation.contains,teacherId);
+  assert.deepEqual(body.filter.and.slice(1),[
+   {property:'date',date:{on_or_after:'2026-10-12T00:00:00+09:00'}},
+   {property:'date',date:{on_or_before:'2026-10-17T23:59:59+09:00'}},
+   {or:[{property:'tag',multi_select:{contains:'本：予約可'}},{property:'tag',multi_select:{contains:'南：予約可'}}]},
+  ],'Only query reservation-available cards in the selected JST period, not all historical events');
   if(!body.start_cursor)return {results:pages.slice(0,1),has_more:pages.length>1,next_cursor:pages.length>1?'next':null};
   if(broken)throw Error('second page failed');
   return {results:pages.slice(1),has_more:false};
@@ -37,15 +42,29 @@ test('日時順・曜日・丸数字・終了時刻なしを正確に整形',()=
  const rows=Array.from({length:51},()=>({date:'2026-10-12',start:'14:00',end:'14:45'}));
  const text=formatAvailabilityCopy(rows).split('\n');assert.ok(text[20].startsWith('㉑'));assert.ok(text[35].startsWith('㊱'));assert.ok(text[49].startsWith('㊿'));assert.ok(text[50].startsWith('（51）'));
 });
-test('Notion職員IDで本人を選び全ページを読む。予約済み・重複・期間外・複数担当を除く',async()=>{
+test('Notion職員IDで本人を選び全ページを読む。重複・期間外・予約可以外を除く',async()=>{
  const pages=[card('a','2026-10-12T14:00:00+09:00','2026-10-12T14:45:00+09:00'),card('b','2026-10-14T06:00:00Z','2026-10-14T06:45:00Z'),card('duplicate','2026-10-12T14:00:00+09:00','2026-10-12T14:45:00+09:00'),card('reserved','2026-10-12T15:00:00+09:00','2026-10-12T15:45:00+09:00',['面談(対面)']),card('outside','2026-10-19T14:00:00+09:00','2026-10-19T14:45:00+09:00'),card('multi','2026-10-12T16:00:00+09:00','2026-10-12T16:45:00+09:00',['本：予約可'],[teacherId,'other'])];
  const {request,calls}=fixture(pages),options=await copyTeacherOptions(request,actor);assert.equal(options.defaultTeacherId,teacherId);
  const result=await readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId,actor});
- assert.equal(result.rows.length,2);assert.equal(result.reviewCount,1);assert.equal(result.text,'① 10月12日（月）14:00〜14:45\n② 10月14日（水）15:00〜15:45');assert.ok(calls.some(c=>c.body?.includes('next')));
+ assert.equal(result.rows.length,3);assert.equal(result.reviewCount,0);assert.equal(result.text,'① 10月12日（月）14:00〜14:45\n② 10月12日（月）16:00〜16:45\n③ 10月14日（水）15:00〜15:45');assert.ok(calls.some(c=>c.body?.includes('next')));
 });
-test('期間前から続く休み・同時間の面談を除き、境界が接する枠は残す',async()=>{
+test('期間をまたぐ休みや同時間の面談があっても、登録された予約可をそのまま一覧にする',async()=>{
  const pages=[card('a','2026-10-12T14:00:00+09:00','2026-10-12T14:45:00+09:00'),card('b','2026-10-14T15:00:00+09:00','2026-10-14T15:45:00+09:00'),card('c','2026-10-14T16:00:00+09:00','2026-10-14T16:45:00+09:00'),card('holiday','2026-10-10','2026-10-12',['休み']),card('interview','2026-10-14T15:00:00+09:00','2026-10-14T16:00:00+09:00',['面談(対面)'])];
- const {request}=fixture(pages),result=await readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId,actor});assert.equal(result.conflictCount,2);assert.equal(result.rows[0].start,'16:00');
+ const {request}=fixture(pages),result=await readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId,actor});assert.equal(result.rows.length,3);assert.equal(result.rows[0].start,'14:00');assert.equal(result.rows[1].start,'15:00');assert.equal(result.reviewCount,0);
+});
+test('5名だけを指定順に選べる。髙山は別人の高山の職員IDと混ぜない',async()=>{
+ const staff=[{id:'other',name:'その他先生'},{id:'takayama-alias',name:'高山先生'},{id:'suzuki',name:'鈴木先生'},{id:'kaneko',name:'金子先生'},{id:teacherId,name:'工藤先生'},{id:'takayama',name:'髙山先生'},{id:'kinjo',name:'金城先生'}];
+ const {request,calls}=fixture([],{staff}),options=await copyTeacherOptions(request,actor);
+ assert.deepEqual(options.teachers,[{id:'kinjo',name:'金城先生'},{id:teacherId,name:'工藤先生'},{id:'suzuki',name:'鈴木先生'},{id:'takayama',name:'髙山先生'},{id:'kaneko',name:'金子先生'}]);
+ assert.equal(options.defaultTeacherId,teacherId);
+ assert.equal((await copyTeacherOptions(request,{displayName:'その他',staffCode:'OTHER'})).defaultTeacherId,'');
+ for(const id of ['other','takayama-alias'])await assert.rejects(readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId:id,actor}),/先生/);
+ assert.equal(calls.filter(call=>call.path!==`/data_sources/${source}/query`&&call.path.endsWith('/query')).length,0);
+});
+test('予約可の枠の長さ・ほかのタグ・担当数を予約確定のルールで制限しない',async()=>{
+ const pages=[card('hour','2026-10-12T14:00:00+09:00','2026-10-12T15:00:00+09:00',['本：予約可','休み']),card('short','2026-10-12T15:00:00+09:00','2026-10-12T15:30:00+09:00',['南：予約可'],[teacherId,'other']),card('open','2026-10-12T16:00:00+09:00',null),card('untimed','2026-10-12',null),card('overnight','2026-10-12T23:30:00+09:00','2026-10-13T00:30:00+09:00')];
+ const {request}=fixture(pages),result=await readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId,actor});
+ assert.equal(result.text,'① 10月12日（月）14:00〜15:00\n② 10月12日（月）15:00〜15:30\n③ 10月12日（月）16:00〜（終了時刻なし）');assert.equal(result.reviewCount,2);
 });
 test('未知の先生・途中取得失敗では一覧を返さない',async()=>{
  const {request}=fixture([card('a','2026-10-12T14:00:00+09:00','2026-10-12T14:45:00+09:00'),card('b','2026-10-13T14:00:00+09:00','2026-10-13T14:45:00+09:00')],{broken:true});

@@ -45,14 +45,15 @@ test('来週の期間・先生切替・コピー・失敗・0件をスマート�
  await page.route('**/api/staff/interview-manual-availability*',route=>route.fulfill({json:{rows:[]}}));
  await page.route('**/api/staff/interview-availability-copy*',route=>{
   const query=new URL(route.request().url()).searchParams;
-  if(query.get('mode')==='teachers')return route.fulfill({json:{teachers:[{id,name:'工藤先生'},{id:'other',name:'金城先生'}],defaultTeacherId:id}});
+  if(query.get('mode')==='teachers')return route.fulfill({json:{teachers:[{id:'other',name:'金城先生'},{id,name:'工藤先生'},{id:'suzuki',name:'鈴木先生'},{id:'takayama',name:'髙山先生'},{id:'kaneko',name:'金子先生'}],defaultTeacherId:id}});
   queries.push(query);
   if(mode==='fail')return route.fulfill({status:503,json:{error:'Notionの取得に失敗しました。'}});
-  return route.fulfill({json:{teacher:'工藤先生',teacherId:id,from:query.get('from'),to:query.get('to'),rows:mode==='empty'?[]:[{},{}],text:mode==='empty'?'':expected,checkedAt:'2026-10-09T02:00Z',conflictCount:1,reviewCount:0}});
+  return route.fulfill({json:{teacher:'工藤先生',teacherId:id,from:query.get('from'),to:query.get('to'),rows:mode==='empty'?[]:[{},{}],text:mode==='empty'?'':expected,checkedAt:'2026-10-09T02:00Z',reviewCount:0}});
  });
  await page.setViewportSize({width:390,height:844});await page.goto('/staff/interview-availability/manual');
  const panel=page.getByRole('region',{name:'予約可能枠をコピー'});
  await expect(panel.getByLabel('開始日')).toHaveValue('2026-10-12');await expect(panel.getByLabel('終了日')).toHaveValue('2026-10-17');await expect(panel.getByLabel('担当の先生')).toHaveValue(id);
+ await expect(panel.getByLabel('担当の先生').locator('option')).toHaveText(['先生を選んでください','金城先生','工藤先生','鈴木先生','髙山先生','金子先生']);
  await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();
  await expect(panel.getByLabel('コピーする日程')).toHaveValue(expected);
  await panel.getByRole('button',{name:'日程一覧をコピー'}).click();
