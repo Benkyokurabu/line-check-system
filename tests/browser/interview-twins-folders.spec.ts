@@ -97,7 +97,7 @@ for (const mode of ['normal', 'retry'] as const) test(`shared twin interview sav
   expect(requests[2]).toMatchObject({ answerId: students[1].responses[0].id, schools: ['越谷南'] });
   if (mode === 'retry') expect(requests.slice(4).map(r => r.number)).toEqual(['2018255', '2018255']);
   for (const student of students) {
-    const folder = resolve(root, `98面談資料/工藤先生/2026中３秋の教育相談会/2026.10.07 20：30- ${student.name}`);
+    const folder = resolve(root, `98面談資料/工藤先生/2026.10.07.2030-中３${student.name.replace(/\s+/gu, '')}`);
     expect(await readFile(resolve(folder, '面談記録.txt'), 'utf8')).toContain(student.number);
     const html = await readFile(resolve(folder, '面談資料.html'), 'utf8'); expect(html).toContain(student.name);
     expect(JSON.parse(await readFile(resolve(folder, '保存情報.json'), 'utf8')).appointment).toMatchObject({ id: 'one-notion-page', number: student.number, start: '20:30' });

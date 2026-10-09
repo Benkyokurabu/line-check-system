@@ -326,7 +326,7 @@ export default function MaterialsDesk() {
     if (batchBusy || !folderJob || folderBusy || downloadBusy) return;
     setFolderBusy(true); setDownloadFailed(false); setDownloadMessage('');
     try {
-      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, folderJob.grade, materialContext, setDownloadMessage, Boolean(showPastSchools), setSummarySaveMessage);
+      const name = await saveInterviewFolder(folderJob.id, folderJob.number, folderJob.name, folderJob.grade, materialContext, setDownloadMessage, Boolean(showPastSchools), setSummarySaveMessage, selectedAppointment ?? undefined);
       setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開けば、ネット接続なしで資料・面談記録・生徒情報を確認できます。AI要約は完成済みの場合に含まれます。`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setDownloadMessage('保存を取り消しました。');
@@ -539,8 +539,8 @@ export default function MaterialsDesk() {
           <strong>保存後は「面談資料.html」を開く</strong>
           <p>資料を切り替えて画面で見るためのHTML、PDF、面談記録、生徒情報を同じフォルダに保存します。</p>
           {folderSaveIssue && <p className={styles.error} role="status">{folderSaveIssue}</p>}
-          {folderJob && <p className={styles.sharePath}>保存するフォルダ：98面談資料／{individualInterviewMaterialFolderParts(folderJob).join('／')}／面談資料.html</p>}
-          <p className={styles.note}>{folderSupported ? '「共有フォルダに保存」を押し、保存先の選択画面で下記の「98面談資料」を選んでください。「個別保存」の中に生徒名と学籍番号のフォルダを作ります。日程や先生を選ぶ必要はありません。保存した「面談資料.html」をダブルクリックすると、ブラウザで資料を閲覧できます。' : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
+          {folderJob && <p className={styles.sharePath}>保存するフォルダ：98面談資料／{(selectedAppointment ? interviewMaterialFolderParts(selectedAppointment) : individualInterviewMaterialFolderParts(folderJob)).join('／')}／面談資料.html</p>}
+          <p className={styles.note}>{folderSupported ? `「共有フォルダに保存」を押し、保存先の選択画面で下記の「98面談資料」を選んでください。${selectedAppointment ? '選んだ面談予定の先生フォルダ直下に、日時・学年・氏名のフォルダを作ります。' : '面談予定を選んでいない場合は「個別保存」の中に生徒名と学籍番号のフォルダを作ります。'}保存した「面談資料.html」をダブルクリックすると、ブラウザで資料を閲覧できます。` : 'フォルダ保存はChromeまたはEdgeで利用できます。一式PDFは保存できます。'}</p>
           {folderSupported && <><p className={styles.sharePath}>{interviewMaterialsSharePath}</p><button type="button" onClick={() => {
             void navigator.clipboard.writeText(interviewMaterialsSharePath).then(() => setShareMessage('共有フォルダの場所をコピーしました。保存先の選択画面のアドレス欄へ貼り付けてください。'))
               .catch(() => setShareMessage('表示した共有フォルダの場所を保存先のアドレス欄へ入力してください。'));

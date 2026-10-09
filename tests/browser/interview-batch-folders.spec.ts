@@ -19,7 +19,7 @@ const appointments = students.map((student, index) => ({ ...student, responses: 
   editedAt: '2026-10-05T00:00:00.000Z', url: `https://notion.so/appointment-${index}` }));
 const allAppointments = [...appointments, { ...appointments[0], id: 'other-teacher', teacher: '金城', teacherId: otherTeacher },
   { ...appointments[0], id: 'other-day', date: '2026-10-06' }];
-const expectedFolder = (index: number) => `98面談資料/工藤先生/2026${index === 0 ? '中３' : index === 1 ? '小５' : '中２'}秋の教育相談会/2026.10.05 ${17 + index}：00- ${students[index].name}`;
+const expectedFolder = (index: number) => `98面談資料/工藤先生/2026.10.05.${17 + index}00-${index === 0 ? '中３' : index === 1 ? '小５' : '中２'}${students[index].name.replace(/\s+/gu, '')}`;
 
 type Payload = { kind: string; number: string; schools: string[]; campus: string; answerId?: string; selectedMaterialIds?: string[] };
 async function setup(page: Page, info: TestInfo, mode = 'normal') {

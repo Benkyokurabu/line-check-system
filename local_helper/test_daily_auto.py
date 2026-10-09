@@ -30,12 +30,17 @@ class DailyFolderTests(unittest.TestCase):
             'info': [{'source': '生徒情報', 'value': '保護者の希望'}], 'summary': {'status': 'empty', 'items': []}, 'source': 'notion'}
         self.prepared = {'sourceHash': 'server-hash', 'template': (Path(__file__).parent.parent / 'public/interview-material-offline-template.html').read_text(encoding='utf-8'),
                          'context': self.context, 'payload': {'number': '2018998', 'name': '確認用 生徒', 'grade': '小6', 'schools': []},
-                         'folderParts': ['確認用先生', '2030小６秋の教育相談会', '2030.01.02 21：30- 確認用 生徒'],
+                         'folderParts': ['確認用先生', '2030.01.02.2130-小６確認用生徒'],
                          'appointment': {'id': 'appointment', 'number': '2018998', 'name': '確認用 生徒', 'grade': '小6', 'teacher': '確認用',
                                          'teacherId': 'teacher', 'date': '2030-01-02', 'start': '21:30', 'editedAt': '2030-01-01', 'source': 'notion-bensuke'}}
 
     def folder(self):
         return DailyFolder(self.prepared, self.share)
+
+    def test_old_three_part_folder_is_still_readable_during_migration(self):
+        old = ['確認用先生', '2030小６秋の教育相談会', '2030.01.02 21：30- 確認用 生徒']
+        self.assertEqual(DailyFolder({**self.prepared, 'folderParts': old}, self.share).folder,
+                         self.share.joinpath(*old))
 
     def test_offline_html_and_all_originals_are_published_as_one_version(self):
         folder = self.folder()

@@ -26,7 +26,7 @@ test('Notion source, review buttons, date changes and retry work on mobile', asy
   const dimensions = await review.getByRole('link').boundingBox();
   expect(dimensions!.height).toBeGreaterThanOrEqual(44);
   await page.getByRole('button', { name: /20:30.*中3 確認用 生徒/ }).click();
-  await expect(page.getByText('保存予定：', { exact: false })).toContainText('工藤先生／2026中３秋の教育相談会');
+  await expect(page.getByText('保存予定：', { exact: false })).toContainText('工藤先生／2026.10.05.2030-中３確認用生徒');
   await expect(page.getByRole('link', { name: '選んだ面談のNotion原本を開く' })).toHaveAttribute('href', appointment.url);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'analysis_outputs/interview-date-folders-mobile.png', fullPage: true });

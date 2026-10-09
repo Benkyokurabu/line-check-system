@@ -98,7 +98,7 @@ class DailyFolder:
     def __init__(self, prepared, share_root=SHARE_ROOT):
         self.prepared = prepared
         parts = prepared['folderParts']
-        if len(parts) != 3 or any(not part or part in ('.', '..') or re.search(r'[<>:"/\\|?*\x00-\x1f]', part) for part in parts):
+        if len(parts) not in (2, 3) or any(not part or part in ('.', '..') or re.search(r'[<>:"/\\|?*\x00-\x1f]', part) for part in parts):
             raise ValueError('面談資料の保存先を確認できません。')
         if not share_root.is_dir():
             raise RuntimeError('共有フォルダ「98面談資料」に接続できません。以前の資料は保持しています。')

@@ -10,7 +10,7 @@ function pdfFixture(){
 for(const initial of ['queued','running','failed','broken-pdf','changed-source','changed-appointment','wrong-root'] as const){
  test(`AI ${initial}: saves every file to disk and uses HTML offline`,async({page,browser},testInfo)=>{
   const root=resolve('analysis_outputs/offline-folder-verification',`${testInfo.workerIndex}-${initial}-${Date.now()}`);
-  const folder='98面談資料/工藤先生/2026中３秋の教育相談会/2026.10.05 20：30- 確認用 生徒';await mkdir(root,{recursive:true});
+  const folder='98面談資料/工藤先生/2026.10.05.2030-中３確認用生徒';await mkdir(root,{recursive:true});
   let status:string=['broken-pdf','changed-source'].includes(initial)?'queued':initial;let sourceHash='source-v1';let contextReads=0;
   const summary=()=>({status,sourceHash,items:status==='completed'?[{note:'自動追加した注意点',source:'備考',original:'原文'}]:[]});
   await page.exposeBinding('folderExists',async(_,directory:string)=>{
@@ -67,8 +67,8 @@ for(const initial of ['queued','running','failed','broken-pdf','changed-source',
    status='completed';await expect.poll(async()=>await readFile(resolve(root,folder,'AI要約.js'),'utf8'),{timeout:15000}).toContain('自動追加した注意点');
    await expect(offline.getByText('自動追加した注意点')).toBeVisible({timeout:10000});
   }else{
-   status='completed';await page.getByRole('button',{name:'保存済みフォルダのAI要約を更新',exact:true}).click();
-   await expect(page.getByRole('status').filter({hasText:'PDFを保存し直す必要はありません'})).toBeVisible();
+   status='completed';await page.getByRole('button',{name:'生徒の保存済みフォルダを選んでAI要約を反映',exact:true}).click();
+   await expect(page.getByRole('status').filter({hasText:'PDFと面談資料.htmlを保存し直す必要はありません'})).toBeVisible();
    await expect(offline.getByText('自動追加した注意点')).toBeVisible({timeout:10000});
   }
   expect(remote).toBe(0);await offline.screenshot({path:resolve(root,'offline-html.png')});await offlineContext.close();

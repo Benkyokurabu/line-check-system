@@ -27,7 +27,6 @@ export function interviewMaterialFolderParts(appointment) {
   if (!teacherName) throw Error('担当先生を確認できません。');
   return [
     `${teacherName}先生`,
-    `${year}${fullGrade}秋の教育相談会`,
-    `${year}.${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')} ${start.replace(':', '：')}- ${safeFolderPart(name)}`,
+    `${year}.${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')}.${start.replace(':', '')}-${fullGrade}${safeFolderPart(name.replace(/\s+/gu, ''))}`,
   ];
 }
