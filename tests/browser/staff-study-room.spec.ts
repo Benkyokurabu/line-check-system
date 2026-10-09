@@ -40,6 +40,10 @@ async function setup(page: Page, { loseResponse = false, readOnly = false, loseI
     const method = route.request().method();
     if (url.origin !== new URL(String(test.info().project.use.baseURL)).origin) { forbidden.push(url.origin); await route.abort(); return; }
     if (!url.pathname.startsWith("/api/")) { await route.continue(); return; }
+    if (url.pathname === "/api/staff/session/activity") {
+      expect(method).toBe("GET");
+      await route.fulfill({ json: { authenticated: loggedIn } }); return;
+    }
     if (url.pathname === "/api/staff/session") {
       if (method === "POST") loggedIn = true;
       if (method === "DELETE") { loggedIn = false; await route.fulfill({ json: { loggedOut: true } }); return; }

@@ -58,7 +58,7 @@ export async function staffContext(request: NextRequest) {
     accessToken: request.cookies.get(STAFF_ACCESS_COOKIE)?.value,
     refreshToken: request.cookies.get(STAFF_REFRESH_COOKIE)?.value,
   });
-  // Common-password teacher accounts can use availability and interview materials only.
+  // Teacher accounts share one session for availability, materials and survey work.
   if (authenticated.staff.staffCode.startsWith('AVAIL_')
     && !teacherRouteAllowed(request.nextUrl.pathname)) {
     throw new StaffAuthError('permission_denied', 403);

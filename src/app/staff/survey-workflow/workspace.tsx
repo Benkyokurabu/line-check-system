@@ -65,6 +65,16 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
   void load(answerId).catch(e=>setError(e instanceof Error?e.message:'取得できませんでした。'));},0);
   return ()=>clearTimeout(timer);
  },[answerId,load]);
+ useEffect(()=>{
+  if(!authRequired||busy||!answerId)return;
+  let checking=false;
+  const resume=()=>{if(checking||document.visibilityState!=='visible')return;checking=true;
+   void load(answerId).then(()=>{setError('');setNotice('ログインを引き継ぎました。入力内容を確認してから、保存・送信してください。');})
+    .catch(()=>{}).finally(()=>{checking=false;});
+  };
+  window.addEventListener('bentan:staff-session-active',resume);window.addEventListener('focus',resume);
+  return()=>{window.removeEventListener('bentan:staff-session-active',resume);window.removeEventListener('focus',resume);};
+ },[authRequired,busy,answerId,load]);
  useEffect(()=>{if(!data||!hydrated.current)return;
   try{sessionStorage.setItem(draftKey,JSON.stringify({date,time,endTime,scheduleMethod,content,scheduleText,method,summaryEdits}));}catch{}
  },[data,draftKey,date,time,endTime,scheduleMethod,content,scheduleText,method,summaryEdits]);

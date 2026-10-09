@@ -88,7 +88,7 @@ test('別月の同期と重なっても、原本と授業が一致していれ�
   if(new URL(route.request().url()).searchParams.get('overview')==='1')return route.fulfill({json:{month:'2026-10',teachers:[]}});
   inspected=true;return route.fulfill({json:{...base,summary:{create:1,update:0,archive:0,keep:0,skip:0,review:0},items:[]}});
  });
- await page.goto('/staff/interview-availability');await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();
+ await page.goto('/staff/interview-availability');await page.getByLabel('対象月').fill(base.month);await page.getByRole('button',{name:'スケジュール表から枠を確認'}).click();
  await expect(page.locator('[aria-label="予約可の反映予定"]')).toContainText('作成 1');
  await expect(page.getByRole('status')).toContainText('原本と登録済み授業が一致');
  expect(inspected).toBe(true);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

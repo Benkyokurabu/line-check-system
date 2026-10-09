@@ -1,5 +1,7 @@
 const accessible = new Set([
   '/api/staff/session',
+  '/api/staff/session/activity',
+  '/api/interview-surveys/scheduling',
   '/api/staff/interview-auto-availability',
   '/api/staff/interview-availability-copy',
   '/api/staff/interview-manual-availability',
