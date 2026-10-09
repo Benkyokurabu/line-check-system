@@ -7,7 +7,7 @@ import {pageTitles} from '@/lib/page-titles';
 
 const navigation = [
   { label: "日常業務", links: [["/attendance", "欠席連絡の確認"], ["/classroom-office", "教室への連絡"]] },
-  { label: "面談", links: [["/staff/interviews", "面談の予定・入力"], ["/staff/interview-materials", "面談資料を作る"], ["/staff/interview-availability", "予約可能枠を作る"]] },
+  { label: "面談", links: [["/staff/interviews", "面談の予定・入力"], ["/staff/interview-materials", "面談資料を作る"], ["/staff/interview-availability", "予約可能枠を作る"], ["/staff/interview-availability/manual", "予約可能枠をコピー"]] },
   { label: "授業・管理", links: [["/staff/recordings", "録画の公開設定"], ["/schedule-import", "授業スケジュール取込"], ["/contacts", "連絡先管理"], ["/contacts#roster-import", "クラス一覧表の取り込み"], ["/admin/notion-roster", "Notion・クラス一覧 照合"], ["/line-alias-import", "LINE登録名の取り込み"], ["/feedback", "改善してほしいことなど、何でも"]] },
   { label: "本番運用前", links: [["/dashboard", "未対応メッセージ"], ["/students", "担任・クラス別 生徒一覧"], ["/karte", "生徒カルテ"], ["/staff/self-study-room/trial", "自習室管理"], ["/self-study-room/trial", "自習室予約"]] },
 ];
