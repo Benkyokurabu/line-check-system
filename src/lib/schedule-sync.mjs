@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getScheduleCloudPreview, listScheduleCloudMonths, ScheduleCloudError } from "./schedule-cloud.mjs";
+import { applyTeacherNotionSync, isTrackedTeacherLesson, prepareTeacherNotionSync } from "./teacher-schedule-notion.mjs";
 
 export function scheduleSyncToken(key) {
   return createHmac("sha256", key).update("schedule-sync-cron-v1").digest("hex");
@@ -19,6 +20,7 @@ export function scheduleSyncBlockers(report, now = new Date()) {
   if (report.lessons && ["本校", "南教室"].some((campus) => !report.lessons.some((r) => r.campus === campus))) reasons.push("本校・南教室の両方の授業を読み取れていません。原本のシートを管理担当者が確認するまで反映を保留します。");
   if (report.summary.remove) reasons.push("原本に見当たらない授業があります。休講・日付変更・校舎変更を管理担当者が確認するまで、この月の反映を保留します。");
   if (report.summary.ambiguous) reasons.push("変更前後の授業を一意に対応付けできません。管理担当者による確認が必要です。");
+  if (report.changes.some((c) => c.kind === "update" && (isTrackedTeacherLesson(c.before) || isTrackedTeacherLesson(c.after)))) reasons.push("金城先生または工藤先生の登録済み授業に変更があります。Notion予定も含めて管理担当者が確認するまで反映を保留します。");
   const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(now);
   if (report.changes.some((c) => c.before?.lesson_date < today)) reasons.push("過去の日付の授業に差分があります。出欠履歴を守るため、管理担当者が確認するまで反映を保留します。");
   if (report.summary.existing && report.summary.update > Math.max(20, report.summary.existing * 0.25)) reasons.push("多数の授業が変更されています。原本の書式・内容を管理担当者が確認するまで反映を保留します。");
@@ -35,32 +37,59 @@ export async function syncSchedule(db, month, key, options = {}) {
   if (!scheduleSyncMonths(now).includes(month)) throw new ScheduleCloudError("自動反映の対象は今月と翌月です。過去の月は確認のみできます。", 422);
   const runId = await rpc(db, "schedule_sync_claim", { p_month: month, p_trigger: options.trigger ?? "manual" });
   if (!runId) return { status: "busy", message: "直前の処理を実行中、または完了直後です。少し待って結果を確認してください。" };
+  let v2Ready = false;
   try {
+    let capability;
+    try { capability = await db.rpc("schedule_sync_v2_ready"); } catch { capability = null; }
+    if (capability?.error || capability?.data !== true) {
+      throw new ScheduleCloudError("新しい授業同期SQLが未適用、または確認できません。授業DBは変更していません。管理担当者に確認してください。", 503);
+    }
+    v2Ready = true;
     const months = await (options.listMonths ?? listScheduleCloudMonths)(db, key);
     if (!months.some((m) => m.month === month)) {
       const status = month === scheduleSyncMonths(now)[0] ? "error" : "waiting";
       const message = `${month} の原本がありません。「【完成版】授業日誌システム」にExcelを保存すると自動で再確認します。`;
-      await rpc(db, "schedule_sync_finish", { p_run: runId, p_status: status, p_message: message });
+      await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: status, p_message: message });
       return { status, message };
     }
     const report = await (options.preview ?? getScheduleCloudPreview)(db, month, key, fetch, { includeSnapshot: true });
     // Avoid reading an Excel upload while the operator is still saving it.
     if (!Number.isFinite(Date.parse(report.source.modifiedAt)) || Date.parse(report.source.modifiedAt) > now.getTime() - 120000) {
       const message = "原本の更新直後です。保存が落ち着いてから次の定期処理で再確認します。";
-      await rpc(db, "schedule_sync_finish", { p_run: runId, p_status: "waiting", p_message: message });
+      await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: "waiting", p_message: message });
       return { status: "waiting", message };
     }
     const blockers = scheduleSyncBlockers(report, now);
     if (blockers.length) {
       const message = blockers.join(" ");
-      await rpc(db, "schedule_sync_finish", { p_run: runId, p_status: "review", p_message: message, p_report: report });
+      await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: "review", p_message: message, p_report: report });
       return { status: "review", message, summary: report.summary };
     }
-    const result = await rpc(db, "schedule_sync_apply", { p_run: runId, p_report: report });
-    return { ...result, message: result.status === "applied" ? "授業への反映が完了しました。教室画面・欠席連絡の授業選択に反映されます。" : "原本と登録済み授業は一致しています。反映済みです。" };
+    const prepared = await (options.prepareTeacherNotionSync ?? prepareTeacherNotionSync)(report.lessons, month);
+    const result = await rpc(db, "schedule_sync_apply_v2", { p_run: runId, p_report: report });
+    if (!prepared.items.length) {
+      const message = result.status === "applied" ? "授業への反映が完了しました。教室画面・欠席連絡の授業選択に反映されます。" : "原本と登録済み授業は一致しています。反映済みです。";
+      await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: result.status, p_message: message });
+      return { ...result, message };
+    }
+    const teacherNames = [...new Set(prepared.items.map((item) => item.teacherName))].join("・");
+    let teacherNotion;
+    try {
+      teacherNotion = await (options.applyTeacherNotionSync ?? applyTeacherNotionSync)(prepared);
+    } catch {
+      throw new ScheduleCloudError(`授業DBは反映済みですが、${teacherNames}のNotion予定は一部未完了です。次回の同期で不足分を再確認して登録します。`);
+    }
+    if (teacherNotion.blocked?.length) {
+      const message = `授業DBは反映済みですが、${teacherNames}の授業${teacherNotion.blocked.length}件はNotionの既存予定と重なるため登録を保留しました。管理担当者が予定を確認してください。次回の同期で再確認します。`;
+      await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: "error", p_message: message });
+      return { ...result, status: "error", teacherNotion, message };
+    }
+    const message = result.status === "applied" ? `授業と${teacherNames}のNotion予定への反映が完了しました。` : `原本と登録済み授業は一致しています。${teacherNames}のNotion予定も確認しました。`;
+    await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: result.status, p_message: message });
+    return { ...result, teacherNotion, message };
   } catch (error) {
     const message = error instanceof ScheduleCloudError ? error.message : "原本の取得・照合・反映に失敗しました。次の定期処理で再試行します。";
-    await rpc(db, "schedule_sync_finish", { p_run: runId, p_status: "error", p_message: message }).catch(() => {});
+    await rpc(db, v2Ready ? "schedule_sync_finish_v2" : "schedule_sync_finish", { p_run: runId, p_status: "error", p_message: message }).catch(() => {});
     throw new ScheduleCloudError(message);
   }
 }
