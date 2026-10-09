@@ -7,6 +7,7 @@ const menuItems = [
   { href: "/staff/interviews", group: "interview" as const, icon: "calendar", title: "面談の予定・入力", description: "授業の空き時間を確認し、面談予定の登録・承認・変更と実施内容を入力します。" },
   { href: "/staff/interview-materials", group: "interview" as const, icon: "calendar", title: "面談資料を作る", description: "面談日または生徒名から対象を選び、資料の確認・PDF作成・保存へ進みます。面談の予定や実施内容の入力は「面談の予定・入力」へ。" },
   { href: "/staff/interview-availability", group: "interview" as const, icon: "calendar", title: "予約可能枠を作る", description: "毎月のスケジュール表から、自分の勤務校舎と空き時間を確認してNotionへ予約可を作成します。" },
+  { href: "/staff/interview-availability/manual", group: "interview" as const, icon: "calendar", title: "予約可能枠をコピー", description: "先生と期間を選び、Notionの予約可を番号付きの日程一覧にしてコピーします。" },
   { href: "/staff/recordings", group: "management" as const, icon: "calendar", title: "録画の公開設定", description: "単元テスト解説などの録画を、非公開・日時指定・今すぐ公開に設定します。" },
   { href: "/schedule-import", group: "management" as const, icon: "calendar", title: "授業スケジュール取込", description: "スケジュール原本と登録済み授業を照合し、追加・変更・休講候補を確認します。" },
   { href: "/contacts", group: "management" as const, icon: "users", title: "連絡先管理", description: "LINE名、登録名、グループを管理し、一斉送信の対象を整えます。" },

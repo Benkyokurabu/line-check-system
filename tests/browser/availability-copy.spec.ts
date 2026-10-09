@@ -2,6 +2,20 @@ import {test,expect} from '@playwright/test';
 import fs from 'node:fs';
 const id='00000000-0000-4000-8000-000000000001';
 const expected='① 10月12日（月）14:00〜14:45\n② 10月14日（水）15:00〜15:45';
+test('トップページの左メニュー面談にコピーカードを並べ、直接移動できる',async({page})=>{
+ await page.route('**/api/interview-surveys**',route=>route.fulfill({json:{groups:[],states:[],scheduling:[]}}));
+ await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{displayName:'工藤謙'}}}));
+ await page.route('**/api/staff/interview-manual-availability*',route=>route.fulfill({json:{rows:[]}}));
+ await page.route('**/api/staff/interview-availability-copy*',route=>route.fulfill({json:{teachers:[{id,name:'工藤先生'}],defaultTeacherId:id}}));
+ for(const width of [1280,390]){
+  await page.setViewportSize({width,height:900});await page.goto('/');
+  await page.getByRole('navigation',{name:'機能の分類'}).getByRole('button',{name:'面談',exact:true}).click();
+  await expect(page.getByRole('heading',{level:3})).toHaveText(['面談の予定・入力','面談資料を作る','予約可能枠を作る','予約可能枠をコピー']);
+  const link=page.getByRole('link',{name:/予約可能枠をコピー/});await expect(link).toBeVisible();await expect(link).toHaveAttribute('href','/staff/interview-availability/manual');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:`test-results/availability-copy-home-${width}.png`,fullPage:true});
+  await link.click();await expect(page).toHaveURL(/\/staff\/interview-availability\/manual$/);await expect(page.getByRole('region',{name:'予約可能枠をコピー'})).toBeVisible();
+ }
+});
 test('左メニューの面談から予約可能枠コピー画面を直接開く',async({page})=>{
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{displayName:'工藤謙'}}}));
  await page.route('**/api/staff/interview-manual-availability*',route=>route.fulfill({json:{rows:[]}}));
