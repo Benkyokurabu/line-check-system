@@ -4,6 +4,7 @@ test('先生がNotionの予約可を選び、確認して削除する',async({pa
  const slot={pageId:'00000000-0000-4000-8000-000000000011',editedAt:'2026-09-25T00:00:00Z',date:'2026-10-02',start:'14:00',end:'14:45',campus:'本校',teacher:'工藤'};
  const operations:Record<string,unknown>[]=[];let archived=false;
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{staffId:'00000000-0000-4000-8000-000000000001',staffCode:'KUDO',displayName:'工藤謙',role:'admin'}}}));
+ await page.route('**/api/staff/interview-availability-copy*',route=>route.fulfill({json:{teachers:[{id:'00000000-0000-4000-8000-000000000001',name:'工藤先生'}],defaultTeacherId:'00000000-0000-4000-8000-000000000001'}}));
  await page.route('**/api/staff/interview-manual-availability*',route=>{
   if(route.request().method()==='POST'){
    const operation=route.request().postDataJSON();operations.push(operation);archived=true;return route.fulfill({json:{saved:{pageId:slot.pageId,archived:true}}});
