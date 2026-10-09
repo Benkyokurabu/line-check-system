@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -94,5 +94,36 @@ test('downloaded HTML opens from a local folder and links to saved text', async 
     await expect(page.locator('a[href="面談記録.txt"]')).toBeVisible();
   } finally {
     await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test('saved student HTML opens the shared all-school folder from either save layout', async ({ browser }) => {
+  const root = await mkdtemp(join(tmpdir(), 'bentan-shared-hokushin-'));
+  try {
+    const target = join(root, '07 中３秋冬面談資料', '北辰基礎資料');
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, '北辰基礎資料.html'), '<!doctype html><meta charset="utf-8"><title>北辰基礎資料の目次</title>');
+    const template = await readFile('public/interview-material-offline-template.html', 'utf8');
+    const html = template.replace('__ITEMS_JSON__', '[]').replace('__STUDENT_NAME_JSON__', '"確認用生徒"')
+      .replace('__CONTEXT_JSON__', JSON.stringify({ records: [], info: [], summary: { status: 'empty', items: [] } }));
+    for (const parent of ['金城先生', '個別保存']) {
+      const student = join(root, '98面談資料', parent, '生徒');
+      await mkdir(student, { recursive: true });
+      const file = join(student, '面談資料.html');
+      await writeFile(file, html);
+      const page = await browser.newPage();
+      await page.goto(pathToFileURL(file).href);
+      await page.getByRole('button', { name: '資料を画面で見る' }).click();
+      const link = page.getByRole('link', { name: '【全】北辰基礎資料' });
+      await expect(link).toBeVisible();
+      await expect(link).toHaveAttribute('target', '_blank');
+      const [opened] = await Promise.all([page.waitForEvent('popup'), link.click()]);
+      await expect(opened).toHaveURL(pathToFileURL(target).href.replace(/\/$/, '') + '/');
+      await expect(opened.getByRole('link', { name: '北辰基礎資料.html' })).toBeVisible();
+      await opened.close();
+      await page.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
