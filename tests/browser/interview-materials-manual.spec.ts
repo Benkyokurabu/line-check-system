@@ -14,7 +14,7 @@ test('button queues confirmed appointments on the online PC, and reopening never
   await page.route('**/api/staff/interview-material-run**', async route => {
     if(new URL(route.request().url()).searchParams.get('review')==='1') {
       if(failed) return route.fulfill({status:503,json:{error:'確認対象を取得できません。'}});
-      return route.fulfill({json:{review,reviewCount:2,from:'2030-01-02',to:'2030-01-09'}});
+      return route.fulfill({json:{review,reviewCount:2,from:'2030-01-02',to:'2030-01-09',chunkCount:1}});
     }
     if (route.request().method() === 'POST') {
       submissions++;
@@ -22,7 +22,7 @@ test('button queues confirmed appointments on the online PC, and reopening never
       expect(body.runId).toMatch(/^[a-f0-9-]{36}$/);
       expect(body.teacherId).toBe('11111111-1111-4111-8111-111111111111');
       status = 'queued';
-      return route.fulfill({ status: 201, json: { accepted: 1, worker: '予備PC', reviewCount: 2, review, from:'2030-01-02',to:'2030-01-09' } });
+      return route.fulfill({ status: 201, json: { accepted: 1, worker: '予備PC', reviewCount: 2, review, from:'2030-01-02',to:'2030-01-09',chunkCount:1 } });
     }
     if (failed) return route.fulfill({ status: 503, json: { error: '状況を取得できません。' } });
     return route.fulfill({ json: { workers: online ? [{ id: 'standby', name: '予備PC' }] : [], jobs: status === 'idle' ? [] : [{

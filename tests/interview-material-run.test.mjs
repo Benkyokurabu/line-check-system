@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { materialRunDates, materialRunJobs, materialRunReviews } from '../src/lib/interview-material-run-core.mjs';
+import { materialRunChunk, materialRunDates, materialRunJobs, materialRunReviews, materialRunWithinLimit } from '../src/lib/interview-material-run-core.mjs';
 import { teacherRouteAllowed } from '../src/lib/staff-teacher-route-access.mjs';
 test('manual range is explicit, inclusive and limited; past and invalid dates rejected', () => {
-  assert.equal(materialRunDates('2030-01-01', '2030-01-08', '2030-01-01').length, 8);
-  for (const [from, to] of [['2029-12-31','2030-01-01'],['2030-01-01','2030-01-09'],['2030-02-30','2030-02-30'],['2030-02-02','2030-02-02']])
+  const dates = materialRunDates('2030-01-01', '2030-01-31', '2030-01-01');
+  assert.equal(dates.length, 31);
+  assert.equal(materialRunChunk(dates, 0).length, 8);
+  assert.equal(materialRunChunk(dates, 1)[0], '2030-01-09');
+  assert.equal(materialRunChunk(dates, 3).at(-1), '2030-01-31');
+  assert.throws(() => materialRunChunk(dates, 4));
+  assert.throws(() => materialRunChunk(dates, -1));
+  for (const [from, to] of [['2029-12-31','2030-01-01'],['2030-01-01','2030-02-01'],['2030-02-30','2030-02-30'],['2030-02-02','2030-02-02']])
     assert.throws(() => materialRunDates(from,to,'2030-01-01'));
 });
 test('queue replay is idempotent and teacher filter cannot include another teacher', () => {
@@ -15,6 +21,9 @@ test('queue replay is idempotent and teacher filter cannot include another teach
   assert.equal(first.length, 1);
   assert.equal(first[0].payload.autoDaily.manual, true);
   assert.notEqual(materialRunJobs(rows, { ...options, runId: 'retry' })[0].daily_key, first[0].daily_key);
+  assert.equal(materialRunWithinLimit(Array.from({ length: 299 }, (_, i) => `existing-${i}`), first), true);
+  assert.equal(materialRunWithinLimit(Array.from({ length: 300 }, (_, i) => `existing-${i}`), first), false);
+  assert.equal(materialRunWithinLimit([first[0].daily_key], first, 1), true);
 });
 test('usual teacher login can submit and read manual material requests', () => {
   assert.equal(teacherRouteAllowed('/api/staff/interview-material-run'), true);

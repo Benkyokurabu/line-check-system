@@ -4,7 +4,7 @@ import { InterviewError } from '@/lib/interview-core.mjs';
 import { online } from '@/lib/interview-material-worker';
 import { loadInterviewMaterialAppointmentRange } from '@/lib/interview-material-appointments-loader';
 import { futureMaterialAppointment, tokyoMaterialNow } from '@/lib/interview-material-daily-core.mjs';
-import { materialRunDates, materialRunJobs, materialRunReviews } from '@/lib/interview-material-run-core.mjs';
+import { materialRunChunk, materialRunDates, materialRunJobs, materialRunReviews, materialRunWithinLimit } from '@/lib/interview-material-run-core.mjs';
 import { teacherMatch } from '@/lib/bensuke-booking.mjs';
 
 export const dynamic = 'force-dynamic';
@@ -20,13 +20,17 @@ async function workersFor(client: Awaited<ReturnType<typeof staffContext>>['data
   return (data ?? []).filter(worker => online(worker) && worker.status?.capabilities?.includes('daily-offline-v1'))
     .map(worker => ({ id: worker.id, name: worker.priority === 1 ? '主担当PC' : '予備PC' }));
 }
-async function planFor(client: Awaited<ReturnType<typeof staffContext>>['dataClient'], from: unknown, to: unknown, teacherId: string) {
+async function planFor(client: Awaited<ReturnType<typeof staffContext>>['dataClient'], from: unknown, to: unknown, teacherId: string, chunk: unknown) {
   if (teacherId && !/^[a-f0-9-]{32,36}$/i.test(teacherId)) throw new InterviewError('先生を選び直してください。', 400);
   let dates;
   try { dates = materialRunDates(from, to, tokyoMaterialNow().date); }
   catch (error) { throw new InterviewError((error as Error).message, 400); }
+  const index = typeof chunk === 'number' ? chunk : typeof chunk === 'string' && /^\d+$/.test(chunk) ? Number(chunk) : NaN;
+  let chunkDates;
+  try { chunkDates = materialRunChunk(dates, index); }
+  catch (error) { throw new InterviewError((error as Error).message, 400); }
   const deadline = AbortSignal.timeout(55000);
-  const planned = await loadInterviewMaterialAppointmentRange(client, dates, deadline);
+  const planned = await loadInterviewMaterialAppointmentRange(client, chunkDates, deadline);
   // The login selector uses teachers.id; appointment relations use Notion staff page IDs.
   let notionTeacherId = '';
   if (teacherId) {
@@ -35,7 +39,7 @@ async function planFor(client: Awaited<ReturnType<typeof staffContext>>['dataCli
     if (!teacher) throw new InterviewError('選択した先生を確認できません。先生を選び直してください。', 400);
     notionTeacherId = teacherMatch(teacher.display_name, planned[0].directory).id;
   }
-  return { dates, planned, notionTeacherId, review: materialRunReviews(planned, notionTeacherId) };
+  return { dates, chunkCount: Math.ceil(dates.length / 8), planned, notionTeacherId, review: materialRunReviews(planned, notionTeacherId) };
 }
 export async function GET(request: NextRequest) {
   let context: Awaited<ReturnType<typeof contextFor>> | undefined;
@@ -43,8 +47,9 @@ export async function GET(request: NextRequest) {
     context = await contextFor(request);
     if (request.nextUrl.searchParams.get('review') === '1') {
       const params = request.nextUrl.searchParams;
-      const { review, dates } = await planFor(context.dataClient, params.get('from'), params.get('to'), params.get('teacherId') || '');
-      return staffResponse({ review, reviewCount: review.length, from: dates[0], to: dates.at(-1) }, context);
+      const chunk = params.get('chunk') ?? '0';
+      const { review, dates, chunkCount } = await planFor(context.dataClient, params.get('from'), params.get('to'), params.get('teacherId') || '', chunk);
+      return staffResponse({ review, reviewCount: review.length, from: dates[0], to: dates.at(-1), chunk: Number(chunk), chunkCount }, context);
     }
     const [workers, jobs] = await Promise.all([workersFor(context.dataClient), context.dataClient.from('interview_material_jobs')
       .select('id,status,payload,result,error,attempts,created_at').eq('staff_code', context.staff.staffCode)
@@ -72,20 +77,27 @@ export async function POST(request: NextRequest) {
     if (!/^[a-f0-9-]{36}$/i.test(runId) || teacherId && !/^[a-f0-9-]{32,36}$/i.test(teacherId)) throw new InterviewError('入力内容を確認してください。', 400);
     const workers = await workersFor(context.dataClient);
     if (!workers.length) throw new InterviewError('一括作成に対応したPCが停止中です。作成PCのアプリとNAS接続を確認してください。', 503);
-    const { dates, planned, notionTeacherId, review } = await planFor(client, body.from, body.to, teacherId);
+    const chunk = body.chunk ?? 0;
+    const { dates, planned, notionTeacherId, review, chunkCount } = await planFor(client, body.from, body.to, teacherId, chunk);
     const appointments = planned.flatMap(day => day.appointments).filter(row => futureMaterialAppointment(row));
     let jobs;
     try { jobs = materialRunJobs(appointments, { runId, staffCode: context.staff.staffCode, teacherId: notionTeacherId, from: dates[0], to: dates.at(-1) }); }
     catch (error) { throw new InterviewError((error as Error).message, 400); }
     if (jobs.length) {
+      const prefix = `manual:${context.staff.staffCode}:${runId}:`;
+      const { data: existing, error: existingError } = await client.from('interview_material_jobs')
+        .select('daily_key').eq('staff_code', context.staff.staffCode).like('daily_key', `${prefix}%`);
+      if (existingError) throw existingError;
+      if (!materialRunWithinLimit((existing ?? []).map(row => row.daily_key), jobs))
+        throw new InterviewError('面談が300件を超えています。面談日または先生で対象を絞ってください。', 400);
       const { error } = await context.dataClient.from('interview_material_jobs').upsert(jobs, { onConflict: 'daily_key', ignoreDuplicates: true });
       if (error) throw error;
     }
     return staffResponse({ accepted: jobs.length, worker: workers[0].name,
-      reviewCount: review.length, review, from: dates[0], to: dates.at(-1) }, context, 201);
+      reviewCount: review.length, review, from: dates[0], to: dates.at(-1), chunk: Number(chunk), chunkCount }, context, 201);
   } catch (error) {
     if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);
-    if (context) return staffResponse({ error: '確定面談の取得または作成依頼の保存に失敗しました。資料作成は受け付けていません。再試行してください。' }, context, 503);
+    if (context) return staffResponse({ error: 'この区間の取得または受付状態を確認できませんでした。同じ依頼番号で再試行してください。' }, context, 503);
     return staffErrorResponse(error, context);
   }
 }

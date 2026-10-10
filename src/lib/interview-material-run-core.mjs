@@ -2,10 +2,20 @@ export function materialRunDates(from, to, today) {
   const valid = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
     && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
   if (!valid(from) || !valid(to) || from < today || to < from
-    || Date.parse(to) - Date.parse(from) > 7 * 86400000 || Date.parse(to) - Date.parse(today) > 30 * 86400000)
-    throw Error('本日から30日以内で、8日間までの面談日を選んでください。');
+    || Date.parse(to) - Date.parse(today) > 30 * 86400000)
+    throw Error('本日から30日以内の面談日を選んでください。');
   return Array.from({ length: (Date.parse(to) - Date.parse(from)) / 86400000 + 1 },
     (_, i) => new Date(Date.parse(from) + i * 86400000).toISOString().slice(0, 10));
+}
+
+export function materialRunChunk(dates, index, size = 8) {
+  if (!Number.isInteger(index) || index < 0 || index >= Math.ceil(dates.length / size))
+    throw Error('対象期間を確認して再試行してください。');
+  return dates.slice(index * size, (index + 1) * size);
+}
+
+export function materialRunWithinLimit(existingKeys, jobs, limit = 300) {
+  return new Set([...existingKeys, ...jobs.map(job => job.daily_key)]).size <= limit;
 }
 
 export function materialRunJobs(appointments, { runId, staffCode, teacherId, from, to }) {

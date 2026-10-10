@@ -6,15 +6,19 @@ type State = { workers: { id: string; name: string }[]; jobs: { id: string; stat
   appointment: { date: string; start: string; name: string; teacher: string };
   savedFolder?: string; skipped: boolean; missing: string[]; error?: string; attempts: number }[] };
 type Review = { id: string; title: string; reason: string; url: string; date: string; start: string; teachers: string[] };
+type RunRequest = { runId: string; from: string; to: string; teacherId: string;
+  chunk: number; chunkCount: number; accepted: number; reviews: Review[]; worker: string };
 const today = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
 const nextWeek = () => new Date(Date.parse(today()) + 7 * 86400000).toISOString().slice(0, 10);
 export default function ManualMaterialPanel({ teachers }: { teachers: { id: string; name: string }[] }) {
   const [from, setFrom] = useState(today), [to, setTo] = useState(nextWeek), [teacherId, setTeacherId] = useState('');
   const [state, setState] = useState<State | null>(null), [error, setError] = useState(''), [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [hasPending, setHasPending] = useState(false);
   const [reviews, setReviews] = useState<Review[] | null>(null), [reviewBusy, setReviewBusy] = useState(false), [reviewError, setReviewError] = useState('');
   const [reviewScope, setReviewScope] = useState('');
-  const request = useRef<{ runId: string; from: string; to: string; teacherId: string } | null>(null);
+  const request = useRef<RunRequest | null>(null);
+  const inFlight = useRef(false);
   const refresh = useCallback(async () => {
     const response = await fetch('/api/staff/interview-material-run', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
     const body = await response.json();
@@ -35,53 +39,80 @@ export default function ManualMaterialPanel({ teachers }: { teachers: { id: stri
   }
   async function loadReviews() {
     setReviewBusy(true); setReviewError('');
-    const selectedTeacher = teacherId;
+    const selectedTeacher = teacherId, selectedFrom = from, selectedTo = to;
     try {
-      const params = new URLSearchParams({ review: '1', from, to, teacherId: selectedTeacher });
-      const response = await fetch(`/api/staff/interview-material-run?${params}`, { cache: 'no-store', signal: AbortSignal.timeout(65000) });
-      const body = await response.json();
-      if (!response.ok) throw Error(body.error || '確認が必要な予定を取得できません。');
-      showReviews(body, selectedTeacher);
+      const allReviews: Review[] = [];
+      for (let chunk = 0, chunkCount = 1; chunk < chunkCount; chunk++) {
+        const params = new URLSearchParams({ review: '1', from: selectedFrom, to: selectedTo, teacherId: selectedTeacher, chunk: String(chunk) });
+        const response = await fetch(`/api/staff/interview-material-run?${params}`, { cache: 'no-store', signal: AbortSignal.timeout(65000) });
+        const body = await response.json();
+        if (!response.ok) throw Error(body.error || '確認が必要な予定を取得できません。');
+        allReviews.push(...body.review);
+        chunkCount = body.chunkCount;
+      }
+      showReviews({ review: allReviews, from: selectedFrom, to: selectedTo }, selectedTeacher);
     } catch (caught) { setReviewError((caught as Error).message); }
     finally { setReviewBusy(false); }
   }
   async function start() {
-    if (busy || running || !state?.workers.length) return;
+    if (inFlight.current || busy || (running && !request.current) || !state?.workers.length) return;
+    inFlight.current = true;
     setBusy(true); setError(''); setMessage('Notionの確定面談を確認しています…');
-    request.current ??= { runId: crypto.randomUUID(), from, to, teacherId };
+    request.current ??= { runId: crypto.randomUUID(), from, to, teacherId, chunk: 0, chunkCount: 1, accepted: 0, reviews: [], worker: '' };
+    setHasPending(true);
     try {
-      const response = await fetch('/api/staff/interview-material-run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request.current), signal: AbortSignal.timeout(65000) });
-      const body = await response.json();
-      if (!response.ok) throw Error(body.error || '作成依頼を受け付けられませんでした。');
-      showReviews(body, request.current.teacherId);
+      while (request.current.chunk < request.current.chunkCount) {
+        const pending = request.current;
+        const response = await fetch('/api/staff/interview-material-run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId: pending.runId, from: pending.from, to: pending.to, teacherId: pending.teacherId, chunk: pending.chunk }),
+          signal: AbortSignal.timeout(65000) });
+        const body = await response.json();
+        if (!response.ok) throw Error(body.error || '作成依頼を受け付けられませんでした。');
+        pending.accepted += body.accepted;
+        pending.reviews.push(...body.review);
+        pending.worker = body.worker;
+        pending.chunk++;
+        pending.chunkCount = body.chunkCount;
+        setMessage(`${pending.accepted}件の作成を受け付けました。残りの期間を確認しています…`);
+      }
+      const done = request.current;
+      showReviews({ review: done.reviews, from: done.from, to: done.to }, done.teacherId);
       request.current = null;
-      setMessage(body.accepted ? `${body.accepted}件の作成を受け付けました。${body.worker}で処理します。画面を閉じても作成は続きます。`
+      setHasPending(false);
+      setMessage(done.accepted ? `${done.accepted}件の作成を受け付けました。${done.worker}で処理します。画面を閉じても作成は続きます。`
         : '選んだ範囲に、これから実施する確定面談はありません。');
-      if (body.reviewCount) setMessage(previous => `${previous} 本人・日時などの確認が必要な予定は${body.reviewCount}件あり、作成対象に含めていません。`);
+      if (done.reviews.length) setMessage(previous => `${previous} 本人・日時などの確認が必要な予定は${done.reviews.length}件あり、作成対象に含めていません。`);
       try { await refresh(); } catch { setError('受付済みです。状況の取得に失敗しました。「作成状況を再確認」を押してください。'); }
     } catch (caught) {
-      setMessage(''); setError((caught as Error).message);
-      // Retry the same request ID after an uncertain network response, avoiding duplicate jobs.
-    } finally { setBusy(false); }
+      const pending = request.current;
+      setMessage(pending?.accepted ? `${pending.accepted}件は受付済みです。残りの期間を同じ依頼番号で再試行できます。` : 'この期間の受付を再試行できます。');
+      setError((caught as Error).message);
+      // Retry the uncertain chunk with the same run ID; successful chunks remain counted once.
+    } finally { inFlight.current = false; setBusy(false); }
   }
   return <section className={styles.card} aria-label="確定面談の一括作成">
     <h2>確定面談の資料をまとめて作成</h2>
     <p>「面談資料作成」を押した時だけ、起動中の作成PCで資料を作り、先生別の共有フォルダへ保存します。</p>
     <label>作成対象の開始日<input type="date" value={from} min={today()} disabled={busy || running} onChange={event => {
-      request.current = null;
+      request.current = null; setHasPending(false);
       const value = event.target.value;
       setFrom(value); setTo(value ? new Date(Date.parse(value) + 7 * 86400000).toISOString().slice(0, 10) : '');
     }} /></label>
-    <label>作成対象の終了日<input type="date" value={to} min={from} disabled={busy || running} onChange={event => { request.current = null; setTo(event.target.value); }} /></label>
-    <label>一括作成の先生<select value={teacherId} disabled={busy || running} onChange={event => { request.current = null; setTeacherId(event.target.value); }}>
+    <label>作成対象の終了日<input type="date" value={to} min={from} disabled={busy || running} onChange={event => { request.current = null; setHasPending(false); setTo(event.target.value); }} /></label>
+    <label>一括作成の先生<select value={teacherId} disabled={busy || running} onChange={event => { request.current = null; setHasPending(false); setTeacherId(event.target.value); }}>
       <option value="">全先生</option>{teachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}先生</option>)}
     </select></label>
     <p className={styles.note}>最新のアンケート・指導簿・成績資料・面談記録を使います。変更なしの場合は以前の資料を使い、失敗時も以前の資料を残します。</p>
     <p role="status">{state ? state.workers.length ? `使用できるPC：${state.workers.map(worker => worker.name).join('、')}`
       : '一括作成に対応したPCが停止中です。作成アプリの起動・更新とNAS接続を確認してください。' : '作成PCを確認中…'}</p>
-    <div className={styles.actions}><button type="button" className={styles.primary} disabled={busy || reviewBusy || running || !state?.workers.length} onClick={() => void start()}>
-      {busy ? '確定面談を確認中…' : running ? '面談資料を作成中' : '面談資料作成'}</button>
+    <div className={styles.actions}><button type="button" className={styles.primary} disabled={busy || reviewBusy || (running && !hasPending) || !state?.workers.length} onClick={() => void start()}>
+      {busy ? '確定面談を確認中…' : hasPending ? '残りの期間を再試行' : running ? '面談資料を作成中' : '面談資料作成'}</button>
+      {hasPending && !busy && <button type="button" onClick={() => {
+        const accepted = request.current?.accepted ?? 0;
+        request.current = null; setHasPending(false);
+        setError(''); setMessage(accepted ? `残りの期間の受付をやめました。受付済み${accepted}件の作成は続きます。`
+          : '残りの期間の受付をやめました。');
+      }}>残りの受付をやめる</button>}
       <button type="button" disabled={busy} onClick={() => void refresh().catch(caught => setError(caught.message))}>作成状況を再確認</button>
       <button type="button" disabled={busy || reviewBusy} onClick={() => void loadReviews()}>{reviewBusy ? '確認が必要な予定を取得中…' : '確認が必要な予定を見る'}</button></div>
     {message && <p role="status">{message}</p>}{error && <p role="alert" className={styles.error}>{error}</p>}
