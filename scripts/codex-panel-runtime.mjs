@@ -11,19 +11,22 @@ export function isCompleteCodexInstallation(executable, exists = fs.existsSync) 
   return exists(path.join(bin,'codex-code-mode-host.exe')) &&
     (exists(path.join(bin,'codex-command-runner.exe')) || exists(path.join(bin,'..','codex-resources','codex-command-runner.exe')));
 }
-export function codexExecutable() {
-  const appData=process.env.APPDATA || path.join(os.homedir(),'AppData','Roaming');
-  const localData=process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local');
-  const candidates = [process.env.BENTAN_CODEX_BINARY,
-    path.join(appData,'npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe')];
+export function codexExecutable({env=process.env,fsApi=fs,home=os.homedir()}={}) {
+  const appData=env.APPDATA || path.join(home,'AppData','Roaming');
+  const localData=env.LOCALAPPDATA || path.join(home,'AppData','Local');
+  const candidates = [env.BENTAN_CODEX_BINARY];
   const installations=path.join(localData,'OpenAI','Codex','bin');
-  if(fs.existsSync(installations)) {
-    const versions=fs.readdirSync(installations,{withFileTypes:true}).filter(entry=>entry.isDirectory())
-      .map(entry=>path.join(installations,entry.name)).sort((a,b)=>fs.statSync(b).mtimeMs-fs.statSync(a).mtimeMs);
+  if(fsApi.existsSync(installations)) {
+    const versions=fsApi.readdirSync(installations,{withFileTypes:true}).filter(entry=>entry.isDirectory())
+      .map(entry=>path.join(installations,entry.name)).sort((a,b)=>fsApi.statSync(b).mtimeMs-fsApi.statSync(a).mtimeMs);
     candidates.push(...versions.map(dir=>path.join(dir,'codex.exe')));
   }
+  // The desktop installation ships matching Windows sandbox helpers. Prefer it
+  // over a separate npm installation, which can pass the file check but fail
+  // command/exec before the worker becomes ready.
+  candidates.push(path.join(appData,'npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe'));
   // .sandbox-bin is a single-file execution copy, not an App Server installation.
-  const executable=candidates.find(value=>isCompleteCodexInstallation(value));
+  const executable=candidates.find(value=>isCompleteCodexInstallation(value,fsApi.existsSync));
   if(!executable) throw new Error('Complete Codex installation with code-mode host and command runner required');
   return executable;
 }

@@ -5,7 +5,7 @@ import { before,after,test } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import { validateCodexInput,buildCodexPrompt } from '../src/lib/codex-panel-core.mjs';
 import path from 'node:path';
-import { childEnvironment, isCompleteCodexInstallation, CodexRPC } from '../scripts/codex-panel-runtime.mjs';
+import { childEnvironment, codexExecutable, isCompleteCodexInstallation, CodexRPC } from '../scripts/codex-panel-runtime.mjs';
 const db=new PGlite();
 const owner=randomUUID(),other=randomUUID(),session=randomUUID(),worker=randomUUID();
 const input=()=>({id:randomUUID(),conversationId:randomUUID(),message:'このボタンを大きくして',context:{path:'/attendance',title:'出欠',selection:'保存',element:'button'}});
@@ -36,6 +36,22 @@ test('a copied Codex executable without its execution helpers is rejected',()=>{
   assert.equal(isCompleteCodexInstallation(exe,p=>files.has(p)),false);
   files.add(path.join('installation','codex-resources','codex-command-runner.exe'));
   assert.equal(isCompleteCodexInstallation(exe,p=>files.has(p)),true);
+});
+test('desktop Codex with matching helpers takes priority over a complete npm installation',()=>{
+  const localData=path.join('test','local');
+  const appData=path.join('test','roaming');
+  const desktop=path.join(localData,'OpenAI','Codex','bin','desktop','codex.exe');
+  const npm=path.join(appData,'npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe');
+  const files=new Set([desktop,npm]);
+  for(const executable of [desktop,npm]) {
+    files.add(path.join(path.dirname(executable),'codex-code-mode-host.exe'));
+    files.add(path.join(path.dirname(executable),'codex-command-runner.exe'));
+  }
+  const fsApi={existsSync:value=>files.has(value)||value===path.join(localData,'OpenAI','Codex','bin'),
+    readdirSync:()=>[{name:'desktop',isDirectory:()=>true}],statSync:()=>({mtimeMs:1})};
+  const options={env:{LOCALAPPDATA:localData,APPDATA:appData},fsApi};
+  assert.equal(codexExecutable(options),desktop);
+  assert.equal(codexExecutable({...options,env:{...options.env,BENTAN_CODEX_BINARY:npm}}),npm);
 });
 test('execution readiness requires a successful command and verified file read',async()=>{
   const fake={cwd:process.cwd(),call:async()=>({exitCode:1,stdout:'',stderr:'runner missing'})};
