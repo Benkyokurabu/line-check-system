@@ -90,9 +90,10 @@ test("every sidebar category links to its real home section with keyboard focus 
     await expect(section).toBeFocused();
     await expect(section.getByRole("heading", { name: menu[index].heading, exact: true })).toBeInViewport();
     await expect(section.locator("h3")).toHaveText(menu[index].titles);
-    expect(await section.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
+    expect(await section.evaluate(element => getComputedStyle(element).outlineColor)).not.toBe("rgb(213, 151, 25)");
     await page.keyboard.press("Tab");
     await expect(section.getByRole("link").first()).toBeFocused();
+    expect(await section.getByRole("link").first().evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
     await page.goBack();
     await expect(page).toHaveURL("/attendance");
     await expect(sidebar).toBeVisible();
@@ -100,6 +101,7 @@ test("every sidebar category links to its real home section with keyboard focus 
     await page.goForward();
     await expect(page).toHaveURL(`/#${id}`);
     await expect(section).toBeFocused();
+    expect(await section.evaluate(element => getComputedStyle(element).outlineColor)).not.toBe("rgb(213, 151, 25)");
     await page.goBack();
     await expect(page).toHaveURL("/attendance");
   }
@@ -115,6 +117,7 @@ test("every category anchor works on mobile and restores a category hidden by ho
     const section = page.locator(`section#${id}`);
     await expect(section).toHaveAccessibleName(menu[index].heading);
     await expect(section).toBeFocused();
+    expect(await section.evaluate(element => getComputedStyle(element).outlineColor)).not.toBe("rgb(213, 151, 25)");
     await expect(section.getByRole("heading", { name: menu[index].heading, exact: true })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
