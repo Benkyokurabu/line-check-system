@@ -177,7 +177,9 @@ li {
 .app-sidebar nav a:hover { background: #1d364f; color: white; }
 .app-sidebar nav a[aria-current="page"] { color: white; background: #2a425a; border-color: #48677e; }
 .app-nav-group { margin-top: 22px; }
-.app-nav-group > p { padding: 0 12px 6px; color: #92acc3; font-size: 10px; letter-spacing: 1px; }
+.app-nav-group > p { padding: 0 0 6px; color: #92acc3; font-size: 10px; letter-spacing: 1px; }
+.app-nav-group > p > a { color: #a5bbcf; font-size: 10px; font-weight: 700; min-height: 44px; display: flex; align-items: center; text-decoration: underline; text-underline-offset: 3px; }
+.app-nav-group > p > a:focus-visible { outline: 3px solid #f7b84a; outline-offset: 2px; }
 .app-sidebar-footer { margin-top: auto; padding: 36px 12px 0; color: #a5bbcf; font-size: 12px; }
 .app-sidebar-footer small { display: block; font-size: 10px; }
 .app-workspace { min-width: 0; }

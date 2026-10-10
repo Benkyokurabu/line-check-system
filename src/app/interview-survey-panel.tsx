@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SurveyWorkspace from "./staff/survey-workflow/workspace";
 import styles from "./home-dashboard.module.css";
 import {useSurveyConfirmations} from './use-survey-shared';
@@ -66,6 +66,18 @@ export default function InterviewSurveyPanel({
   const [surveyRefreshMessage, setSurveyRefreshMessage] = useState<string | null>(null);
   const [surveyQuery, setSurveyQuery] = useState("");
   const [openAnswer,setOpenAnswer]=useState<string|null>(null);
+  const [workspaceSaving,setWorkspaceSaving]=useState(false);
+  const workspaceSavingRef=useRef(false);
+  const workspaceOpener=useRef<HTMLButtonElement|null>(null);
+  function setWorkspaceSavingState(saving:boolean){workspaceSavingRef.current=saving;setWorkspaceSaving(saving);}
+  function closeWorkspace(){
+    if(workspaceSavingRef.current)return;
+    setOpenAnswer(null);
+    requestAnimationFrame(()=>{
+      if(workspaceOpener.current?.isConnected)workspaceOpener.current.focus();
+      else document.querySelector<HTMLInputElement>('[aria-label="アンケートの生徒を検索"]')?.focus();
+    });
+  }
   useEffect(() => {
     try {
       const savedHidden = JSON.parse(window.localStorage.getItem(SURVEY_HIDDEN_KEY) ?? "[]");
@@ -134,7 +146,7 @@ export default function InterviewSurveyPanel({
   const surveyRows = visibleSurveyGroups.filter(item => !selectedSurveyTeacher || item.teacher === selectedSurveyTeacher)
     .flatMap(item => item.students.map(student => ({ ...student, teacher: item.teacher })))
     .filter(student => (!surveyName || student.name.normalize("NFKC").replace(/\s/g, "").includes(surveyName)) &&
-      (!progressFilter||surveyProgress(confirmation.isConfirmed(student.notionUrl),scheduling.get(student.notionUrl),confirmation.progress(student.notionUrl)).status===progressFilter))
+      (!progressFilter||openAnswer===surveyPageId(student.notionUrl)||surveyProgress(confirmation.isConfirmed(student.notionUrl),scheduling.get(student.notionUrl),confirmation.progress(student.notionUrl)).status===progressFilter))
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
   const hasSurveyFilters=!!selectedSurveyTeacher||!!surveyQuery||!!progressFilter;
   const clearSurveyFilters=()=>{setSelectedSurveyTeacher(null);setSurveyQuery('');setProgressFilter('');setShowHiddenSurveys(false);};
@@ -149,7 +161,7 @@ export default function InterviewSurveyPanel({
                   <p><strong>中3は全員面談</strong><span>その他の学年は希望者のみ面談へ進みます</span></p>
                   <ol>{Object.entries(surveyProgressLabels).map(([key,label],index)=><li key={key} data-status={key}><span>{index+1}</span>{label}</li>)}</ol>
                 </div>
-                <section className={styles.surveyFilters} aria-label="アンケート回答の絞り込み">
+                <fieldset disabled={workspaceSaving} className={styles.surveyFilters} aria-label="アンケート回答の絞り込み" style={{minWidth:0,border:0}}>
                   <div className={styles.surveyFilterHeading}><strong>回答を探す</strong><span>生徒名または条件で絞り込みます</span></div>
                   <div className={styles.surveyFilterGrid}>
                     <label className={styles.surveySearch}><span>生徒名</span><span className={styles.surveySearchControl}><Icon name="search" /><input type="search" aria-label="アンケートの生徒を検索" placeholder="氏名を入力" value={surveyQuery} onChange={e=>{setSurveyQuery(e.target.value);setShowHiddenSurveys(false);}} /></span></label>
@@ -161,7 +173,7 @@ export default function InterviewSurveyPanel({
                     <button type="button" disabled={!hasSurveyFilters&&!showHiddenSurveys} onClick={clearSurveyFilters}>条件をクリア</button>
                     <button className={styles.surveyRefreshButton} type="button" disabled={surveyRefreshing||scheduling.loading||confirmation.savingCount>0} onClick={()=>void refreshSurveyWorkspace()}>{surveyRefreshing||scheduling.loading?'更新中…':'一覧を最新に更新'}</button>
                   </div>
-                </section>
+                </fieldset>
                 <p className={styles.surveyRefreshMessage} role="status">{scheduling.error||'日程調整中・日程確定・面談終了は、打診・予約・実施の記録から自動表示します。'}{scheduling.updatedAt&&!scheduling.error&&` 最終取得 ${submittedAtFormatter.format(new Date(scheduling.updatedAt))}`}</p>
                 <p className={styles.surveyRefreshMessage} role="status">{confirmation.message || (confirmation.ready ? '対応状況は自動保存され、先生間で共有されます。' : '共有の対応状況を読み込み中…')}{confirmation.lastSync&&` 最終同期 ${confirmation.lastSync}`}{confirmation.loginNeeded&&<> <Link className={styles.surveySave} href="/staff/self-study-room">職員ログイン</Link></>}</p>
                 {Object.keys(confirmation.local).length>0&&<div className={styles.surveyStudents} aria-label="未共有の端末記録">
@@ -185,7 +197,7 @@ export default function InterviewSurveyPanel({
                     </li>)}
                   </ul>
                 </div> : hasSurveyFilters ? <div className={styles.surveyStudents}>
-                  <div className={styles.surveyListTitle}><strong>{selectedSurveyTeacher ? (selectedSurveyTeacher==='担任未特定' ? '担任の確認が必要な回答' : `${selectedSurveyTeacher}先生の担当`) : '検索・絞り込みの結果'}</strong><span>{surveyRows.length}件</span><button type="button" onClick={clearSurveyFilters}>閉じる</button></div>
+                  <div className={styles.surveyListTitle}><strong>{selectedSurveyTeacher ? (selectedSurveyTeacher==='担任未特定' ? '担任の確認が必要な回答' : `${selectedSurveyTeacher}先生の担当`) : '検索・絞り込みの結果'}</strong><span>{surveyRows.length}件</span><button type="button" disabled={workspaceSaving} onClick={clearSurveyFilters}>閉じる</button></div>
                   {surveyRows.length===0 && <p className={styles.surveyPrompt}>条件に合う回答はありません。</p>}
                   <ul aria-label={selectedSurveyTeacher ? `${selectedSurveyTeacher}先生のアンケート回答` : '検索したアンケート回答'}>
                     {surveyRows.map(student => {
@@ -206,14 +218,14 @@ export default function InterviewSurveyPanel({
                             {schedule.status!=='uncontacted'&&<small>{schedule.detail}</small>}
                           </div>
                           <div className={styles.surveyRowDetails}>
-                            {surveyPageId(student.notionUrl)&&<button className={styles.scheduleAction} type="button" aria-expanded={openAnswer===surveyPageId(student.notionUrl)} aria-label={`${student.name}：日程連絡・面談記録・LINE`} onClick={()=>setOpenAnswer(openAnswer===surveyPageId(student.notionUrl)?null:surveyPageId(student.notionUrl))}>日程・LINE・面談記録</button>}
+                            {surveyPageId(student.notionUrl)&&<button className={styles.scheduleAction} type="button" disabled={workspaceSaving} aria-expanded={openAnswer===surveyPageId(student.notionUrl)} aria-label={`${student.name}：日程連絡・面談記録・LINE`} onClick={event=>{if(workspaceSavingRef.current)return;if(openAnswer===surveyPageId(student.notionUrl))closeWorkspace();else{workspaceOpener.current=event.currentTarget;setOpenAnswer(surveyPageId(student.notionUrl));}}}>日程・LINE・面談記録</button>}
                             {surveyPageId(student.notionUrl)&&<Link className={styles.scheduleAction} href={`/staff/interview-materials?answer=${surveyPageId(student.notionUrl)}`} prefetch={false} aria-label={`${student.name}：資料をつくる`}>資料をつくる</Link>}
                             {confirmation.isSaving(student.notionUrl)&&<small role="status">保存中…</small>}
                             {confirmation.isLocal(student.notionUrl)&&<small>この端末の記録・共有待ち</small>}
                           </div>
-                          <button className={styles.surveyHideButton} type="button" aria-label="確認したのでこの行を削除する" title="この端末の一覧から非表示にします" onClick={() => hideSurvey(student.notionUrl)}>非表示</button>
+                          <button className={styles.surveyHideButton} type="button" disabled={workspaceSaving} aria-label="確認したのでこの行を削除する" title="この端末の一覧から非表示にします" onClick={() => hideSurvey(student.notionUrl)}>非表示</button>
                         </div>
-                        {openAnswer===surveyPageId(student.notionUrl)&&<div className={styles.inlineWorkspace}><SurveyWorkspace key={openAnswer} answerId={openAnswer!} embedded onSaved={()=>void scheduling.load()}/></div>}
+                        {openAnswer===surveyPageId(student.notionUrl)&&<div className={styles.inlineWorkspace}><SurveyWorkspace key={openAnswer} answerId={openAnswer!} embedded onSaved={()=>void scheduling.load()} onClose={closeWorkspace} onSavingChange={setWorkspaceSavingState}/></div>}
                       </li>;
                     })}
                   </ul>

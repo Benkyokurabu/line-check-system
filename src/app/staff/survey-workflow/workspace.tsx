@@ -1,5 +1,4 @@
 'use client';
-import Link from 'next/link';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import StaffEntry from '../self-study-room/staff-entry';
 import {scheduleMethods,suggestedInterviewEnd} from '@/lib/survey-schedule-style.mjs';
@@ -27,13 +26,14 @@ function summaryText(body:string,account:Account,selected:Account[],studentName:
   body.trim(),'勉強を進めていく中で何か質問などあったら、遠慮なくLINEで質問してください。保護者の方からも、何かありましたらいつでもお声かけください。',
   `それでは今後ともよろしくお願いいたします。\n${staffName}`].join('\n\n');
 }
-export default function Workspace({answerId,embedded=false,onSaved}:{answerId:string;embedded?:boolean;onSaved?:()=>void}){
+export default function Workspace({answerId,embedded=false,onSaved,onClose,onSavingChange}:{answerId:string;embedded?:boolean;onSaved?:()=>void;onClose?:()=>void;onSavingChange?:(saving:boolean)=>void}){
  const [tab,setTab]=useState<'date'|'record'|'summary'>('date');
  const [draftNotice,setDraftNotice]=useState('');
  const [authRequired,setAuthRequired]=useState(false),[code,setCode]=useState(''),[password,setPassword]=useState('');
  const [time,setTime]=useState('');
  const [endTime,setEndTime]=useState(''),[scheduleMethod,setScheduleMethod]=useState('３者Zoom'),[savingDate,setSavingDate]=useState(false);
  const hydrated=useRef(false);
+ const dateSaveInFlight=useRef(false);
  const draftKey=`bentan:interview-draft:${answerId}`;
  const [data,setData]=useState<State|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const [actionBusy,setBusy]=useState(false),[date,setDate]=useState(''),[content,setContent]=useState(''),[method,setMethod]=useState('３者Zoom');
@@ -97,14 +97,16 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
    await load(answerId);setNotice('ログインしました。入力内容を確認してから、保存・送信してください。');
   }catch(e){setError(e instanceof Error?e.message:'ログインできませんでした。');}finally{setBusy(false);}
  }
- async function saveDate(){if(!data||busy)return;setSavingDate(true);try{
+ async function saveDate(){if(!data||busy||dateSaveInFlight.current||(dateSaved&&data.bensuke?.styled!==false))return;
+  dateSaveInFlight.current=true;setSavingDate(true);onSavingChange?.(true);try{
   const result=await action({action:'date',date,time,endTime,method:scheduleMethod,expectedEditedAt:data.survey.editedAt});
   setData(old=>old?{...old,survey:{...old.survey,date,time},bensuke:{...old.bensuke,...result.bensuke,state:'synced',endTime,method:scheduleMethod,styled:true}}:old);
   if(scheduleMethod)setMethod(scheduleMethod);
   try{const updated=await load(answerId);if(!recordChanged)setContent(updated.record?.body||'');}
   catch{setError('面談日は保存済みです。最新表示を取得できませんでした。「最新情報を読み直す」で確認してください。');}
   setNotice('面談日をアンケートとベンスケに保存しました。');onSaved?.();
- }catch(e){setError(e instanceof Error?e.message:'保存できませんでした。');}finally{setSavingDate(false);}}
+ }catch(e){setError(e instanceof Error?e.message:'保存できませんでした。');}finally{dateSaveInFlight.current=false;setSavingDate(false);onSavingChange?.(false);}}
+ function returnToList(){if(busy||dateSaveInFlight.current)return;if(onClose)onClose();else window.location.assign('/staff/surveys/2026-autumn');}
  async function refreshRecipients(){if(busy)return;setBusy(true);setReview(null);try{await load(answerId);setError('');}catch(e){setError(e instanceof Error?e.message:'LINE宛先を取得できませんでした。');}finally{setBusy(false);}}
  async function saveRecord(){if(!data)return;try{
   await action({action:'record',content,method,expectedBlockId:data.record?.blockId??'',expectedBlockEditedAt:data.record?.blockEditedAt??''});
@@ -137,8 +139,8 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
  const recordChanged=!!data&&content.trim()!==(data.record?.body??'').trim();
  const readySummary=!!data?.record?.id&&!recordChanged&&!scheduleChanged;
  return <section className={`${styles.main} ${embedded?styles.embedded:''}`} aria-label="面談入力">
-  <header>{!embedded&&<Link href="/">← 勉たんのアンケート一覧に戻る</Link>}{embedded?<h2>アンケートから面談を進める</h2>:<h1>アンケートから面談を進める</h1>}
-   <p>面談日・日程連絡・面談記録・面談後のLINEを、同じ生徒の回答から確認します。</p></header>
+  <header><button type="button" className={styles.returnButton} disabled={busy} onClick={returnToList}>アンケートの回答一覧に戻る</button>{embedded?<h2>アンケートから面談を進める</h2>:<h1>アンケートから面談を進める</h1>}
+   <p>面談日時をNotionに登録したら、この作業を完了できます。資料作成・LINE連絡・面談記録は必要なときに進めてください。</p></header>
   {error&&<p className={styles.error} role="alert">{error} {!authRequired&&<button disabled={busy} onClick={()=>void load(answerId).then(()=>setError('')).catch(e=>setError(e.message))}>最新情報を読み直す（入力保持）</button>}</p>}
   {authRequired&&<form className={`${styles.card} ${styles.login}`} onSubmit={login} aria-label="面談の職員ログイン">
    <h2>この画面でログインし直す</h2><p>選んだアンケートと入力途中の内容を保持して、面談を再開します。</p>
@@ -160,8 +162,9 @@ export default function Workspace({answerId,embedded=false,onSaved}:{answerId:st
      <label>開始時刻（任意）<input type="time" value={time} disabled={busy} onChange={e=>{setTime(e.target.value);setEndTime(suggestedInterviewEnd(e.target.value,data.scheduleTeacher));}}/></label>
      <label>終了時刻（任意）<input type="time" value={endTime} disabled={busy||!time} onChange={e=>setEndTime(e.target.value)}/></label>
      <label>予定の面談方法<select value={scheduleMethod} disabled={busy} onChange={e=>setScheduleMethod(e.target.value)}>{scheduleMethods.map((x:string)=><option key={x} value={x}>{x||'未定'}</option>)}</select></label>
-     <button disabled={busy||!date||(dateSaved&&data.bensuke?.styled!==false&&!error)} onClick={()=>void saveDate()}>{savingDate?'保存中…':dateSaved&&data.bensuke?.styled!==false?'保存済み':'面談日を保存'}</button></div>
-    <p className={savingDate?styles.saving:dateSaved?styles.saved:undefined} role="status">{savingDate?'保存中：アンケートとベンスケに面談日を保存しています。':dateSaved?'保存済み：アンケートとベンスケに登録されています。':'日時・方法を確認して保存してください。'}</p></section>
+     <button disabled={busy||!date||(dateSaved&&data.bensuke?.styled!==false)} onClick={()=>void saveDate()}>{savingDate?'保存中…':dateSaved&&data.bensuke?.styled!==false?'保存済み':'面談日を保存'}</button></div>
+    <p className={savingDate?styles.saving:dateSaved?styles.saved:undefined} role="status">{savingDate?'保存中：アンケートとベンスケに面談日を保存しています。':dateSaved?'保存済み：アンケートとベンスケに登録されています。':'日時・方法を確認して保存してください。'}</p>
+    {dateSaved&&!savingDate&&<div className={styles.completion}><strong>面談日時の登録が完了しました。</strong><p>資料作成やLINE連絡を行わず、このまま完了できます。</p><button type="button" disabled={busy} onClick={returnToList}>登録を完了して元の一覧へ戻る</button></div>}</section>
    <section hidden={embedded&&tab!=='date'} className={styles.card}><h2>2　日程をLINEで連絡する</h2>
     <p>日程の調整中も返信できます。宛先を選び、文面を確認してから送信します。</p>
     <details className={styles.answers}><summary>最近のLINEのやり取り</summary><p>確認済みの家族アカウントの直近20件です。兄弟の連絡を含む場合があります。</p>{data.historyError&&<p role="alert">{data.historyError}</p>}{data.history?.length?data.history.map(item=><div className={styles.history} key={item.id}><strong>{data.accounts.find(account=>account.id===item.line_user_id)?.label}・{item.direction==='inbound'?'受信':'送信'}</strong><small>{new Date(item.received_at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}</small><p>{item.text||'文字以外のメッセージ'}</p></div>):<p>表示できるLINE履歴がありません。</p>}</details>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./home-dashboard.module.css";
 
 type Group = "all" | "daily" | "interview" | "management" | "prelaunch";
@@ -13,7 +13,6 @@ const groups: { id: Group; label: string; icon: string }[] = [
   { id: "management", label: "授業・管理", icon: "sync" },
   { id: "prelaunch", label: "本番運用前", icon: "room" },
 ];
-const frequentLinks = ["/attendance", "/classroom-office"];
 function Icon({ name }: { name: string }) {
   const paths: Record<string, React.ReactNode> = {
     home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v12h5v-7h4v7h5V9" /></>,
@@ -35,10 +34,25 @@ export default function HomeDashboard({
 }) {
   const [group, setGroup] = useState<Group>("all");
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    let frame = 0;
+    function focusCategory() {
+      const id = window.location.hash.slice(1);
+      if (!groups.some(category => category.id !== "all" && id === `group-${category.id}`)) return;
+      setGroup("all"); setQuery("");
+      frame = requestAnimationFrame(() => {
+        const section = document.getElementById(id);
+        section?.focus({ preventScroll: true });
+        section?.scrollIntoView({ block: "start" });
+      });
+    }
+    const timer = setTimeout(focusCategory, 0);
+    window.addEventListener("hashchange", focusCategory);
+    return () => { clearTimeout(timer); cancelAnimationFrame(frame); window.removeEventListener("hashchange", focusCategory); };
+  }, []);
   const normalized = query.normalize("NFKC").trim().toLocaleLowerCase("ja");
   const visible = items.filter(item => (group === "all" || item.group === group) &&
     (!normalized || `${item.title} ${item.description}`.normalize("NFKC").toLocaleLowerCase("ja").includes(normalized)));
-  const home = group === "all" && !normalized;
   function card(item: MenuItem) {
     return <div className={styles.cardShell} key={item.href}>
       <Link className={styles.card} href={item.href} prefetch={false}>
@@ -73,23 +87,10 @@ export default function HomeDashboard({
             {query && <button type="button" aria-label="検索をクリア" onClick={() => setQuery("")}>×</button>}
           </label>
         </div>
-        {home && <>
-          <section className={styles.section} aria-labelledby="check-title">
-            <h2 id="check-title">連絡・確認</h2>
-            <div className={styles.quickLinks}>
-              <Link href="/attendance" prefetch={false}><Icon name="calendar" /><span>欠席連絡の確認</span><span>→</span></Link>
-              <Link href="/classroom-office" prefetch={false}><Icon name="message" /><span>教室への連絡</span><span>→</span></Link>
-            </div>
-          </section>
-          <section className={styles.section} aria-labelledby="favorites-title">
-            <h2 id="favorites-title">よく使う業務</h2>
-            <div className={styles.primary}>{frequentLinks.map(href => { const item = items.find(item => item.href === href); return item ? card(item) : null; })}</div>
-          </section>
-        </>}
         {groups.filter(category => category.id !== "all").map(category => {
           const categoryItems = visible.filter(item => item.group === category.id);
-          return categoryItems.length > 0 && <section className={styles.section} aria-labelledby={`group-${category.id}`} key={category.id}>
-            <h2 id={`group-${category.id}`}>{category.label}</h2>
+          return categoryItems.length > 0 && <section className={styles.section} id={`group-${category.id}`} tabIndex={-1} aria-labelledby={`group-${category.id}-title`} key={category.id}>
+            <h2 id={`group-${category.id}-title`}>{category.label}</h2>
             <div className={styles.secondary}>{categoryItems.map(item => card(item))}</div>
           </section>;
         })}
