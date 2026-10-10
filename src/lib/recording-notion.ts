@@ -43,8 +43,9 @@ export async function readTestRanges():Promise<TestRange[]> {
 export async function readTestSnapshot(){
  const ranges=await readTestRanges();
  // Failed sources must not silently remove a campus from the release gate.
- const progress=(await Promise.all(recordingProgressSources.map(s=>readProgressRows(s.month))).catch(()=>[])).flat();
- return {ranges,progress};
+ let progressAvailable=true;
+ const progress=(await Promise.all(recordingProgressSources.map(s=>readProgressRows(s.month))).catch(()=>{progressAvailable=false;return [];})).flat();
+ return {ranges,progress,progressAvailable};
 }
 export async function readLinkedProgress(key:string,pageId:string):Promise<ProgressRow> {
  if(!/^[0-9a-f-]{36}$/i.test(pageId))throw new Error('Notionの対象行を選択してください。');
@@ -57,11 +58,22 @@ export async function resolveNotionRules(rules:Publication[]) {
  const result=rules.map(rule=>({...rule}));
  if(!result.some(rule=>rule.mode==='notion'))return result;
  try{
-  const {ranges,progress}=await readTestSnapshot();
+  const {ranges,progress,progressAvailable}=await readTestSnapshot();
   for(const rule of result){
    if(rule.mode!=='notion')continue;
    const fields=rule.event_key.split('|');
    const range=ranges.find(r=>r.date===fields[0]&&r.campus===fields[2]&&r.group===fields[3]);
+   // A captured test recording keeps its original key when the test moves.
+   // Release that old lesson only when the same test has exactly one new date.
+   // Manual Notion links and missing/ambiguous Notion data remain unchanged.
+   if(rule.automatic && progressAvailable && !range){
+    const source=recordingProgressSources.find(s=>s.month===fields[0]?.slice(0,7));
+    const moved=ranges.filter(r=>r.campus===fields[2]&&r.group===fields[3]&&r.test===source?.test);
+    if(moved.length===1 && moved[0].date!==fields[0]){
+     rule.notion_ready=true;rule.notion_checks=[];rule.notion_error='';
+     continue;
+    }
+   }
    const options=progress.filter(p=>matchesRecordingProgress(rule.event_key,p)&&p.testName===range?.test);
    const row=rule.automatic?(options.length===1?options[0]:null):progress.find(p=>p.id===rule.notion_page_id);
    const state=sharedProgressState(rule.event_key,row,progress,ranges);
