@@ -9,9 +9,11 @@ import shutil
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 SHARE_ROOT = Path(r'\\TS3210\benko\03 教務部\015 各面談行事／文化会館も含む\98面談資料')
 OWNER = 'bentan-daily-materials-v1'
+SHARED_HOKUSHIN_HTML = '07 中３秋冬面談資料/北辰基礎資料/北辰基礎資料.html'
 
 
 def make_html_visible(path):
@@ -195,6 +197,15 @@ class DailyFolder:
         context = {**self.prepared['context'], 'showPastSchools': self.prepared['payload']['grade'] == '中2' and not self.prepared['payload']['schools']}
         rendered = template.replace('__ITEMS_JSON__', safe_json([{'label': item['label'], 'kind': dock_kind(item)} for item in manifest['items']]))
         rendered = rendered.replace('__STUDENT_NAME_JSON__', safe_json(self.prepared['payload']['name'])).replace('__CONTEXT_JSON__', safe_json(context))
+        # The managed HTML has a version <base>, so the link starts at that directory.
+        # The browser-saved template keeps its absolute URL because it has no stable base.
+        relative_hokushin = '../' * (len(self.prepared['folderParts']) + 3) + quote(SHARED_HOKUSHIN_HTML, safe='/')
+        rendered, link_count = re.subn(
+            r'(<a\b[^>]*\bid="all-hokushin"[^>]*\bhref=")[^"]+("[^>]*>)',
+            lambda match: match[1] + relative_hokushin + match[2], rendered,
+        )
+        if link_count != 1:
+            raise RuntimeError('北辰基礎資料へのリンクを確認できません。保存を中止します。')
         metadata = f'<base href="_auto_versions/{save_id}/"><meta name="bentan-owner" content="{OWNER}"><meta name="bentan-version" content="{save_id}"><meta name="bentan-input" content="{input_hash}">'
         if '<head>' not in rendered:
             raise RuntimeError('面談資料のHTML原本を確認できません。')

@@ -1,8 +1,10 @@
 import json
+import re
 import tempfile
 import unittest
 import threading
 from pathlib import Path
+from urllib.parse import quote, urljoin
 from unittest.mock import Mock, patch
 
 from pypdf import PdfWriter
@@ -94,6 +96,46 @@ class DailyFolderTests(unittest.TestCase):
         self.assertNotIn('__CONTEXT_JSON__', text)
         self.assertIn('確認内容', text)
         self.assertIn('保護者の希望', text)
+
+    def test_all_hokushin_link_resolves_from_version_base_for_both_folder_depths(self):
+        target = self.share.parent / '07 中３秋冬面談資料' / '北辰基礎資料' / '北辰基礎資料.html'
+        target.parent.mkdir(parents=True)
+        target.write_text('<title>北辰基礎資料</title>', encoding='utf-8')
+        for parts in (
+            ['確認用先生', '2030.01.02.2130-架空確認用生徒'],
+            ['確認用先生', '2030年秋の教育相談', '2030.01.02 21：30- 架空確認用生徒'],
+        ):
+            with self.subTest(parts=parts):
+                self.prepared['folderParts'] = parts
+                folder = self.folder()
+                folder.publish(self.bundle, self.manifest, 'a' * 64, lambda: None)
+                entry = folder.folder / '面談資料.html'
+                html = entry.read_text(encoding='utf-8')
+                base = re.search(r'<base href="([^"]+)">', html)[1]
+                link = re.search(r'<a[^>]*id="all-hokushin"[^>]*href="([^"]+)"', html)[1]
+                self.assertEqual(link.count('../'), len(parts) + 3)
+                self.assertTrue(link.endswith('.html'))
+                self.assertIn('%E5%8C%97', link)
+                self.assertEqual(urljoin(urljoin(entry.as_uri(), base), link), target.as_uri())
+                nas_parent = 'file://ts3210/benko/' + quote('03 教務部/015 各面談行事／文化会館も含む', safe='/')
+                nas_entry = nas_parent + '/' + quote('98面談資料/' + '/'.join(parts) + '/面談資料.html', safe='/')
+                nas_target = nas_parent + '/' + quote('07 中３秋冬面談資料/北辰基礎資料/北辰基礎資料.html', safe='/')
+                self.assertEqual(urljoin(urljoin(nas_entry, base), link), nas_target)
+                self.assertTrue(folder.unchanged('a' * 64))
+
+    def test_browser_template_keeps_direct_link_without_base(self):
+        template = self.prepared['template']
+        self.assertNotIn('<base ', template)
+        link = re.search(r'<a[^>]*id="all-hokushin"[^>]*href="([^"]+)"', template)[1]
+        self.assertTrue(link.startswith('file://ts3210/'))
+        self.assertTrue(link.endswith('.html'))
+
+    def test_missing_all_hokushin_link_stops_before_publication(self):
+        self.prepared['template'] = self.prepared['template'].replace('id="all-hokushin"', 'id="missing-all-hokushin"')
+        folder = self.folder()
+        with self.assertRaisesRegex(RuntimeError, '北辰基礎資料へのリンク'):
+            folder.publish(self.bundle, self.manifest, 'a' * 64, lambda: None)
+        self.assertFalse((folder.folder / '面談資料.html').exists())
 
     def test_update_uses_same_folder_and_preserves_previous_version_and_teacher_files(self):
         first = self.folder()
