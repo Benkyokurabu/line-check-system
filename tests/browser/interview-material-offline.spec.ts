@@ -97,19 +97,27 @@ test('downloaded HTML opens from a local folder and links to saved text', async 
   }
 });
 
-test('saved student HTML opens the shared all-school folder from either save layout', async ({ browser }) => {
+test('saved student HTML links directly to the shared all-school HTML from every save layout', async ({ browser }) => {
   const root = await mkdtemp(join(tmpdir(), 'bentan-shared-hokushin-'));
   try {
-    const target = join(root, '07 中３秋冬面談資料', '北辰基礎資料');
-    await mkdir(target, { recursive: true });
-    await writeFile(join(target, '北辰基礎資料.html'), '<!doctype html><meta charset="utf-8"><title>北辰基礎資料の目次</title>');
     const template = await readFile('public/interview-material-offline-template.html', 'utf8');
-    const html = template.replace('__ITEMS_JSON__', '[]').replace('__STUDENT_NAME_JSON__', '"確認用生徒"')
+    const target = 'file://ts3210/' + 'benko/03 教務部/015 各面談行事／文化会館も含む/07 中３秋冬面談資料/北辰基礎資料/北辰基礎資料.html'
+      .split('/').map(encodeURIComponent).join('/');
+    const rendered = template.replace('__ITEMS_JSON__', JSON.stringify([{ label: '指導簿', kind: '指導簿' }]))
+      .replace('__STUDENT_NAME_JSON__', '"確認用生徒"')
       .replace('__CONTEXT_JSON__', JSON.stringify({ records: [], info: [], summary: { status: 'empty', items: [] } }));
-    for (const parent of ['金城先生', '個別保存']) {
-      const student = join(root, '98面談資料', parent, '生徒');
+    const layouts = [
+      { parts: ['金城先生', '生徒'], base: '' },
+      { parts: ['個別保存', '生徒'], base: '' },
+      { parts: ['鈴木先生', '中3', '生徒'], base: '' },
+      { parts: ['工藤先生', '生徒'], base: '_auto_versions/0123456789abcdef/' },
+      { parts: ['鈴木先生', '中3', '生徒'], base: '_auto_versions/0123456789abcdef/' },
+    ];
+    for (const { parts, base } of layouts) {
+      const student = join(root, '98面談資料', ...parts);
       await mkdir(student, { recursive: true });
       const file = join(student, '面談資料.html');
+      const html = base ? rendered.replace('<head>', `<head><base href="${base}">`) : rendered;
       await writeFile(file, html);
       const page = await browser.newPage();
       await page.goto(pathToFileURL(file).href);
@@ -117,10 +125,14 @@ test('saved student HTML opens the shared all-school folder from either save lay
       const link = page.getByRole('link', { name: '【全】北辰基礎資料' });
       await expect(link).toBeVisible();
       await expect(link).toHaveAttribute('target', '_blank');
-      const [opened] = await Promise.all([page.waitForEvent('popup'), link.click()]);
-      await expect(opened).toHaveURL(pathToFileURL(target).href.replace(/\/$/, '') + '/');
-      await expect(opened.getByRole('link', { name: '北辰基礎資料.html' })).toBeVisible();
-      await opened.close();
+      await expect(link).toHaveAttribute('href', target);
+      expect(await link.evaluate(element => (element as HTMLAnchorElement).href)).toBe(target);
+      const material = page.locator('#saved-files a');
+      await expect(material).toHaveAttribute('href', 'material-0.pdf');
+      expect(await material.evaluate(element => (element as HTMLAnchorElement).href))
+        .toBe(new URL(`${base}material-0.pdf`, pathToFileURL(file)).href);
+      await page.getByRole('button', { name: '面談記録を表示' }).click();
+      await expect(page.getByText('面談記録は見つかりませんでした。')).toBeVisible();
       await page.close();
     }
   } finally {

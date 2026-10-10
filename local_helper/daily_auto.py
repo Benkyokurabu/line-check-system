@@ -14,6 +14,34 @@ SHARE_ROOT = Path(r'\\TS3210\benko\03 教務部\015 各面談行事／文化会�
 OWNER = 'bentan-daily-materials-v1'
 
 
+def make_html_visible(path):
+    """Remove only Windows Hidden; SMB can retain it after renaming a dot file."""
+    if os.name != 'nt':
+        return
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    get_attributes = kernel32.GetFileAttributesW
+    get_attributes.argtypes = [wintypes.LPCWSTR]
+    get_attributes.restype = wintypes.DWORD
+    set_attributes = kernel32.SetFileAttributesW
+    set_attributes.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+    set_attributes.restype = wintypes.BOOL
+    name = str(path)
+    attributes = get_attributes(name)
+    if attributes == 0xffffffff:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if attributes & 0x2:
+        # FILE_ATTRIBUTE_NORMAL is needed if Hidden was the only attribute.
+        if not set_attributes(name, (attributes & ~0x2) or 0x80):
+            raise ctypes.WinError(ctypes.get_last_error())
+        attributes = get_attributes(name)
+        if attributes == 0xffffffff:
+            raise ctypes.WinError(ctypes.get_last_error())
+        if attributes & 0x2:
+            raise RuntimeError('共有フォルダの面談資料を表示できる状態にできません。')
+
+
 def safe_json(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':')).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
 
@@ -205,10 +233,11 @@ class DailyFolder:
                  'files': {name: digest(version / name) for name in [*copies, *texts]}, 'appointment': self.prepared['appointment'],
                  'missing': manifest.get('missing', [])}
         (version / '自動保存情報.json').write_text(safe_json(saved), encoding='utf-8', newline='')
-        temporary = self.folder / f'.面談資料_{save_id}.html'
+        temporary = self.folder / f'_面談資料_{save_id}.html'
         temporary.write_text(rendered, encoding='utf-8', newline='')
         if temporary.read_text(encoding='utf-8') != rendered:
             raise RuntimeError('共有フォルダへ画面を完全に保存できません。以前の資料は保持しています。')
+        make_html_visible(temporary)
         # The previous entry point is untouched until originals, schedule, sources and lease are rechecked.
         with publication_lock(self.folder):
             authorize()
@@ -217,6 +246,7 @@ class DailyFolder:
                     digest(original) != original_hash for original, original_hash in self.legacy_files):
                 raise RuntimeError('保存済みの資料が処理中に変更されました。自動上書きを保留しました。')
             os.replace(temporary, self.folder / '面談資料.html')
+            make_html_visible(current_html)
             if not self.unchanged(input_hash):
                 raise RuntimeError('保存後の資料確認に失敗しました。')
         return str(self.folder)

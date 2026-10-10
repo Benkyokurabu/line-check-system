@@ -3,11 +3,51 @@ import tempfile
 import unittest
 import threading
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pypdf import PdfWriter
 
-from daily_auto import DailyFolder, fingerprint, safe_json
+from daily_auto import DailyFolder, fingerprint, make_html_visible, safe_json
+
+
+class HtmlVisibilityTests(unittest.TestCase):
+    def visibility_api(self, attributes, success=True):
+        kernel = Mock()
+        kernel.GetFileAttributesW.side_effect = attributes
+        kernel.SetFileAttributesW.return_value = success
+        return kernel
+
+    def test_hidden_is_removed_without_changing_other_attributes(self):
+        kernel = self.visibility_api([0x27, 0x25])
+        with patch('daily_auto.os.name', 'nt'), patch('ctypes.WinDLL', return_value=kernel, create=True):
+            make_html_visible('offline.html')
+        kernel.SetFileAttributesW.assert_called_once_with('offline.html', 0x25)
+
+    def test_visible_file_needs_no_attribute_write(self):
+        kernel = self.visibility_api([0x20])
+        with patch('daily_auto.os.name', 'nt'), patch('ctypes.WinDLL', return_value=kernel, create=True):
+            make_html_visible('offline.html')
+        kernel.SetFileAttributesW.assert_not_called()
+
+    def test_hidden_only_uses_normal_and_verifies_change(self):
+        kernel = self.visibility_api([0x2, 0x80])
+        with patch('daily_auto.os.name', 'nt'), patch('ctypes.WinDLL', return_value=kernel, create=True):
+            make_html_visible('offline.html')
+        kernel.SetFileAttributesW.assert_called_once_with('offline.html', 0x80)
+
+    def test_failed_attribute_write_is_reported(self):
+        kernel = self.visibility_api([0x22], success=False)
+        with patch('daily_auto.os.name', 'nt'), patch('ctypes.WinDLL', return_value=kernel, create=True), \
+                patch('ctypes.get_last_error', return_value=5, create=True), \
+                patch('ctypes.WinError', return_value=OSError('attribute denied'), create=True):
+            with self.assertRaisesRegex(OSError, 'attribute denied'):
+                make_html_visible('offline.html')
+
+    def test_nas_ignoring_attribute_change_is_reported(self):
+        kernel = self.visibility_api([0x22, 0x22])
+        with patch('daily_auto.os.name', 'nt'), patch('ctypes.WinDLL', return_value=kernel, create=True):
+            with self.assertRaisesRegex(RuntimeError, '表示'):
+                make_html_visible('offline.html')
 
 
 class DailyFolderTests(unittest.TestCase):
@@ -76,6 +116,28 @@ class DailyFolderTests(unittest.TestCase):
             raise RuntimeError('予定変更')
         with self.assertRaisesRegex(RuntimeError, '予定変更'):
             self.folder().publish(self.bundle, self.manifest, 'b' * 64, changed)
+        self.assertEqual((first.folder / '面談資料.html').read_bytes(), old)
+        self.assertTrue(first.unchanged('a' * 64))
+
+    def test_html_visibility_is_checked_before_and_after_publication(self):
+        folder = self.folder()
+        paths = []
+        def visible(path):
+            self.assertTrue(path.is_file())
+            paths.append(path)
+        with patch('daily_auto.make_html_visible', side_effect=visible):
+            folder.publish(self.bundle, self.manifest, 'a' * 64, lambda: None)
+        self.assertEqual(len(paths), 2)
+        self.assertTrue(paths[0].name.startswith('_面談資料_'))
+        self.assertEqual(paths[1], folder.folder / '面談資料.html')
+
+    def test_visibility_failure_before_switch_preserves_old_html(self):
+        first = self.folder()
+        first.publish(self.bundle, self.manifest, 'a' * 64, lambda: None)
+        old = (first.folder / '面談資料.html').read_bytes()
+        with patch('daily_auto.make_html_visible', side_effect=OSError('attribute denied')):
+            with self.assertRaisesRegex(OSError, 'attribute denied'):
+                self.folder().publish(self.bundle, self.manifest, 'b' * 64, lambda: None)
         self.assertEqual((first.folder / '面談資料.html').read_bytes(), old)
         self.assertTrue(first.unchanged('a' * 64))
 
