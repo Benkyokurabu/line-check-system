@@ -32,7 +32,7 @@ async function setup(page: Page) {
 test("a collapsed card shows the missing reviewer instruction without sending a request", async ({ page }) => {
   const state = await setup(page);
   await page.getByRole("button", { name: "表示を消す", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "画面上部で確認担当者を選択してください。" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "画面上部で確認担当者を入力してください。" })).toBeVisible();
   await expect(page.getByRole("button", { name: "内容を見る", exact: true })).toHaveAttribute("aria-expanded", "false");
   expect(state.writes).toBe(0);
 });

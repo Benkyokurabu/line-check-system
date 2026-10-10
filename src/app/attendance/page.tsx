@@ -464,7 +464,7 @@ export default function AttendancePage() {
 
   async function hideSelectedCandidates() {
     if (bulkBusy || selectedCandidates.length === 0) return;
-    if (!confirmedBy.trim()) { setBulkMessage("画面上部で確認担当者を選択してください。"); return; }
+    if (!confirmedBy.trim()) { setBulkMessage("画面上部で確認担当者を入力してください。"); return; }
     const targets = [...selectedCandidates];
     const names = targets.slice(0, 20).map((candidate) => {
       const name = candidate.student_roster?.student_name ?? candidate.suggested_student_name ?? candidate.sender_profile?.alias_names?.[0] ?? candidate.line_messages?.display_name ?? "名前未登録";
@@ -1044,7 +1044,7 @@ function ManualEventsPanel({ students, confirmedBy, refreshKey, onChanged }: { s
   }
 
   async function cancelEvent(event: ManualEvent) {
-    if (!confirmedBy.trim()) { setMessage("画面上部で確認担当者を選択してください。"); return; }
+    if (!confirmedBy.trim()) { setMessage("画面上部で確認担当者を入力してください。"); return; }
     if (!window.confirm(`${eventStudent(event)} / ${event.lessons?.label ?? "授業未取得"} を取り消しますか？`)) return;
     const busyKey = `cancel:${event.id}`;
     setActionBusy(busyKey);
@@ -1438,7 +1438,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       return selected.length ? selected : group.items.slice(0, 1);
     });
     if (busy || !registrationRows.length || registrationRows.length > 80) return;
-    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を入力してください。"); return; }
     const invalidStudent = registrationRows.find((item) => !item.student_number);
     if (invalidStudent) { setCardMessage("すべての登録行で名前を選択してください。"); return; }
     const invalid = registrationRows.find((item) => !item.event_date || !item.campus || !item.lesson_id || !item.ai_summary.trim());
@@ -1483,7 +1483,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
   async function sendReply() {
     if (hasSentReply && !additionalMessageMode) { setCardMessage("この欠席連絡にはLINEで送信済みです。"); return; }
-    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を入力してください。"); return; }
     if (!replyText.trim()) { setCardMessage("返信文を入力してください。"); return; }
     const sendLabel = hasSentReply ? "別のメッセージ" : "LINE返信";
     if (!window.confirm(`${titleName} に${sendLabel}を送信します。よろしいですか？`)) return;
@@ -1519,7 +1519,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   async function dismiss() {
-    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を入力してください。"); return; }
     if (!window.confirm("この候補を対応不要にしますか？")) return;
     setDismissing(true);
     setCardMessage("対応不要として処理しています...");
@@ -1542,7 +1542,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   async function changeReviewVisibility() {
-    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
+    if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を入力してください。"); return; }
     const hide = !candidate.review_hidden_at;
     if (hide && !window.confirm("この連絡を表示中の一覧から消しますか？\n消去済みから後で確認できます。")) return;
     setVisibilityBusy(true);
@@ -1661,7 +1661,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
 
     {periodProposal && !closed && !registering && <div hidden={!showAutoPeriod}><AutoPeriodReview key={studentNumber} studentNumber={studentNumber} studentName={selectedStudent?.student_name ?? "生徒未選択"} proposal={periodProposal} confirmedBy={confirmedBy} registrationMessage={cardMessage} disabled={busy || !studentNumber} onManual={() => setManualPeriod(true)} onConfirm={async (lessons, reason, eventType) => {
       const rows: EditableItem[] = lessons.map((lesson) => ({ client_id: makeClientId(), student_number: studentNumber, event_type: eventType, event_date: lesson.lesson_date, campus: lesson.campus ?? "", lesson_id: lesson.id, suggested_subject: lesson.subject ?? null, suggested_class_name: lesson.class_name ?? null, ai_summary: reason, arrival_expected_time: eventType === "late" ? periodProposal.arrival : "", note_internal: "", note_for_classroom: "", cross_campus_override: false, cross_campus_reason: "" }));
-      if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を選択してください。"); return; }
+      if (!confirmedBy.trim()) { setCardMessage("画面上部で確認担当者を入力してください。"); return; }
       setItems(rows);
       await confirmCandidate(rows, lessons);
     }} /></div>}
@@ -1751,7 +1751,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       })}
     </div>}
 
-    {draftStatus && <div role="status" style={{ marginTop: 10, color: draftStatus.includes("できません") ? "#b42318" : "#087a3d", fontSize: 13 }}>{draftStatus}{!confirmedBy.trim() ? "（確認担当者は未選択）" : ""}</div>}
+    {draftStatus && <div role="status" style={{ marginTop: 10, color: draftStatus.includes("できません") ? "#b42318" : "#087a3d", fontSize: 13 }}>{draftStatus}{!confirmedBy.trim() ? "（確認担当者は未入力）" : ""}</div>}
     <div style={{ marginTop: 10 }}><button type="button" style={ghostButtonStyle} aria-expanded={historyOpen} onClick={() => void toggleReviewHistory()}>{historyOpen ? "変更履歴を閉じる" : "生徒・授業の変更履歴"}</button></div>
     {historyOpen && <div style={{ display: "grid", gap: 6, marginTop: 8, fontSize: 13 }}>{reviewHistory.length === 0 ? <div>変更履歴はありません。</div> : reviewHistory.map((entry) => <div key={entry.id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
       {formatReceivedAt(entry.created_at)} / {entry.actor || "担当者名未入力"}：{studentOptions.find((student) => student.student_number === entry.before_student_number)?.student_name ?? entry.before_student_number ?? "未選択"} → {studentOptions.find((student) => student.student_number === entry.after_student_number)?.student_name ?? entry.after_student_number ?? "未選択"}、授業 {entry.before_lessons.filter((lesson) => lesson.lesson_id).length}件 → {entry.after_lessons.filter((lesson) => lesson.lesson_id).length}件

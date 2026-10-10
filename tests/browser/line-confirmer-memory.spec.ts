@@ -6,8 +6,8 @@ test("remembered confirmer follows attendance into LINE registration and survive
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/attendance");
   const chooser = page.getByLabel("LINE確認担当者");
-  await expect(chooser.getByLabel("確認担当者を選択")).toBeVisible();
-  await chooser.getByLabel("確認担当者を選択").selectOption("試験先生");
+  await expect(chooser.getByLabel("確認担当者を入力")).toBeVisible();
+  await chooser.getByLabel("確認担当者を入力").fill("試験先生");
   await chooser.getByRole("button", { name: "この担当者で続ける" }).click();
   await expect(chooser).toContainText("確認担当者：試験先生");
   await page.reload();
@@ -19,8 +19,7 @@ test("remembered confirmer follows attendance into LINE registration and survive
   const picker = page.getByRole("dialog", { name: "LINE登録・修正" }).getByLabel("LINE確認担当者");
   await picker.getByRole("button", { name: "担当者を変更" }).click();
   await expect(form.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
-  await picker.getByLabel("確認担当者を選択").selectOption({ label: "候補にない担当者" });
-  await picker.getByLabel("担当者名").fill("試験職員");
+  await picker.getByLabel("確認担当者を入力").fill("試験職員");
   await picker.getByRole("button", { name: "この担当者で続ける" }).click();
   await expect(form.getByLabel("LINE登録の確認者名")).toHaveValue("試験職員");
   page.on("dialog", dialog => dialog.accept());
@@ -45,7 +44,7 @@ test("blocked browser storage prevents an unremembered confirmer from being used
   });
   await page.goto("/attendance");
   const chooser = page.getByLabel("LINE確認担当者");
-  await chooser.getByLabel("確認担当者を選択").selectOption("試験先生");
+  await chooser.getByLabel("確認担当者を入力").fill("試験先生");
   await chooser.getByRole("button", { name: "この担当者で続ける" }).click();
   await expect(chooser.getByRole("alert")).toContainText("保存できません");
   await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
