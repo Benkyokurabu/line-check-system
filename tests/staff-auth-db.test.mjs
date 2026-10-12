@@ -29,6 +29,7 @@ before(async () => {
     await db.exec(await readFile(new URL(`../supabase/${file}`, import.meta.url), "utf8"));
   }
   await db.exec(migration);
+  await db.exec(await readFile(new URL('../supabase/staff_persistent_session_20261012.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_read_20260905.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_intake_20260905.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../supabase/staff_study_room_options_20260905.sql", import.meta.url), "utf8"));
@@ -37,13 +38,14 @@ before(async () => {
 });
 after(async () => { await db.close(); });
 beforeEach(async () => {
+  await db.exec(await readFile(new URL('../supabase/staff_persistent_session_20261012.sql', import.meta.url), 'utf8'));
   await db.exec(`truncate public.study_room_visits,public.study_room_visit_events,public.study_room_staff_intakes, public.study_room_notification_intents, public.study_room_request_events,
     public.study_room_reservations, public.study_room_requests, public.study_room_day_settings,
     public.student_line_accounts, public.student_roster;
     update public.study_room_workflow_settings set enabled=true;`);
   await db.exec(`truncate public.study_room_visits,public.study_room_visit_events,public.study_room_staff_intakes,public.staff_session_activity,public.staff_permission_overrides,public.staff_accounts,
     public.staff_login_buckets,auth.sessions,auth.users;
-    update public.staff_auth_settings set enabled=true,idle_seconds=1800,absolute_seconds=28800;
+    update public.staff_auth_settings set enabled=true,idle_seconds=1800,absolute_seconds=28800,persist_until_logout=false;
     delete from public.staff_role_permissions;
     insert into public.staff_role_permissions values ('office','study_room.approve'),('office','study_room.read'),('office','study_room.cancel'),('office','study_room.submit');
     insert into public.staff_role_permissions values ('office','study_room.visit');
@@ -265,6 +267,31 @@ test("account bans, absolute expiry, idle expiry and managed expiry are enforced
   await assert.rejects(authorize(), /staff_session_expired/);
   await db.exec("update public.staff_session_activity set last_seen_at=now(); update public.staff_accounts set auth_not_before=now()-interval '2 days'; update auth.sessions set created_at=now()-interval '9 hours';");
   await assert.rejects(authorize(), /staff_session_expired/);
+});
+
+test('persistent login survives long inactivity while managed logout and account/password revocation still apply', async () => {
+  await authorize({ initialize: true });
+  await db.exec(`update public.staff_auth_settings set persist_until_logout=true;
+    update public.staff_accounts set auth_not_before=now()-interval '400 days';
+    update auth.sessions set created_at=now()-interval '200 days';
+    update public.staff_session_activity set last_seen_at=now()-interval '100 days';`);
+  const result = await authorize();
+  assert.ok(Date.parse(result.expiresAt) > Date.now() + 364 * 86400000);
+  await assert.rejects(authorize({ permission: 'not-defined' }), /staff_permission_denied/);
+  await db.exec("update auth.sessions set not_after=now()+interval '1 hour';");
+  assert.ok(Date.parse((await authorize()).expiresAt) < Date.now() + 3601000);
+  await db.exec("update auth.sessions set not_after=now()-interval '1 second';");
+  await assert.rejects(authorize(), /staff_session_expired/);
+  await db.exec("update auth.sessions set not_after=null; update auth.users set banned_until=now()+interval '1 day';");
+  await assert.rejects(authorize(), /staff_session_invalid/);
+  await db.exec("update auth.users set banned_until=null,encrypted_password='new-password-hash';");
+  await assert.rejects(authorize(), /staff_session_invalid/);
+  await db.exec("update auth.users set encrypted_password='fixture-password-hash'; update public.staff_accounts set active=false;");
+  await assert.rejects(authorize(), /staff_access_denied/);
+  await db.exec("update public.staff_accounts set active=true;");
+  await assert.rejects(authorize(), /staff_session_invalid/);
+  await db.exec("update public.staff_accounts set auth_not_before=now()-interval '400 days'; delete from auth.sessions;");
+  await assert.rejects(authorize(), /staff_session_invalid/);
 });
 test("public and authenticated roles cannot call staff RPCs or read the staff roster", async () => {
   const { rows } = await db.query(`select

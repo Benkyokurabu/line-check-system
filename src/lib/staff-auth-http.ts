@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import {
   isStaffSameOrigin, requireStaff, STAFF_ACCESS_COOKIE, STAFF_REFRESH_COOKIE,
-  StaffAuthError, staffCookieOptions,
+  StaffAuthError, staffCookieOptions, staffSessionCookies,
 } from "@/lib/staff-auth-core.mjs";
 import { teacherRouteAllowed } from "@/lib/staff-teacher-route-access.mjs";
 
@@ -63,23 +63,15 @@ export async function staffContext(request: NextRequest) {
     && !teacherRouteAllowed(request.nextUrl.pathname)) {
     throw new StaffAuthError('permission_denied', 403);
   }
-  return { ...authenticated, dataClient };
+  return { ...authenticated, dataClient, refreshToken: request.cookies.get(STAFF_REFRESH_COOKIE)?.value };
 }
 
 type CookieSession = { access_token: string; refresh_token: string; expires_at?: number; expires_in?: number };
-type CookieContext = { session?: CookieSession | null; staff: { expiresAt: string } };
+type CookieContext = { session?: CookieSession | null; refreshToken?: string; staff: { expiresAt: string } };
 
 export function staffResponse(body: unknown, context?: CookieContext, status = 200) {
   const response = NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", "Pragma": "no-cache" } });
-  if (context?.session) {
-    const remaining = Math.max(0, Math.floor((Date.parse(context.staff.expiresAt) - Date.now()) / 1000));
-    const accessRemaining = context.session.expires_at
-      ? Math.floor(context.session.expires_at - Date.now() / 1000) : (context.session.expires_in ?? 3600);
-    response.cookies.set(STAFF_ACCESS_COOKIE, context.session.access_token,
-      { ...staffCookieOptions(Math.max(0, Math.min(remaining, accessRemaining))), sameSite: "strict" });
-    response.cookies.set(STAFF_REFRESH_COOKIE, context.session.refresh_token,
-      { ...staffCookieOptions(remaining), sameSite: "strict" });
-  }
+  for (const cookie of staffSessionCookies(context)) response.cookies.set(cookie.name, cookie.value, { ...cookie.options, sameSite: 'strict' });
   return response;
 }
 

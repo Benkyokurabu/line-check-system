@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { submitStaffStudyRoom } from "../src/lib/staff-study-room-intake.mjs";
 import { loginStaff, requireStaff, logoutStaff, isStaffSameOrigin, staffCookieOptions,
-  transitionStaffStudyRoom, listStaffStudyRoom } from "../src/lib/staff-auth-core.mjs";
+  transitionStaffStudyRoom, listStaffStudyRoom, staffSessionCookies, STAFF_ACCESS_COOKIE, STAFF_REFRESH_COOKIE } from "../src/lib/staff-auth-core.mjs";
 import { teacherRouteAllowed } from "../src/lib/staff-teacher-route-access.mjs";
 
 test("teacher login is limited to its approved staff APIs", () => {
@@ -19,6 +19,22 @@ test("teacher login is limited to its approved staff APIs", () => {
 });
 
 const user = "00000000-0000-0000-0000-000000000001";
+test('persistent refresh cookies survive browser restart and renew without extending access tokens', () => {
+  const now = Date.parse('2030-01-01T00:00:00Z');
+  const staff = { expiresAt: '2031-01-01T00:00:00Z' };
+  const cookies = staffSessionCookies({ staff, session: { access_token: 'access-fixture', refresh_token: 'refresh-fixture', expires_in: 3600 } }, now);
+  assert.equal(cookies[0].name, STAFF_ACCESS_COOKIE);
+  assert.equal(cookies[0].options.maxAge, 3600);
+  assert.equal(cookies[1].name, STAFF_REFRESH_COOKIE);
+  assert.equal(cookies[1].options.maxAge, 365 * 86400);
+  assert.deepEqual(cookies[1].options, { maxAge: 365 * 86400, httpOnly: true, secure: true, sameSite: 'strict', path: '/' });
+  const renewed = staffSessionCookies({ staff, refreshToken: 'refresh-fixture' }, now);
+  assert.deepEqual(renewed, [cookies[1]]);
+  const limited = staffSessionCookies({ staff: { expiresAt: '2030-01-01T00:30:00Z' }, refreshToken: 'refresh-fixture' }, now);
+  assert.equal(limited[0].options.maxAge, 1800);
+  assert.deepEqual(staffSessionCookies(undefined, now), []);
+  assert.deepEqual(staffSessionCookies({ staff, session: null }, now), []);
+});
 const sessionId = "00000000-0000-0000-0000-000000000002";
 const token = (sub = user, session = sessionId) => `header.${Buffer.from(JSON.stringify({ sub, session_id: session })).toString("base64url")}.signature`;
 const session = { access_token: token(), refresh_token: "rotated" };

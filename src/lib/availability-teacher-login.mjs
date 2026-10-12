@@ -42,9 +42,9 @@ async function takeAttempt(db, teacherId) {
 
 export async function loginAvailabilityTeacher({ dataClient, identityClient, teacherId, password }) {
   const staffCode = availabilityStaffCode(teacherId);
-  const teacherResult = await dataClient.from('teachers').select('id,display_name').eq('id', teacherId).maybeSingle();
+  const teacherResult = await dataClient.from('staff_login_people').select('id,display_name,account_name').eq('id', teacherId).eq('active', true).maybeSingle();
   if (teacherResult.error) throw new StaffAuthError('auth_unavailable', 503);
-  const teacher = teacherResult.data;
+  const teacher = teacherResult.data ? { ...teacherResult.data, display_name: teacherResult.data.account_name } : null;
   if (!teacher?.display_name?.trim()) throw new StaffAuthError('invalid_credentials');
   await takeAttempt(dataClient, teacherId);
   if (!matchesAvailabilityPassword(password)) throw new StaffAuthError('invalid_credentials');

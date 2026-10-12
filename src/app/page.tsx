@@ -14,6 +14,7 @@ const menuItems = [
   { href: "/admin/notion-roster", group: "management" as const, icon: "sync", title: "Notion・クラス一覧 照合", description: "Notion生徒情報、クラス一覧Excel、アプリ側名簿の差分を確認して反映します。" },
   { href: "/line-alias-import", group: "management" as const, icon: "sync", title: "LINE登録名の取り込み", description: "LINE管理画面で入力した登録名を一覧確認し、編集してから一括反映します。" },
   { href: "/feedback", group: "management" as const, icon: "message", title: "改善してほしいことなど、何でも", description: "勉たんへのご意見・ご要望を送れます。送信内容は工藤だけが確認します。" },
+  { href: "/staff/login-people", group: "prelaunch" as const, icon: "users", title: "ログインする人の管理", description: "先生ログインに表示する名前を確認し、新しく利用する人を追加します。" },
   { href: "/dashboard", group: "prelaunch" as const, icon: "message", title: "未対応メッセージ", description: "LINEで届いた未対応の連絡を先生別に確認し、返信・完了処理をします。" },
   { href: "/students", group: "prelaunch" as const, icon: "users", title: "担任・クラス別 生徒一覧", description: "担任生徒やクラス在籍生徒を一覧で確認し、選択した生徒へLINE送信します。" },
   { href: "/karte", group: "prelaunch" as const, icon: "file", title: "生徒カルテ", description: "Notion、LINE、クラス一覧Excelを生徒ごとにまとめ、経緯を確認します。" },

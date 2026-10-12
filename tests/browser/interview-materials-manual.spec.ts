@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('button queues confirmed appointments on the online PC, and reopening never starts a run', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'teacher' } } }));
-  await page.route('**/api/admin/teachers', route => route.fulfill({ json: { teachers: [{ id: '11111111-1111-4111-8111-111111111111', display_name: '確認用' }] } }));
+  await page.route(/\/api\/(?:admin\/teachers|staff\/login-people)(?:\?.*)?$/, route => route.fulfill({ json: { teachers: [{ id: '11111111-1111-4111-8111-111111111111', display_name: '確認用' }] } }));
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [] } }));
   await page.route('**/api/staff/interview-material-appointments**', route => route.fulfill({ json: { appointments: [], review: [] } }));
   await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: [{ id: 'standby', priority: 2 }] } }));

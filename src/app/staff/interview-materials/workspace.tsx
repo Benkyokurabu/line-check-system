@@ -252,7 +252,7 @@ export default function MaterialsDesk() {
     let active = true;
     void (async () => {
       try {
-        const response = await fetch('/api/admin/teachers', { cache: 'no-store' });
+        const response = await fetch('/api/staff/login-people', { cache: 'no-store' });
         const body = await response.json();
         if (!response.ok) throw Error(body.error || '先生一覧を取得できません。');
         if (active) setLoginTeachers(body.teachers ?? []);

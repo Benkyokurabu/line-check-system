@@ -27,6 +27,23 @@ export function staffCookieOptions(maxAge) {
   return { httpOnly: true, secure: true, sameSite: "strict", path: "/", maxAge };
 }
 
+// Renew the persistent refresh cookie even while the access token is still valid.
+export function staffSessionCookies(context, now = Date.now()) {
+  if (!context) return [];
+  const remaining = Math.max(0, Math.floor((Date.parse(context.staff.expiresAt) - now) / 1000));
+  if (!Number.isFinite(remaining)) return [];
+  const cookies = [];
+  if (context.session) {
+    const accessRemaining = context.session.expires_at
+      ? Math.floor(context.session.expires_at - now / 1000) : (context.session.expires_in ?? 3600);
+    cookies.push({ name: STAFF_ACCESS_COOKIE, value: context.session.access_token,
+      options: staffCookieOptions(Math.max(0, Math.min(remaining, accessRemaining))) });
+  }
+  const refreshToken = context.session?.refresh_token ?? context.refreshToken;
+  if (refreshToken) cookies.push({ name: STAFF_REFRESH_COOKIE, value: refreshToken, options: staffCookieOptions(remaining) });
+  return cookies;
+}
+
 // This is extraction AFTER getUser verified the token, never JWT verification.
 function verifiedSessionId(token, verifiedUserId) {
   try {

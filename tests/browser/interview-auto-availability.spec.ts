@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 
 const base={month:'2026-10',teacher:'工藤',startTime:'14:00',lessonDays:2,hash:'a'.repeat(64)};
 test.beforeEach(async({page})=>{
- await page.route('**/api/admin/teachers',route=>route.fulfill({json:{teachers:[
+ await page.route(/\/api\/(?:admin\/teachers|staff\/login-people)(?:\?.*)?$/,route=>route.fulfill({json:{teachers:[
   {id:'00000000-0000-4000-8000-000000000001',display_name:'工藤'},
   {id:'00000000-0000-4000-8000-000000000002',display_name:'金城'},
   {id:'00000000-0000-4000-8000-000000000003',display_name:'髙山'},
