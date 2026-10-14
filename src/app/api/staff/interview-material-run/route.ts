@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
     if (jobs.error) throw jobs.error;
     return staffResponse({ workers, jobs: latestMaterialRunJobs(jobs.data ?? []).map(job => ({ id: job.id, status: job.status,
       appointment: job.payload.autoDaily.appointment, savedFolder: job.result?.savedFolder,
-      skipped: job.result?.skipped === true, missing: job.result?.missing ?? [], error: job.error, attempts: job.attempts })) }, context);
+      skipped: job.result?.skipped === true, progress: job.result?.progress,
+      missing: job.result?.missing ?? [], error: job.error, attempts: job.attempts })) }, context);
   } catch (error) {
     if (error instanceof InterviewError) return staffResponse({ error: error.message }, context, error.status);
     console.error('Material run read failed', { type: error instanceof Error ? error.name : 'Unknown', status: (error as {status?: number})?.status });

@@ -80,7 +80,7 @@ class RemoteWorker:
             while not keep_renewing.wait(15):
                 try:
                     self.request({'action': 'heartbeat', 'ready': self.ready(), 'status': {'busy': True,
-                                  'capabilities': ['daily-offline-v1'], 'daily': self.daily_status}})
+                                  'capabilities': ['daily-offline-v1', 'material-progress-v1'], 'daily': self.daily_status}})
                     if not self.request({'action': 'renew', 'id': id_, 'lease': lease}).get('ok'):
                         lost_lease.set()
                         return
@@ -100,8 +100,14 @@ class RemoteWorker:
                 daily_folder = None
                 input_hash = None
                 if automatic:
+                    def report(stage, mode='check'):
+                        if not self.request({'action': 'progress', 'id': id_, 'lease': lease,
+                                             'stage': stage, 'mode': mode}).get('ok'):
+                            raise RuntimeError('現在の工程を報告できませんでした。以前の資料は保持しています。')
+                    report('checking_sources')
                     prepared = self.request({'action': 'daily-prepare', 'id': id_, 'lease': lease})
                     payload = prepared['payload']
+                    report('checking_files')
                     preview = self.preview_bundle(self.roots(), payload)
                     if preview.get('hokushin', {}).get('indexing'):
                         raise RuntimeError('北辰の索引を作成中です。資料は更新せず、次回巡回で再試行します。')
@@ -110,8 +116,10 @@ class RemoteWorker:
                         raise RuntimeError('本人の指導簿を含む資料一式を確認できません。')
                     payload = {**payload, 'selectedMaterialIds': selected_ids}
                     input_hash = fingerprint(prepared, preview, self.root)
+                    report('checking_saved')
                     daily_folder = DailyFolder(prepared)
                     if daily_folder.unchanged(input_hash):
+                        report('verifying_reuse', 'reuse')
                         if not self.request({'action': 'daily-verify', 'id': id_, 'lease': lease, 'sourceHash': prepared['sourceHash']}).get('ok'):
                             raise RuntimeError('元の回答・面談記録・生徒情報が更新されました。以前の資料は保持しています。')
                         if fingerprint(prepared, self.preview_bundle(self.roots(), prepared['payload']), self.root) != input_hash:
@@ -119,8 +127,12 @@ class RemoteWorker:
                         self.request({'action': 'complete', 'id': id_, 'lease': lease,
                                       'result': {'skipped': True, 'savedFolder': str(daily_folder.folder), 'inputHash': input_hash}})
                         return
+                    operation = 'update' if daily_folder.initial_html_hash is not None else 'create'
+                    report('generating', operation)
                 folder, manifest = self.make_bundle(payload)
                 try:
+                    if automatic:
+                        report('uploading', operation)
                     source = Path(folder.name) / 'staff-bundle.pdf'
                     def save_and_sync():
                         saved = None
@@ -151,6 +163,7 @@ class RemoteWorker:
                               'savedPath': str(saved) if saved else None, 'cloudSynced': cloud_synced,
                               'saveError': save_error}
                     if automatic:
+                        report('saving', operation)
                         def authorize():
                             if not self.request({'action': 'daily-verify', 'id': id_, 'lease': lease, 'sourceHash': prepared['sourceHash']}).get('ok'):
                                 raise RuntimeError('作成中に回答・面談記録・生徒情報が更新されました。以前の資料は保持しています。')
@@ -185,7 +198,7 @@ class RemoteWorker:
                 ready = self.ready()
                 self.request({'action': 'heartbeat', 'ready': ready,
                               'status': {'hokushinIndexed': self.index_status.get('completed', 0),
-                                         'capabilities': ['daily-offline-v1'], 'daily': self.daily_status}})
+                                         'capabilities': ['daily-offline-v1', 'material-progress-v1'], 'daily': self.daily_status}})
                 if ready and time.monotonic() - self.daily_scan_at >= 60 and not self.daily_scanning.is_set():
                     self.daily_scan_at = time.monotonic()
                     self.daily_scanning.set()

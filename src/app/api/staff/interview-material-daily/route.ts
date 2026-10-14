@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     return staffResponse({ settings: settings.data, scans: scans.data, jobs: (jobs.data ?? []).map(job => ({
       id: job.id, status: job.status, appointment: job.payload.autoDaily.appointment, attempts: job.attempts,
       savedFolder: job.result?.savedFolder, skipped: job.result?.skipped === true, missing: job.result?.missing ?? [],
-      error: job.error, completedAt: job.completed_at,
+      error: job.error, completedAt: job.completed_at, progress: job.result?.progress,
     })) }, context);
   } catch (error) {
     return error instanceof InterviewError ? staffResponse({ error: error.message }, context, error.status) : staffErrorResponse(error, context);

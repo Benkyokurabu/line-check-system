@@ -3,6 +3,7 @@ import { materialJobBody, MATERIAL_BUCKET, workerContext } from '@/lib/interview
 import { prepareDailyMaterials, scanDailyMaterials } from '@/lib/interview-material-daily';
 import { DailyMaterialError } from '@/lib/interview-material-daily-core.mjs';
 import { InterviewError } from '@/lib/interview-core.mjs';
+import { materialProgress } from '@/lib/interview-material-progress.mjs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -40,6 +41,14 @@ export async function POST(request: NextRequest) {
     if (jobError) throw jobError;
     if (!job || job.status !== 'running' || job.worker_id !== context.id || job.lease_token !== lease
       || Date.parse(job.lease_until) < Date.now()) return response({ error: '作成権限の期限が切れました。' }, 409);
+    if (action === 'progress') {
+      const progress = materialProgress(body.stage, body.mode);
+      const { data, error } = await context.client.from('interview_material_jobs').update({ result: { progress } })
+        .eq('id', id).eq('status', 'running').eq('worker_id', context.id).eq('lease_token', lease)
+        .gt('lease_until', new Date().toISOString()).select('id');
+      if (error) throw error;
+      return response({ ok: data?.length === 1 }, data?.length === 1 ? 200 : 409);
+    }
     if (action === 'renew') {
       const { data, error } = await context.client.rpc('interview_material_renew', { p_job: id, p_worker: context.id, p_lease: lease });
       if (error) throw error;

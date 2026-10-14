@@ -1,10 +1,12 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styles from './workspace.module.css';
+import { materialJobStatus } from '@/lib/interview-material-progress.mjs';
 
 type State = { workers: { id: string; name: string }[]; jobs: { id: string; status: string;
   appointment: { date: string; start: string; name: string; teacher: string };
-  savedFolder?: string; skipped: boolean; missing: string[]; error?: string; attempts: number }[] };
+  savedFolder?: string; skipped: boolean; missing: string[]; error?: string; attempts: number;
+  progress?: { stage: string; mode: string; reportedAt: string } }[] };
 type Review = { id: string; title: string; reason: string; url: string; date: string; start: string; teachers: string[] };
 type RunRequest = { runId: string; from: string; to: string; teacherId: string;
   chunk: number; chunkCount: number; accepted: number; reviews: Review[]; worker: string };
@@ -106,7 +108,7 @@ export default function ManualMaterialPanel({ teachers }: { teachers: { id: stri
     <p role="status">{state ? state.workers.length ? `使用できるPC：${state.workers.map(worker => worker.name).join('、')}`
       : '一括作成に対応したPCが停止中です。作成アプリの起動・更新とNAS接続を確認してください。' : '作成PCを確認中…'}</p>
     <div className={styles.actions}><button type="button" className={styles.primary} disabled={busy || reviewBusy || (running && !hasPending) || !state?.workers.length} onClick={() => void start()}>
-      {busy ? '確定面談を確認中…' : hasPending ? '残りの期間を再試行' : running ? '面談資料を作成中' : '面談資料作成'}</button>
+      {busy ? '確定面談を確認中…' : hasPending ? '残りの期間を再試行' : running ? '確認・作成処理中' : '面談資料作成'}</button>
       {hasPending && !busy && <button type="button" onClick={() => {
         const accepted = request.current?.accepted ?? 0;
         request.current = null; setHasPending(false);
@@ -130,8 +132,8 @@ export default function ManualMaterialPanel({ teachers }: { teachers: { id: stri
     </section>}
     {!!state?.jobs.length && <ol className={styles.batchResults} aria-label="一括作成の結果">{state.jobs.map(job => <li key={job.id}>
       <strong>{job.appointment.date} {job.appointment.start}　{job.appointment.name}（{job.appointment.teacher}先生）</strong>
-      <span>{job.status === 'completed' ? job.skipped ? '変更なし・保存済み資料を使用' : '共有フォルダへ保存済み'
-        : job.status === 'failed' ? `失敗：${job.error}${job.attempts < 3 ? '（5分後に再試行）' : ''}` : job.status === 'running' ? '資料を作成中' : '作成待ち'}</span>
+      <span>{materialJobStatus(job).label}</span>
+      <small>{materialJobStatus(job).detail}</small>
       {job.savedFolder && <small>{job.savedFolder} の「面談資料.html」を開けます。</small>}
       {!!job.missing?.length && <small>未取得：{job.missing.join('、')}</small>}
     </li>)}</ol>}

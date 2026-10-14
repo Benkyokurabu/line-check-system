@@ -46,7 +46,9 @@ class DailyWorkerTests(unittest.TestCase):
                 worker.execute({'id': 'job-id', 'lease': 'lease', 'kind': 'generate', 'payload': {'autoDaily': {'appointment': {}}, 'number': '2018998'}})
             worker.make_bundle.assert_not_called()
             worker.save_bundle.assert_not_called()
-            self.assertEqual([call['action'] for call in calls], ['daily-prepare', 'daily-verify', 'complete'])
+            self.assertEqual([call['action'] for call in calls if call['action'] != 'progress'], ['daily-prepare', 'daily-verify', 'complete'])
+            self.assertEqual([call['stage'] for call in calls if call['action'] == 'progress'],
+                             ['checking_sources', 'checking_files', 'checking_saved', 'verifying_reuse'])
             self.assertTrue(calls[-1]['result']['skipped'])
 
     def test_changed_or_cancelled_appointment_is_not_skipped_as_success(self):
@@ -67,11 +69,61 @@ class DailyWorkerTests(unittest.TestCase):
             worker.make_bundle.assert_not_called()
             folder.publish.assert_not_called()
 
+    def test_new_and_updated_materials_report_generation_then_storage_then_publication(self):
+        for initial, operation in [(None, 'create'), ('old-html-hash', 'update')]:
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as root:
+                worker = self.worker(root)
+                bundle = tempfile.TemporaryDirectory(dir=root)
+                (Path(bundle.name) / 'staff-bundle.pdf').write_bytes(b'%PDF-1.4\n%%EOF')
+                calls = []
+                def make(payload):
+                    calls.append({'action': 'made-pdf'})
+                    return bundle, {'items': [], 'missing': []}
+                worker.make_bundle = MagicMock(side_effect=make)
+                worker.save_bundle = MagicMock(return_value=Path(root) / 'saved.pdf')
+                worker.sync_bundle = MagicMock(return_value=False)
+                worker.upload = MagicMock()
+                def request(body):
+                    calls.append(body)
+                    if body['action'] == 'daily-prepare':
+                        return {'payload': {'number': '2018998'}, 'sourceHash': 'originals'}
+                    if body['action'] == 'upload':
+                        return {'url': 'https://example.test/upload', 'path': 'private.pdf', 'parts': []}
+                    return {'ok': True}
+                worker.request = request
+                saved = MagicMock()
+                saved.initial_html_hash = initial
+                saved.unchanged.return_value = False
+                def publish(folder, manifest, input_hash, authorize):
+                    authorize()
+                    return str(Path(root) / 'published')
+                saved.publish.side_effect = publish
+                with patch('remote_worker.DailyFolder', return_value=saved), patch('remote_worker.fingerprint', return_value='hash'):
+                    worker.execute({'id': 'job-id', 'lease': 'lease', 'kind': 'generate',
+                                    'payload': {'autoDaily': {'appointment': {}}, 'number': '2018998'}})
+                stages = [call for call in calls if call['action'] == 'progress']
+                self.assertEqual([call['stage'] for call in stages],
+                                 ['checking_sources', 'checking_files', 'checking_saved', 'generating', 'uploading', 'saving'])
+                self.assertEqual([call['mode'] for call in stages[-3:]], [operation] * 3)
+                self.assertLess(calls.index(stages[3]), next(i for i,c in enumerate(calls) if c['action']=='made-pdf'))
+                self.assertGreater(calls.index(stages[4]), next(i for i,c in enumerate(calls) if c['action']=='made-pdf'))
+                self.assertEqual(calls[-1]['action'], 'complete')
+
+    def test_progress_rejection_does_not_silently_claim_generation_is_underway(self):
+        with tempfile.TemporaryDirectory() as root:
+            worker = self.worker(root)
+            calls = []
+            worker.request = lambda body: calls.append(body) or {'ok': False}
+            worker.execute({'id': 'job-id', 'lease': 'lease', 'kind': 'generate',
+                            'payload': {'autoDaily': {'appointment': {}}, 'number': '2018998'}})
+            self.assertEqual(calls[-1]['action'], 'fail')
+            worker.make_bundle.assert_not_called()
+
     def test_share_unavailable_is_reported_before_excel_generation(self):
         with tempfile.TemporaryDirectory() as root:
             worker = self.worker(root)
             calls = []
-            worker.request = lambda body: calls.append(body) or {'payload': {'number': '2018998'}, 'sourceHash': 'originals'}
+            worker.request = lambda body: calls.append(body) or ({'payload': {'number': '2018998'}, 'sourceHash': 'originals'} if body['action'] == 'daily-prepare' else {'ok': True})
             with patch('remote_worker.DailyFolder', side_effect=RuntimeError('NAS unavailable')), patch('remote_worker.fingerprint', return_value='hash'):
                 worker.execute({'id': 'job-id', 'lease': 'lease', 'kind': 'generate', 'payload': {'autoDaily': {'appointment': {}}, 'number': '2018998'}})
             self.assertEqual(calls[-1]['action'], 'fail')

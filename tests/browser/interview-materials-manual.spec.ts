@@ -7,7 +7,8 @@ test('button queues confirmed appointments on the online PC, and reopening never
   await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [] } }));
   await page.route('**/api/staff/interview-material-appointments**', route => route.fulfill({ json: { appointments: [], review: [] } }));
   await page.route('**/api/staff/interview-material-jobs**', route => route.fulfill({ json: { available: [{ id: 'standby', priority: 2 }] } }));
-  let submissions = 0, status = 'idle', online = true, failed = false;
+  let submissions = 0, status = 'idle', online = true, failed = false, skipped = false;
+  let progress: {stage: string; mode: string} | undefined;
   const appointment = { date: '2030-01-02', start: '21:30', name: '確認用生徒', teacher: '確認用' };
   const review = [{id:'review-a',title:'小６ 確認用の姓／面談',date:'2030-01-02',start:'18:30',teachers:['確認用'],reason:'生徒のフルネームを確認してください。',url:'https://www.notion.so/11111111111141118111111111111111'},
     {id:'review-b',title:'確認用の面談',date:'2030-01-02',start:'',teachers:[],reason:'日時・担当者を確認してください。',url:'https://www.notion.so/22222222222242228222222222222222'}];
@@ -27,7 +28,7 @@ test('button queues confirmed appointments on the online PC, and reopening never
     if (failed) return route.fulfill({ status: 503, json: { error: '状況を取得できません。' } });
     return route.fulfill({ json: { workers: online ? [{ id: 'standby', name: '予備PC' }] : [], jobs: status === 'idle' ? [] : [{
       id: 'job', status, appointment, savedFolder: status === 'completed' ? '\\\\NAS\\98面談資料\\確認用先生' : null,
-      skipped: false, missing: [], attempts: 1,
+      skipped, progress, missing: [], attempts: 1,
     }] } });
   });
   await page.goto('/staff/interview-materials');
@@ -52,8 +53,29 @@ test('button queues confirmed appointments on the online PC, and reopening never
   await panel.getByRole('button', { name: '面談資料作成', exact: true }).click();
   await expect(panel.getByText(/1件の作成を受け付けました。予備PC/)).toBeVisible();
   await expect(reviewPanel.getByRole('heading',{name:'確認が必要な予定（2件）'})).toBeVisible();
-  await expect(panel.getByRole('button', { name: '面談資料を作成中', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('button', { name: '確認・作成処理中', exact: true })).toBeDisabled();
   expect(submissions).toBe(1);
+  await expect(panel.getByText('確認待ち', {exact:true})).toBeVisible();
+  status = 'running';
+  for (const [stage,mode,label] of [
+    ['checking_sources','check','面談予定・元情報を確認中'],
+    ['checking_files','check','指導簿・成績資料を確認中'],
+    ['checking_saved','check','保存済み資料と変更点を照合中'],
+    ['verifying_reuse','reuse','変更なし・再利用の最終確認中'],
+    ['generating','update','更新が必要な資料・PDFを再作成中'],
+    ['generating','create','初回の資料・PDFを作成中'],
+    ['uploading','create','作成したPDFを保管中'],
+    ['saving','create','共有フォルダへ保存・最終確認中'],
+  ]) {
+    progress = {stage,mode};
+    await panel.getByRole('button', { name: '作成状況を再確認' }).click();
+    await expect(panel.getByText(label, {exact:true})).toBeVisible();
+  }
+  status = 'completed'; skipped = true;
+  await panel.getByRole('button', { name: '作成状況を再確認' }).click();
+  await expect(panel.getByText('変更なし・既存資料を使用', {exact:true})).toBeVisible();
+  await expect(panel.getByText('PDFと保存済み資料は再作成していません。', {exact:true})).toBeVisible();
+  skipped = false;
   status = 'completed';
   await panel.getByRole('button', { name: '作成状況を再確認' }).click();
   await expect(panel.getByText('共有フォルダへ保存済み', { exact: true })).toBeVisible();
