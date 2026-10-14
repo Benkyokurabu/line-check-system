@@ -4,7 +4,7 @@ import { InterviewError } from '@/lib/interview-core.mjs';
 import { online } from '@/lib/interview-material-worker';
 import { loadInterviewMaterialAppointmentRange } from '@/lib/interview-material-appointments-loader';
 import { futureMaterialAppointment, tokyoMaterialNow } from '@/lib/interview-material-daily-core.mjs';
-import { materialRunChunk, materialRunDates, materialRunJobs, materialRunReviews, materialRunWithinLimit } from '@/lib/interview-material-run-core.mjs';
+import { latestMaterialRunJobs, materialRunChunk, materialRunDates, materialRunJobs, materialRunReviews, materialRunWithinLimit } from '@/lib/interview-material-run-core.mjs';
 import { teacherMatch } from '@/lib/bensuke-booking.mjs';
 
 export const dynamic = 'force-dynamic';
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       .eq('payload->autoDaily->>manual', 'true').gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false }).limit(300)]);
     if (jobs.error) throw jobs.error;
-    return staffResponse({ workers, jobs: (jobs.data ?? []).map(job => ({ id: job.id, status: job.status,
+    return staffResponse({ workers, jobs: latestMaterialRunJobs(jobs.data ?? []).map(job => ({ id: job.id, status: job.status,
       appointment: job.payload.autoDaily.appointment, savedFolder: job.result?.savedFolder,
       skipped: job.result?.skipped === true, missing: job.result?.missing ?? [], error: job.error, attempts: job.attempts })) }, context);
   } catch (error) {

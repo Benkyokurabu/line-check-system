@@ -18,6 +18,26 @@ export function materialRunWithinLimit(existingKeys, jobs, limit = 300) {
   return new Set([...existingKeys, ...jobs.map(job => job.daily_key)]).size <= limit;
 }
 
+// The API supplies jobs newest first. A retry replaces the displayed status,
+// while all attempts remain in the database for diagnosis.
+/**
+ * @template {{id: string, payload?: {autoDaily?: {appointment?: {id?: string, number?: string, source?: string}}}}} T
+ * @param {T[]} jobs
+ * @returns {T[]}
+ */
+export function latestMaterialRunJobs(jobs) {
+  const seen = new Set();
+  return jobs.filter(job => {
+    const appointment = job.payload?.autoDaily?.appointment;
+    const key = appointment?.id && appointment?.number
+      ? JSON.stringify([appointment.source, appointment.id, appointment.number])
+      : job.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function materialRunJobs(appointments, { runId, staffCode, teacherId, from, to }) {
   const selected = appointments.filter(row => !teacherId || row.teacherId === teacherId);
   if (selected.length > 300) throw Error('面談が300件を超えています。面談日または先生で対象を絞ってください。');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { materialRunChunk, materialRunDates, materialRunJobs, materialRunReviews, materialRunWithinLimit } from '../src/lib/interview-material-run-core.mjs';
+import { latestMaterialRunJobs, materialRunChunk, materialRunDates, materialRunJobs, materialRunReviews, materialRunWithinLimit } from '../src/lib/interview-material-run-core.mjs';
 import { teacherRouteAllowed } from '../src/lib/staff-teacher-route-access.mjs';
 test('manual range is explicit, inclusive and limited; past and invalid dates rejected', () => {
   const dates = materialRunDates('2030-01-01', '2030-01-31', '2030-01-01');
@@ -29,6 +29,22 @@ test('usual teacher login can submit and read manual material requests', () => {
   assert.equal(teacherRouteAllowed('/api/staff/interview-material-run'), true);
   assert.equal(teacherRouteAllowed('/api/staff/interview-material-daily'), true);
   assert.equal(teacherRouteAllowed('/api/material-worker'), false);
+});
+
+test('reopening the status panel shows the latest attempt instead of an earlier failure', () => {
+  const appointment = { source: 'notion-bensuke', id: 'appointment-a', number: '2018998' };
+  const job = (id, status, row = appointment) => ({ id, status, payload: { autoDaily: { appointment: row } } });
+  for (const status of ['completed', 'running', 'queued', 'failed']) {
+    const latest = job('new-attempt', status);
+    const old = job('old-attempt', 'failed');
+    const other = job('other-appointment', 'failed', { ...appointment, id: 'appointment-b' });
+    const otherStudent = job('other-student', 'completed', { ...appointment, number: '2018999' });
+    const otherSource = job('other-source', 'completed', { ...appointment, source: 'other' });
+    const unknown = { id: 'unknown', status: 'failed', payload: {} };
+    assert.deepEqual(latestMaterialRunJobs([latest, old, other, otherStudent, otherSource, unknown]),
+      [latest, other, otherStudent, otherSource, unknown]);
+  }
+  assert.deepEqual(latestMaterialRunJobs([]), []);
 });
 
 test('review details preserve the source title, Japan time, reason and staff, including unknown identities', () => {
