@@ -5,6 +5,7 @@
   "scripts": {
     "schedule:preview": "node scripts/preview-schedule-from-cloud.mjs",
     "test:schedule": "node --test tests/schedule-preview.test.mjs tests/schedule-excel.test.mjs tests/schedule-cloud.test.mjs tests/schedule-sync.test.mjs",
+    "test:journals": "node --test tests/journal-browser.test.mjs tests/journal-cloud.test.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -33,7 +34,7 @@
     "test:browser": "playwright test",
     "test:codex": "node --test tests/codex-panel.test.mjs",
     "test:interviews": "node --test tests/parent-interview-summary.test.mjs tests/interview-invitations.test.mjs tests/interview-core.test.mjs tests/interview-db.test.mjs tests/interview-notion.test.mjs tests/interview-trial.test.mjs tests/bensuke-reader.test.mjs tests/bensuke-booking.test.mjs tests/bensuke-db.test.mjs tests/bensuke-availability-auto.test.mjs tests/survey-student-match.test.mjs tests/survey-confirmations.test.mjs tests/survey-scheduling.test.mjs tests/interview-requests.test.mjs tests/parent-line-login.test.mjs",
-    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule && npm run test:feedback && npm run test:codex && npm run test:interviews",
+    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule && npm run test:journals && npm run test:feedback && npm run test:codex && npm run test:interviews",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"
   },

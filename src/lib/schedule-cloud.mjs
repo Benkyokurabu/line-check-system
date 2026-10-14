@@ -60,6 +60,8 @@ async function cloudSession(db, key, fetcher) {
   const base = `${GRAPH}/drives/${encodeURIComponent(config.driveId)}`;
   return { config, graph, base };
 }
+// Server adapters reuse the existing encrypted connection and refresh handling.
+export { cloudSession as scheduleCloudSession };
 async function files(session) {
   let url = `${session.base}/items/${encodeURIComponent(session.config.folderId)}/children?$select=id,name,size,eTag,file,lastModifiedDateTime&$top=200`;
   const found = [];
