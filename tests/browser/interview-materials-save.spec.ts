@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
     { id: 'b'.repeat(64), school: '叡明', reading: 'え叡明', category: '私立', year: 2026, bytes: 100, previewUrl: 'https://example.com/material-school-b.pdf' },
   ] } }));
   await page.route('https://example.com/material-school-*.pdf', route => route.fulfill({ body: '%PDF-1.4\n%%EOF', contentType: 'application/pdf' }));
-  await page.route('**/api/admin/teachers', route => route.fulfill({ json: {
+  await page.route('**/api/staff/login-people', route => route.fulfill({ json: {
     teachers: [{ id: teacherId, display_name: '工藤' },
       { id: '00000000-0000-4000-8000-000000000004', display_name: '金城' }],
   } }));
