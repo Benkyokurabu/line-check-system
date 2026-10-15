@@ -41,6 +41,74 @@ const materials = [
   { id: 'term-report', group: '生徒本人の資料', label: '成績通知の個人成績表', detail: '2026年度前期', staffOnly: false },
 ];
 
+for (const scenario of ['saved', 'cancelled', 'write-failed'] as const) {
+  test(`create and save individual interview folder: ${scenario}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    let generated = 0;
+    await page.route('**/api/staff/session', route => route.fulfill({ json: { staff: { role: 'admin' } } }));
+    await page.route('**/api/staff/interview-materials', route => route.fulfill({ json: { students: [student] } }));
+    await page.route('https://example.com/combined-*.pdf', route => route.fulfill({ body: '%PDF-1.4\n%%EOF', contentType: 'application/pdf' }));
+    await page.route('**/api/staff/interview-material-jobs**', route => {
+      const request = route.request(), id = new URL(request.url()).searchParams.get('id');
+      if (request.method() === 'POST') {
+        const kind = request.postDataJSON().kind;
+        if (kind === 'generate') generated++;
+        return route.fulfill({ status: 201, json: { id: kind } });
+      }
+      if (!id) return route.fulfill({ json: { available: [{ id: 'primary', priority: 1 }] } });
+      if (id === 'preview') return route.fulfill({ json: { job: { status: 'completed', result: { schools: [], materials: [materials[0]] } } } });
+      return route.fulfill({ json: { job: { status: 'completed', pdfUrl: 'https://example.com/combined-bundle.pdf', result: {
+        items: [{ label: '指導簿', source: 'guide', staffOnly: false, previewUrl: 'https://example.com/combined-guide.pdf' }], missing: [], pages: 1,
+      } } } });
+    });
+    await page.addInitScript(scenario => {
+      const saved: Record<string, string> = {};
+      Object.assign(window, { __combinedSaved: saved, __pickerCount: 0 });
+      const directory = (path: string): unknown => ({ name: path.split('/').at(-1),
+        getDirectoryHandle: async (name: string, options: { create: boolean }) => {
+          if (!options.create) throw new DOMException('Not found', 'NotFoundError');
+          return directory(`${path}/${name}`);
+        },
+        getFileHandle: async (name: string) => ({ getFile: async () => new Blob([saved[`${path}/${name}`] ?? '']), createWritable: async () => ({
+          write: async (data: Blob | string) => {
+            if (scenario === 'write-failed') throw new DOMException('Disk full', 'QuotaExceededError');
+            saved[`${path}/${name}`] = typeof data === 'string' ? data : await data.text();
+          }, close: async () => {},
+        }) }),
+      });
+      Object.defineProperty(window, 'showDirectoryPicker', { value: async () => {
+        const state = window as unknown as { __pickerCount: number }; state.__pickerCount++;
+        if (scenario === 'cancelled') throw new DOMException('Cancelled', 'AbortError');
+        return directory('98面談資料');
+      } });
+    }, scenario);
+    await page.goto(`/staff/interview-materials?answer=${student.responses[0].id}`);
+    await page.getByRole('button', { name: '資料を作る', exact: true }).click();
+    await page.getByRole('button', { name: '面談資料を作成してフォルダ保存', exact: true }).click();
+    if (scenario === 'cancelled') {
+      await expect(page.getByRole('alert').filter({ hasText: '資料の作成は開始していません' })).toBeVisible();
+      expect(generated).toBe(0);
+    } else if (scenario === 'write-failed') {
+      await expect(page.getByRole('status').filter({ hasText: 'フォルダ保存は完了していません' })).toBeVisible();
+      await expect(page.getByRole('button', { name: /共有フォルダに保存/ })).toBeEnabled();
+      await expect(page.getByRole('link', { name: '印刷用の一式PDFを開く' })).toBeVisible();
+    } else {
+      await expect(page.getByRole('status').filter({ hasText: '「個別保存／中3 確認用 生徒（2018998）」を保存しました' })).toBeVisible();
+      const saved = await page.evaluate(() => (window as unknown as { __combinedSaved: Record<string, string> }).__combinedSaved);
+      const folder = '98面談資料/個別保存/中3 確認用 生徒（2018998）/';
+      expect(saved[folder + 'staff-bundle.pdf']).toContain('%PDF-');
+      expect(saved[folder + 'material-0.pdf']).toContain('%PDF-');
+      expect(saved[folder + '面談資料.html']).toContain('確認用 生徒');
+      expect(saved[folder + '面談記録.txt']).toContain('志望校を確認した。');
+      expect(saved[folder + '生徒情報・注意点.txt']).toContain('面談連絡は保護者へ。');
+      expect(generated).toBe(1);
+      await page.screenshot({ path: 'analysis_outputs/interview-create-save-mobile.png', fullPage: true });
+    }
+    expect(await page.evaluate(() => (window as unknown as { __pickerCount: number }).__pickerCount)).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 test('teacher chooses a name and uses the existing password to open materials', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let submitted: { teacherId: string; password: string } | null = null;

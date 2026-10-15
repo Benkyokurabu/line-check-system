@@ -160,18 +160,17 @@ export async function downloadInterviewPdf(jobId: string, studentNumber: string)
 export async function saveInterviewFolder(
   jobId: string, studentNumber: string, studentName: string, studentGrade: string, previousContext: MaterialContext | null,
   onProgress: (message: string) => void, showPastSchools = false,
-  onSummaryProgress?: (message: string) => void, appointment?: MaterialAppointment, batchParent?: DirectoryHandle
+  onSummaryProgress?: (message: string) => void, appointment?: MaterialAppointment, selectedParent?: DirectoryHandle
 ): Promise<string> {
   const pick = (window as DirectoryPicker).showDirectoryPicker;
   if (!pick) throw Error('フォルダ保存はChromeまたはEdgeで利用できます。');
-  if (batchParent && !appointment) throw Error('一括保存の面談予定を確認できません。');
   if (appointment && (appointment.number !== studentNumber || appointment.name !== studentName
     || appointment.source !== 'notion-bensuke' || !appointment.editedAt || !appointment.teacherId))
     throw Error('保存する生徒と面談予定が一致しません。');
   const folderParts = appointment ? interviewMaterialFolderParts(appointment)
     : individualInterviewMaterialFolderParts({ number: studentNumber, name: studentName, grade: studentGrade });
   // The picker must be the first asynchronous action after the button click.
-  const parent = batchParent ?? await pickInterviewMaterialsFolder();
+  const parent = selectedParent ?? await pickInterviewMaterialsFolder();
   if (parent.name !== '98面談資料') throw Error('保存先には共有フォルダ「98面談資料」を選んでください。');
   onProgress('資料を確認しています…');
   const [jobResponse, templateResponse, details] = await Promise.all([

@@ -7,7 +7,7 @@ import BatchFolderPanel from './batch-folder-panel';
 import DailyMaterialPanel from './daily-material-panel';
 import ManualMaterialPanel from './manual-material-panel';
 import { fetchInfoSummary, fetchMaterialContext, requestInfoSummary, type MaterialContext } from './material-context';
-import { canSaveOfflineFolder, downloadInterviewPdf, interviewMaterialsSharePath, saveInterviewFolder, saveSchoolLibraryFolder, updateInterviewFolderSummary, type MaterialAppointment } from './save-offline-folder';
+import { canSaveOfflineFolder, downloadInterviewPdf, interviewMaterialsSharePath, pickInterviewMaterialsFolder, saveInterviewFolder, saveSchoolLibraryFolder, updateInterviewFolderSummary, type MaterialAppointment } from './save-offline-folder';
 import { individualInterviewMaterialFolderParts, interviewMaterialFolderParts } from '@/lib/interview-material-folder.mjs';
 
 type Field = { label: string; value: string };
@@ -297,10 +297,13 @@ export default function MaterialsDesk() {
     } catch (error) { setPreviewMessage(requestError(error)); }
     finally { setPreviewBusy(false); }
   }
-  async function generate() {
-    if (batchBusy || !selected || !preview || selectedMaterialIds.length === 0 || (selected.responses.length > 1 && !answer)) return;
-    setBusy(true); setGenerationMessage(''); setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null); setFolderJob(null); setDownloadMessage('');
+  async function generate(saveToFolder = false) {
+    if (busy || folderBusy || batchBusy || !selected || !preview || selectedMaterialIds.length === 0 || (selected.responses.length > 1 && !answer)) return;
+    setBusy(true); setGenerationMessage('');
     try {
+      // Ask while the click still has browser user activation, before submitting any work.
+      const parent = saveToFolder ? await pickInterviewMaterialsFolder() : undefined;
+      setSaveMessage(''); setSavedFile(''); setCloudSynced(false); setManifest(null); setFolderJob(null); setDownloadMessage(''); setDownloadFailed(false);
       const job = await submitJob('generate');
       setManifest(job.result);
       setViewerOpen(false);
@@ -309,8 +312,19 @@ export default function MaterialsDesk() {
       setSavedFile(job.result.savedPath || '');
       setCloudSynced(Boolean(job.result.cloudSynced));
       setSaveMessage(job.result.saveError || '');
+      if (parent) {
+        setFolderBusy(true);
+        try {
+          const name = await saveInterviewFolder(job.id, selected.number, selected.name, selected.grade, materialContext,
+            setDownloadMessage, Boolean(showPastSchools), setSummarySaveMessage, selectedAppointment ?? undefined, parent);
+          setDownloadMessage(`「${name}」を保存しました。フォルダ内の「面談資料.html」を開いてください。`);
+        } catch (error) {
+          setDownloadFailed(true);
+          setDownloadMessage(`PDFは完成しましたが、フォルダ保存は完了していません。${requestError(error)} 「共有フォルダに保存」から再試行できます。`);
+        } finally { setFolderBusy(false); }
+      }
       await refreshWorkers();
-    } catch (error) { setGenerationMessage(requestError(error)); }
+    } catch (error) { setGenerationMessage(error instanceof DOMException && error.name === 'AbortError' ? '保存先の選択を取り消しました。資料の作成は開始していません。' : requestError(error)); }
     finally { setBusy(false); }
   }
   async function savePdf() {
@@ -510,7 +524,9 @@ export default function MaterialsDesk() {
           {previewHokushin && !previewHokushin.found && selected.grade.match(/^中[23]$/) && <p>北辰の個人成績票：{previewHokushin.message || '該当資料なし'}</p>}
           {previewTermReport && !previewTermReport.found && <p>成績通知の個人成績表：{previewTermReport.message || '該当資料なし'}</p>}
           {previewVmogi && !previewVmogi.found && selected.grade.match(/^中[23]$/) && <p>Vもぎ：{previewVmogi.message || '該当資料なし'}</p>}
-          <button className={styles.primary} disabled={batchBusy || !workerOnline || busy || Boolean(previewHokushin?.indexing) || selectedMaterialIds.length === 0} onClick={() => void generate()}>{busy ? 'PDFを作成中…' : `選んだ${selectedMaterialIds.length}点でPDFを作成`}</button>
+          {folderSupported && <button className={styles.primary} disabled={batchBusy || !workerOnline || busy || folderBusy || Boolean(previewHokushin?.indexing) || selectedMaterialIds.length === 0} onClick={() => void generate(true)}>{folderBusy ? 'フォルダを保存中…' : busy ? '資料を作成中…' : '面談資料を作成してフォルダ保存'}</button>}
+          <button className={folderSupported ? undefined : styles.primary} disabled={batchBusy || !workerOnline || busy || folderBusy || Boolean(previewHokushin?.indexing) || selectedMaterialIds.length === 0} onClick={() => void generate()}>{busy ? 'PDFを作成中…' : `選んだ${selectedMaterialIds.length}点でPDFを作成`}</button>
+          <p className={styles.note}>{folderSupported ? 'フォルダ保存では、最初に共有フォルダ「98面談資料」を選びます。選んだ資料のPDFを作成した後、HTML・PDF・面談記録・生徒情報を生徒別フォルダへ保存します。' : 'HTMLを含むフォルダ保存はChromeまたはEdgeで利用できます。'}「PDFを作成」だけでは共有フォルダは作成されません。</p>
           {previewHokushin?.indexing && <p className={styles.note}>索引の作成が終わったら「資料を作る」をもう一度押して確認してください。</p>}
         </div>}
         {generationMessage && <p className={styles.error} role="alert">{generationMessage}</p>}
