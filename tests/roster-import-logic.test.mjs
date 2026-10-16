@@ -56,7 +56,8 @@ test("前回のクラス一覧表が欠けたら確定を止め、所属を変�
   let writes = 0;
   const supabase = {
     from(table) {
-      if (table === "app_settings") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { value: oldManifest }, error: null }) }) }) };
+      if (table === "student_roster" || table === "notion_student_profiles") return { select: () => ({ range: async () => ({ data: [], error: null }) }) };
+      if (table === "app_settings") return { upsert: async () => ({ error: null }), select: () => ({ eq: (key, value) => ({ maybeSingle: async () => ({ data: { value: value === "roster_excel_import_manifest" ? oldManifest : null }, error: null }) }) }) };
       if (table === "student_class_enrollments") return { select: () => ({ like: async () => ({ count: 2, error: null }) }) };
       throw new Error(`Unexpected table ${table}`);
     },
@@ -77,7 +78,8 @@ test("確認済みファイルだけをDBの一括取込関数へ渡す", async 
   const calls = [];
   const supabase = {
     from(table) {
-      if (table === "app_settings") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
+      if (table === "student_roster" || table === "notion_student_profiles") return { select: () => ({ range: async () => ({ data: [], error: null }) }) };
+      if (table === "app_settings") return { upsert: async () => ({ error: null }), select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
       if (table === "student_class_enrollments") return { select: () => ({ like: async () => ({ count: 0, error: null }) }) };
       throw new Error(`Unexpected table ${table}`);
     },

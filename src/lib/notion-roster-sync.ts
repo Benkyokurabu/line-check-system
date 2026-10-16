@@ -1,6 +1,7 @@
 import "server-only";
 
 import fs from "node:fs";
+import { readStudentImportContext, planWithContext, recordStudentImportReview } from "@/lib/student-import-guard.mjs";
 import path from "node:path";
 import * as XLSX from "xlsx";
 
@@ -186,6 +187,7 @@ export type RosterSyncPreview = {
   excel: { files: ReturnType<typeof fileManifest>; students: number; class_enrollments: number; source: "files" | "database" };
   app: { students: number; class_enrollments: number };
   counts: Record<RosterSyncCandidate["kind"], number>;
+  identity_review: ReturnType<typeof planWithContext>;
   candidates: RosterSyncCandidate[];
 };
 
@@ -306,7 +308,7 @@ async function fetchNotionStudents(threshold = currentStudentNumberThreshold()) 
 
   return {
     dataSourceId,
-    students: [...new Map(students.map((student) => [student.student_number, student])).values()],
+    students,
     skipped,
   };
 }
@@ -426,6 +428,10 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
   const manifest = fileManifest(files, root) as ReturnType<typeof fileManifest>;
   const excelSource: "files" | "database" = files.length > 0 ? "files" : "database";
   const excel = files.length > 0 ? readRosterExcelRowsForSync(files, root, threshold) : importedRosterFromAppRows(app);
+  const context = await readStudentImportContext(supabase);
+  const notionPlan = planWithContext(notionResult.students, context);
+  const excelPlan = planWithContext(excel.rows, context);
+  const held = new Set([...notionPlan.held_student_numbers, ...excelPlan.held_student_numbers]);
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelEnrollments = [
     ...new Map(excel.enrollments.map((row) => [`${row.student_number}:${row.subject}:${row.class_name}`, row])).values(),
@@ -541,6 +547,14 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
     });
   }
 
+  for (const candidate of candidates) {
+    if (held.has(candidate.student_number)) {
+      candidate.can_apply = false;
+      candidate.selected_by_default = false;
+      candidate.severity = "review";
+      candidate.changes.unshift("生徒情報の確認待ち：元データの番号・氏名を確認してください");
+    }
+  }
   const counts = {
     add: 0,
     update: 0,
@@ -573,6 +587,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
       class_enrollments: app.enrollments.length,
     },
     counts,
+    identity_review: { safe: [], issues: [...notionPlan.issues, ...excelPlan.issues], held_student_numbers: [...held] },
     candidates,
   };
 }
@@ -580,9 +595,12 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
 export async function syncActiveNotionStudents({ supabase }: { supabase: SupabaseClient }) {
   const threshold = currentStudentNumberThreshold();
   const notionResult = await fetchNotionStudents(threshold);
-  const studentNumbers = notionResult.students.map((student) => student.student_number);
+  const plan = planWithContext(notionResult.students, await readStudentImportContext(supabase));
+  await recordStudentImportReview(supabase, "notion", plan);
+  const safeStudents = plan.safe as SyncStudent[];
+  const studentNumbers = safeStudents.map((student) => student.student_number);
   if (studentNumbers.length === 0) {
-    return { ok: true, active_students: 0, synced_students: 0 };
+    return { ok: true, active_students: notionResult.students.length, synced_students: 0, identity_review: plan };
   }
 
   const { data: currentRows, error: currentError } = await supabase
@@ -593,7 +611,7 @@ export async function syncActiveNotionStudents({ supabase }: { supabase: Supabas
 
   const currentByNumber = new Map((currentRows ?? []).map((row) => [row.student_number as string, row]));
   const updatedAt = new Date().toISOString();
-  const rows = notionResult.students.map((student) => mergeNotionStudentWithExistingRoster(
+  const rows = safeStudents.map((student) => mergeNotionStudentWithExistingRoster(
     student,
     currentByNumber.get(student.student_number),
     updatedAt,
@@ -603,12 +621,13 @@ export async function syncActiveNotionStudents({ supabase }: { supabase: Supabas
     .from("student_roster")
     .upsert(rows, { onConflict: "student_number" });
   if (syncError) throw new Error(syncError.message);
-  await syncNotionProfileMappings(supabase, notionResult.students);
+  await syncNotionProfileMappings(supabase, safeStudents);
 
   return {
     ok: true,
     active_students: notionResult.students.length,
     synced_students: rows.length,
+    identity_review: { issues: plan.issues, held_student_numbers: plan.held_student_numbers },
     synced_at: updatedAt,
   };
 }
@@ -622,11 +641,17 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   const notionByNumber = new Map(notionResult.students.map((row) => [row.student_number, row]));
   const files = listRosterExcelFiles(root);
   const excel = files.length > 0 ? readRosterExcelRowsForSync(files, root, threshold) : importedRosterFromAppRows(await readAppRows(supabase, threshold));
+  const context = await readStudentImportContext(supabase);
+  const notionPlan = planWithContext(notionResult.students, context);
+  const excelPlan = planWithContext(excel.rows, context);
+  const held = new Set([...notionPlan.held_student_numbers, ...excelPlan.held_student_numbers]);
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelByNumber = new Map(excelRows.map((row) => [row.student_number, row]));
   const enrollmentsByNumber = mapByStudent(excel.enrollments as ExcelEnrollmentRow[]);
 
-  const rosterRows = selected
+  const combinedPlan = { issues: [...notionPlan.issues, ...excelPlan.issues], held_student_numbers: [...held] };
+  await recordStudentImportReview(supabase, "selected", combinedPlan);
+  const rosterRows = selected.filter(number => !held.has(number))
     .map((studentNumber) => {
       const notion = notionByNumber.get(studentNumber);
       const row = targetRosterRow(excelByNumber.get(studentNumber)) ?? targetRosterRowFromNotion(notion);
@@ -646,7 +671,8 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
     .from("student_roster")
     .upsert(rosterRows, { onConflict: "student_number" });
   if (rosterError) throw new Error(rosterError.message);
-  await syncNotionProfileMappings(supabase, notionResult.students);
+  const applied = new Set(rosterRows.map(row => row.student_number));
+  await syncNotionProfileMappings(supabase, notionResult.students.filter(row => applied.has(row.student_number)));
 
   const selectedWithExcelRoster = rosterRows
     .map((row) => row.student_number)
@@ -671,6 +697,7 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   return {
     ok: true,
     requested: selected.length,
+    identity_review: combinedPlan,
     synced_students: rosterRows.length,
     synced_class_enrollments: enrollmentRows.length,
     skipped: selected.length - rosterRows.length,

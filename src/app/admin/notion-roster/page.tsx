@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type CandidateKind = "add" | "update" | "class_update" | "name_variant" | "matched" | "notion_only" | "excel_only" | "app_only";
 
@@ -27,7 +27,11 @@ type StudentSnapshot = {
   classes?: string[];
 };
 
+type ImportIssue = { student_number: string; previous_student_number: string | null; student_name: string; reason: string; source_file: string; notion_page_id: string | null };
+type ImportReview = { source?: string; checked_at?: string; issues: ImportIssue[]; held_student_numbers: string[] };
+
 type Preview = {
+  identity_review?: ImportReview;
   generated_at: string;
   target: { student_number_min_exclusive: number };
   notion: { data_source_id: string; students: number; skipped: number };
@@ -61,6 +65,13 @@ export default function NotionRosterPage() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
+  const [reviews, setReviews] = useState<ImportReview[]>([]);
+  useEffect(() => {
+    fetch("/api/admin/notion-roster/import-reviews").then(response => {
+      if (!response.ok) throw new Error("確認待ちの取得に失敗しました");
+      return response.json();
+    }).then(body => setReviews(body.reviews ?? [])).catch(error => setMessage(error.message));
+  }, []);
 
   const visibleCandidates = useMemo(() => {
     const rows = preview?.candidates ?? [];
@@ -78,6 +89,7 @@ export default function NotionRosterPage() {
       if (!response.ok) throw new Error(body.error ?? "照合に失敗しました");
       const nextPreview = body as Preview;
       setPreview(nextPreview);
+      setReviews(nextPreview.identity_review ? [nextPreview.identity_review] : []);
       setSelected(new Set(nextPreview.candidates.filter((candidate) => candidate.can_apply && candidate.selected_by_default).map((candidate) => candidate.student_number)));
       setMessage(`照合しました。差分 ${nextPreview.candidates.length}件です。`);
     } catch (error) {
@@ -156,6 +168,20 @@ export default function NotionRosterPage() {
       </div>
 
       {message && <div style={messageStyle}>{message}</div>}
+
+      {reviews.some(review => review.issues.length > 0) && <section className="panel" style={{ padding: 16, marginBottom: 16, border: "1px solid #e7b578", overflowWrap: "anywhere" }}>
+        <h2 style={{ fontSize: "1.1rem" }}>生徒情報の確認待ち</h2>
+        <p>次の生徒は自動反映を止めています。Notion・元のクラス一覧表と番号、氏名、学年、教室を照合してください。元データを修正した後「Notion + Excelを照合」で再確認できます。実際の番号変更や同姓同名は、別人の履歴を混ぜないよう登録管理者による対応確認が必要です。</p>
+        {reviews.map((review, index) => <div key={index}>
+          {review.checked_at && <p>最終確認: {new Date(review.checked_at).toLocaleString("ja-JP")} ({review.source})</p>}
+          {review.issues.map((issue, i) => <div key={i} style={{ padding: "10px 0", borderTop: "1px solid var(--line)" }}>
+            <strong>{issue.student_name} / {issue.student_number}</strong>
+            <p>{issue.reason}{issue.previous_student_number && ` / 照合先: ${issue.previous_student_number}`}</p>
+            <span>元情報: {issue.source_file}</span>
+            {issue.notion_page_id && <a href={`https://www.notion.so/${issue.notion_page_id.replace(/-/g, "")}`} target="_blank" rel="noreferrer" style={{ ...buttonStyle, display: "inline-block", marginLeft: 8 }}>Notionの元情報を開く</a>}
+          </div>)}
+        </div>)}
+      </section>}
 
       {preview && (
         <>

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { readStudentImportContext, planWithContext, recordStudentImportReview } from "../src/lib/student-import-guard.mjs";
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -42,8 +43,8 @@ function normalizeStudentNumber(value) {
 }
 
 
-function notionStudentNumber(pageId, rawStudentNumber, status, isDuplicate) {
-  if (status !== "在塾" || !rawStudentNumber || PLACEHOLDER_STUDENT_NUMBERS.has(rawStudentNumber) || isDuplicate) {
+function notionStudentNumber(pageId, rawStudentNumber, status) {
+  if (status !== "在塾" || !rawStudentNumber || PLACEHOLDER_STUDENT_NUMBERS.has(rawStudentNumber)) {
     return `notion:${pageId.replace(/-/g, "")}`;
   }
   return rawStudentNumber;
@@ -145,16 +146,11 @@ async function fetchNotionStudents() {
     cursor = body.has_more && body.next_cursor ? body.next_cursor : undefined;
   } while (cursor);
 
-  const numberCounts = candidates.reduce((counts, student) => {
-    if (student.raw_student_number) counts.set(student.raw_student_number, (counts.get(student.raw_student_number) ?? 0) + 1);
-    return counts;
-  }, new Map());
   const students = candidates.map((student) => ({
     student_number: notionStudentNumber(
       student.notion_page_id,
       student.raw_student_number,
       student.status,
-      (numberCounts.get(student.raw_student_number) ?? 0) > 1,
     ),
     student_name: student.student_name,
     notion_page_id: student.notion_page_id,
@@ -167,7 +163,7 @@ async function fetchNotionStudents() {
   }));
 
   return {
-    students: [...new Map(students.map((student) => [student.student_number, student])).values()],
+    students,
     skipped,
     instruction_property_pages: instructionPropertyPages,
     instruction_value_pages: instructionValuePages,
@@ -176,9 +172,12 @@ async function fetchNotionStudents() {
 
 async function main() {
   const notionResult = await fetchNotionStudents();
-  const studentNumbers = notionResult.students.map((student) => student.student_number);
+  const plan = planWithContext(notionResult.students, await readStudentImportContext(supabase));
+  await recordStudentImportReview(supabase, "notion_cli", plan);
+  const safeStudents = plan.safe;
+  const studentNumbers = safeStudents.map((student) => student.student_number);
   if (studentNumbers.length === 0) {
-    console.log(JSON.stringify({ ok: true, active_students: 0, synced_students: 0, skipped: notionResult.skipped }, null, 2));
+    console.log(JSON.stringify({ ok: true, active_students: 0, synced_students: 0, identity_review: plan, skipped: notionResult.skipped }, null, 2));
     return;
   }
 
@@ -190,7 +189,7 @@ async function main() {
 
   const currentByNumber = new Map((currentRows ?? []).map((row) => [row.student_number, row]));
   const updatedAt = new Date().toISOString();
-  const rows = notionResult.students.map((student) => mergeNotionStudentWithExistingRoster(
+  const rows = safeStudents.map((student) => mergeNotionStudentWithExistingRoster(
     student,
     currentByNumber.get(student.student_number),
     updatedAt,
@@ -202,7 +201,7 @@ async function main() {
   if (syncError) throw new Error(syncError.message);
 
   const profileSyncedAt = new Date().toISOString();
-  const profileRows = notionResult.students.filter((student) => student.notion_page_id).map((student) => ({
+  const profileRows = safeStudents.filter((student) => student.notion_page_id).map((student) => ({
     notion_page_id: student.notion_page_id,
     student_number: student.student_number,
     student_name: student.student_name,
@@ -222,6 +221,7 @@ async function main() {
     ok: true,
     active_students: notionResult.students.length,
     synced_students: rows.length,
+    identity_review: { issues: plan.issues, held_student_numbers: plan.held_student_numbers },
     skipped: notionResult.skipped,
     notion_instruction_property_pages: notionResult.instruction_property_pages,
     notion_instruction_value_pages: notionResult.instruction_value_pages,

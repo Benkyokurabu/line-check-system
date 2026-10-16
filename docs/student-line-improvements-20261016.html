@@ -1,0 +1,8 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>生徒・LINE登録の改善設計</title>
+<style>body{font:16px/1.8 system-ui;background:#f4f7f8;color:#20313c;max-width:900px;margin:auto;padding:24px}h1{font-size:26px}article{padding:22px;background:white;border-radius:12px;margin:16px 0;border:1px solid #d3dee3}summary{font-weight:bold;cursor:pointer}a,button{display:inline-block;padding:10px;background:#095e67;color:white;border-radius:7px;border:0}code{overflow-wrap:anywhere}.flow{display:flex;gap:12px;flex-wrap:wrap}.flow span{background:#e2f4f0;border-radius:8px;padding:12px}small{color:#506575}</style>
+<h1>生徒情報とLINE登録：4つの改善</h1><p>表示名、LINEの登録先、今回の連絡の対象を区別し、変更履歴から確認できる設計です。以下は架空データによる操作見本です。</p>
+<article><h2>① 取り込み時の確認待ち</h2><div class="flow"><span>Notion / Excel</span>→<span>番号・氏名・ページID照合</span>→<span>健全な行を同期</span></div><details><summary>確認待ちの例を見る</summary><p>架空 一郎：2018267 ← 2018200<br>同じNotionページの番号が変わっています。自動で別人の履歴を統合せず、元情報を照合します。</p></details><p>Notion同期は疑わしい生徒だけ保留。Excel一括取り込みはクラス削除を伴うため、不整合があると全体を停止します。</p></article>
+<article><h2>② 対象生徒の候補整理</h2><p>確認済み：中3 架空 一郎 ／ 南教室 ／ 2018267</p><details><summary>ほかの候補を確認</summary><p>過去の紐付け候補（未確認）：架空 二郎</p></details><small>兄弟・双子や本文と登録先の食い違いがある場合は、候補を最初から表示します。</small></article>
+<article><h2>③ LINEの登録を確認・修正</h2><div class="flow"><span>登録確認を開く</span>→<span>本人・保護者・兄弟の登録先を確認</span>→<span>確認者を選択して保存</span></div><p>「勉たんの名前を直す」は表示名の変更。「今回の対象生徒」はこの連絡だけの変更です。</p></article>
+<article><h2>④ 変更履歴をまとめて確認</h2><div class="flow"><span>表示名の変更</span><span>LINE登録先の変更</span><span>今回の対象生徒・授業の変更</span>→<span>共通の時系列表示</span></div><p>いつ・誰が・何を・何から何へ変更したかを確認します。過去の記録は残します。</p></article>
+</html>

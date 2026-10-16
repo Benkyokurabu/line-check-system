@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { readStudentImportContext, planWithContext, recordStudentImportReview } from "./student-import-guard.mjs";
 import path from "node:path";
 import * as XLSXNamespace from "xlsx";
 
@@ -85,11 +86,14 @@ export async function getRosterImportPreview({ supabase, root = process.cwd() })
   const issues = [];
   if (currentManifest.length === 0) issues.push("クラス一覧表が見つかりません");
   if (changedFiles.some((file) => file.status === "missing")) issues.push("前回取り込んだクラス一覧表が見つかりません");
+  let identityReview = { issues: [], held_student_numbers: [] };
   let studentCount = 0;
   let enrollmentCount = 0;
   let existingEnrollmentCount = 0;
   if (currentManifest.length > 0) {
     const { rows, enrollments, skippedFiles } = readRosterExcelRows(files, root);
+    identityReview = planWithContext(rows, await readStudentImportContext(supabase));
+    if (identityReview.issues.length) issues.push(`生徒情報の確認待ち ${identityReview.held_student_numbers.length}名があります`);
     studentCount = new Set(rows.map((row) => row.student_number)).size;
     enrollmentCount = new Set(enrollments.map((row) => `${row.student_number}:${row.subject}:${row.class_name}`)).size;
     if (skippedFiles.length > 0) issues.push("学年を判定できないファイルがあります");
@@ -112,6 +116,7 @@ export async function getRosterImportPreview({ supabase, root = process.cwd() })
     previous_manifest: previousManifest,
     changed_files: changedFiles,
     blocked: issues.length > 0,
+    identity_review: { issues: identityReview.issues, held_student_numbers: identityReview.held_student_numbers },
     issues,
     students: studentCount,
     class_enrollments: enrollmentCount,
@@ -251,6 +256,7 @@ export async function importRosterFromExcel({ supabase, root = process.cwd(), fo
   if (expectedManifest && !sameManifest(preview.files, expectedManifest)) {
     throw new Error("確認後にクラス一覧表が変わりました。もう一度確認してください");
   }
+  await recordStudentImportReview(supabase, "excel", preview.identity_review);
   if (preview.blocked) throw new Error(preview.message);
   if (!force && !preview.changed) {
     return {
