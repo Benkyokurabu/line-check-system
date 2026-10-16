@@ -1,12 +1,14 @@
 import { createHmac } from "node:crypto";
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { isStaffSameOrigin } from "@/lib/staff-auth-core.mjs";
 import { staffJsonBody, staffResponse } from "@/lib/staff-auth-http";
 import { validateFeedback } from "@/lib/feedback-core.mjs";
+import { sendFeedbackNotifications } from "@/lib/feedback-notifications.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   if (!isStaffSameOrigin(request, process.env.STAFF_AUTH_ORIGIN)) return staffResponse({ error: "勉たんの画面から送信してください。" }, undefined, 403);
@@ -16,7 +18,8 @@ export async function POST(request: NextRequest) {
     if (!secret) return staffResponse({ error: "送信機能を利用できません。" }, undefined, 503);
     const ip = request.headers.get("x-vercel-forwarded-for") ?? request.headers.get("x-forwarded-for") ?? "unknown";
     const rateKey = createHmac("sha256", secret).update(ip.split(",")[0].trim()).digest("hex");
-    const { data, error } = await createSupabaseAdminClient().rpc("submit_bentan_feedback", {
+    const db = createSupabaseAdminClient();
+    const { data, error } = await db.rpc("submit_bentan_feedback", {
       p_id: input.id, p_name: input.name, p_message: input.message, p_rate_key: rateKey,
       p_sharing_preference: input.sharingPreference,
     });
@@ -25,6 +28,10 @@ export async function POST(request: NextRequest) {
       if (["invalid_feedback", "feedback_conflict"].includes(error.message)) return staffResponse({ error: "入力内容を確認してください。" }, undefined, 400);
       return staffResponse({ error: "送信を確認できませんでした。入力内容を残したまま再試行できます。" }, undefined, 503);
     }
+    after(async () => {
+      try { await sendFeedbackNotifications({ db, feedbackId: input.id, token: process.env.LINE_CHANNEL_ACCESS_TOKEN }); }
+      catch { console.error("Feedback notification remains queued for retry"); }
+    });
     return staffResponse(data);
   } catch (error) {
     const invalid = error instanceof Error && (error.message === "invalid_feedback" || error.message === "invalid_request");

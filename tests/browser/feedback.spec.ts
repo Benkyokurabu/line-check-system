@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("home exposes submission only; failed submission retries the same operation and displays completion", async ({ page }) => {
+test("home exposes submission and an owner-only inbox entry; failed submission retries the same operation", async ({ page }) => {
   const writes: { id: string; name: string; message: string; sharingPreference:string }[] = [];
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
@@ -14,7 +14,7 @@ test("home exposes submission only; failed submission retries the same operation
     return route.continue();
   });
   await page.goto("/");
-  await expect(page.locator('a[href*="private-feedback"]')).toHaveCount(0);
+  await expect(page.getByRole('link',{name:/改善要望を確認する/})).toHaveCount(1);
   await page.getByRole("link", { name: /改善してほしいことなど、何でも/ }).click();
   await page.getByLabel("名前", { exact: true }).fill("試験職員");
   await page.getByLabel("内容", { exact: true }).fill("授業一覧を見やすくしたい\n<script>scriptは実行しない</script>");
@@ -27,7 +27,7 @@ test("home exposes submission only; failed submission retries the same operation
   expect(writes[0]).toEqual(writes[1]);
   expect(writes[0].sharingPreference).toBe("anonymous");
   await expect(page.getByText(/希望も伝えました/)).toBeVisible();
-  await expect(page.locator('a[href*="private-feedback"]')).toHaveCount(0);
+  await expect(page.getByRole('link',{name:/改善要望を確認する/})).toHaveCount(1);
 });
 
 test("inbox shows no data before authorized login, renders text safely and clears data on logout", async ({ page }) => {

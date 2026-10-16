@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import styles from "./home-dashboard.module.css";
+import FeedbackNotice from '@/components/feedback-notice';
 
 type Group = "all" | "daily" | "interview" | "management" | "prelaunch";
 type MenuItem = { href: string; title: string; description: string; group: Exclude<Group, "all">; icon: string; trial?: boolean };
@@ -81,6 +82,7 @@ export default function HomeDashboard({
             <p className={styles.tagline}><strong>勉</strong>強クラブ総合アシス<strong>たん</strong>トさん</p>
           </div><div className={styles.monogram} aria-hidden="true"><span>勉</span></div>
         </section>
+        <FeedbackNotice />
         <div className={styles.menuToolbar} id="home-menu" tabIndex={-1}>
           <span className={styles.currentGroup}>{groups.find(item => item.id === group)?.label === "ホーム" ? "業務メニュー" : groups.find(item => item.id === group)?.label}</span>
           <label className={styles.search}><Icon name="search" /><input type="search" aria-label="機能を探す" placeholder="機能を探す" value={query} onChange={event => setQuery(event.target.value)} />

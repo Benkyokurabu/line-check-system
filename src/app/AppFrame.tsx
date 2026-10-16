@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import {pageTitles} from '@/lib/page-titles';
+import FeedbackNotice from '@/components/feedback-notice';
 
 const navigation = [
   { id: "daily", label: "【事務】日常業務", links: [["/attendance", "欠席連絡の確認"], ["/classroom-office", "教室への連絡"]] },
@@ -39,7 +40,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
             : <><span className="app-topbar-brand">勉<span>たん</span></span><span className="app-location">{title}</span></>}
         {!studentView && pathname!=="/classroom" && <Link href="/" className="app-topbar-home" prefetch={false}>トップページへ <span aria-hidden="true">↗</span></Link>}
       </header>}
-      <div id="app-content" className="app-content" tabIndex={-1}>{children}</div>
+      <div id="app-content" className="app-content" tabIndex={-1}>{!compact&&<FeedbackNotice />}{children}</div>
     </div>
   </div>;
 }
