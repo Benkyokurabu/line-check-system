@@ -3,6 +3,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase";
 import { normalizeStudentName } from "@/lib/student-linking";
 import { resolveAttendanceStudentFromLine } from "@/lib/attendance-student-resolution.mjs";
 import { lineContactDisplayNames } from "@/lib/line-contact-registration.mjs";
+import { buildStudentSearchOptions, canonicalStudentSuggestions } from "@/lib/student-search-options.mjs";
+import { loadStudentIdentityAliases } from "@/lib/student-identity-aliases";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,7 @@ type RosterRow = {
   grade: string;
   campus: string | null;
   homeroom_teacher: string | null;
+  source_file?: string | null;
 };
 
 type LineMessageRow = {
@@ -280,7 +283,7 @@ export async function GET(request: Request) {
 
   const [{ data, error }, { data: roster }, accountsResult, { data: links }, { data: aliases }] = await Promise.all([
     candidateQuery,
-    supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher"),
+    supabase.from("student_roster").select("student_number,student_name,grade,campus,homeroom_teacher,source_file"),
     supabase.from("student_line_accounts").select("student_number,line_user_id,relation,alias_name,friend_display_name,is_primary,verification_status"),
     supabase.from("student_line_links").select("student_number,line_user_id"),
     supabase.from("line_user_aliases").select("line_user_id,alias_name,group_name"),
@@ -291,6 +294,8 @@ export async function GET(request: Request) {
   }
   const accounts = accountsResult.error ? [] : accountsResult.data;
   const rosterRows = (roster ?? []) as RosterRow[];
+  const identityAliases = await loadStudentIdentityAliases(supabase);
+  const studentOptions = buildStudentSearchOptions(rosterRows, identityAliases);
   const accountsByLineUserId = new Map<string, LineAccountRow[]>();
   for (const account of accounts ?? []) {
     const lineUserId = account.line_user_id as string;
@@ -355,7 +360,7 @@ export async function GET(request: Request) {
           last_sent_by: latestReply?.sent_by ?? null,
         };
       })(),
-      student_suggestions: suggestionResult.suggestions,
+      student_suggestions: canonicalStudentSuggestions(suggestionResult.suggestions, studentOptions, humanReviewed ? candidate.student_number : null),
       student_selection_required: humanReviewed ? false : suggestionResult.requiresSelection,
       student_selection_reason: humanReviewed ? null : suggestionResult.reason,
     };

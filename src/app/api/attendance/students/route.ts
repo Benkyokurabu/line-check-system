@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { buildStudentSearchOptions } from "@/lib/student-search-options.mjs";
+import { loadStudentIdentityAliases } from "@/lib/student-identity-aliases";
 
 export const dynamic = "force-dynamic";
 
@@ -12,5 +13,6 @@ export async function GET() {
     .order("grade", { ascending: true })
     .order("student_number", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ students: buildStudentSearchOptions(data ?? []) });
+  const identityAliases = await loadStudentIdentityAliases(supabase);
+  return NextResponse.json({ students: buildStudentSearchOptions(data ?? [], identityAliases) });
 }
