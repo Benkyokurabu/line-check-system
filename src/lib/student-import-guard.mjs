@@ -30,7 +30,7 @@ export function planStudentImport(incoming, existing, profiles = [], aliases = [
     if (current && normalizeStudentName(current.student_name) !== normalizeStudentName(row.student_name)) {
       conflicts.push({ reason: "同じ学籍番号に異なる氏名が登録されています", previous_student_number: number });
     }
-    if (previous && previous.student_number !== number && !approved(previous.student_number, number)) {
+    if (previous?.student_number && previous.student_number !== number && !approved(previous.student_number, number)) {
       conflicts.push({ reason: "同じNotionページの学籍番号が変更されています", previous_student_number: previous.student_number });
     }
     const key = identityKey(row);

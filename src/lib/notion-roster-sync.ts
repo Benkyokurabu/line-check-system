@@ -430,7 +430,7 @@ export async function buildRosterSyncPreview({ supabase, root = process.cwd() }:
   const excel = files.length > 0 ? readRosterExcelRowsForSync(files, root, threshold) : importedRosterFromAppRows(app);
   const context = await readStudentImportContext(supabase);
   const notionPlan = planWithContext(notionResult.students, context);
-  const excelPlan = planWithContext(excel.rows, context);
+  const excelPlan = files.length > 0 ? planWithContext(excel.rows, context) : { safe: excel.rows, issues: [], held_student_numbers: [] };
   const held = new Set([...notionPlan.held_student_numbers, ...excelPlan.held_student_numbers]);
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelEnrollments = [
@@ -643,7 +643,7 @@ export async function syncSelectedRosterStudents({ supabase, root = process.cwd(
   const excel = files.length > 0 ? readRosterExcelRowsForSync(files, root, threshold) : importedRosterFromAppRows(await readAppRows(supabase, threshold));
   const context = await readStudentImportContext(supabase);
   const notionPlan = planWithContext(notionResult.students, context);
-  const excelPlan = planWithContext(excel.rows, context);
+  const excelPlan = files.length > 0 ? planWithContext(excel.rows, context) : { safe: excel.rows, issues: [], held_student_numbers: [] };
   const held = new Set([...notionPlan.held_student_numbers, ...excelPlan.held_student_numbers]);
   const excelRows = [...new Map(excel.rows.map((row) => [row.student_number, row])).values()];
   const excelByNumber = new Map(excelRows.map((row) => [row.student_number, row]));

@@ -32,3 +32,7 @@ test("同名でも学年や教室が異なる生徒を保留せず、番号の�
   assert.equal(planStudentImport([student("2018267")], [student("2018200", { grade: "中2" })]).safe.length, 1);
   assert.equal(planStudentImport([student("201826")], []).safe.length, 0);
 });
+
+test("番号未登録のNotionプロフィールを番号変更と誤判定しない", () => {
+  assert.equal(planStudentImport([student("2018267", { notion_page_id: "ab" })], [], [{ notion_page_id: "ab", student_number: null }]).safe.length, 1);
+});
