@@ -5,7 +5,7 @@ import path from "node:path";
 for (const width of [390, 1280]) test(`attendance flow review works at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
   await page.goto(pathToFileURL(path.resolve("docs/attendance-line-flow-review-20261016.html")).href);
-  for (const label of ["勉たんの名前を直す", "兄弟・双子のLINE紐付け", "対応する"]) {
+  for (const label of ["勉たんの名前を直す", "LINEの登録を確認・修正", "対応する"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     if (label === "勉たんの名前を直す") {

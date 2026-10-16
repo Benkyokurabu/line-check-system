@@ -12,7 +12,7 @@ test("remembered confirmer follows attendance into LINE registration and survive
   await expect(chooser).toContainText("確認担当者：試験先生");
   await page.reload();
   await expect(chooser).toContainText("確認担当者：試験先生");
-  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
   const form = page.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true });
   await expect(form.getByLabel("LINE登録の確認者名")).toHaveValue("試験先生");
   await expect(form.getByLabel("LINE登録の確認者名")).toHaveAttribute("readonly", "");
@@ -47,7 +47,7 @@ test("blocked browser storage prevents an unremembered confirmer from being used
   await chooser.getByLabel("確認担当者を入力").fill("試験先生");
   await chooser.getByRole("button", { name: "この担当者で続ける" }).click();
   await expect(chooser.getByRole("alert")).toContainText("保存できません");
-  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
   await expect(page.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true }).getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
   expect(writes).toHaveLength(0);
 });

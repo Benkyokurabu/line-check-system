@@ -6,7 +6,7 @@ for (const [label, relation] of [["生徒本人", "student"], ["保護者", "gua
     const { writes } = await setupRegistration(page);
     await page.goto("/attendance");
     await selectConfirmer(page, "試験職員");
-    await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+    await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
     await expect(page).toHaveURL(/\/line-registration\?/);
     const form = page.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true });
     await form.getByRole("button", { name: label, exact: true }).click();
@@ -28,7 +28,7 @@ for (const reject of [false, true]) test(`siblings preserve existing registratio
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   const reply = page.locator("textarea").last();
   await reply.fill("保存前の返信下書き");
-  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
   const form = page.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true });
   await expect(form.getByRole("button", { name: "試験一郎 を外す", exact: true })).toBeVisible();
   await expect(form.getByLabel("保護者の続柄")).toHaveValue("mother");
@@ -53,7 +53,7 @@ test("missing evidence and cancel do not write", async ({ page }) => {
   const { writes } = await setupRegistration(page, { evidence: false, relation: "guardian" });
   await page.goto("/attendance");
   await selectConfirmer(page, "試験職員");
-  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
   await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toBeDisabled();
   await page.getByRole("button", { name: "← 欠席確認に戻る", exact: true }).click();
   expect(writes).toHaveLength(0);
@@ -62,7 +62,7 @@ test("missing evidence and cancel do not write", async ({ page }) => {
 test("existing twins stay selected when the page is reopened", async ({ page }) => {
   const { writes } = await setupRegistration(page, { relation: "mother", siblings: true });
   await page.goto("/attendance");
-  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
   const form = page.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true });
   for (const name of ["試験一郎", "試験二郎"]) await expect(form.getByRole("button", { name: `${name} を外す`, exact: true })).toBeVisible();
   await expect(form.getByLabel("登録後に一覧へ表示する共通の名前")).toHaveValue("旧登録名");

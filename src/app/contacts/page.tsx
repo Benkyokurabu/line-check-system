@@ -502,7 +502,7 @@ function ContactsWorkspace() {
           </div>
           {detailLoading ? <p style={{ color: "var(--muted)" }}>メッセージを読み込んでいます...</p> : contactDetail && (
             <>
-              <RegistrationLink style={btnSave} entry={{ userId: selectedContact.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, studentNumber: fromSurvey ? studentNumber : undefined, studentName: fromSurvey ? studentName : undefined }}>生徒・続柄・兄弟を登録する</RegistrationLink>
+              <RegistrationLink style={btnSave} entry={{ userId: selectedContact.line_user_id, returnTo: "/contacts", source: "contacts_review", operator: operatorName, studentNumber: fromSurvey ? studentNumber : undefined, studentName: fromSurvey ? studentName : undefined }}>生徒・続柄の登録を確認・修正</RegistrationLink>
 
               {(selectedContact.registered_accounts ?? []).length > 0 && <div style={{ display: "grid", gap: 6, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
                 <strong>現在の生徒紐付け</strong>

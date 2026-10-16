@@ -32,7 +32,7 @@ test("direct URL and reload work with a safe return destination", async ({ page 
 test("registration load failure blocks writes and can return", async ({ page }) => {
   const { writes } = await setupRegistration(page, { loadFail: true });
   await page.goto("/attendance");
-  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "LINE登録・修正", exact: true }).getByRole("alert")).toContainText("登録情報を取得できませんでした");
   await expect(page.getByRole("button", { name: "この内容で登録して一覧の名前を更新" })).toHaveCount(0);
   await page.getByRole("button", { name: "← 欠席確認に戻る", exact: true }).click();
@@ -55,7 +55,7 @@ test("design HTML works at phone width", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(pathToFileURL(path.resolve("docs/line-registration-page-design.html")).href);
   await page.getByRole("button", { name: "欠席確認", exact: true }).click();
-  await page.getByRole("button", { name: "生徒・続柄・兄弟を登録する", exact: true }).click();
+  await page.getByRole("button", { name: "生徒・続柄の登録を確認・修正", exact: true }).click();
   await page.getByRole("button", { name: "← 欠席確認に戻る", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("元画面に戻りました");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

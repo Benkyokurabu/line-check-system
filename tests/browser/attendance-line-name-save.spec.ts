@@ -21,7 +21,7 @@ for (const relation of ["student", "mother"]) test(`attendance saved name surviv
   await expect(page.getByText(/古い別人の登録名/)).toHaveCount(0);
   await page.reload();
   await expect(title).toBeVisible();
-  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await page.getByRole("link", { name: "LINEの登録を確認・修正", exact: true }).click();
   await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験一郎");
   await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験二郎");
   expect(writes).toHaveLength(1);
