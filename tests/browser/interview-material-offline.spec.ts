@@ -4,6 +4,38 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 
+for (const width of [390, 1365]) test(`saved HTML switches PDFs only when activated at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const template = await readFile('public/interview-material-offline-template.html', 'utf8');
+  const html = template.replace('__ITEMS_JSON__', JSON.stringify([{ label: '指導簿' }, { label: '成績通知' }]))
+    .replace('__STUDENT_NAME_JSON__', JSON.stringify('確認用生徒'))
+    .replace('__CONTEXT_JSON__', JSON.stringify({ records: [], info: [], summary: { status: 'empty', items: [] } }));
+  await page.route('**/*', route => route.abort());
+  await page.setContent(html);
+  await page.getByRole('button', { name: '資料を画面で見る' }).click();
+  const guide = page.getByRole('button', { name: '指導簿を表示' });
+  const grades = page.getByRole('button', { name: '成績通知を表示' });
+  const active = page.locator('iframe.active');
+  await grades.hover();
+  await grades.focus();
+  await expect(active).toHaveAttribute('src', 'material-0.pdf#zoom=100&navpanes=0');
+  await expect(guide).toHaveAttribute('aria-pressed', 'true');
+  await grades.click();
+  await expect(active).toHaveAttribute('src', 'material-1.pdf#zoom=100&navpanes=0');
+  await expect(grades).toHaveAttribute('aria-pressed', 'true');
+  await guide.hover();
+  await page.getByRole('button', { name: '面談記録を表示' }).hover();
+  await expect(active).toHaveAttribute('src', 'material-1.pdf#zoom=100&navpanes=0');
+  await guide.click();
+  await guide.press('ArrowDown');
+  await expect(grades).toBeFocused();
+  await expect(active).toHaveAttribute('src', 'material-0.pdf#zoom=100&navpanes=0');
+  await grades.press('Enter');
+  await expect(active).toHaveAttribute('src', 'material-1.pdf#zoom=100&navpanes=0');
+  await guide.press('Space');
+  await expect(active).toHaveAttribute('src', 'material-0.pdf#zoom=100&navpanes=0');
+});
+
 for (const width of [390, 1365]) test(`all-school contents works offline at ${width}px and preserves the original materials`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
   const template = await readFile('public/interview-material-offline-template.html', 'utf8');

@@ -128,12 +128,11 @@ export default function MaterialPdfViewer({ items, pdfUrl, open, onClose, contex
           return <button key={String(tab)} type="button" className={styles.viewerDockButton} data-label={fullLabel}
             data-near={hovered !== null && Math.abs(index - hovered) === 1 ? 'true' : undefined} title={fullLabel}
             aria-label={`${fullLabel}を表示`} aria-pressed={active === tab}
-            onMouseMove={() => { setHovered(index); select(tab); }} onMouseLeave={() => setHovered(null)}
-            onFocus={() => select(tab)} onClick={() => select(tab)} onKeyDown={event => {
+            onMouseMove={() => setHovered(index)} onMouseLeave={() => setHovered(null)}
+            onClick={() => select(tab)} onKeyDown={event => {
               if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
               event.preventDefault();
               const next = (index + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-              select(tabs[next]);
               event.currentTarget.parentElement?.querySelectorAll('button')[next]?.focus();
             }}><strong aria-hidden="true">{label}</strong></button>;
         })}
