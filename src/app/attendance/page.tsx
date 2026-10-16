@@ -1191,9 +1191,6 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     setCardMessage(`${change.alias} として登録しました。`);
     await onChanged();
   });
-  const lineStudentAccount = candidate.sender_profile?.student_accounts?.find((account) =>
-    account.student_number === studentNumber && account.relation === "student",
-  ) ?? null;
   const lessonRequestKeys = useMemo(() => JSON.stringify([...new Set(items
     .filter((item) => item.event_date)
     .map((item) => candidateLessonListKey(item.event_date, item.student_number)))].sort()), [items]);
@@ -1340,6 +1337,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   }
 
   function selectStudent(value: string) {
+    if (studentNumber === value && items.length > 0 && items.every(item => item.student_number === value)) return;
     setPeriodOpen(false);
     setStudentNumber(value);
     setManualRevision((current) => current + 1);
@@ -1612,8 +1610,8 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
         <span style={{ color: closed ? "#087a3d" : "#666", fontSize: 13, fontWeight: 700 }}>{candidate.review_hidden_at ? `消去済み${candidate.review_hidden_by ? `（${candidate.review_hidden_by}）` : ""} / ` : ""}{dismissed ? "対応不要 / " : registered ? "登録済み / " : ""}{showAutoPeriod ? "期間の連絡" : `${items.length}行`} / AI信頼度 {Math.round((candidate.ai_confidence ?? 0) * 100)}%</span>
         <button type="button" style={candidate.review_hidden_at ? secondaryButtonStyle : dangerButtonStyle} disabled={visibilityBusy} onClick={() => void changeReviewVisibility()}>{visibilityBusy ? "変更中..." : candidate.review_hidden_at ? "表示に戻す" : "表示を消す"}</button>
-        {senderLineUserId && <><RegistrationLink style={secondaryButtonStyle} entry={{ userId: senderLineUserId, returnTo: "/attendance", source: "attendance_review", studentNumber, evidenceId: candidate.line_messages?.id, operator: confirmedBy, mode: lineStudentAccount ? "name" : "register" }}>勉たんの名前を直す</RegistrationLink>
-        <RegistrationLink style={secondaryButtonStyle} entry={{ userId: senderLineUserId, returnTo: "/attendance", source: "attendance_review", studentNumber, evidenceId: candidate.line_messages?.id, operator: confirmedBy }}>兄弟・双子のLINE紐付け</RegistrationLink></>}
+        {senderLineUserId && <><RegistrationLink style={secondaryButtonStyle} entry={{ userId: senderLineUserId, returnTo: "/attendance", source: "attendance_review", studentNumber, studentName: selectedStudent?.student_name, evidenceId: candidate.line_messages?.id, operator: confirmedBy, mode: "name" }}>勉たんの名前を直す</RegistrationLink>
+        <RegistrationLink style={secondaryButtonStyle} entry={{ userId: senderLineUserId, returnTo: "/attendance", source: "attendance_review", studentNumber, studentName: selectedStudent?.student_name, evidenceId: candidate.line_messages?.id, operator: confirmedBy }}>兄弟・双子のLINE紐付け</RegistrationLink></>}
         <button type="button" style={hasError ? dangerButtonStyle : closed ? ghostButtonStyle : buttonStyle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "閉じる" : hasError ? "エラーを確認" : closed ? "内容を見る" : "対応する"}</button>
       </div>
     </div>
@@ -1630,12 +1628,17 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     <div style={{ margin: "6px 0 14px", padding: 14, background: "#f7f7f4", border: "1px solid var(--line)", borderRadius: 6, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{candidate.line_messages?.text ?? "（本文なし）"}</div>
     <ReplyHistory replies={candidate.reply_messages ?? []} />
     {(candidate.student_selection_required || suggestions.length > 0) && <div style={{ border: candidate.student_selection_required ? "1px solid #fed7aa" : "1px solid var(--line)", background: candidate.student_selection_required ? "#fff7ed" : "#f7faf8", borderRadius: 8, padding: 12, margin: "12px 0", display: "grid", gap: 10 }}>
-      <strong style={{ color: "#9a3412" }}>欠席・遅刻の対象生徒を選択</strong>
-      <p style={{ color: candidate.student_selection_required ? "#9a3412" : "#59635e", margin: 0, fontWeight: 700 }}>{candidate.student_selection_required ? candidate.student_selection_reason ?? "対象生徒を特定できないため、名前を選択してください。" : closed ? "登録済みの連絡です。選択した生徒を確認できます。" : candidate.human_reviewed_at ? "人が選んだ生徒を優先しています。ここから選び直せます。" : "候補から対象生徒を確認・変更できます。"}</p>
+      <strong style={{ color: candidate.student_selection_required ? "#9a3412" : "#194e56" }}>{candidate.student_selection_required ? "欠席・遅刻の対象生徒を選択" : "今回の連絡の対象生徒"}</strong>
+      <p style={{ color: candidate.student_selection_required ? "#9a3412" : "#59635e", margin: 0, fontWeight: 700 }}>{candidate.student_selection_required ? candidate.student_selection_reason ?? "対象生徒を特定できないため、名前を選択してください。" : closed ? "登録済みの連絡です。選択した生徒を確認できます。" : candidate.human_reviewed_at ? "人が選んだ生徒を優先しています。ここから選び直せます。" : "「選択中」の生徒が今回の連絡の対象です。別の生徒を押すと変更できます。"}</p>
+      {!closed && <small style={{ color: "#59635e" }}>ここで変更するのは今回の連絡の対象です。LINEの紐付けは変わりません。</small>}
       {suggestions.length > 0 && <div role="group" aria-label="連絡した生徒の候補" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {suggestions.map((student) => {
           const selected = items.every((item) => item.student_number === student.student_number);
-          return <button key={student.student_number} type="button" aria-pressed={selected} disabled={busy || registering || closed} onClick={() => selectStudent(student.student_number)} style={{ ...ghostButtonStyle, border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", background: selected ? "#ecfdf3" : "white", color: selected ? "var(--accent)" : "#222" }}>{student.grade} {student.student_name}</button>;
+          return <button key={student.student_number} type="button" aria-pressed={selected} disabled={busy || registering || closed} onClick={() => selectStudent(student.student_number)} style={{ ...ghostButtonStyle, display: "grid", gap: 4, textAlign: "left", maxWidth: "100%", overflowWrap: "anywhere", border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", background: selected ? "#ecfdf3" : "white", color: selected ? "var(--accent)" : "#222" }}>
+            <strong>{selected ? "選択中：" : ""}{student.grade} {student.student_name}</strong>
+            <small>{student.campus || "校舎未設定"} / {student.student_number.startsWith("notion:") ? "正式な学籍番号未確認" : `生徒番号 ${student.student_number}`}</small>
+            <small>{student.reason === "未確認LINE候補" || student.reason === "LINE履歴" ? "過去の紐付け候補（未確認）" : student.reason}</small>
+          </button>;
         })}
       </div>}
     </div>}

@@ -20,8 +20,28 @@ test("verified old Notion records show one candidate and keep the confirmed stud
   const candidates = page.getByRole("group", { name: "連絡した生徒の候補" });
   await expect(candidates.getByRole("button")).toHaveCount(1);
   await expect(candidates.getByRole("button")).toHaveAttribute("aria-pressed", "true");
+  await expect(candidates.getByRole("button")).toContainText("選択中：中3 試験 一 郎");
+  await expect(candidates.getByRole("button")).toContainText("南教室 / 生徒番号 UI-ONE");
+  await expect(page.getByText("今回の連絡の対象生徒", { exact: true })).toBeVisible();
+  await candidates.getByRole("button").click();
+  await page.waitForTimeout(1200);
+  expect(writes).toHaveLength(0);
   await page.reload();
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   await expect(candidates.getByRole("button")).toHaveCount(1);
   expect(writes).toHaveLength(0);
+});
+
+test("editing a name again clears the previous saved confirmation", async ({ page }) => {
+  const { writes } = await setupRegistration(page, { relation: "mother" });
+  await page.goto("/attendance");
+  await page.getByRole("link", { name: "勉たんの名前を直す", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "LINE登録・修正", exact: true });
+  const input = dialog.getByLabel("勉たんに表示する名前");
+  await input.fill("保存した名前");
+  await dialog.getByRole("button", { name: "この名前で保存", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "保存しました。欠席確認に戻る", exact: true })).toBeVisible();
+  await input.fill("まだ保存していない名前");
+  await expect(dialog.getByRole("button", { name: "保存しました。欠席確認に戻る", exact: true })).toHaveCount(0);
+  expect(writes).toHaveLength(1);
 });

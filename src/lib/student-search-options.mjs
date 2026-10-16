@@ -23,7 +23,12 @@ export function buildStudentSearchOptions(rows, identityAliases = []) {
     // Numeric IDs are reconciled only through an explicitly verified mapping.
     // A same-name match alone must never merge two real students.
     if (!previous || !current || groupKey(previous) !== groupKey(current)) continue;
-    if (!isNotionTemporaryNumber(previous.student_number) && !String(previous.source_file ?? "").startsWith("Notion")) continue;
+    const evidence = alias.evidence;
+    const verifiedRosterCorrection = evidence?.basis_type === "current_roster_and_notion"
+      && evidence.notion_student_number === alias.to && evidence.roster_student_number === alias.to
+      && evidence.old_number_absent_from_roster === true
+      && /^[a-f0-9]{64}$/i.test(evidence.roster_sha256 ?? "");
+    if (!isNotionTemporaryNumber(previous.student_number) && !String(previous.source_file ?? "").startsWith("Notion") && !verifiedRosterCorrection) continue;
     if (isNotionTemporaryNumber(current.student_number) || String(current.source_file ?? "").startsWith("Notion")) continue;
     if (!mergedByNumber.has(alias.to)) mergedByNumber.set(alias.to, []);
     mergedByNumber.get(alias.to).push(previous);

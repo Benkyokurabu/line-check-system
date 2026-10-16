@@ -8,8 +8,8 @@ for (const relation of ["student", "mother"]) test(`attendance saved name surviv
   await page.goto("/attendance");
   await page.getByRole("link", { name: "勉たんの名前を直す", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "LINE登録・修正", exact: true });
-  // Parents can reach the same name editor through its existing tab.
-  await dialog.getByRole("button", { name: "名前だけ直す", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "名前だけ直す", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(dialog.getByRole("region", { name: "生徒本人・保護者のLINE登録", exact: true })).toHaveCount(0);
   await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験一郎");
   await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験二郎");
   await dialog.getByLabel("勉たんに表示する名前").fill("修正済みの共通名");

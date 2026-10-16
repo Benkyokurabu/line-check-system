@@ -85,3 +85,13 @@ test("欠席候補・生徒検索・LINE登録のすべてが同じ確認済み�
     assert.match(source, /buildStudentSearchOptions\([^;]*identityAliases/);
   }
 });
+
+test("旧クラス名簿番号は現行名簿とNotionの照合根拠がそろう場合だけ整理する", () => {
+  const rows = [duplicateRows[0], { ...duplicateRows[1], source_file: "中3クラス一覧表.xlsx" }];
+  const evidence = { basis_type: "current_roster_and_notion", notion_student_number: "CURRENT", roster_student_number: "CURRENT", old_number_absent_from_roster: true, roster_sha256: "a".repeat(64) };
+  const alias = { from: "OLD", to: "CURRENT", verified: true, evidence };
+  assert.equal(buildStudentSearchOptions(rows, [alias]).length, 1);
+  for (const patch of [{ old_number_absent_from_roster: false }, { notion_student_number: "OTHER" }, { roster_student_number: "OTHER" }, { roster_sha256: "" }, { basis_type: "name_only" }]) {
+    assert.equal(buildStudentSearchOptions(rows, [{ ...alias, evidence: { ...evidence, ...patch } }]).length, 2);
+  }
+});
