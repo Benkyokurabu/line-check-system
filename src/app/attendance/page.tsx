@@ -3,6 +3,7 @@
 // Notion registration settings are supplied by the Vercel production environment.
 
 import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
+import { organizeStudentSuggestions } from "@/lib/attendance-student-options.mjs";
 import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
 import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registration/navigation";
@@ -1172,6 +1173,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
   const [additionalMessageMode, setAdditionalMessageMode] = useState(false);
   const suggestions = useMemo(() => candidate.student_suggestions ?? [], [candidate.student_suggestions]);
+  const candidateOptions = organizeStudentSuggestions(suggestions, (candidate.sender_profile?.student_accounts ?? []).map(account => account.student_number), items.map(item => item.student_number), candidate.student_selection_required, candidate.line_messages?.text);
   const suggestionNumbers = useMemo(() => new Set(suggestions.map((student) => student.student_number)), [suggestions]);
   const studentOptions = useMemo(() => uniqueByNumber([
     ...suggestions,
@@ -1191,6 +1193,15 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     setCardMessage(`${change.alias} として登録しました。`);
     await onChanged();
   });
+  function suggestionButton(student: StudentSuggestion) {
+          const selected = items.every((item) => item.student_number === student.student_number);
+          return <button key={student.student_number} type="button" aria-pressed={selected} disabled={busy || registering || closed} onClick={() => selectStudent(student.student_number)} style={{ ...ghostButtonStyle, display: "grid", gap: 4, textAlign: "left", maxWidth: "100%", overflowWrap: "anywhere", border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", background: selected ? "#ecfdf3" : "white", color: selected ? "var(--accent)" : "#222" }}>
+            <strong>{selected ? "選択中：" : ""}{student.grade} {student.student_name}</strong>
+            <small>{student.campus || "校舎未設定"} / {student.student_number.startsWith("notion:") ? "正式な学籍番号未確認" : `生徒番号 ${student.student_number}`}</small>
+            <small>{student.reason === "未確認LINE候補" || student.reason === "LINE履歴" ? "過去の紐付け候補（未確認）" : student.reason}</small>
+          </button>;
+  }
+
   const lessonRequestKeys = useMemo(() => JSON.stringify([...new Set(items
     .filter((item) => item.event_date)
     .map((item) => candidateLessonListKey(item.event_date, item.student_number)))].sort()), [items]);
@@ -1632,14 +1643,12 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
       <p style={{ color: candidate.student_selection_required ? "#9a3412" : "#59635e", margin: 0, fontWeight: 700 }}>{candidate.student_selection_required ? candidate.student_selection_reason ?? "対象生徒を特定できないため、名前を選択してください。" : closed ? "登録済みの連絡です。選択した生徒を確認できます。" : candidate.human_reviewed_at ? "人が選んだ生徒を優先しています。ここから選び直せます。" : "「選択中」の生徒が今回の連絡の対象です。別の生徒を押すと変更できます。"}</p>
       {!closed && <small style={{ color: "#59635e" }}>ここで変更するのは今回の連絡の対象です。LINEの紐付けは変わりません。</small>}
       {suggestions.length > 0 && <div role="group" aria-label="連絡した生徒の候補" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {suggestions.map((student) => {
-          const selected = items.every((item) => item.student_number === student.student_number);
-          return <button key={student.student_number} type="button" aria-pressed={selected} disabled={busy || registering || closed} onClick={() => selectStudent(student.student_number)} style={{ ...ghostButtonStyle, display: "grid", gap: 4, textAlign: "left", maxWidth: "100%", overflowWrap: "anywhere", border: selected ? "2px solid var(--accent)" : "1px solid var(--line)", background: selected ? "#ecfdf3" : "white", color: selected ? "var(--accent)" : "#222" }}>
-            <strong>{selected ? "選択中：" : ""}{student.grade} {student.student_name}</strong>
-            <small>{student.campus || "校舎未設定"} / {student.student_number.startsWith("notion:") ? "正式な学籍番号未確認" : `生徒番号 ${student.student_number}`}</small>
-            <small>{student.reason === "未確認LINE候補" || student.reason === "LINE履歴" ? "過去の紐付け候補（未確認）" : student.reason}</small>
-          </button>;
-        })}
+        {candidateOptions.primary.map(suggestionButton)}
+        {candidateOptions.other.length > 0 && <details style={{ width: "100%" }}>
+          <summary style={{ ...ghostButtonStyle, cursor: "pointer", padding: "10px 12px" }}>ほかの候補を確認（{candidateOptions.other.length}名）</summary>
+          <p style={{ fontSize: 13 }}>過去の未確認候補や名前からの候補です。今回の連絡の対象を変更する場合に選択してください。</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>{candidateOptions.other.map(suggestionButton)}</div>
+        </details>}
       </div>}
     </div>}
 
