@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import LineChangeHistory from "@/components/line-change-history";
 import { LineRegistrationForm } from "@/app/LineRegistrationForm";
 import ConfirmerPicker from "./confirmer-picker";
 import { relationLabel } from "@/lib/line-contact-registration.mjs";
@@ -85,11 +86,11 @@ export default function RegistrationWorkspace({ params, overlay = false }: { par
     } catch { setRefreshError(true); }
   }
   async function saveName() {
-    if (serial.current || !contact || !alias.trim() || (studentAccount && !operator.trim())) return;
+    if (serial.current || !contact || !alias.trim() || !operator.trim()) return;
     serial.current = true; setSaving(true); setMessage("");
     try {
       const url = studentAccount ? `/api/students/${encodeURIComponent(studentNumber)}/line-name` : `/api/admin/contacts/${encodeURIComponent(userId)}`;
-      const response = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(studentAccount ? { line_user_id: userId, alias_name: alias.trim(), performed_by: operator.trim() } : { alias_name: alias.trim() }) });
+      const response = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(studentAccount ? { line_user_id: userId, alias_name: alias.trim(), performed_by: operator.trim() } : { alias_name: alias.trim(), performed_by: operator.trim() }) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "登録名を保存できませんでした。");
       setContact(current => current ? { ...current, alias_name: alias.trim() } : current);
@@ -110,7 +111,8 @@ export default function RegistrationWorkspace({ params, overlay = false }: { par
         <section className={styles.panel}><ConfirmerPicker onActiveChange={setOperator} fromRegistrationLink disabled={saving} /></section>
         <section className={styles.panel} aria-label="変更する内容の説明"><p><strong>表示名を直す：</strong>「名前だけ直す」を選びます。</p><p><strong>登録先を直す：</strong>本人・保護者の続柄、誤った生徒の登録、兄弟・双子の追加は「生徒・続柄の登録を確認・修正」を選びます。</p><p>今回の欠席・遅刻の対象だけを変える場合は、欠席確認画面で対象生徒を選んでください。</p></section>
         <div className={styles.tabs} aria-label="修正内容"><button className={styles.button} disabled={saving} aria-pressed={mode === "name"} onClick={() => setMode("name")}>名前だけ直す</button><button className={styles.button} disabled={saving} aria-pressed={mode === "register"} onClick={() => setMode("register")}>生徒・続柄の登録を確認・修正</button></div>
-        {mode === "name" ? <section className={styles.panel} aria-label="LINEの名前を直す"><label>勉たんに表示する名前<input maxLength={200} value={alias} disabled={saving} onChange={event => { setAlias(event.target.value); setSaved(false); setMessage(""); }} /></label>{studentAccount && <p>変更した先生・スタッフ名：{operator || "未選択"}</p>}<p>勉たん内の登録名を変更します。生徒・続柄の紐付けはそのまま保持します。</p><button className={styles.button} disabled={saving || !alias.trim() || (!!studentAccount && !operator.trim())} onClick={() => void saveName()}>{saving ? "保存中…" : "この名前で保存"}</button>{message && <p role="status">{message}</p>}</section> : <LineRegistrationForm key={userId} userId={userId} displayName={contact.display_name} initialStudentNumber={studentNumber} initialStudentNumbers={accounts.length ? accounts.map(account => account.student_number) : undefined} initialRelation={value(params, "relation") === "staff" || contact.group_name === "スタッフ" ? "staff" : accounts[0]?.relation} initialRelations={Object.fromEntries(accounts.map(account => [account.student_number, account.relation]))} initialEvidenceId={value(params, "evidence")} initialAlias={contact.alias_name ?? undefined} confirmedBy={operator} onSavingChange={setSaving} source={["attendance_review", "attendance_line_review", "students_review", "contacts_review"].includes(value(params, "source")) ? value(params, "source") : "contacts_review"} onClose={goBack} onSaved={async result => { setContact(current => current ? { ...current, alias_name: result.alias } : current); await announce({ userId, ...result }); }} />}
+        {mode === "name" ? <section className={styles.panel} aria-label="LINEの名前を直す"><label>勉たんに表示する名前<input maxLength={200} value={alias} disabled={saving} onChange={event => { setAlias(event.target.value); setSaved(false); setMessage(""); }} /></label><p>変更した先生・スタッフ名：{operator || "未選択"}</p><p>勉たん内の登録名を変更します。生徒・続柄の紐付けはそのまま保持します。</p><button className={styles.button} disabled={saving || !alias.trim() || (!operator.trim())} onClick={() => void saveName()}>{saving ? "保存中…" : "この名前で保存"}</button>{message && <p role="status">{message}</p>}</section> : <LineRegistrationForm key={userId} userId={userId} displayName={contact.display_name} initialStudentNumber={studentNumber} initialStudentNumbers={accounts.length ? accounts.map(account => account.student_number) : undefined} initialRelation={value(params, "relation") === "staff" || contact.group_name === "スタッフ" ? "staff" : accounts[0]?.relation} initialRelations={Object.fromEntries(accounts.map(account => [account.student_number, account.relation]))} initialEvidenceId={value(params, "evidence")} initialAlias={contact.alias_name ?? undefined} confirmedBy={operator} onSavingChange={setSaving} source={["attendance_review", "attendance_line_review", "students_review", "contacts_review"].includes(value(params, "source")) ? value(params, "source") : "contacts_review"} onClose={goBack} onSaved={async result => { setContact(current => current ? { ...current, alias_name: result.alias } : current); await announce({ userId, ...result }); }} />}
+        <LineChangeHistory key={`${userId}:${contact.alias_name}`} userId={userId} />
         {saved && <button className={styles.button} disabled={saving} onClick={goBack}>保存しました。{returns[returnTo]}に戻る</button>}
         {refreshError && <p role="alert">保存は完了しました。登録情報の再読込に失敗したため、戻った後に最新状態へ更新してください。</p>}
       </>}

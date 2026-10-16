@@ -14,7 +14,7 @@ for (const staff of [false, true]) test(`contacts register in the dedicated page
     await form.getByLabel("先生・スタッフの登録名").fill("試験先生");
     await form.getByRole("button", { name: "先生・スタッフとして保存して一覧を更新" }).click();
     await expect.poll(() => writes.length).toBe(1);
-    expect(writes[0]).toEqual({ path: "/api/admin/contacts/ui-line", body: { alias_name: "試験先生", group_name: "スタッフ" } });
+    expect(writes[0]).toEqual({ path: "/api/admin/contacts/ui-line", body: { alias_name: "試験先生", group_name: "スタッフ", performed_by: "試験職員" } });
   } else {
     await form.getByRole("button", { name: "生徒本人", exact: true }).click();
     await form.getByLabel("生徒を検索", { exact: true }).fill("試験一郎");
@@ -35,9 +35,10 @@ test("contact alias edit preserves search and does not change group or links", a
   await page.locator("#contact-search").fill("登録試験LINE");
   await page.getByRole("link", { name: "登録名編集", exact: true }).click();
   await page.getByLabel("勉たんに表示する名前").fill("家族の共通名");
+  await selectConfirmer(page, "確認職員");
   await page.getByRole("button", { name: "この名前で保存", exact: true }).click();
   await page.getByRole("button", { name: "保存しました。連絡先管理に戻る", exact: true }).click();
   await expect(page.locator("#contact-search")).toHaveValue("登録試験LINE");
   await expect(page.getByRole("row").filter({ hasText: "登録試験LINE" })).toContainText("家族の共通名");
-  expect(writes).toEqual([{ path: "/api/admin/contacts/ui-line", body: { alias_name: "家族の共通名" } }]);
+  expect(writes).toEqual([{ path: "/api/admin/contacts/ui-line", body: { alias_name: "家族の共通名", performed_by: "確認職員" } }]);
 });

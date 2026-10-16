@@ -16,7 +16,7 @@ export async function PUT(
   const aliasName = hasAlias ? (body.alias_name as string).trim() : "";
   const groupName = hasGroup ? (body.group_name as string).trim() : "";
 
-  if (hasAlias && !aliasName) {
+  if (hasAlias && (!aliasName || aliasName.length > 200)) {
     return NextResponse.json({ error: "alias_name is required" }, { status: 400 });
   }
   if (!hasAlias && !hasGroup) {
@@ -25,37 +25,27 @@ export async function PUT(
 
   const supabase = createSupabaseAdminClient();
 
-  // 既存行を取得し、指定されたフィールドだけ更新する（片方だけの更新でもう片方を消さないため）
-  const { data: existing } = await supabase
-    .from("line_user_aliases")
-    .select("alias_name, group_name")
-    .eq("line_user_id", userId)
-    .maybeSingle();
-
-  const { error } = await supabase.from("line_user_aliases").upsert(
-    {
-      line_user_id: userId,
-      alias_name: hasAlias ? aliasName : (existing?.alias_name ?? null),
-      group_name: hasGroup ? (groupName || null) : (existing?.group_name ?? null),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "line_user_id" },
-  );
+  const { error } = await supabase.rpc("update_line_contact_alias", {
+    p_line_user_id: userId, p_alias_name: aliasName, p_has_alias: hasAlias,
+    p_group_name: groupName, p_has_group: hasGroup,
+    p_performed_by: typeof body.performed_by === "string" ? body.performed_by.trim().slice(0, 100) : null,
+  });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await context.params;
   const supabase = createSupabaseAdminClient();
-  const { error } = await supabase
-    .from("line_user_aliases")
-    .delete()
-    .eq("line_user_id", userId);
+  const body = await request.json().catch(() => ({}));
+  const { error } = await supabase.rpc("update_line_contact_alias", {
+    p_line_user_id: userId, p_alias_name: null, p_has_alias: false, p_group_name: null, p_has_group: false,
+    p_performed_by: typeof body.performed_by === "string" ? body.performed_by.trim().slice(0, 100) : null, p_delete: true,
+  });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

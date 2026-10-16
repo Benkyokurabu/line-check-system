@@ -5,6 +5,7 @@ import ConfirmerPicker from "@/app/line-registration/confirmer-picker";
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { surveyLineRecipients } from "@/lib/survey-line-recipients.mjs";
+import LineChangeHistory from "@/components/line-change-history";
 import Link from "next/link";
 import styles from "./contacts.module.css";
 
@@ -236,14 +237,20 @@ function ContactsWorkspace() {
   async function clearAlias(userId: string) {
     setSaving(userId);
     try {
-      await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ performed_by: operatorName.trim() }),
       });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "登録情報を保存できませんでした");
       setContacts((prev) =>
         prev.map((c) =>
           c.line_user_id === userId ? { ...c, alias_name: null } : c,
         ),
       );
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "登録情報を保存できませんでした");
     } finally {
       setSaving(null);
     }
@@ -312,17 +319,21 @@ function ContactsWorkspace() {
     const trimmed = editGroupValue.trim();
     setSaving(userId);
     try {
-      await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
+      const response = await fetch(`/api/admin/contacts/${encodeURIComponent(userId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ group_name: trimmed }),
+        body: JSON.stringify({ group_name: trimmed, performed_by: operatorName.trim() }),
       });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "登録情報を保存できませんでした");
       setContacts((prev) =>
         prev.map((c) =>
           c.line_user_id === userId ? { ...c, group_name: trimmed || null } : c,
         ),
       );
       setEditingGroupId(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "登録情報を保存できませんでした");
     } finally {
       setSaving(null);
     }
@@ -513,9 +524,7 @@ function ContactsWorkspace() {
                 </div>)}
               </div>}
 
-              {contactDetail.registration_history.length > 0 && <details><summary style={{ cursor: "pointer", fontWeight: 700 }}>登録履歴 {contactDetail.registration_history.length}件</summary>
-                <div style={{ display: "grid", gap: 5, marginTop: 8 }}>{contactDetail.registration_history.map((event) => <div key={event.id} style={{ color: "var(--muted)", fontSize: "0.76rem" }}>{formatDateTime(event.created_at)} / {event.performed_by} / {event.alias_name ?? event.action}</div>)}</div>
-              </details>}
+              <LineChangeHistory userId={selectedContact.line_user_id} />
             </>
           )}
           {verificationMsg && <p role="status" style={{ color: verificationMsg.includes("登録しました") ? "#087a3d" : "#b42318", fontWeight: 700 }}>{verificationMsg}</p>}

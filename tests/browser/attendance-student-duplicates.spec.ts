@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { selectConfirmer } from "./confirmer-helper";
 import { setupRegistration } from "./registration-fixture";
 import { buildStudentSearchOptions, canonicalStudentSuggestions } from "../../src/lib/student-search-options.mjs";
 
@@ -39,6 +40,7 @@ test("editing a name again clears the previous saved confirmation", async ({ pag
   const dialog = page.getByRole("dialog", { name: "LINE登録・修正", exact: true });
   const input = dialog.getByLabel("勉たんに表示する名前");
   await input.fill("保存した名前");
+  await selectConfirmer(page, "確認職員");
   await dialog.getByRole("button", { name: "この名前で保存", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "保存しました。欠席確認に戻る", exact: true })).toBeVisible();
   await input.fill("まだ保存していない名前");

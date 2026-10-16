@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { organizeStudentSuggestions } from "@/lib/attendance-student-options.mjs";
+import LineChangeHistory from "@/components/line-change-history";
 import PeriodLessonPicker, { type PeriodLesson } from "./period-lesson-picker";
 import AutoPeriodReview from "./auto-period-review";
 import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registration/navigation";
@@ -1167,8 +1168,6 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
   const [manualRevision, setManualRevision] = useState(0);
   const [draftStatus, setDraftStatus] = useState("");
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [reviewHistory, setReviewHistory] = useState<Array<{ id: number; actor: string | null; before_student_number: string | null; after_student_number: string | null; before_lessons: Array<{ lesson_id: string | null }>; after_lessons: Array<{ lesson_id: string | null }>; created_at: string }>>([]);
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
   const [replyText, setReplyText] = useState(replyTemplates[0] ?? defaultReplyTemplates[0]);
   const [additionalMessageMode, setAdditionalMessageMode] = useState(false);
@@ -1576,19 +1575,6 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     }
   }
 
-  async function toggleReviewHistory() {
-    if (historyOpen) { setHistoryOpen(false); return; }
-    try {
-      const response = await fetch(`/api/attendance/candidates/${candidate.id}/history`);
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "変更履歴を取得できませんでした");
-      setReviewHistory(body.history ?? []);
-      setHistoryOpen(true);
-    } catch (error) {
-      setCardMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
   async function copyReply() {
     try {
       await navigator.clipboard.writeText(replyText);
@@ -1764,10 +1750,7 @@ function CandidateCard({ candidate, students, confirmedBy, replyTemplates, onRep
     </div>}
 
     {draftStatus && <div role="status" style={{ marginTop: 10, color: draftStatus.includes("できません") ? "#b42318" : "#087a3d", fontSize: 13 }}>{draftStatus}{!confirmedBy.trim() ? "（確認担当者は未入力）" : ""}</div>}
-    <div style={{ marginTop: 10 }}><button type="button" style={ghostButtonStyle} aria-expanded={historyOpen} onClick={() => void toggleReviewHistory()}>{historyOpen ? "変更履歴を閉じる" : "生徒・授業の変更履歴"}</button></div>
-    {historyOpen && <div style={{ display: "grid", gap: 6, marginTop: 8, fontSize: 13 }}>{reviewHistory.length === 0 ? <div>変更履歴はありません。</div> : reviewHistory.map((entry) => <div key={entry.id} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
-      {formatReceivedAt(entry.created_at)} / {entry.actor || "担当者名未入力"}：{studentOptions.find((student) => student.student_number === entry.before_student_number)?.student_name ?? entry.before_student_number ?? "未選択"} → {studentOptions.find((student) => student.student_number === entry.after_student_number)?.student_name ?? entry.after_student_number ?? "未選択"}、授業 {entry.before_lessons.filter((lesson) => lesson.lesson_id).length}件 → {entry.after_lessons.filter((lesson) => lesson.lesson_id).length}件
-    </div>)}</div>}
+    <LineChangeHistory userId={senderLineUserId} candidateId={candidate.id} refreshKey={candidate.human_reviewed_at} />
     {dismissed ? <div style={{ marginTop: 16, color: "#087a3d", fontWeight: 800 }}>対応不要として処理済みです。</div> : <div style={{ display: "flex", gap: 10, marginTop: 16 }}>{!showAutoPeriod && <button style={buttonStyle} disabled={busy || dismissing || registered || Boolean(resyncItems)} onClick={() => void confirmCandidate()}>{registered ? "Notion登録済み" : busy ? "登録中..." : registering ? "登録状態を確認・再試行" : "確認してNotionへ登録"}</button>}{!registered && !registering && <button style={secondaryButtonStyle} disabled={busy || dismissing} onClick={dismiss}>{dismissing ? "処理中..." : "対応不要"}</button>}</div>}
     </>}
   </section>;

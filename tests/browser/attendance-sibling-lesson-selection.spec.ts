@@ -176,8 +176,8 @@ test("ambiguous siblings remain unselected and lesson buttons toggle independent
   await page.goto("/attendance");
   await page.getByRole("button", { name: "対応する", exact: true }).click();
   const siblingChoices = page.getByRole("group", { name: "連絡した生徒の候補" });
-  const sisterButton = siblingChoices.getByRole("button", { name: "中2 山田 花子", exact: true });
-  const brotherButton = siblingChoices.getByRole("button", { name: "小6 山田 太郎", exact: true });
+  const sisterButton = siblingChoices.getByRole("button", { name: /中2 山田 花子/ });
+  const brotherButton = siblingChoices.getByRole("button", { name: /小6 山田 太郎/ });
   await expect(sisterButton).toHaveAttribute("aria-pressed", "false");
   await expect(brotherButton).toHaveAttribute("aria-pressed", "false");
 

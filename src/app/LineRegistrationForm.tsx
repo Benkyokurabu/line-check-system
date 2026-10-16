@@ -82,7 +82,7 @@ export function LineRegistrationForm(props: Props) {
     try {
       const response = await fetch(`/api/admin/contacts/${encodeURIComponent(props.userId)}${staff ? "" : "/verify"}`, {
         method: staff ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(staff ? { alias_name: names, group_name: "スタッフ" } : {
+        body: JSON.stringify(staff ? { alias_name: names, group_name: "スタッフ", performed_by: operator.trim() || null } : {
           targets: selected.map(s => ({ student_number: s.student_number, relation: relationFor(s), alias_name: savedAliasFor(s).trim(), is_primary: relationFor(s) === "student" })),
           friend_display_name: props.displayName || null, verified_by: operator.trim(), evidence_message_id: evidenceId, source: props.source,
         }),
