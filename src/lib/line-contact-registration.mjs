@@ -3,6 +3,21 @@ const ALLOWED_RELATIONS = new Set(["student", "mother", "father", "guardian", "f
 export function compactStudentName(value) {
   return String(value ?? "").normalize("NFKC").replace(/[\s　]/g, "");
 }
+
+/**
+ * Prefer the editable contact name over historical per-student link names.
+ * Fall back to link names only for contacts without a saved display name.
+ * @param {{ alias_name?: string | null }[]} aliases
+ * @param {{ alias_name?: string | null, verification_status?: string | null }[]} accounts
+ */
+export function lineContactDisplayNames(aliases, accounts) {
+  const names = rows => [...new Set(rows.map(row => row.alias_name?.trim()).filter(Boolean))];
+  const savedNames = names(aliases);
+  if (savedNames.length) return savedNames;
+  const confirmed = accounts.filter(account => account.verification_status === "confirmed");
+  return names(confirmed.length ? confirmed : accounts);
+}
+
 export function buildLineContactAlias(student, relation) {
   if (!student?.student_name) return "";
   const campus = String(student.campus ?? "").includes("南") ? "南" : "本";

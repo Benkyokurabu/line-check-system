@@ -1,0 +1,31 @@
+import { expect, test } from "@playwright/test";
+import { setupRegistration } from "./registration-fixture";
+import { selectConfirmer } from "./confirmer-helper";
+
+for (const relation of ["student", "mother"]) test(`attendance saved name survives return and reload with stale links; ${relation}`, async ({ page }) => {
+  const { writes } = await setupRegistration(page, { relation, siblings: true, staleAccount: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/attendance");
+  await page.getByRole("link", { name: "勉たんの名前を直す", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "LINE登録・修正", exact: true });
+  // Parents can reach the same name editor through its existing tab.
+  await dialog.getByRole("button", { name: "名前だけ直す", exact: true }).click();
+  await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験一郎");
+  await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験二郎");
+  await dialog.getByLabel("勉たんに表示する名前").fill("修正済みの共通名");
+  await selectConfirmer(page, "試験職員");
+  await dialog.getByRole("button", { name: "この名前で保存", exact: true }).click();
+  await dialog.getByRole("button", { name: "保存しました。欠席確認に戻る", exact: true }).click();
+  const title = page.getByText("修正済みの共通名（登録試験LINE）", { exact: true });
+  await expect(title).toBeVisible();
+  await expect(page.getByText(/古い別人の登録名/)).toHaveCount(0);
+  await page.reload();
+  await expect(title).toBeVisible();
+  await page.getByRole("link", { name: "兄弟・双子のLINE紐付け", exact: true }).click();
+  await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験一郎");
+  await expect(dialog.getByText(/^現在の確認済み紐付け：/)).toContainText("試験二郎");
+  expect(writes).toHaveLength(1);
+  expect(writes[0].path).toBe(relation === "student" ? "/api/students/UI-ONE/line-name" : "/api/admin/contacts/ui-line");
+  expect(writes[0].body.alias_name).toBe("修正済みの共通名");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

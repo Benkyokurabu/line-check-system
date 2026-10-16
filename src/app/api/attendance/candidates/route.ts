@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import { normalizeStudentName } from "@/lib/student-linking";
 import { resolveAttendanceStudentFromLine } from "@/lib/attendance-student-resolution.mjs";
+import { lineContactDisplayNames } from "@/lib/line-contact-registration.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -202,10 +203,7 @@ function buildSenderProfile(input: {
   const lineAliases = lineUserId ? input.aliases.filter((alias) => alias.line_user_id === lineUserId) : [];
   return {
     display_name: input.lineMessage?.display_name ?? null,
-    alias_names: uniqueFilled([
-      ...lineAliases.map((alias) => alias.alias_name),
-      ...input.accounts.map((account) => account.alias_name),
-    ]),
+    alias_names: lineContactDisplayNames(lineAliases, input.accounts),
     account_names: uniqueFilled(input.accounts.flatMap((account) => [account.alias_name, account.friend_display_name])),
     student_accounts: input.accounts
       .filter((account) => account.verification_status === "confirmed")

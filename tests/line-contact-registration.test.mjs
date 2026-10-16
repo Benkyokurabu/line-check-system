@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   buildLineContactAlias,
+  lineContactDisplayNames,
   classifyLineContact,
   helperOriginAllowed,
   normalizeVerificationTargets,
@@ -25,6 +26,38 @@ test("graduation status and current individual tuition remain distinct in regist
 test("buildLineContactAlias makes campus/student/relation label", () => {
   assert.equal(buildLineContactAlias({ student_name: "山田 太郎", campus: "本校" }, "mother"), "本　山田太郎　母");
   assert.equal(buildLineContactAlias({ student_name: "佐藤花子", campus: "南教室" }, "student"), "南　佐藤花子");
+});
+
+test("saved contact name replaces stale link names without altering sibling links", () => {
+  const accounts = [
+    { student_number: "first", alias_name: "旧登録名", verification_status: "confirmed" },
+    { student_number: "sibling", alias_name: "兄弟の登録名", verification_status: "confirmed" },
+    { student_number: "wrong", alias_name: "未確認の別人", verification_status: "unverified" },
+  ];
+  const before = structuredClone(accounts);
+  assert.deepEqual(lineContactDisplayNames([{ alias_name: "家族の共通名" }], accounts), ["家族の共通名"]);
+  assert.deepEqual(accounts, before);
+});
+
+test("the reported mixture of confirmed and unverified names shows the saved name only", () => {
+  assert.deepEqual(lineContactDisplayNames([{ alias_name: "南　試験一郎" }], [
+    { alias_name: "南　試験一郎", verification_status: "confirmed" },
+    { alias_name: "本　別の一郎", verification_status: "unverified" },
+  ]), ["南　試験一郎"]);
+});
+
+test("contacts without saved names retain confirmed sibling names and legacy fallbacks", () => {
+  assert.deepEqual(lineContactDisplayNames([{ alias_name: "  " }], [
+    { alias_name: "本　試験一郎　母", verification_status: "confirmed" },
+    { alias_name: "本　試験二郎　母", verification_status: "confirmed" },
+    { alias_name: "別人", verification_status: "unverified" },
+  ]), ["本　試験一郎　母", "本　試験二郎　母"]);
+  assert.deepEqual(lineContactDisplayNames([], [
+    { alias_name: "  旧名簿の名前  ", verification_status: "unverified" },
+    { alias_name: "旧名簿の名前", verification_status: null },
+    { alias_name: null },
+  ]), ["旧名簿の名前"]);
+  assert.deepEqual(lineContactDisplayNames([], []), []);
 });
 
 test("student registration labels show grade, instruction type and identifying details", () => {
@@ -106,4 +139,5 @@ test("attendance candidates expose only confirmed account relations for the name
   assert.match(route, /is_primary,verification_status/);
   assert.match(route, /account\.verification_status === "confirmed"/);
   assert.match(route, /student_accounts:/);
+  assert.match(route, /alias_names: lineContactDisplayNames\(lineAliases, input\.accounts\)/);
 });
