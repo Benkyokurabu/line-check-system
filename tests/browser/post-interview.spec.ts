@@ -1,0 +1,39 @@
+import {test,expect} from '@playwright/test';
+import {blankPostFields} from '../../src/lib/post-interview-core.mjs';
+const answer='11111111-1111-4111-8111-111111111111',student='22222222-2222-4222-8222-222222222222',record='33333333-3333-4333-8333-333333333333';
+const staff={staffId:'44444444-4444-4444-8444-444444444444',staffCode:'KUDO',role:'admin',displayName:'工藤'};
+function model(){return {entry:null as null|Record<string,unknown>,payload:{answerId:answer,studentPageId:student,recordPageId:'',sourceText:'',participants:'',fields:blankPostFields()},student:{id:student,name:'見本の生徒',number:'2026999',grade:'中３'},survey:{id:answer,preparation:'完了',handling:'未着手',date:'2026-10-17'},records:[{id:record,title:'既存の面談',date:'2026-10-17',url:'https://example.invalid'}],staffOptions:[{id:staff.staffId,name:'工藤'}],options:{method:['３者Zoom'],grade:['中３'],purpose:['進路']},accounts:[{id:'mother',label:'母・確認済み',verification:'confirmed',category:'guardian'},{id:'student',label:'本人・確認済み',verification:'confirmed',category:'student'},{id:'unverified',label:'未確認の連絡先',verification:'registered',category:'unknown'}],entries:[],originalBody:'元の段落は保持されます',originalUrl:'https://example.invalid/original',snapshot:'v1'};}
+for(const width of [1280,390])test(`面談後の入力・明示選択・候補確認・宛先別送信 ${width}px`,async({page})=>{
+ const data=model();const calls:Array<Record<string,unknown>>=[];
+ await page.setViewportSize({width,height:1000});await page.route('**/api/staff/session',r=>r.fulfill({json:{staff}}));
+ await page.route('**/api/staff/post-interview*',r=>{
+  if(r.request().method()==='POST'){
+   const body=r.request().postDataJSON();calls.push(body);
+   if(body.action==='draft-ai')return r.fulfill({json:{fields:{title:{value:'AIの候補',state:'review',source:'相談した',reason:'確認待ち',candidates:[]},record:{value:'記録の候補',state:'review',source:'相談した',reason:'確認待ち',candidates:[]}}}});
+   const entry={id:body.id,version:body.version+1,payload:body.payload,status:'review',targets:{record:{status:'synced',pageId:record},survey:{status:'review',error:'対応は人の確認待ち'},lines:body.intent==='send'?{mother:{id:'mother',label:'母',text:'送信済み',status:'accepted'},student:{id:'student',label:'本人',text:'失敗分',status:'failed',error:'通信失敗'}}:{}}};
+   data.entry=entry;data.payload=entry.payload;return r.fulfill({json:{entry}});
+  }return r.fulfill({json:data});
+ });
+ await page.goto('/staff/survey-workflow/post-interview?answer='+answer);await expect(page.getByRole('heading',{name:'見本の生徒さんの面談'})).toBeVisible();
+ await expect(page.getByRole('button',{name:'保存して記録・対応へ反映',exact:true})).toBeDisabled();await page.getByLabel('反映する面談記録',{exact:true}).selectOption('new');
+ await page.getByLabel('面談の見出し',{exact:true}).fill('自分で入力した見出し');await page.getByLabel('面談の原文・補足',{exact:true}).fill('相談した');await page.getByRole('button',{name:'AIで記録と共有文の候補を作る'}).click();
+ await expect(page.getByLabel('面談の見出し',{exact:true})).toHaveValue('自分で入力した見出し');await expect(page.locator('#post-state-record')).toHaveValue('review');
+ await page.getByLabel('実施日',{exact:true}).fill('2026-10-17');await page.getByLabel('職員用の面談記録',{exact:true}).fill('確認した職員向けの記録');await page.getByLabel('本人・保護者へ共有する内容',{exact:true}).fill('確認した共有内容');
+ await page.getByRole('button',{name:'保存して記録・対応へ反映',exact:true}).click();await expect(page.getByRole('heading',{name:'保存結果：人の確認待ち'})).toBeVisible();await expect(page.getByText('対応は人の確認待ち',{exact:true})).toBeVisible();
+ await expect(page.getByRole('checkbox',{name:/未確認の連絡先/})).toBeDisabled();await page.getByRole('checkbox',{name:'母・確認済み',exact:true}).check();await page.getByRole('checkbox',{name:'本人・確認済み',exact:true}).check();
+ await page.getByRole('button',{name:'送信する本文と宛先を確認',exact:true}).click();expect(calls.filter(c=>c.intent==='send')).toHaveLength(0);await expect(page.getByRole('button',{name:'確認した内容で送信・結果を保存'})).toBeDisabled();
+ await page.getByRole('checkbox',{name:'表示された宛先と本文、送信済みの有無を確認しました'}).check();await page.getByRole('button',{name:'確認した内容で送信・結果を保存'}).click();await expect(page.getByText(/母：LINE受付済み/)).toBeVisible();await expect(page.getByText(/本人：失敗 通信失敗/)).toBeVisible();
+ expect(calls.filter(c=>c.intent==='send')).toHaveLength(1);const reflected=calls.find(c=>c.intent==='reflect') as {payload:ReturnType<typeof model>['payload']};expect(reflected.payload.fields.handling.state).toBe('unknown');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:`analysis_outputs/post-interview/workspace-${width}.png`,fullPage:true});
+});
+test('通信失敗・再ログイン後に原稿と操作番号を保持する',async({page})=>{
+ const data=model(),keys:string[]=[];let expire=false,reads=0;
+ await page.route('**/api/staff/session',r=>{expire=false;return r.fulfill({json:{staff}});});
+ await page.route('**/api/staff/post-interview*',r=>{if(r.request().method()==='GET'){reads++;return r.fulfill({json:data});}keys.push(r.request().postDataJSON().operationKey);return r.fulfill({status:expire?401:503,json:{error:expire?'ログインし直してください':'通信失敗'}});});
+ await page.goto('/staff/survey-workflow/post-interview?answer='+answer);await page.getByLabel('反映する面談記録',{exact:true}).selectOption('new');await page.getByLabel('職員用の面談記録',{exact:true}).fill('未保存の大切な記録');
+ await page.getByRole('button',{name:'下書きを保存',exact:true}).click();await expect(page.getByRole('main').getByRole('alert')).toContainText('通信失敗');await page.getByRole('button',{name:'下書きを保存',exact:true}).click();await expect.poll(()=>keys.length).toBe(2);expect(keys[0]).toBe(keys[1]);
+ expire=true;await page.getByRole('button',{name:'下書きを保存',exact:true}).click();await expect(page.getByRole('heading',{name:'職員ログイン'})).toBeVisible();await expect(page.getByLabel('職員用の面談記録',{exact:true})).toHaveCount(0);
+ const before=reads;await page.getByLabel('職員コード',{exact:true}).fill('KUDO');await page.getByLabel('パスワード',{exact:true}).fill('test-only');await page.getByRole('button',{name:'ログイン',exact:true}).click();await expect(page.getByLabel('職員用の面談記録',{exact:true})).toHaveValue('未保存の大切な記録');expect(reads).toBe(before);
+});
+test('金城先生へ試用データの読み取りを開始しない',async({page})=>{let reads=0;await page.route('**/api/staff/session',r=>r.fulfill({json:{staff:{...staff,staffCode:'KINJO'}}}));await page.route('**/api/staff/post-interview*',r=>{reads++;return r.fulfill({status:403,json:{error:'denied'}});});await page.goto('/staff/survey-workflow/post-interview?answer='+answer);await expect(page.getByText('この機能は工藤先生の確認中です。既存の面談入力は引き続き利用できます。')).toBeVisible();expect(reads).toBe(0);});
+test('匿名利用・別サイトの保存・未認証のワーカーを拒否する',async({request})=>{expect((await request.get('/api/staff/post-interview')).status()).toBe(401);expect((await request.post('/api/staff/post-interview',{headers:{Origin:'https://other.invalid'},data:{action:'save'}})).status()).toBe(403);expect((await request.get('/api/cron/post-interview-sync')).status()).toBe(401);});

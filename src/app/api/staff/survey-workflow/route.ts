@@ -107,7 +107,7 @@ export async function GET(request:NextRequest){let context:StaffContext|undefine
   if(!error)history=messages??[];else historyError='LINE履歴を取得できませんでした。最新情報を読み直してください。';
  }
  return staffResponse({student:{name:student.student_name,number:student.student_number,grade:student.grade},
-  staffName:context.staff.displayName,
+  staffName:context.staff.displayName,staffCode:context.staff.staffCode,
   survey:{id:page.id,url:page.url,date,time,editedAt:page.last_edited_time},
   bensuke:linkError?{state:'unavailable'}:{state:bensukeState,id:bensukeState==='deleted'?'':link?.page_id??'',url:link?.page_id&&bensukeState!=='deleted'?`https://www.notion.so/${String(link.page_id).replaceAll('-','')}`:'',
    method:methodFromSurveySchedule(link?.baseline),endTime:interviewDateParts(link?.baseline?.end??'').time,styled:!!link?.baseline?.title?.includes('／')},

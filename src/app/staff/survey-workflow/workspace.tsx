@@ -5,7 +5,7 @@ import {scheduleMethods,suggestedInterviewEnd} from '@/lib/survey-schedule-style
 import styles from './workspace.module.css';
 
 type Account={id:string;relation:string;label:string;category?:string;studentNumber?:string;aliasName?:string;displayName?:string;verification?:string};
-type State={student:{name:string;number:string;grade:string};staffName:string;survey:{id:string;url:string;date:string;time?:string;editedAt:string};
+type State={student:{name:string;number:string;grade:string};staffName:string;staffCode?:string;survey:{id:string;url:string;date:string;time?:string;editedAt:string};
  bensuke?:{state:string;id?:string;url?:string;method?:string;endTime?:string;styled?:boolean};scheduleTeacher?:string;
  historyError?:string;history?:Array<{id:string;line_user_id:string;direction:string;text:string;received_at:string;sent_by?:string}>;answerFields?:Array<{label:string;value:string}>;accounts:Account[];record:{id:string;url:string;body:string;existingText?:string;blockId:string;blockEditedAt:string;editable:boolean}|null};
 type Phase='schedule'|'summary';
@@ -150,7 +150,7 @@ export default function Workspace({answerId,embedded=false,onSaved,onClose,onSav
   {draftNotice&&<p className={styles.notice} role="status">{draftNotice}</p>}
   {notice&&<p className={styles.notice} role="status">{notice}</p>}
   {!data&&!error&&<p>読み込み中…</p>}
-  {data&&!authRequired&&<><section className={styles.identity}><strong>{data.student.name}　{data.student.grade}</strong><span>学籍番号 {data.student.number}</span>
+  {data&&!authRequired&&<>{data.staffCode==='KUDO'&&<section className={styles.card}><h2>面談後の一括入力（工藤確認用）</h2><p>本番運用前です。記録・対応状況・LINE文面を一か所で確認できます。</p><a className={styles.returnButton} href={`/staff/survey-workflow/post-interview?answer=${encodeURIComponent(answerId)}`}>面談後の一括入力を開く</a></section>}<section className={styles.identity}><strong>{data.student.name}　{data.student.grade}</strong><span>学籍番号 {data.student.number}</span>
    <a href={data.survey.url} target="_blank" rel="noreferrer">アンケート原本 ↗</a></section>
    <details className={styles.answers} open><summary>アンケートの回答を確認</summary><dl>{data.answerFields?.map((field,index)=><div key={index}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl></details>
    {embedded&&<div className={styles.tabs} role="group" aria-label="面談の入力項目">{([['date','日程・LINE返信'],['record','面談記録'],['summary','面談後のLINE']] as const).map(([value,label])=><button key={value} aria-pressed={tab===value} onClick={()=>{setTab(value);setReview(null);}}>{label}</button>)}</div>}

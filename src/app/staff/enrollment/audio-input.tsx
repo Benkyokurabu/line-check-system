@@ -2,7 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 type Part={id:number;blob:Blob;state:'waiting'|'working'|'failed'|'done';error:string};
 const extension=(blob:Blob)=>({'audio/mp4':'mp4','video/mp4':'mp4','audio/mpeg':'mp3','audio/wav':'wav','audio/ogg':'ogg'}[blob.type.split(';')[0]]??'webm');
-export default function AudioInput({onText,onBusy}:{onText:(text:string)=>void;onBusy:(busy:boolean)=>void}){
+export default function AudioInput({onText,onBusy,endpoint='/api/staff/enrollment/audio'}:{onText:(text:string)=>void;onBusy:(busy:boolean)=>void;endpoint?:string}){
  const [recording,setRecording]=useState(false),[parts,setParts]=useState<Part[]>([]),[error,setError]=useState('');
  const recorder=useRef<MediaRecorder|null>(null),stream=useRef<MediaStream|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const stopped=useRef(true),alive=useRef(true),queue=useRef<Part[]>([]),working=useRef(false),seq=useRef(0),textCallback=useRef(onText),busyCallback=useRef(onBusy);
@@ -11,7 +11,7 @@ export default function AudioInput({onText,onBusy}:{onText:(text:string)=>void;o
  async function consume(){if(working.current)return;working.current=true;
   try{for(const part of queue.current){if(part.state==='done')continue;if(part.state==='failed')break;part.state='working';refresh();try{
    const form=new FormData();form.set('audio',part.blob,`interview-${part.id}.${extension(part.blob)}`);
-   const response=await fetch('/api/staff/enrollment/audio',{method:'POST',body:form});const data=await response.json();if(!response.ok)throw Error(data.error||'音声を読み取れませんでした。');
+   const response=await fetch(endpoint,{method:'POST',body:form});const data=await response.json();if(!response.ok)throw Error(data.error||'音声を読み取れませんでした。');
    if(!alive.current)return;part.state='done';textCallback.current(`【録音 ${part.id}】\n${data.text}`);refresh();
   }catch(e){part.state='failed';part.error=e instanceof Error?e.message:'文字起こしを完了できませんでした。';refresh();break;}}}finally{working.current=false;}
  }

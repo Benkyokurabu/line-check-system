@@ -65,7 +65,7 @@ export default function EnrollmentWorkspace(){
   });
  }
  const pending=payload?defs.filter(f=>!['confirmed','not_applicable'].includes(payload.fields[f.key].state)):[];
- return <main className={styles.main}><Link href="/">勉たんへ戻る</Link><h1>入塾手続きの一括入力</h1><p>一つの画面に入力し、面談記録・生徒情報・受付チェック表・終業ミーティングへ反映します。判断できない項目は保留し、人が確定した後に続けて反映します。</p>
+ return <main className={styles.main}><Link href="/">勉たんへ戻る</Link><h1>入塾手続きの一括入力</h1><p className={styles.summary}><strong>本番運用前</strong>：正式運用済みとしては扱いません。現在の入力・保存機能は引き続き利用できます。</p><p>一つの画面に入力し、面談記録・生徒情報・受付チェック表・終業ミーティングへ反映します。判断できない項目は保留し、人が確定した後に続けて反映します。</p>
  {error&&<p role="alert" className={styles.error}>{error}</p>}{notice&&<p role="status" className={styles.notice}>{notice}</p>}
  {!ready?<p>ログイン状態を確認しています…</p>:!staff?<form className={styles.panel} onSubmit={login}><h2>職員ログイン</h2><label>職員コード<input autoComplete="username" value={code} onChange={e=>setCode(e.target.value)} disabled={busy} required/></label><label>パスワード<input autoComplete="current-password" type="password" value={password} onChange={e=>setPassword(e.target.value)} disabled={busy} required/></label><button type="submit" className={styles.primary} disabled={busy}>ログイン</button></form>:!allowed?<p>この機能は、入塾手続きの入力権限を持つ職員が利用できます。</p>:<>
  <section className={styles.panel}><p>{staff.displayName}さんとして入力しています。</p><h2>生徒を選ぶ</h2>{dirty&&<p className={styles.notice}>編集中の入力があります。保存してから別の生徒・記録を開いてください。</p>}
