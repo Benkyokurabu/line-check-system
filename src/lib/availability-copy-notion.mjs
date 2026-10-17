@@ -1,12 +1,13 @@
 import {InterviewError, normalizeTeacher} from './interview-core.mjs';
 import {resolveAvailabilityTeacher} from './bensuke-availability-auto.mjs';
 import {BENSUKE_SOURCE, bookingSchema, queryPages, scheduleValue, staffDirectory, teacherMatch} from './bensuke-booking.mjs';
-import {validateCopyRange, formatAvailabilityCopy} from './availability-copy-core.mjs';
+import {copyCampusOptions, validateCopyRange, formatAvailabilityCopy} from './availability-copy-core.mjs';
 
 const sameId = (a, b) => String(a).replaceAll('-', '').toLowerCase() === String(b).replaceAll('-', '').toLowerCase();
 const teacherNames = ['金城', '工藤', '鈴木', '髙山', '金子'];
 const teacherKey = value => normalizeTeacher(value).replace(/(?:先生|さん)$/u, '');
 const availabilityTags = ['本：予約可', '南：予約可'];
+const campusTags = {all: availabilityTags, main: ['本：予約可'], south: ['南：予約可']};
 export async function copyTeacherOptions(request, actor) {
   const schema = await request(`/data_sources/${BENSUKE_SOURCE}`);
   const staff = await staffDirectory(request, schema);
@@ -20,8 +21,11 @@ export async function copyTeacherOptions(request, actor) {
   return {schema, directory, defaultTeacherId, teachers: directory.map(({id, name}) => ({id, name}))};
 }
 
-export async function readAvailabilityCopy({request, from, to, teacherId, actor}) {
+export async function readAvailabilityCopy({request, from, to, teacherId, actor, campus = 'all'}) {
   try { validateCopyRange(from, to); } catch (error) { throw new InterviewError(error.message, 422); }
+  const campusOption = copyCampusOptions.find(option => option.value === campus);
+  if (!campusOption) throw new InterviewError('取得する校舎を選び直してください。', 422);
+  const tags = campusTags[campusOption.value];
   const {schema, directory} = await copyTeacherOptions(request, actor);
   const teacher = directory.find(person => sameId(person.id, teacherId));
   if (!teacher) throw new InterviewError('担当の先生を選び直してください。', 422);
@@ -34,7 +38,7 @@ export async function readAvailabilityCopy({request, from, to, teacherId, actor}
       {property: properties.teachers.id, relation: {contains: teacher.id}},
       {property: properties.date.id, date: {on_or_after: `${from}T00:00:00+09:00`}},
       {property: properties.date.id, date: {on_or_before: `${to}T23:59:59+09:00`}},
-      {or: availabilityTags.map(tag => ({property: properties.tags.id, multi_select: {contains: tag}}))},
+      {or: tags.map(tag => ({property: properties.tags.id, multi_select: {contains: tag}}))},
     ]});
   } catch (error) {
     if (error instanceof InterviewError && error.message.includes('Notionの全予定')) {
@@ -46,7 +50,7 @@ export async function readAvailabilityCopy({request, from, to, teacherId, actor}
   let reviewCount = 0;
   for (const page of pages) {
     const value = scheduleValue(page, schema);
-    if (!value.tags.some(tag => availabilityTags.includes(tag)) || !value.teachers.some(id => sameId(id, teacher.id))) continue;
+    if (!value.tags.some(tag => tags.includes(tag)) || !value.teachers.some(id => sameId(id, teacher.id))) continue;
     const start = Date.parse(value.date?.start ?? ''), end = value.date?.end ? Date.parse(value.date.end) : null;
     if (!value.date?.start?.includes('T') || !Number.isFinite(start) || end !== null && (!value.date.end.includes('T') || !Number.isFinite(end) || end <= start)) { reviewCount++; continue; }
     const startJst = new Date(start + 9 * 3600000).toISOString();
@@ -61,5 +65,5 @@ export async function readAvailabilityCopy({request, from, to, teacherId, actor}
     rows.push({...slot, pageId: page.id});
   }
   rows.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
-  return {teacher: teacher.name, teacherId: teacher.id, from, to, rows, text: formatAvailabilityCopy(rows), checkedAt: new Date().toISOString(), reviewCount};
+  return {teacher: teacher.name, teacherId: teacher.id, campus, campusLabel: campusOption.label, from, to, rows, text: formatAvailabilityCopy(rows), checkedAt: new Date().toISOString(), reviewCount};
 }

@@ -2,6 +2,37 @@ import {test,expect} from '@playwright/test';
 import fs from 'node:fs';
 const id='00000000-0000-4000-8000-000000000001';
 const expected='① 10月12日（月）14:00〜14:45\n② 10月14日（水）15:00';
+
+test('3つの校舎ボタンから直接取得し、表示とコピーを切り替える',async({page,context})=>{
+ await context.grantPermissions(['clipboard-read','clipboard-write']);
+ await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{displayName:'工藤謙'}}}));
+ await page.route('**/api/staff/interview-manual-availability*',route=>route.fulfill({json:{rows:[]}}));
+ const queries:string[]=[];
+ const texts={all:expected,main:'① 10月12日（月）14:00〜14:45',south:'① 10月14日（水）15:00'};
+ await page.route('**/api/staff/interview-availability-copy*',route=>{
+  const query=new URL(route.request().url()).searchParams;
+  if(query.get('mode')==='teachers')return route.fulfill({json:{teachers:[{id,name:'工藤先生'}],defaultTeacherId:id}});
+  const campus=query.get('campus') as keyof typeof texts;queries.push(campus);
+  return route.fulfill({json:{teacher:'工藤先生',campus,campusLabel:{all:'本校・南教室',main:'本校のみ',south:'南教室のみ'}[campus],from:query.get('from'),to:query.get('to'),rows:campus==='all'?[{},{}]:[{}],text:texts[campus],checkedAt:'2026-10-17T02:00Z',reviewCount:0}});
+ });
+ for(const width of [1280,390]){
+  await page.setViewportSize({width,height:900});await page.goto('/staff/interview-availability/manual');
+  const panel=page.getByRole('region',{name:'予約可能枠をコピー'}),group=panel.getByRole('group',{name:'Notionから予約可を取得'});
+  await expect(group.getByRole('button')).toHaveText(['本校・南教室','本校のみ','南教室のみ']);
+  for(const button of await group.getByRole('button').all())expect((await button.boundingBox())!.height).toBeLessThan(70);
+  await expect(panel.getByLabel('担当の先生')).toHaveValue(id);
+  if(width===1280){const title=await group.getByText('Notionから予約可を取得',{exact:true}).boundingBox(),first=await group.getByRole('button',{name:'本校・南教室',exact:true}).boundingBox();expect(first!.x).toBeGreaterThan(title!.x);expect(Math.abs(first!.y-title!.y)).toBeLessThan(20);}
+  for(const [campus,label] of [['all','本校・南教室'],['main','本校のみ'],['south','南教室のみ']] as const){
+   await group.getByRole('button',{name:label,exact:true}).click();
+   await expect(panel.getByLabel('コピーする日程')).toHaveValue(texts[campus]);expect(queries.at(-1)).toBe(campus);
+   await expect(panel.locator('strong')).toContainText(label);
+   await panel.getByRole('button',{name:'日程一覧をコピー'}).click();
+   expect((await page.evaluate(()=>navigator.clipboard.readText())).replaceAll('\r\n','\n')).toBe(texts[campus]);
+  }
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:`test-results/availability-copy-campus-${width}.png`,fullPage:true});
+ }
+});
 test('トップページの左メニュー面談にコピーカードを並べ、直接移動できる',async({page})=>{
  await page.route('**/api/interview-surveys**',route=>route.fulfill({json:{groups:[],states:[],scheduling:[]}}));
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{displayName:'工藤謙'}}}));
@@ -31,7 +62,7 @@ test('左メニューの面談から予約可能枠コピー画面を直接開�
 test('設計HTMLの操作例と表示を確認する',async({page})=>{
  await page.setContent(fs.readFileSync('docs/availability-copy-flow.html','utf8'));
  for(const width of [390,1280]){
-  await page.setViewportSize({width,height:844});await page.getByRole('button',{name:'日程の表示例を見る'}).click();await expect(page.getByLabel('コピーする日程')).toHaveValue('① 10月12日（月）14:00〜14:45\n② 10月12日（月）15:00〜15:45');
+  await page.setViewportSize({width,height:844});await page.getByRole('button',{name:'本校・南教室',exact:true}).click();await expect(page.getByLabel('コピーする日程')).toHaveValue('① 10月12日（月）14:00〜14:45\n② 10月12日（月）15:00〜15:45');
   await page.locator('summary').click();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:`test-results/availability-copy-design-${width}.png`,fullPage:true});await page.locator('summary').click();
  }
  await page.getByLabel('開始日').fill('2026-10-26');await expect(page.getByLabel('コピーする日程')).toBeHidden();await expect(page.getByRole('button',{name:'来週の月曜〜土曜'})).toHaveCount(0);
@@ -54,17 +85,17 @@ test('来週の期間・先生切替・コピー・失敗・0件をスマート�
  const panel=page.getByRole('region',{name:'予約可能枠をコピー'});
  await expect(panel.getByLabel('開始日')).toHaveValue('2026-10-12');await expect(panel.getByLabel('終了日')).toHaveValue('2026-10-17');await expect(panel.getByLabel('担当の先生')).toHaveValue(id);
  await expect(panel.getByLabel('担当の先生').locator('option')).toHaveText(['先生を選んでください','金城先生','工藤先生','鈴木先生','髙山先生','金子先生']);
- await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();
+ await panel.getByRole('button',{name:'本校・南教室',exact:true}).click();
  await expect(panel.getByLabel('コピーする日程')).toHaveValue(expected);
  await panel.getByRole('button',{name:'日程一覧をコピー'}).click();
  expect((await page.evaluate(()=>navigator.clipboard.readText())).replaceAll('\r\n','\n')).toBe(expected);await expect(panel.getByRole('status')).toContainText('2件');
  await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'test-results/availability-copy-mobile.png',fullPage:true});
  await panel.getByLabel('担当の先生').selectOption('other');await expect(panel.getByRole('button',{name:'日程一覧をコピー'})).toHaveCount(0);
  await panel.getByLabel('開始日').fill('2026-10-26');await panel.getByLabel('終了日').fill('2026-11-07');
- await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();await expect(panel.getByLabel('コピーする日程')).toBeVisible();
+ await panel.getByRole('button',{name:'本校・南教室',exact:true}).click();await expect(panel.getByLabel('コピーする日程')).toBeVisible();
  expect(queries.at(-1)?.get('from')).toBe('2026-10-26');expect(queries.at(-1)?.get('teacherId')).toBe('other');
- mode='fail';await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();await expect(panel.getByRole('status')).toContainText('失敗');await expect(panel.getByLabel('コピーする日程')).toHaveCount(0);
- mode='empty';await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();await expect(panel).toContainText('この期間の予約可能枠はありません。');await expect(panel.getByRole('button',{name:'日程一覧をコピー'})).toHaveCount(0);
+ mode='fail';await panel.getByRole('button',{name:'本校・南教室',exact:true}).click();await expect(panel.getByRole('status')).toContainText('失敗');await expect(panel.getByLabel('コピーする日程')).toHaveCount(0);
+ mode='empty';await panel.getByRole('button',{name:'本校・南教室',exact:true}).click();await expect(panel).toContainText('この期間の予約可能枠はありません。');await expect(panel.getByRole('button',{name:'日程一覧をコピー'})).toHaveCount(0);
  await expect(panel.getByRole('button',{name:'来週の月曜〜土曜'})).toHaveCount(0);
  expect(posts).toBe(0);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
@@ -73,5 +104,5 @@ test('コピーが拒否された場合は一覧を選択する',async({page})=>
  await page.route('**/api/staff/session',route=>route.fulfill({json:{staff:{displayName:'工藤謙'}}}));
  await page.route('**/api/staff/interview-manual-availability*',route=>route.fulfill({json:{rows:[]}}));
  await page.route('**/api/staff/interview-availability-copy*',route=>route.fulfill({json:new URL(route.request().url()).searchParams.get('mode')==='teachers'?{teachers:[{id,name:'工藤先生'}],defaultTeacherId:id}:{teacher:'工藤先生',from:'2026-10-12',to:'2026-10-17',rows:[{},{}],text:expected,checkedAt:'2026-10-09T02:00Z'}}));
- await page.goto('/staff/interview-availability/manual');const panel=page.getByRole('region',{name:'予約可能枠をコピー'});await panel.getByRole('button',{name:'Notionから予約可を取得'}).click();await panel.getByRole('button',{name:'日程一覧をコピー'}).click();await expect(panel.getByRole('status')).toContainText('選択された一覧');expect(await panel.getByLabel('コピーする日程').evaluate((e:HTMLTextAreaElement)=>e.selectionEnd-e.selectionStart)).toBe(expected.length);
+ await page.goto('/staff/interview-availability/manual');const panel=page.getByRole('region',{name:'予約可能枠をコピー'});await panel.getByRole('button',{name:'本校・南教室',exact:true}).click();await panel.getByRole('button',{name:'日程一覧をコピー'}).click();await expect(panel.getByRole('status')).toContainText('選択された一覧');expect(await panel.getByLabel('コピーする日程').evaluate((e:HTMLTextAreaElement)=>e.selectionEnd-e.selectionStart)).toBe(expected.length);
 });

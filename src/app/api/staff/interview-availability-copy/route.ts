@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       const {teachers, defaultTeacherId} = await copyTeacherOptions(read, context.staff);
       return staffResponse({teachers, defaultTeacherId}, context);
     }
-    return staffResponse(await readAvailabilityCopy({request: read, actor: context.staff, from: params.get('from') ?? '', to: params.get('to') ?? '', teacherId: params.get('teacherId') ?? ''}), context);
+    return staffResponse(await readAvailabilityCopy({request: read, actor: context.staff, from: params.get('from') ?? '', to: params.get('to') ?? '', teacherId: params.get('teacherId') ?? '', campus: params.get('campus') ?? 'all'}), context);
   } catch (error) {
     if (error instanceof InterviewError) return staffResponse({error: error.message}, context, error.status);
     if (context) return staffResponse({error: 'Notionの予約可を取得できませんでした。時間をおいて再取得してください。'}, context, 503);

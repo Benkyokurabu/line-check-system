@@ -6,7 +6,7 @@ const teacherId='00000000-0000-4000-8000-000000000001';
 const source='00000000-0000-4000-8000-000000000002';
 const schema={properties:{'名前':{id:'title',type:'title'},'日時':{id:'date',type:'date'},'担当者':{id:'teacher',type:'relation',relation:{data_source_id:source}},'校舎':{id:'campus',type:'multi_select'},'教室':{id:'room',type:'select'},'内容':{id:'tag',type:'multi_select'}}};
 function card(id,start,end,tags=['本：予約可'],teachers=[teacherId]) {return {id,properties:{'名前':{id:'title',title:[{plain_text:'予約可'}]},'日時':{id:'date',date:{start,end}},'担当者':{id:'teacher',relation:teachers.map(id=>({id}))},'校舎':{id:'campus',multi_select:[{name:'本校'}]},'教室':{id:'room',select:null},'内容':{id:'tag',multi_select:tags.map(name=>({name}))}}};}
-function fixture(pages,{broken=false,staff=[{id:teacherId,name:'工藤先生'}]}={}) {
+function fixture(pages,{broken=false,staff=[{id:teacherId,name:'工藤先生'}],tags=['本：予約可','南：予約可']}={}) {
  const calls=[];
  const request=async(path,init={})=>{
   calls.push({path,...init});
@@ -18,7 +18,7 @@ function fixture(pages,{broken=false,staff=[{id:teacherId,name:'工藤先生'}]}
   assert.deepEqual(body.filter.and.slice(1),[
    {property:'date',date:{on_or_after:'2026-10-12T00:00:00+09:00'}},
    {property:'date',date:{on_or_before:'2026-10-17T23:59:59+09:00'}},
-   {or:[{property:'tag',multi_select:{contains:'本：予約可'}},{property:'tag',multi_select:{contains:'南：予約可'}}]},
+   {or:tags.map(tag=>({property:'tag',multi_select:{contains:tag}}))},
   ],'Only query reservation-available cards in the selected JST period, not all historical events');
   if(!body.start_cursor)return {results:pages.slice(0,1),has_more:pages.length>1,next_cursor:pages.length>1?'next':null};
   if(broken)throw Error('second page failed');
@@ -27,6 +27,26 @@ function fixture(pages,{broken=false,staff=[{id:teacherId,name:'工藤先生'}]}
  return {request,calls};
 }
 const actor={displayName:'工藤謙',staffCode:'KUDO'};
+
+test('両校舎・本校のみ・南教室のみの取得条件とコピー文を切り替える',async()=>{
+ const pages=[card('main','2026-10-12T14:00:00+09:00','2026-10-12T15:00:00+09:00'),card('south','2026-10-12T22:05:00+09:00',null,['南：予約可'])];
+ pages[1].properties['校舎'].multi_select=[{name:'南教室'}];
+ for(const [campus,label,tags,ids,text] of [
+  ['all','本校・南教室',['本：予約可','南：予約可'],['main','south'],'① 10月12日（月）14:00〜15:00\n② 10月12日（月）22:05'],
+  ['main','本校のみ',['本：予約可'],['main'],'① 10月12日（月）14:00〜15:00'],
+  ['south','南教室のみ',['南：予約可'],['south'],'① 10月12日（月）22:05'],
+ ]){
+  const {request}=fixture(pages,{tags});
+  const result=await readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId,actor,campus});
+  assert.equal(result.campus,campus);assert.equal(result.campusLabel,label);assert.deepEqual(result.rows.map(row=>row.pageId),ids);assert.equal(result.text,text);
+ }
+});
+
+test('不正な校舎指定では全校舎へ広げず取得を停止する',async()=>{
+ const {request,calls}=fixture([]);
+ for(const campus of ['',null,'unknown','constructor','__proto__'])await assert.rejects(readAvailabilityCopy({request,from:'2026-10-12',to:'2026-10-17',teacherId,actor,campus}),/校舎/);
+ assert.equal(calls.length,0);
+});
 test('JSTで次週の月曜〜土曜を求める。月末・日曜・月曜・年末',()=>{
  assert.deepEqual(nextWeekCopyRange(new Date('2026-10-09T02:00Z')),{from:'2026-10-12',to:'2026-10-17'});
  assert.deepEqual(nextWeekCopyRange(new Date('2026-10-25T14:00Z')),{from:'2026-10-26',to:'2026-10-31'});

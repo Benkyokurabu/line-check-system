@@ -1,3 +1,9 @@
+export const copyCampusOptions = [
+  {value: 'all', label: '本校・南教室'},
+  {value: 'main', label: '本校のみ'},
+  {value: 'south', label: '南教室のみ'},
+];
+
 export function validateCopyRange(from, to) {
   const valid = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
     && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
