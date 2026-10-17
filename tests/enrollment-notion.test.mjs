@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
 import {ENROLLMENT_SOURCES as sources,blankEnrollmentFields} from '../src/lib/enrollment-core.mjs';
-import {runEnrollmentEntry,propertyBaseline} from '../src/lib/enrollment-notion.mjs';
+import {runEnrollmentEntry,propertyBaseline,prepareEnrollment} from '../src/lib/enrollment-notion.mjs';
 function fixture(){
  const schema=(properties)=>({properties:Object.fromEntries(Object.entries(properties).map(([name,type])=>[name,{id:name,type,...(type==='select'?{select:{options:['３者対面','中２','在塾','入塾手続き完了'].map(n=>({id:n,name:n}))}}:type==='multi_select'?{multi_select:{options:['入会手続き','本校'].map(n=>({id:n,name:n}))}}:{})}]))});
  const schemas={student:schema({'本当の入塾日':'date','入塾手続日':'date'}),intake:schema({'入塾手続き日':'date'}),interview:schema({'面談内容':'title','生徒情報DB':'relation','面談日':'date','方法':'select','面談時の学年':'select','記入者':'relation','面談目的':'multi_select'}),mtg:schema({'内容':'title','生徒名':'relation','報告者':'relation','日付':'date','面談日':'date','方法':'select','面談時の学年':'select','面談目的':'multi_select','見出し':'rich_text','校舎':'multi_select'})};
@@ -21,7 +21,7 @@ function fixture(){
  };
  let last;
  const checkpoint=async(targets,status)=>{last={targets:structuredClone(targets),status};return true;};
- return {entry,student,intake,pages,blocks,calls,schemas,request,checkpoint,failCreate:kind=>{failCreate=kind;},saved:()=>last};
+ return {entry,student,intake,pages,blocks,calls,schemas,make,request,checkpoint,failCreate:kind=>{failCreate=kind;},saved:()=>last};
 }
 test('一度の保存から4先へ反映し、既定文・別々の日付・本文を再取得して照合',async()=>{
  const f=fixture();const result=await runEnrollmentEntry(f);assert.equal(result.status,'complete');
@@ -43,4 +43,7 @@ test('職員対応や受付が曖昧なときに勝手な新規作成をしな�
 test('生徒情報と面談がそろった場合だけNotion生徒情報のチェックを付ける',async()=>{
  const f=fixture();f.schemas.intake.properties['notion生徒情報']={id:'notion',type:'checkbox'};await runEnrollmentEntry(f);assert.equal(f.pages.get(f.intake.id).properties['notion生徒情報'].checkbox,true);
  const pending=fixture();pending.schemas.intake.properties['notion生徒情報']={id:'notion',type:'checkbox'};pending.entry.payload.fields.admissionDate={value:'',state:'unknown'};await runEnrollmentEntry(pending);assert.equal(pending.pages.get(pending.intake.id).properties['notion生徒情報'],undefined);
+});
+test('複数ある受付の選択を外した場合は以前の受付へ書き込まず保留する',async()=>{
+ const f=fixture();f.make('intake');const payload={...f.entry.payload,intakePageId:''};const p=await prepareEnrollment({request:f.request,payload,prior:{targets:{intake:{pageId:f.intake.id}}},staff:{staffCode:'KUDO',displayName:'工藤'}});assert.equal(p.targets.intake.pageId,null);
 });

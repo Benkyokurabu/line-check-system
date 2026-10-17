@@ -35,7 +35,7 @@ export async function prepareEnrollment({request,payload,prior,staff}){
   const old=prior?.targets?.[target]??{};
   let page=target==='student'?student:target==='intake'?intake:null;
   if(old.pageId&&['interview','mtg'].includes(target))page=await enrollmentPage(request,old.pageId,target);
-  targets[target]={...old,status:'pending',error:'',baseline:page?propertyBaseline(page):{},pageId:page?.id??old.pageId??null};
+  targets[target]={...old,status:'pending',error:'',baseline:page?propertyBaseline(page):{},pageId:page?.id??(['interview','mtg'].includes(target)?old.pageId??null:null)};
  }
  return {student,schemas,staffOptions,payload:{...payload,studentName:propertyText(student.properties['生徒氏名']),studentNumber:propertyText(student.properties['学籍番号']),actorPageId,actorIssue,actorName:staff.displayName},targets,snapshot:pageSnapshot(student)};
 }
