@@ -1,6 +1,7 @@
 import HomeDashboard from "./home-dashboard";
 
 const menuItems = [
+  { href: "/staff/enrollment", group: "daily" as const, icon: "file", title: "入塾手続きの一括入力", description: "一つの入力から各所へ反映し、判断できない項目は人の確認待ちに残します。" },
   { href: "/attendance", group: "daily" as const, icon: "message", title: "欠席連絡の確認", description: "LINEから抽出した欠席候補を確認し、Notionへ登録します。" },
   { href: "/classroom-office", group: "daily" as const, icon: "message", title: "教室への連絡", description: "教室ごとの欠席・遅刻情報を確認し、事務部から教室へメッセージを出します。" },
   { href: "/staff/surveys", group: "interview" as const, icon: "file", title: "アンケートを確認する", description: "アンケートを選び、担当生徒の回答・対応状況を確認します。" },

@@ -34,7 +34,8 @@
     "test:browser": "playwright test",
     "test:codex": "node --test tests/codex-panel.test.mjs",
     "test:interviews": "node --test tests/parent-interview-summary.test.mjs tests/interview-invitations.test.mjs tests/interview-core.test.mjs tests/interview-db.test.mjs tests/interview-notion.test.mjs tests/interview-trial.test.mjs tests/bensuke-reader.test.mjs tests/bensuke-booking.test.mjs tests/bensuke-db.test.mjs tests/bensuke-availability-auto.test.mjs tests/survey-student-match.test.mjs tests/survey-confirmations.test.mjs tests/survey-scheduling.test.mjs tests/interview-requests.test.mjs tests/parent-line-login.test.mjs",
-    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule && npm run test:journals && npm run test:feedback && npm run test:codex && npm run test:interviews",
+    "test:enrollment": "node --test --test-concurrency=1 tests/enrollment-core.test.mjs tests/enrollment-notion.test.mjs tests/enrollment-db.test.mjs tests/enrollment-ai.test.mjs",
+    "test": "npm run test:attendance && npm run test:roster && npm run test:reservation && npm run test:staff && npm run test:schedule && npm run test:journals && npm run test:feedback && npm run test:codex && npm run test:interviews && npm run test:enrollment",
     "verify": "node scripts/verify-before-report.mjs",
     "sync:notion-students": "node scripts/sync-notion-students.mjs"
   },
