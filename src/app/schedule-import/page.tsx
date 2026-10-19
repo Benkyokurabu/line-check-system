@@ -32,6 +32,7 @@ export default function ScheduleImportPage() {
   const [statusError, setStatusError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
   const [statusReload, setStatusReload] = useState(0);
+  const [calendarStatus, setCalendarStatus] = useState<Record<string, string>>({});
   const active = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -41,6 +42,14 @@ export default function ScheduleImportPage() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error);
         setSyncStatus(data); setStatusError("");
+        const results = await Promise.all(data.months.map(async (m: string) => {
+          try {
+            const res = await fetch(`/api/schedule/calendar?month=${m}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]), cache: "no-store" });
+            const calendar = await res.json();
+            return [m, res.ok ? `生徒・先生用カレンダー：${calendar.count}件を配信中（共通の授業データ）` : "生徒・先生用カレンダー：配信を確認できません。取り込み状況を確認してください。"];
+          } catch { return [m, "生徒・先生用カレンダー：配信状況の取得に失敗しました。再確認します。"]; }
+        }));
+        if (!controller.signal.aborted) setCalendarStatus(Object.fromEntries(results));
       } catch { if (!controller.signal.aborted) setStatusError("自動反映の状況を取得できません。接続を確認して再試行してください。"); }
     }
     void refreshStatus(); const timer = setInterval(() => void refreshStatus(), 30000);
@@ -88,11 +97,12 @@ export default function ScheduleImportPage() {
     <p className="eyebrow">授業管理</p><h1>授業スケジュール取込</h1>
     <p>「【完成版】授業日誌システム」に「2026年9月スケジュール.xlsm」の形式でExcelを保存すると、今月・翌月の授業を自動で取り込みます。</p>
     <p>各月を約10分ごとに確認します。お急ぎの場合は「今すぐ取り込む」を押してください。時間・教室の変更後も欠席・遅刻の記録を引き継ぎます。</p>
+    <p>取り込み済みの授業は、生徒・先生用カレンダーと授業準備画面でも共通で使用します。日誌の定期更新を待つ必要はありません。カレンダーを開いたままの場合は約1分で再確認します。</p>
     {statusError && <p role="alert">{statusError}</p>}
     {syncStatus && <section aria-label="自動反映の状況">
       <h2>自動反映の状況</h2>
       {(!syncStatus.enabled || syncStatus.stale) && <p role="alert">{!syncStatus.enabled ? "自動反映が停止しています。管理担当者による確認が必要です。" : "20分以上、処理の開始を確認できていません。「今すぐ取り込む」で再試行し、続く場合は管理担当者へお知らせください。"}</p>}
-      {syncStatus.months.map((m) => { const last = syncStatus.runs.find((r) => r.month === m); return <p key={m}><strong>{m}：{last ? syncLabels[last.status] : "初回確認待ち"}</strong>{last && <><br />{new Date(last.finished_at || last.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）{last.message && <><br />{last.message}</>}</>}</p>; })}
+      {syncStatus.months.map((m) => { const last = syncStatus.runs.find((r) => r.month === m); return <p key={m}><strong>{m}：{last ? syncLabels[last.status] : "初回確認待ち"}</strong>{last && <><br />{new Date(last.finished_at || last.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）{last.message && <><br />{last.message}</>}</>}<br />{calendarStatus[m] || "生徒・先生用カレンダー：配信状況を確認中…"}</p>; })}
       <details><summary>最近の処理履歴</summary><ul>{syncStatus.runs.map((r) => <li key={r.id}>{r.month} ／ {new Date(r.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} ／ {syncLabels[r.status]} {r.message}</li>)}</ul></details>
     </section>}
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end", margin: "24px 0" }}>
