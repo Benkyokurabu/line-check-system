@@ -466,7 +466,7 @@ test("sibling LINE verification is atomic and requires a message evidence", asyn
     readFile(new URL("../supabase/line_contact_verification_20260829.sql", import.meta.url), "utf8"),
   ]);
   assert.match(page, /targets: selected\.map/);
-  assert.match(page, /evidence_message_id: evidenceId/);
+  assert.match(page, /evidence_message_id: manualReview \? null : evidenceId/);
   assert.match(verifyRoute, /if \(!evidenceMessageId\)/);
   assert.match(verifyRoute, /\.rpc\("verify_line_contact"/);
   assert.match(migration, /create or replace function public\.verify_line_contact/);

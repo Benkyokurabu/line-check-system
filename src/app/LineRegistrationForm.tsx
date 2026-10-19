@@ -11,7 +11,7 @@ export type LineRegistrationResult = { relation: string; alias: string; studentN
 type Props = {
   userId: string; displayName?: string | null; source: string;
   students?: Student[]; initialStudentNumber?: string; initialStudentNumbers?: string[]; initialRelation?: string; initialRelations?: Record<string, string>; initialEvidenceId?: string; initialAlias?: string; onSavingChange?: (saving: boolean) => void;
-  evidence?: Evidence | null; confirmedBy: string;
+  evidence?: Evidence | null; confirmedBy: string; allowExistingContactReview?: boolean;
   onSaved: (result: LineRegistrationResult) => Promise<void>; onClose: () => void;
 };
 const field = { display: "grid", gap: 6 } as const;
@@ -23,6 +23,10 @@ export function LineRegistrationForm(props: Props) {
   const [students, setStudents] = useState<Student[]>(props.students ?? []);
   const [messages, setMessages] = useState<Evidence[]>(props.evidence ? [props.evidence] : []);
   const [evidenceId, setEvidenceId] = useState(props.evidence?.id ?? "");
+  const [manualMode, setManualMode] = useState(false);
+  const [reviewMethod, setReviewMethod] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
+  const [identityConfirmed, setIdentityConfirmed] = useState(false);
   const [relation, setRelation] = useState(props.initialRelation ?? "");
   const [selectedIds, setSelectedIds] = useState<string[]>(props.initialStudentNumbers ?? (props.initialStudentNumber ? [props.initialStudentNumber] : []));
   const [relationChanged, setRelationChanged] = useState(false);
@@ -58,6 +62,7 @@ export function LineRegistrationForm(props: Props) {
         if (detail) {
           const available = (detail.messages ?? []).filter((m: Evidence) => m.direction === "inbound" && m.message_type === "text" && m.text?.trim());
           setMessages(available);
+          if (!available.length && config.allowExistingContactReview) setManualMode(true);
           if (config.initialEvidenceId && available.some((m: Evidence) => m.id === config.initialEvidenceId)) setEvidenceId(config.initialEvidenceId);
         }
       } catch (error) { if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : "読み込みに失敗しました。"); }
@@ -73,7 +78,17 @@ export function LineRegistrationForm(props: Props) {
   const normalized = query.normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
   const matches = students.filter(s => normalized && !selectedIds.includes(s.student_number) && studentRegistrationSearchText(s).includes(normalized)).slice(0, 12);
   const staff = relation === "staff";
-  const canSave = staff ? !!staffName.trim() : !!relation && selected.length > 0 && selected.length <= 10 && selected.length === selectedIds.length && (selected.length > 1 ? !!commonAlias.trim() && commonAlias.trim().length <= 200 : selected.every(s => aliasFor(s).trim())) && !!operator.trim() && !!evidenceId;
+  const manualReview = props.allowExistingContactReview && manualMode;
+  const missing = staff ? (staffName.trim() ? [] : ["先生・スタッフの登録名を入力してください。"]) : [
+    !relation && "LINEの利用者・続柄を選んでください。",
+    (!selected.length || selected.length !== selectedIds.length) && "登録する生徒を確認してください。",
+    selected.length > 10 && "登録する生徒は10名以内にしてください。",
+    (selected.length > 1 ? !commonAlias.trim() || commonAlias.trim().length > 200 : selected.some(s => !aliasFor(s).trim())) && "登録後に表示する名前を入力してください。",
+    !operator.trim() && "確認者名を取得できません。職員ログインを確認してください。",
+    manualReview ? !reviewMethod && "本人確認の方法を選んでください。" : !evidenceId && "上の「確認に使うLINE本文」から受信メッセージを選んでください。",
+    manualReview && !identityConfirmed && "相手と生徒・続柄を確認したら、本人確認のチェックを入れてください。",
+  ].filter((value): value is string => Boolean(value));
+  const canSave = missing.length === 0;
   async function save() {
     if (serial.current || !canSave || loading || loadError) return;
     const names = staff ? staffName.trim() : selected.length > 1 ? commonAlias.trim() : selected.map(s => aliasFor(s).trim()).join(" / ");
@@ -84,7 +99,8 @@ export function LineRegistrationForm(props: Props) {
         method: staff ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(staff ? { alias_name: names, group_name: "スタッフ", performed_by: operator.trim() || null } : {
           targets: selected.map(s => ({ student_number: s.student_number, relation: relationFor(s), alias_name: savedAliasFor(s).trim(), is_primary: relationFor(s) === "student" })),
-          friend_display_name: props.displayName || null, verified_by: operator.trim(), evidence_message_id: evidenceId, source: props.source,
+          friend_display_name: props.displayName || null, verified_by: operator.trim(), evidence_message_id: manualReview ? null : evidenceId, source: props.source,
+          ...(manualReview ? { existing_contact_review: { confirmed: identityConfirmed, method: reviewMethod, note: reviewNote.trim() } } : {}),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -102,10 +118,15 @@ export function LineRegistrationForm(props: Props) {
     {loading && <p role="status">登録情報を読み込んでいます…</p>}
     {loadError && <div role="alert">{loadError} <button type="button" style={button} onClick={() => setAttempt(a => a + 1)}>読み込みを再試行</button></div>}
     <fieldset disabled={saving || loading || !!loadError} style={{ border: 0, margin: 0, padding: 0, minWidth: 0, display: "grid", gap: 14 }}>
-      <div style={field}><strong>確認に使うLINE本文</strong><small>氏名と続柄が分かる受信メッセージを選んでください。</small>
+      {props.allowExistingContactReview && <label style={field}>本人確認の方法<select style={input} value={manualMode ? "existing" : "message"} onChange={e => {setManualMode(e.target.value === "existing");setIdentityConfirmed(false);}}><option value="message">受信LINEの本文で確認</option><option value="existing">既存の連絡先・面談・電話などで確認</option></select></label>}
+      {manualReview ? <div style={{ ...field, padding: 12, background: "#eff8f3", borderRadius: 7 }}>
+        <strong>既存の連絡先の本人確認</strong><p style={{margin:0}}>登録済みの宛先候補：{props.initialAlias || props.displayName || "表示名なし"}。相手と生徒・続柄を確認した内容を記録します。</p>
+        <label style={field}>確認方法<select style={input} value={reviewMethod} onChange={e=>{setReviewMethod(e.target.value);setIdentityConfirmed(false);}}><option value="">選択してください</option><option value="existing_contact">これまで使用している連絡先・やり取りで確認</option><option value="interview">面談で確認</option><option value="phone">電話で確認</option></select></label>
+        <label style={field}>確認内容の補足（任意）<textarea style={input} rows={2} maxLength={1000} value={reviewNote} onChange={e=>setReviewNote(e.target.value)} /></label>
+      </div> : <div style={field}><strong>確認に使うLINE本文</strong><small>氏名と続柄が分かる受信メッセージを選んでください。</small>
         <div style={{ maxHeight: 220, overflow: "auto", display: "grid", gap: 8 }}>{messages.map(m => <button type="button" key={m.id} aria-pressed={evidenceId === m.id} style={{ ...button, textAlign: "left", whiteSpace: "pre-wrap", overflowWrap: "anywhere", border: evidenceId === m.id ? "2px solid #0891b2" : button.border, background: evidenceId === m.id ? "#ecfeff" : "white" }} onClick={() => setEvidenceId(m.id)}>{m.text}</button>)}</div>
-        {!messages.length && <small>確認できる受信メッセージがありません。生徒・保護者の登録にはLINE本文が必要です。</small>}
-      </div>
+        {!messages.length && <small>確認できる受信メッセージがありません。生徒・保護者の登録にはLINE本文の選択が必要です。</small>}
+      </div>}
       <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><legend style={{ fontWeight: 700, marginBottom: 8 }}>1. LINEの利用者を選ぶ</legend>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>{[["student", "生徒本人"], ["guardian", "保護者"], ["shared", "本人・保護者で共有"], ["staff", "先生・スタッフ"]].map(([value, label]) => <button type="button" key={value} aria-pressed={value === "guardian" ? ["guardian", "mother", "father", "family"].includes(relation) : value === relation} style={(value === "guardian" ? ["guardian", "mother", "father", "family"].includes(relation) : value === relation) ? primary : button} onClick={() => { setRelation(value); setRelationChanged(true); setFamilyAlias(""); setAliases({}); setMessage(""); }}>{label}</button>)}</div>
         {["guardian", "mother", "father", "family"].includes(relation) && <label style={{ ...field, marginTop: 10 }}>保護者の続柄<select style={input} value={relation} onChange={e => { setRelation(e.target.value); setRelationChanged(true); setFamilyAlias(""); setAliases({}); }}><option value="guardian">保護者</option><option value="mother">母</option><option value="father">父</option><option value="family">家族</option></select></label>}
@@ -121,6 +142,9 @@ export function LineRegistrationForm(props: Props) {
       </div>}
       <div style={field}><strong>3. 表示名を確認して登録</strong><small>登録すると、この一覧と連絡先管理の名前が更新されます。</small>
         {!staff && <>{selected.length > 1 ? <label style={field}>登録後に一覧へ表示する共通の名前<input style={input} maxLength={200} disabled={!relation} value={commonAlias} onChange={e => setFamilyAlias(e.target.value)} /></label> : selected.map(s => <label key={s.student_number} style={field}>登録後に一覧へ表示する名前{selected.length > 1 ? `（${s.student_name}）` : ""}<input style={input} maxLength={200} disabled={!relation} value={aliasFor(s)} onChange={e => setAliases(a => ({ ...a, [s.student_number]: e.target.value }))} /></label>)}<label style={field}>LINE登録の確認者名<input style={input} value={operator} readOnly /></label></>}
+        {!staff && manualReview && <label style={{display:"flex",gap:8,alignItems:"flex-start"}}><input type="checkbox" checked={identityConfirmed} onChange={e=>setIdentityConfirmed(e.target.checked)} />このLINEの相手が、上で選択した生徒の本人・保護者であり、続柄も正しいことを確認しました</label>}
+        {missing.length > 0 && <div role="status" style={{padding:10,background:"#fff7ed",borderRadius:7}}><strong>登録するには、次の項目を確認してください</strong><ul style={{margin:"6px 0",paddingLeft:20}}>{missing.map(reason=><li key={reason}>{reason}</li>)}</ul></div>}
+        {!missing.length && <p role="status" style={{margin:0}}>登録できます。下のボタンで本人・続柄の確認結果を保存します。</p>}
         <button type="button" style={primary} disabled={!canSave} onClick={() => void save()}>{saving ? "登録中..." : staff ? "先生・スタッフとして保存して一覧を更新" : "この内容で登録して一覧の名前を更新"}</button>
       </div>
     </fieldset>

@@ -36,18 +36,18 @@ for(const width of [1280,390])test(`保存済み原文を二重入力せず記�
  await expect(page.getByText('アンケートの「対応済」を確定して反映すると、「面談準備」も「完了」にします。',{exact:false})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 
-for(const width of [1280,390])test(`宛先をその場で確認登録し、入力と送信の判断を保持する ${width}px`,async({page})=>{
+for(const width of [1280,390])for(const hasMessages of [true,false])test(`宛先をその場で確認登録し、入力と送信の判断を保持する 履歴${hasMessages} ${width}px`,async({page})=>{
  const data=model(),lineId='U'+'a'.repeat(32);let registered=false,verifications=0,sends=0;
  const pending={id:lineId,label:'続柄未確認・登録済みの母',verification:'registered',category:'unknown',relation:'unknown',aliasName:'登録済みの母',displayName:'見本の母'};
  data.accounts=[pending];
  await page.setViewportSize({width,height:1000});await page.route('**/api/staff/session',r=>r.fulfill({json:{staff}}));
  await page.route('**/api/staff/post-interview*',r=>{if(r.request().method()==='POST')sends++;return r.fulfill({json:{...data,accounts:registered?[{...pending,label:'母・登録済みの母',verification:'confirmed',category:'guardian',relation:'mother'}]:[pending]}});});
  await page.route('**/api/admin/contacts/students',r=>r.fulfill({json:{students:[{student_number:'2026999',student_name:'見本の生徒',grade:'中３',campus:'本校',enrollment_status:'current_roster'}]}}));
- await page.route(`**/api/admin/contacts/${lineId}/messages?*`,r=>r.fulfill({json:{messages:[{id:'55555555-5555-4555-8555-555555555555',text:'見本の生徒の母です。',direction:'inbound',message_type:'text'}]}}));
- await page.route(`**/api/admin/contacts/${lineId}/verify`,r=>{verifications++;const body=r.request().postDataJSON();expect(body.targets[0].student_number).toBe('2026999');expect(body.targets[0].relation).toBe('mother');expect(body.verified_by).toBe('工藤');registered=true;return r.fulfill({json:{ok:true}});});
+ await page.route(`**/api/admin/contacts/${lineId}/messages?*`,r=>r.fulfill({json:{messages:hasMessages?[{id:'55555555-5555-4555-8555-555555555555',text:'見本の生徒の母です。',direction:'inbound',message_type:'text'}]:[]}}));
+ await page.route(`**/api/admin/contacts/${lineId}/verify`,r=>{verifications++;const body=r.request().postDataJSON();expect(body.targets[0].student_number).toBe('2026999');expect(body.targets[0].relation).toBe('mother');expect(body.verified_by).toBe('工藤');if(!hasMessages){expect(body.evidence_message_id).toBeNull();expect(body.existing_contact_review).toEqual({confirmed:true,method:'existing_contact',note:''});}registered=true;return r.fulfill({json:{ok:true}});});
  page.on('dialog',d=>d.accept());await page.goto('/staff/survey-workflow/post-interview?answer='+answer);await page.getByLabel('反映する面談記録',{exact:true}).selectOption('new');await page.getByLabel('面談の原文・補足',{exact:true}).fill('編集中の原文を保持する');
  await expect(page.getByRole('checkbox',{name:/続柄未確認・登録済みの母/})).toBeDisabled();await page.getByRole('button',{name:'本人・続柄を確認する',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'LINEの本人・続柄を確認'});await dialog.getByRole('button',{name:'見本の生徒の母です。',exact:true}).click();await dialog.getByRole('button',{name:'保護者',exact:true}).click();await dialog.getByRole('combobox',{name:/保護者の続柄/}).selectOption('mother');await dialog.getByRole('button',{name:'この内容で登録して一覧の名前を更新',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'LINEの本人・続柄を確認'});if(hasMessages)await dialog.getByRole('button',{name:'見本の生徒の母です。',exact:true}).click();else{await expect(dialog.getByRole('combobox',{name:'本人確認の方法',exact:true})).toHaveValue('existing');await dialog.getByRole('combobox',{name:'確認方法',exact:true}).selectOption('existing_contact');}await dialog.getByRole('button',{name:'保護者',exact:true}).click();await dialog.getByRole('combobox',{name:/保護者の続柄/}).selectOption('mother');const save=dialog.getByRole('button',{name:'この内容で登録して一覧の名前を更新',exact:true});if(!hasMessages){await expect(save).toBeDisabled();await expect(dialog.getByRole('status').filter({hasText:'本人確認のチェック'})).toBeVisible();await dialog.getByRole('checkbox',{name:/このLINEの相手が/}).check();}await expect(save).toBeEnabled();await save.click();
  await expect(dialog).toHaveCount(0);await expect(page.getByRole('checkbox',{name:'母・登録済みの母',exact:true})).toBeEnabled();await expect(page.getByRole('textbox',{name:'面談の原文・補足',exact:true})).toHaveValue('編集中の原文を保持する');expect(verifications).toBe(1);expect(sends).toBe(0);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 

@@ -25,6 +25,20 @@ export async function POST(
 
     if (!lineUserId) return NextResponse.json({ error: "LINE user ID is required" }, { status: 400 });
     if (!verifiedBy) return NextResponse.json({ error: "確認者名を入力してください" }, { status: 400 });
+    const review = body.existing_contact_review;
+    if (review !== undefined) {
+      const methods: Record<string, string> = {existing_contact:"これまで使用している連絡先・やり取りで確認",interview:"面談で確認",phone:"電話で確認"};
+      const method = methods[clean(review?.method, 40)];
+      if (source !== "post_interview_review" || evidenceMessageId || review?.confirmed !== true || !method || targets.some(target => target.relation === "unknown")) {
+        return NextResponse.json({error:"本人確認の方法と生徒・続柄の確認チェックを確認してください"},{status:400});
+      }
+      const {data,error} = await createSupabaseAdminClient().rpc("verify_existing_line_contact", {
+        p_line_user_id:lineUserId,p_targets:targets,p_friend_display_name:friendDisplayName,p_verified_by:verifiedBy,
+        p_review_note:[method,clean(review.note,1000)].filter(Boolean).join("："),
+      });
+      if(error) return NextResponse.json({error:error.message},{status:409});
+      return NextResponse.json(data ?? {ok:true});
+    }
     if (!evidenceMessageId) {
       return NextResponse.json({ error: "確認に使ったLINEメッセージを選択してください" }, { status: 400 });
     }
