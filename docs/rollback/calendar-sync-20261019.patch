@@ -1,0 +1,246 @@
+diff --git a/docs/calendar-publication-20261019.html b/docs/calendar-publication-20261019.html
+deleted file mode 100644
+index ce8028a..0000000
+--- a/docs/calendar-publication-20261019.html
++++ /dev/null
+@@ -1,8 +0,0 @@
+-<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>スケジュール反映の流れ</title>
+-<style>body{font:16px/1.8 system-ui,sans-serif;color:#203040;background:#f4f7fa;margin:0}main{max-width:960px;margin:auto;padding:30px 20px}h1{font-size:28px}section{background:white;border:1px solid #d7e0e8;border-radius:14px;padding:22px;margin:18px 0}ol{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:0;list-style:none}li{background:#e9f3ff;border-radius:10px;padding:16px}small{display:block;color:#536578}button{font:inherit;padding:10px 16px;border:0;border-radius:8px;background:#1762ad;color:white;margin:5px;cursor:pointer}#status{padding:14px;border-radius:8px;background:#e9f7ed}a{color:#125c9f}@media(max-width:650px){ol{grid-template-columns:1fr}main{padding:18px 12px}h1{font-size:23px}}</style>
+-<main><h1>保存からカレンダー表示まで、同じ授業データを使う</h1><p>2026年10月19日 ／ 生徒・先生用カレンダーの公開漏れ対策</p>
+-<section><h2>なぜ今回表示されなかったか</h2><p>勉たんへの取り込みは約10分ごと。別サイトのカレンダーは1日3回の日誌更新によるJSON公開を待っていた。先生用JSONはその公開対象に含まれていなかった。登録成功だけを見て、利用画面での表示を確認していなかった。</p></section>
+-<section><h2>変更後の流れ</h2><ol><li><b>1. OneDriveに保存</b><small>既存フォルダの月別.xlsm原本</small></li><li><b>2. 約10分ごとに取り込み</b><small>原本照合 → 授業DBへ一括反映<br>休講・曖昧な変更等は引き続き保留</small></li><li><b>3. 全画面が共通データを表示</b><small>教室、生徒用、先生用、授業準備<br>開いたままの画面は約1分で再確認</small></li></ol><p>カレンダーは読み取り専用APIで取り込み済みの授業だけを取得。日誌本文・録画・出欠の処理は既存の仕組みを維持する。生徒ID・連絡内容・接続情報は配信しない。</p></section>
+-<section><h2>正常・通信失敗時の表示</h2><button onclick="show(false)">正常時</button><button onclick="show(true)">通信失敗時</button><p id="status">取り込み済み386件を共通配信。生徒用と先生用の件数を照合。</p><p>APIの件数・対象月・教室・元授業の対応を検査。不一致はエラーとし、古いデータを最新と表示しない。通信失敗時は同じ月の保存済みJSONに限って表示し、注意文と自動再確認を出す。夜間処理は今後、先生用JSONも同じ生徒用データから生成する。</p></section>
+-<section><h2>完了条件</h2><p>原本と登録件数の一致、公開APIでの両校舎・生徒用と先生用の一致、3画面で11月の授業と選択操作を確認。取り込み画面にもカレンダー配信件数を表示する。</p><p><a href="https://line-check-system.vercel.app/schedule-import">授業スケジュール取込</a> ／ <a href="https://benkyokurabu.github.io/student-calendar/calendar.html">生徒用</a> ／ <a href="https://benkyokurabu.github.io/student-calendar/teacher_calendar.html">先生用</a></p></section></main>
+-<script>function show(failed){const el=document.getElementById('status');el.style.background=failed?'#fff1cd':'#e9f7ed';el.textContent=failed?'最新の授業データに接続できないため、保存済みのスケジュールを表示しています。約1分ごとに再確認します。':'取り込み済み386件を共通配信。生徒用と先生用の件数を照合。'}</script></html>
+diff --git a/docs/schedule-import.md b/docs/schedule-import.md
+index fca92bb..83139d1 100644
+--- a/docs/schedule-import.md
++++ b/docs/schedule-import.md
+@@ -11,10 +11,6 @@
+ 
+ JSONの作成・ファイル選択・PCでのコマンド実行は通常操作に不要。保存した原本を運用の正本とするため、編集中の下書きはこのフォルダ外に置く。保存・OneDrive同期から2分間は反映を待つ。
+ 
+-2026-10-19から、生徒用 `calendar.html`・先生用 `teacher_calendar.html`・授業準備 `lesson_prep.html` は `GET /api/schedule/calendar?month=YYYY-MM` から同じ取り込み済み授業を直接取得する。別の日誌更新・GitHubへのJSON公開を待たない。開いたままの画面は約1分ごとに再確認する。取り込み画面にも月別のカレンダー配信件数を表示する。通信失敗時は対象月の保存済みJSONのみへ切り替え、最新情報を確認できない旨を表示する。別月のlatest JSONをその月の授業として代用しない。
+-
+-配信APIは成功した取り込み履歴と件数・対象月・教室・授業キーの一致、読み取り前後の同一性を検査し、授業の公開項目だけを返す。生徒・出欠・連絡内容・接続情報は返さない。夜間の従来JSON公開も、生徒用と同じデータから先生用JSONを生成して保存する。構成と完了条件は [反映の流れ](calendar-publication-20261019.html)。
+-
+ 「確認が必要・反映保留」は完了ではない。休講、日付・校舎変更、複数授業の対応が曖昧な変更、過去授業の変更、多数の変更、片方の校舎を読み取れない場合は月全体を保留する。原本の間違いなら原本を修正して保存する。意図した休講・移動なら管理担当者へ差分の確認を依頼する。自動削除や別授業への出欠記録の付け替えは行わない。
+ 
+ ## ブラウザからの実装
+diff --git a/package.json b/package.json
+index efd523c..af59ba1 100644
+--- a/package.json
++++ b/package.json
+@@ -4,7 +4,7 @@
+   "private": true,
+   "scripts": {
+     "schedule:preview": "node scripts/preview-schedule-from-cloud.mjs",
+-    "test:schedule": "node --test tests/schedule-preview.test.mjs tests/schedule-excel.test.mjs tests/schedule-cloud.test.mjs tests/schedule-sync.test.mjs tests/schedule-calendar.test.mjs",
++    "test:schedule": "node --test tests/schedule-preview.test.mjs tests/schedule-excel.test.mjs tests/schedule-cloud.test.mjs tests/schedule-sync.test.mjs",
+     "test:journals": "node --test tests/journal-browser.test.mjs tests/journal-cloud.test.mjs",
+     "dev": "next dev",
+     "build": "next build",
+diff --git a/src/app/api/schedule/calendar/route.ts b/src/app/api/schedule/calendar/route.ts
+deleted file mode 100644
+index 50e70f5..0000000
+--- a/src/app/api/schedule/calendar/route.ts
++++ /dev/null
+@@ -1,17 +0,0 @@
+-import { NextRequest, NextResponse } from "next/server";
+-import { createSupabaseAdminClient } from "@/lib/supabase";
+-import { CalendarScheduleError, readCalendarSchedule } from "@/lib/schedule-calendar.mjs";
+-
+-export const dynamic = "force-dynamic";
+-export const maxDuration = 30;
+-const headers = { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "https://benkyokurabu.github.io", Vary: "Origin" };
+-
+-export async function GET(request: NextRequest) {
+-  try {
+-    const data = await readCalendarSchedule(createSupabaseAdminClient(), request.nextUrl.searchParams.get("month"));
+-    return NextResponse.json(data, { headers });
+-  } catch (error) {
+-    return NextResponse.json({ error: error instanceof CalendarScheduleError ? error.message : "カレンダーの授業データを取得できませんでした。" },
+-      { status: error instanceof CalendarScheduleError ? error.status : 503, headers });
+-  }
+-}
+diff --git a/src/app/schedule-import/page.tsx b/src/app/schedule-import/page.tsx
+index f38db60..c6b5f6b 100644
+--- a/src/app/schedule-import/page.tsx
++++ b/src/app/schedule-import/page.tsx
+@@ -32,7 +32,6 @@ export default function ScheduleImportPage() {
+   const [statusError, setStatusError] = useState("");
+   const [syncMessage, setSyncMessage] = useState("");
+   const [statusReload, setStatusReload] = useState(0);
+-  const [calendarStatus, setCalendarStatus] = useState<Record<string, string>>({});
+   const active = useRef<AbortController | null>(null);
+   useEffect(() => {
+     const controller = new AbortController();
+@@ -42,14 +41,6 @@ export default function ScheduleImportPage() {
+         const data = await response.json();
+         if (!response.ok) throw new Error(data.error);
+         setSyncStatus(data); setStatusError("");
+-        const results = await Promise.all(data.months.map(async (m: string) => {
+-          try {
+-            const res = await fetch(`/api/schedule/calendar?month=${m}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]), cache: "no-store" });
+-            const calendar = await res.json();
+-            return [m, res.ok ? `生徒・先生用カレンダー：${calendar.count}件を配信中（共通の授業データ）` : "生徒・先生用カレンダー：配信を確認できません。取り込み状況を確認してください。"];
+-          } catch { return [m, "生徒・先生用カレンダー：配信状況の取得に失敗しました。再確認します。"]; }
+-        }));
+-        if (!controller.signal.aborted) setCalendarStatus(Object.fromEntries(results));
+       } catch { if (!controller.signal.aborted) setStatusError("自動反映の状況を取得できません。接続を確認して再試行してください。"); }
+     }
+     void refreshStatus(); const timer = setInterval(() => void refreshStatus(), 30000);
+@@ -97,12 +88,11 @@ export default function ScheduleImportPage() {
+     <p className="eyebrow">授業管理</p><h1>授業スケジュール取込</h1>
+     <p>「【完成版】授業日誌システム」に「2026年9月スケジュール.xlsm」の形式でExcelを保存すると、今月・翌月の授業を自動で取り込みます。</p>
+     <p>各月を約10分ごとに確認します。お急ぎの場合は「今すぐ取り込む」を押してください。時間・教室の変更後も欠席・遅刻の記録を引き継ぎます。</p>
+-    <p>取り込み済みの授業は、生徒・先生用カレンダーと授業準備画面でも共通で使用します。日誌の定期更新を待つ必要はありません。カレンダーを開いたままの場合は約1分で再確認します。</p>
+     {statusError && <p role="alert">{statusError}</p>}
+     {syncStatus && <section aria-label="自動反映の状況">
+       <h2>自動反映の状況</h2>
+       {(!syncStatus.enabled || syncStatus.stale) && <p role="alert">{!syncStatus.enabled ? "自動反映が停止しています。管理担当者による確認が必要です。" : "20分以上、処理の開始を確認できていません。「今すぐ取り込む」で再試行し、続く場合は管理担当者へお知らせください。"}</p>}
+-      {syncStatus.months.map((m) => { const last = syncStatus.runs.find((r) => r.month === m); return <p key={m}><strong>{m}：{last ? syncLabels[last.status] : "初回確認待ち"}</strong>{last && <><br />{new Date(last.finished_at || last.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）{last.message && <><br />{last.message}</>}</>}<br />{calendarStatus[m] || "生徒・先生用カレンダー：配信状況を確認中…"}</p>; })}
++      {syncStatus.months.map((m) => { const last = syncStatus.runs.find((r) => r.month === m); return <p key={m}><strong>{m}：{last ? syncLabels[last.status] : "初回確認待ち"}</strong>{last && <><br />{new Date(last.finished_at || last.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）{last.message && <><br />{last.message}</>}</>}</p>; })}
+       <details><summary>最近の処理履歴</summary><ul>{syncStatus.runs.map((r) => <li key={r.id}>{r.month} ／ {new Date(r.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} ／ {syncLabels[r.status]} {r.message}</li>)}</ul></details>
+     </section>}
+     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end", margin: "24px 0" }}>
+diff --git a/src/lib/schedule-calendar.mjs b/src/lib/schedule-calendar.mjs
+deleted file mode 100644
+index 154d852..0000000
+--- a/src/lib/schedule-calendar.mjs
++++ /dev/null
+@@ -1,68 +0,0 @@
+-import { scheduleRows, validateScheduleMonth } from "./schedule-preview.mjs";
+-
+-export class CalendarScheduleError extends Error {
+-  constructor(message, status = 503) { super(message); this.status = status; }
+-}
+-
+-// Public calendar fields only. Never return database IDs or arbitrary payload fields.
+-const strings = ["date", "time", "grade", "class", "subject", "campus", "room", "groupKey", "label", "displayTitle", "teacher"];
+-const booleans = ["faceToFace", "special", "isSpecialLesson"];
+-function publicEvent(payload) {
+-  if (!payload || typeof payload !== "object") throw new CalendarScheduleError("授業の公開用データを確認できません。");
+-  return Object.fromEntries([
+-    ...strings.filter((key) => typeof payload[key] === "string").map((key) => [key, payload[key]]),
+-    ...booleans.filter((key) => typeof payload[key] === "boolean").map((key) => [key, payload[key]]),
+-  ]);
+-}
+-
+-export function calendarSchedulePayload(rows, month, run) {
+-  validateScheduleMonth(month);
+-  if (!run || !["applied", "unchanged"].includes(run.status) || run.month !== month) throw new CalendarScheduleError("この月はまだ取り込みが完了していません。", 404);
+-  if (!rows.length || rows.length !== run.summary?.incoming) throw new CalendarScheduleError("取り込み済み件数と授業データが一致しません。再確認しています。");
+-  const schedule = rows.map((row) => publicEvent(row.source_payload));
+-  let canonical;
+-  try { canonical = scheduleRows(schedule, month); } catch { throw new CalendarScheduleError("公開する授業の日付・教室・重複を確認できません。"); }
+-  for (let i = 0; i < rows.length; i++) {
+-    for (const field of ["source_key", "lesson_date", "start_time", "campus", "classroom", "teacher_name", "label"]) {
+-      if ((rows[i][field] ?? "") !== (canonical[i][field] ?? "")) throw new CalendarScheduleError("授業と原本の対応を再確認しています。");
+-    }
+-  }
+-  if (["hon", "minami"].some((campus) => !schedule.some((event) => event.campus === campus))) throw new CalendarScheduleError("両校舎の授業が揃っていません。");
+-  schedule.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.label.localeCompare(b.label));
+-  const teachers = [...new Set(schedule.map((event) => event.teacher).filter(Boolean))].sort();
+-  const [year, number] = month.split("-").map(Number);
+-  return {
+-    month, count: schedule.length, updatedAt: run.finished_at,
+-    source: { file: run.source?.file, sha256: run.source?.sha256, modifiedAt: run.source?.modifiedAt },
+-    schedule,
+-    teacherSchedule: { year, month: number, teachers, items: schedule.map((event) => ({ ...event,
+-      campusLabel: event.campus === "hon" ? "本校" : "南教室", teacherLabel: event.teacher || "未判定", title: event.displayTitle || event.label })) },
+-  };
+-}
+-
+-export async function readCalendarSchedule(db, month) {
+-  try { validateScheduleMonth(month); } catch { throw new CalendarScheduleError("対象月を YYYY-MM で指定してください。", 400); }
+-  const successful = () => db.from("schedule_sync_runs").select("id,month,status,summary,source,finished_at")
+-    .eq("month", month).in("status", ["applied", "unchanged"]).order("started_at", { ascending: false }).limit(1);
+-  const before = await successful();
+-  if (before.error) throw new CalendarScheduleError("取り込み状況を取得できません。");
+-  const run = before.data?.[0];
+-  if (!run) throw new CalendarScheduleError("この月はまだ取り込みが完了していません。", 404);
+-  const next = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 1)).toISOString().slice(0, 10);
+-  const load = async () => {
+-    const rows = [];
+-    for (let offset = 0; offset < 10000; offset += 500) {
+-      const result = await db.from("lessons").select("id,updated_at,lesson_date,start_time,campus,classroom,teacher_name,label,source_key,source_payload")
+-        .gte("lesson_date", `${month}-01`).lt("lesson_date", next).order("id").range(offset, offset + 499);
+-      if (result.error) throw new CalendarScheduleError("授業データを取得できません。");
+-      rows.push(...result.data);
+-      if (result.data.length < 500) return rows;
+-    }
+-    throw new CalendarScheduleError("授業件数が上限を超えています。");
+-  };
+-  const rows = await load();
+-  const [after, checked] = await Promise.all([successful(), load()]);
+-  // A sync applies an entire month atomically. Don't serve a mixed snapshot.
+-  if (after.error || after.data?.[0]?.id !== run.id || JSON.stringify(rows) !== JSON.stringify(checked)) throw new CalendarScheduleError("授業を更新中です。少し待って再確認してください。", 409);
+-  return calendarSchedulePayload(rows, month, run);
+-}
+diff --git a/tests/schedule-calendar.test.mjs b/tests/schedule-calendar.test.mjs
+deleted file mode 100644
+index e2c022e..0000000
+--- a/tests/schedule-calendar.test.mjs
++++ /dev/null
+@@ -1,60 +0,0 @@
+-import test from "node:test";
+-import assert from "node:assert/strict";
+-import { calendarSchedulePayload, readCalendarSchedule } from "../src/lib/schedule-calendar.mjs";
+-import { scheduleRows } from "../src/lib/schedule-preview.mjs";
+-
+-const month = "2026-11";
+-const events = ["hon", "minami"].map((campus) => ({ date: "2026-11-02", time: "5:00～6:00", campus, room: "1", groupKey: `${campus}_j1_S_math`, label: "中1S 数学", teacher: "工藤", grade: "j1", class: "S", subject: "math", faceToFace: false }));
+-const run = { id: "run", month, status: "applied", summary: { incoming: 2 }, finished_at: "2026-10-19T09:00:00Z", source: { file: "2026年11月スケジュール.xlsm", sha256: "abc", privateToken: "secret" } };
+-const rows = () => scheduleRows(events, month).map((row, i) => ({ ...row, source_file: "2026年11月スケジュール.xlsm", id: `private-${i}`, source_payload: { ...row.source_payload, student: "PRIVATE", secret: "PRIVATE" } }));
+-
+-test("student and teacher calendars use the same accepted events, with public fields only", () => {
+-  const result = calendarSchedulePayload(rows(), month, run);
+-  assert.equal(result.count, 2);
+-  assert.equal(result.teacherSchedule.items.length, 2);
+-  assert.deepEqual(result.teacherSchedule.teachers, ["工藤"]);
+-  assert.equal(result.teacherSchedule.items[1].campusLabel, "南教室");
+-  assert.equal(result.teacherSchedule.month, 11);
+-  assert(!JSON.stringify(result).includes("PRIVATE"));
+-  assert(!JSON.stringify(result).includes("secret"));
+-  assert(!JSON.stringify(result).includes("private-"));
+-});
+-test("incomplete/changed/duplicate data is never reported as published", () => {
+-  assert.throws(() => calendarSchedulePayload(rows(), month, null), /完了/);
+-  assert.throws(() => calendarSchedulePayload(rows(), month, { ...run, status: "review" }), /完了/);
+-  assert.throws(() => calendarSchedulePayload(rows().slice(0, 1), month, run), /件数/);
+-  const changed = rows(); changed[0].classroom = "2";
+-  assert.throws(() => calendarSchedulePayload(changed, month, run), /対応/);
+-  const duplicate = rows(); duplicate[1] = duplicate[0];
+-  assert.throws(() => calendarSchedulePayload(duplicate, month, run), /重複/);
+-});
+-test("target month and both campuses are required", () => {
+-  assert.throws(() => calendarSchedulePayload(rows(), "2026-10", run), /完了/);
+-  assert.throws(() => calendarSchedulePayload(rows().slice(0, 1), month, { ...run, summary: { incoming: 1 } }), /校舎/);
+-});
+-
+-function database({ missing = false, fail = false, race = false, pagination = false } = {}) {
+-  let reads = 0;
+-  return { from(table) {
+-    const q = { select() { return q; }, eq(key) { assert.notEqual(key, "source_file", "cloud sync stores the workbook filename; select the same month snapshot as the import comparison"); return q; }, in() { return q; }, gte() { return q; }, lt() { return q; }, order() { return q; },
+-      limit() { return Promise.resolve({ data: missing ? [] : [run], error: fail }); },
+-      range(offset) {
+-        if (pagination && offset === 0) return Promise.resolve({ data: Array.from({ length: 500 }, () => rows()[0]), error: null });
+-        reads++;
+-        const data = rows(); if (race && reads > 1) data[0].updated_at = "new";
+-        return Promise.resolve({ data, error: fail });
+-      } };
+-    assert(["lessons", "schedule_sync_runs"].includes(table));
+-    return q;
+-  } };
+-}
+-test("read-only store reads a stable accepted month", async () => {
+-  const result = await readCalendarSchedule(database(), month);
+-  assert.equal(result.count, 2);
+-});
+-test("no completed sync, database failures, invalid input, concurrent updates fail closed", async () => {
+-  await assert.rejects(readCalendarSchedule(database({ missing: true }), month), (e) => e.status === 404);
+-  await assert.rejects(readCalendarSchedule(database({ fail: true }), month), (e) => e.status === 503);
+-  await assert.rejects(readCalendarSchedule(database(), "2026-13"), (e) => e.status === 400);
+-  await assert.rejects(readCalendarSchedule(database({ race: true }), month), (e) => e.status === 409);
+-});
