@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     ".line-manager-chrome-profile/**",
     ".worktrees/**",
     "**/.next/**",
+    "analysis_outputs/**",
+    "**/*.before_*.*",
   ]),
 ]);
 

@@ -10,6 +10,7 @@ test('生徒を選ぶと担任・校舎を補完し、確認後だけ保存す�
  await expect(page.getByRole('heading',{name:'予約可',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'この時刻で入力'}).first().click();
  const dialog=page.getByRole('dialog',{name:'面談予定の入力'});
+  await dialog.getByLabel('日付',{exact:true}).fill(new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo'}).format(new Date(Date.now()+86400000)));
  await dialog.getByRole('combobox',{name:/^生徒/}).selectOption('00000000-0000-4000-8000-000000000001');
  await expect(dialog.getByRole('combobox',{name:/^担当講師/})).toHaveValue('架空講師');
  await dialog.getByRole('button',{name:'内容を確認'}).click();expect(operations).toHaveLength(0);

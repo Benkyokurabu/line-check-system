@@ -50,7 +50,7 @@ export async function runPostNotion({entry,request,checkpoint}){
  for(const kind of ['record','survey']){const state=entry.targets[kind];if(['synced','skipped'].includes(state.status))continue;
   try{
    if(kind==='survey'){
-    const value=confirmed(entry.payload,'handling');if(!value){state.status='review';state.error='アンケートの対応は人の確認待ちです。';await save();continue;}
+    const value=confirmed(entry.payload,'handling');if(!value){state.status='review';state.error='アンケートの対応を確認後、確定にしてください。';await save();continue;}
     const page=await request('/pages/'+entry.payload.answerId);if(page.archived||page.in_trash||!sameNotionId(page.parent?.data_source_id,entry.payload.answerSourceId))throw new InterviewError('回答の原本が変わっています。',409);
     const relation=page.properties['生徒情報DB']?.relation??[];if(relation.length!==1||!sameNotionId(relation[0].id,entry.payload.studentPageId))throw new InterviewError('回答の生徒対応を再確認してください。',409);
     const surveySchema=value==='対応済'?await request('/data_sources/'+entry.payload.answerSourceId):entry.payload.surveySchema;
