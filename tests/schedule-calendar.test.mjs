@@ -6,7 +6,7 @@ import { scheduleRows } from "../src/lib/schedule-preview.mjs";
 const month = "2026-11";
 const events = ["hon", "minami"].map((campus) => ({ date: "2026-11-02", time: "5:00～6:00", campus, room: "1", groupKey: `${campus}_j1_S_math`, label: "中1S 数学", teacher: "工藤", grade: "j1", class: "S", subject: "math", faceToFace: false }));
 const run = { id: "run", month, status: "applied", summary: { incoming: 2 }, finished_at: "2026-10-19T09:00:00Z", source: { file: "2026年11月スケジュール.xlsm", sha256: "abc", privateToken: "secret" } };
-const rows = () => scheduleRows(events, month).map((row, i) => ({ ...row, id: `private-${i}`, source_payload: { ...row.source_payload, student: "PRIVATE", secret: "PRIVATE" } }));
+const rows = () => scheduleRows(events, month).map((row, i) => ({ ...row, source_file: "2026年11月スケジュール.xlsm", id: `private-${i}`, source_payload: { ...row.source_payload, student: "PRIVATE", secret: "PRIVATE" } }));
 
 test("student and teacher calendars use the same accepted events, with public fields only", () => {
   const result = calendarSchedulePayload(rows(), month, run);
@@ -36,7 +36,7 @@ test("target month and both campuses are required", () => {
 function database({ missing = false, fail = false, race = false, pagination = false } = {}) {
   let reads = 0;
   return { from(table) {
-    const q = { select() { return q; }, eq() { return q; }, in() { return q; }, gte() { return q; }, lt() { return q; }, order() { return q; },
+    const q = { select() { return q; }, eq(key) { assert.notEqual(key, "source_file", "cloud sync stores the workbook filename; select the same month snapshot as the import comparison"); return q; }, in() { return q; }, gte() { return q; }, lt() { return q; }, order() { return q; },
       limit() { return Promise.resolve({ data: missing ? [] : [run], error: fail }); },
       range(offset) {
         if (pagination && offset === 0) return Promise.resolve({ data: Array.from({ length: 500 }, () => rows()[0]), error: null });

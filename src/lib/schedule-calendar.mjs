@@ -53,7 +53,7 @@ export async function readCalendarSchedule(db, month) {
     const rows = [];
     for (let offset = 0; offset < 10000; offset += 500) {
       const result = await db.from("lessons").select("id,updated_at,lesson_date,start_time,campus,classroom,teacher_name,label,source_key,source_payload")
-        .eq("source_file", `schedule_${month}.json`).gte("lesson_date", `${month}-01`).lt("lesson_date", next).order("id").range(offset, offset + 499);
+        .gte("lesson_date", `${month}-01`).lt("lesson_date", next).order("id").range(offset, offset + 499);
       if (result.error) throw new CalendarScheduleError("授業データを取得できません。");
       rows.push(...result.data);
       if (result.data.length < 500) return rows;
