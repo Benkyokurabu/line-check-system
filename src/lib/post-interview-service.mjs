@@ -1,11 +1,27 @@
 import {InterviewError} from './interview-core.mjs';
 import {isEnrollmentId,sameNotionId} from './enrollment-core.mjs';
-import {digest,validatePostPayload,planPostDelivery,confirmed,postFields} from './post-interview-core.mjs';
+import {digest,validatePostPayload,planPostDelivery,confirmed,postFields,blankPostFields} from './post-interview-core.mjs';
 import {preparePostContext,postDesiredProperties,postSurveyProperties,runPostNotion} from './post-interview-notion.mjs';
 import {runPostDeliveries} from './post-interview-delivery.mjs';
 export function postDatabase(result){if(result.error)throw new InterviewError(/conflict|unique/.test(result.error.message)?'保存内容が別の操作で変わりました。入力を保持して最新の内容を確認してください。':'面談入力の保存先を確認できません。',/conflict|unique/.test(result.error.message)?409:503);return result.data;}
 export async function readPostEntry(db,id){if(!isEnrollmentId(id))throw new InterviewError('入力記録を選び直してください。',422);const entry=postDatabase(await db.from('post_interview_entries').select('*').eq('id',id).maybeSingle());if(!entry)throw new InterviewError('入力記録が見つかりません。',404);return entry;}
 export async function postEntries(db,answerId){return postDatabase(await db.from('post_interview_entries').select('id,answer_page_id,payload,status,version,updated_at').eq('answer_page_id',answerId).order('updated_at',{ascending:false}).limit(40)).map(e=>({id:e.id,title:e.payload.fields.title.value||'面談記録の下書き',date:e.payload.fields.date.value,status:e.status,version:e.version,updatedAt:e.updated_at}));}
+export async function savePostLine({db,body,context,verifyAnswer,recipients}){
+ if(!isEnrollmentId(body.id)||!isEnrollmentId(body.operationKey)||!isEnrollmentId(body.answerId)||!isEnrollmentId(body.studentPageId)||!Number.isInteger(body.version)||body.version<0)throw new InterviewError('送信する生徒を選び直してください。',422);
+ const requestHash=digest(body),event=postDatabase(await db.from('post_interview_entry_events').select('entry_id,actor_id,request_hash').eq('operation_key',body.operationKey).maybeSingle());
+ if(event){if(event.entry_id!==body.id||event.actor_id!==context.staff.staffId||event.request_hash!==requestHash)throw new InterviewError('操作番号が重複しています。',409);return readPostEntry(db,body.id);}
+ const prior=body.version?await readPostEntry(db,body.id):null;
+ if(prior&&(prior.version!==body.version||!sameNotionId(prior.answer_page_id,body.answerId)||!sameNotionId(prior.student_page_id,body.studentPageId)))throw new InterviewError('保存内容が更新されています。最新の送信結果を確認してください。',409);
+ const verified=await verifyAnswer(body.answerId);
+ if(!sameNotionId(verified.profile.id,body.studentPageId))throw new InterviewError('生徒情報が一致しません。',409);
+ const number=String(verified.student.student_number),accounts=await recipients(number);
+ const lines=planPostDelivery({previous:prior?.targets.lines??{},approval:body.deliveryApproval,accounts,entryId:body.id,direct:true});
+ const payload=prior?structuredClone(prior.payload):{answerId:body.answerId,studentPageId:body.studentPageId,recordPageId:'',sourceText:'',participants:'',fields:blankPostFields(),intent:'draft'};
+ payload.studentName=verified.student.student_name;payload.studentNumber=number;payload.actorName=context.staff.displayName;
+ const targets={...(prior?.targets??{record:{status:'skipped'},survey:{status:'skipped'}}),lines};
+ postDatabase(await db.rpc('post_interview_entry_save',{p_user:context.identity.authUserId,p_session:context.identity.authSessionId,p_operation:body.operationKey,p_id:body.id,p_version:body.version,p_payload:payload,p_targets:targets,p_hash:requestHash}));
+ return readPostEntry(db,body.id);
+}
 export async function savePostEntry({db,request,body,context,verifyAnswer,recipients}){
  if(!isEnrollmentId(body.id)||!isEnrollmentId(body.operationKey)||!Number.isInteger(body.version)||!['draft','reflect','send'].includes(body.intent))throw new InterviewError('保存内容を確認してください。',422);
  const requestHash=digest(body),event=postDatabase(await db.from('post_interview_entry_events').select('entry_id,actor_id,request_hash').eq('operation_key',body.operationKey).maybeSingle());
@@ -36,15 +52,19 @@ export async function savePostEntry({db,request,body,context,verifyAnswer,recipi
  payload.studentName=verified.student.student_name;payload.studentNumber=String(verified.student.student_number);payload.answerSourceId=verified.answer.parent.data_source_id;payload.surveySchema={properties:{対応:surveySchema.properties['対応'],面談準備:surveySchema.properties['面談準備']}};payload.actorName=context.staff.displayName;payload.originalBody=prepared.originalBody;payload.intent=body.intent;
  postDatabase(await db.rpc('post_interview_entry_save',{p_user:context.identity.authUserId,p_session:context.identity.authSessionId,p_operation:body.operationKey,p_id:body.id,p_version:body.version,p_payload:payload,p_targets:{record,survey,lines},p_hash:requestHash}));return readPostEntry(db,body.id);
 }
-export async function processPostEntry({db,request,id=null,recipients,fetcher=fetch,lineToken=''}){
+export async function processPostEntry({db,request,id=null,recipients,fetcher=fetch,lineToken='',lineOnly=false}){
  const entry=postDatabase(await db.rpc('post_interview_entry_claim',{p_id:id}));if(!entry)return {processed:false};
  const checkpoint=async(targets,status)=>postDatabase(await db.rpc('post_interview_entry_checkpoint',{p_id:entry.id,p_lease:entry.lease,p_targets:targets,p_status:status}));
  try{
-  if(entry.payload.intent!=='draft')await runPostNotion({entry,request,checkpoint});
-  await runPostDeliveries({entry,checkpoint,validateRecipient:async(id,number)=>{const accounts=await recipients(number);return accounts.some(a=>a.id===id&&a.verification==='confirmed'&&a.category!=='unknown');},
+  const delivery={entry,checkpoint,validateRecipient:async(id,number,line)=>{const accounts=await recipients(number);return accounts.some(a=>a.id===id&&(line.independent||a.verification==='confirmed'&&a.category!=='unknown'));},
    findSent:async historyId=>postDatabase(await db.from('line_messages').select('id').eq('line_message_id',historyId).maybeSingle()),
    sendLine:line=>{if(!lineToken)throw new Error('LINE configuration unavailable');return fetcher('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer '+lineToken,'Content-Type':'application/json','X-Line-Retry-Key':line.key},signal:AbortSignal.timeout(10000),body:JSON.stringify({to:line.id,messages:[{type:'text',text:line.text}]})});},
-   storeSent:async({historyId,line,entry})=>{const result=await db.from('line_messages').insert({line_message_id:historyId,line_user_id:line.id,direction:'outbound',message_type:'text',text:line.text,sent_by:entry.payload.actorName,received_at:new Date().toISOString(),raw_event:{operation:'post_interview',entry_id:entry.id,version:entry.version,line_retry_key:line.key,line_request_id:line.requestId}});if(!result.error)return true;return !!postDatabase(await db.from('line_messages').select('id').eq('line_message_id',historyId).maybeSingle());}});
+    storeSent:async({historyId,line,entry})=>{const result=await db.from('line_messages').insert({line_message_id:historyId,line_user_id:line.id,direction:'outbound',message_type:'text',text:line.text,sent_by:entry.payload.actorName,received_at:new Date().toISOString(),raw_event:{operation:'post_interview',entry_id:entry.id,version:entry.version,line_retry_key:line.key,line_request_id:line.requestId}});if(!result.error)return true;return !!postDatabase(await db.from('line_messages').select('id').eq('line_message_id',historyId).maybeSingle());}};
+  await runPostDeliveries({...delivery,onlyIndependent:true});
+  if(!lineOnly){
+   if(entry.payload.intent!=='draft')await runPostNotion({entry,request,checkpoint});
+   await runPostDeliveries(delivery);
+  }
   const values=[entry.targets.record,entry.targets.survey,...Object.values(entry.targets.lines)];
   const pending=values.some(s=>['pending','retry','creating'].includes(s.status));const review=values.some(s=>!['synced','accepted','external','skipped'].includes(s.status))||Object.values(entry.payload.fields).some(f=>!['confirmed','not_applicable'].includes(f.state));
   const status=pending?'partial':review||entry.payload.intent==='draft'?'review':'complete';await checkpoint(entry.targets,status);return {processed:true,status};

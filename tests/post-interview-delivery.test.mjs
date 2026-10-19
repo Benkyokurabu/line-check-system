@@ -4,3 +4,9 @@ test('片方だけ失敗した場合、成功した宛先は再送しない',asy
 test('通信例外や送信中に中断したケースは結果不明として自動再送を止める',async()=>{const f=fixture();f.sendLine=async line=>{f.sent.push(line.id);throw Error('connection lost');};await runPostDeliveries(f);assert.equal(f.entry.targets.lines.a.status,'unknown');await runPostDeliveries(f);assert.equal(f.sent.length,2);f.entry.targets.lines.a.status='sending';await runPostDeliveries(f);assert.equal(f.sent.length,2);});
 test('結果保存の失敗・本人確認の変更・記録未反映を区別する',async()=>{const f=fixture();f.storeSent=async()=>false;f.validateRecipient=async id=>id==='a';await runPostDeliveries(f);assert.equal(f.entry.targets.lines.a.status,'unknown');assert.equal(f.entry.targets.lines.b.status,'review');assert.deepEqual(f.sent,['a']);const waiting=fixture();waiting.entry.targets.record.status='review';await runPostDeliveries(waiting);assert.equal(waiting.sent.length,0);});
 test('保存済み送信履歴とLINEの重複受付応答から送信済みに戻せる',async()=>{const f=fixture();f.findSent=async key=>key.includes('key-a')?{id:'saved'}:null;f.sendLine=async line=>{f.sent.push(line.id);return {ok:false,status:409,headers:new Headers({'x-line-accepted-request-id':'original'})};};await runPostDeliveries(f);assert.deepEqual(f.sent,['b']);assert.equal(f.entry.targets.lines.a.status,'accepted');assert.equal(f.entry.targets.lines.b.status,'accepted');});
+
+test('直接送信は記録の反映待ちでも実行し、従来の保留中送信には触れない',async()=>{
+ const f=fixture();f.entry.targets.record.status='review';f.entry.targets.lines.a.independent=true;
+ await runPostDeliveries({...f,onlyIndependent:true});assert.deepEqual(f.sent,['a']);assert.equal(f.entry.targets.lines.a.status,'accepted');assert.equal(f.entry.targets.lines.b.status,'pending');
+ await runPostDeliveries({...f,onlyIndependent:true});assert.deepEqual(f.sent,['a']);
+});

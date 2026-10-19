@@ -3,7 +3,7 @@ import {staffContext,staffResponse,staffErrorResponse,staffJsonBody,assertStaffM
 import {InterviewError} from '@/lib/interview-core.mjs';
 import {assertPostInterview} from '@/lib/post-interview-core.mjs';
 import {postRead,postAnswerOptions,verifiedPostAnswer,postRecipients} from '@/lib/post-interview-context';
-import {readPostEntry,postEntries,savePostEntry,processPostEntry} from '@/lib/post-interview-service.mjs';
+import {readPostEntry,postEntries,savePostEntry,savePostLine,processPostEntry} from '@/lib/post-interview-service.mjs';
 import {preparePostContext} from '@/lib/post-interview-notion.mjs';
 import {draftPostInterview} from '@/lib/post-interview-ai.mjs';
 export const dynamic='force-dynamic';export const runtime='nodejs';export const maxDuration=60;
@@ -22,9 +22,10 @@ export async function GET(request:NextRequest){let c:Context|undefined;try{
 export async function POST(request:NextRequest){let c:Context|undefined;try{
  assertStaffMutationOrigin(request);c=await staffContext(request);assertPostInterview(c.staff);const body=await staffJsonBody(request,350000);
  if(body.action==='draft-ai'){try{return staffResponse(await draftPostInterview(body.sourceText,{key:process.env.GROQ_API_KEY}),c);}catch(error){return staffResponse({error:error instanceof Error?error.message:'候補を作成できませんでした。'},c,503);}}
- if(body.action!=='save')throw new InterviewError('保存する操作を確認してください。',422);
+ if(body.action!=='save'&&body.action!=='send-line')throw new InterviewError('保存する操作を確認してください。',422);
  const owner=c;
- const entry=await savePostEntry({db:c.dataClient,request:postRead,body,context:c,verifyAnswer:(id:string)=>verifiedPostAnswer(owner.dataClient,id),recipients:(number:string)=>postRecipients(owner.dataClient,number)});
- await processPostEntry({db:c.dataClient,request:postRead,id:entry.id,recipients:(number:string)=>postRecipients(owner.dataClient,number),lineToken:process.env.LINE_CHANNEL_ACCESS_TOKEN??''});
+ const saveArgs={db:c.dataClient,body,context:c,verifyAnswer:(id:string)=>verifiedPostAnswer(owner.dataClient,id),recipients:(number:string)=>postRecipients(owner.dataClient,number)};
+ const entry=body.action==='send-line'?await savePostLine(saveArgs):await savePostEntry({...saveArgs,request:postRead});
+ await processPostEntry({db:c.dataClient,request:postRead,id:entry.id,recipients:(number:string)=>postRecipients(owner.dataClient,number),lineToken:process.env.LINE_CHANNEL_ACCESS_TOKEN??'',lineOnly:body.action==='send-line'});
  return staffResponse({entry:await readPostEntry(c.dataClient,entry.id)},c);
  }catch(error){return failure(error,c);}}

@@ -9,3 +9,12 @@ test('AIは確定値や送信先・対応済の命令を作れない',()=>{const
 const accounts=[{id:'U'+'a'.repeat(32),verification:'confirmed',category:'guardian',label:'母'},{id:'U'+'b'.repeat(32),verification:'confirmed',category:'student',label:'本人'},{id:'U'+'c'.repeat(32),verification:'registered',category:'guardian',label:'未確認'}];
 test('未確認宛先・重複・未確定共有文は送信計画に入れない',()=>{const base={accounts,summary:'共有内容',entryId:randomUUID()};assert.throws(()=>planPostDelivery({...base,approval:[{id:accounts[2].id,text:'文面'}]}),/確認済み/);assert.throws(()=>planPostDelivery({...base,approval:[{id:accounts[0].id,text:'文面'},{id:accounts[0].id,text:'文面'}]}),/確認済み/);assert.throws(()=>planPostDelivery({...base,summary:'',approval:[{id:accounts[0].id,text:'文面'}]}),/共有内容/);});
 test('送信済みは重ねず、変更文の追加送信と結果不明の照合には人の判断が必要',()=>{const base={accounts,summary:'共有内容',entryId:randomUUID()},approval=[{id:accounts[0].id,text:'文面'}];const lines=planPostDelivery({...base,approval});lines[accounts[0].id].status='accepted';const same=planPostDelivery({...base,previous:lines,approval});assert.equal(same[accounts[0].id].status,'accepted');assert.throws(()=>planPostDelivery({...base,previous:lines,approval:[{...approval[0],text:'変更文'}]}),/追加送信/);lines[accounts[0].id].status='unknown';assert.throws(()=>planPostDelivery({...base,previous:lines,approval}),/結果不明/);const reviewed=planPostDelivery({...base,previous:lines,approval:[{...approval[0],external:true,externalNote:'10月17日の母宛て履歴で確認'}]});assert.equal(reviewed[accounts[0].id].status,'external');});
+
+test('直接送信は登録済みの送り先と本文だけで計画し、他の生徒の送り先は拒否する',()=>{
+ const base={accounts,entryId:randomUUID(),direct:true};
+ const lines=planPostDelivery({...base,approval:[{id:accounts[2].id,text:'母への本文'}]});
+ assert.equal(lines[accounts[2].id].independent,true);assert.equal(lines[accounts[2].id].status,'pending');
+ for(const approval of [null,[],[{id:'another-student',text:'本文'}],[{id:accounts[0].id,text:'  '}],[{id:accounts[0].id,text:'a'.repeat(5001)}]])assert.throws(()=>planPostDelivery({...base,approval}));
+ lines[accounts[2].id].status='accepted';assert.equal(planPostDelivery({...base,previous:lines,approval:[{id:accounts[2].id,text:'母への本文'}]})[accounts[2].id].status,'accepted');
+ lines[accounts[2].id].status='unknown';assert.throws(()=>planPostDelivery({...base,previous:lines,approval:[{id:accounts[2].id,text:'母への本文'}]}),/結果不明/);
+});
