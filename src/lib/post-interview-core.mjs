@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {normalizeParentWorkLog} from './parent-contact-core.mjs';
 import {InterviewError} from './interview-core.mjs';
 import {isValidReservationDate} from './reservation-date.mjs';
 import {digest,isEnrollmentId,propertyText} from './enrollment-core.mjs';
@@ -30,7 +31,7 @@ export function validatePostPayload(input){
  if(fields.date.state==='confirmed'&&!isValidReservationDate(fields.date.value))throw new InterviewError('実施日を確認してください。',422);
  if(fields.author.state==='confirmed'&&!isEnrollmentId(fields.author.value))throw new InterviewError('記入者を選択してください。',422);
  if(typeof input.sourceText!=='string'||input.sourceText.length>40000)throw new InterviewError('原文は40000文字以内にしてください。',422);
- return {answerId:input.answerId,studentPageId:input.studentPageId,recordPageId:input.recordPageId??'',fields,sourceText:input.sourceText,participants:String(input.participants??'').slice(0,1000)};
+ return {answerId:input.answerId,studentPageId:input.studentPageId,recordPageId:input.recordPageId??'',fields,sourceText:input.sourceText,participants:String(input.participants??'').slice(0,1000),workLog:normalizeParentWorkLog(input.workLog)};
 }
 export function seedPostFields({record,survey,recordText='',grade='',method='',author=''}){
  const fields=blankPostFields();const set=(key,value,state,source)=>{if(value)fields[key]={value,state,source,reason:state==='review'?'予定・候補です。実際の内容を確認してください。':'',candidates:[]};};

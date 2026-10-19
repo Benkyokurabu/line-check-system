@@ -4,14 +4,14 @@ const menu = [
   { heading: "【事務】日常業務", titles: ["欠席連絡の確認", "教室への連絡"] },
   { heading: "面談・予約関連", titles: ["アンケートを確認する", "面談資料を作る", "面談後の一括入力", "予約可能枠を作る", "予約可能枠をコピー"] },
   { heading: "授業・管理", titles: ["授業日誌の確認", "録画の公開設定", "授業スケジュール取込", "連絡先管理", "クラス一覧表の取り込み", "Notion・クラス一覧 照合", "LINE登録名の取り込み", "改善してほしいことなど、何でも"] },
-  { heading: "本番運用前", titles: ["入塾手続きの一括入力", "ログインする人の管理", "未対応メッセージ", "担任・クラス別 生徒一覧", "生徒カルテ", "自習室管理", "自習室予約"] },
+  { heading: "本番運用前", titles: ["面談記録記入", "入塾手続きの一括入力", "ログインする人の管理", "未対応メッセージ", "担任・クラス別 生徒一覧", "生徒カルテ", "自習室管理", "自習室予約"] },
 ];
 const categoryIds = ["daily", "interview", "management", "prelaunch"];
 const destinations = [
   ["/attendance", "/classroom-office"],
   ["/staff/surveys", "/staff/interview-materials", "/staff/survey-workflow/post-interview", "/staff/interview-availability", "/staff/interview-availability/manual"],
   ["/staff/journals", "/staff/recordings", "/schedule-import", "/contacts", "/contacts#roster-import", "/admin/notion-roster", "/line-alias-import", "/feedback"],
-  ["/staff/enrollment", "/staff/login-people", "/dashboard", "/students", "/karte", "/staff/self-study-room/trial", "/self-study-room/trial"],
+  ["/staff/parent-contact", "/staff/enrollment", "/staff/login-people", "/dashboard", "/students", "/karte", "/staff/self-study-room/trial", "/self-study-room/trial"],
 ];
 
 for (const width of [1280, 390]) test(`home interview panel opens the post-interview workspace at ${width}px`, async ({ page }) => {

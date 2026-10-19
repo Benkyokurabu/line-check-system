@@ -3,6 +3,7 @@ import {isEnrollmentId,sameNotionId} from './enrollment-core.mjs';
 import {digest,validatePostPayload,planPostDelivery,confirmed,postFields} from './post-interview-core.mjs';
 import {preparePostContext,postDesiredProperties,postSurveyProperties,runPostNotion} from './post-interview-notion.mjs';
 import {runPostDeliveries} from './post-interview-delivery.mjs';
+import {syncParentContactLog} from './parent-contact-sync.mjs';
 export function postDatabase(result){if(result.error)throw new InterviewError(/conflict|unique/.test(result.error.message)?'保存内容が別の操作で変わりました。入力を保持して最新の内容を確認してください。':'面談入力の保存先を確認できません。',/conflict|unique/.test(result.error.message)?409:503);return result.data;}
 export async function readPostEntry(db,id){if(!isEnrollmentId(id))throw new InterviewError('入力記録を選び直してください。',422);const entry=postDatabase(await db.from('post_interview_entries').select('*').eq('id',id).maybeSingle());if(!entry)throw new InterviewError('入力記録が見つかりません。',404);return entry;}
 export async function postEntries(db,answerId){return postDatabase(await db.from('post_interview_entries').select('id,answer_page_id,payload,status,version,updated_at').eq('answer_page_id',answerId).order('updated_at',{ascending:false}).limit(40)).map(e=>({id:e.id,title:e.payload.fields.title.value||'面談記録の下書き',date:e.payload.fields.date.value,status:e.status,version:e.version,updatedAt:e.updated_at}));}
@@ -30,22 +31,25 @@ export async function savePostEntry({db,request,body,context,verifyAnswer,recipi
  const record={...oldRecord,...prepared.snapshots.record,status:reflect?(oldRecord.fingerprint===targetFingerprint&&oldRecord.status==='synced'?'synced':'pending'):'skipped',fingerprint:targetFingerprint,error:''};
  const oldSurvey=prior?.targets.survey??{};const handlingHash=digest({value:confirmed(payload,'handling'),state:payload.fields.handling.state,...(confirmed(payload,'handling')==='対応済'?{preparation:'complete-with-handled-v1'}:{})});
  const survey={...oldSurvey,...prepared.snapshots.survey,status:reflect?(oldSurvey.fingerprint===handlingHash&&oldSurvey.status==='synced'?'synced':'pending'):'skipped',fingerprint:handlingHash,error:''};
+ const workLogHash=digest({form:payload.workLog,date:{value:confirmed(payload,'date'),state:payload.fields.date.state}}),oldWorkLog=prior?.targets.workLog??{};
+ const workLog={...oldWorkLog,status:reflect&&payload.workLog.enabled?(oldWorkLog.fingerprint===workLogHash&&oldWorkLog.status==='synced'?'synced':'pending'):'skipped',fingerprint:workLogHash,error:''};
  if(body.intent==='send'&&(!prior||prior.targets.record.status!=='synced'||oldRecord.fingerprint!==targetFingerprint))throw new InterviewError('先に確定した内容を記録へ反映し、最新の結果を確認してください。',409);
  const accounts=body.intent==='send'?await recipients(String(verified.student.student_number)):[];
  const lines=planPostDelivery({previous:prior?.targets.lines??{},approval:body.intent==='send'?body.deliveryApproval:null,accounts,summary:confirmed(payload,'summary'),entryId:body.id});
  payload.studentName=verified.student.student_name;payload.studentNumber=String(verified.student.student_number);payload.answerSourceId=verified.answer.parent.data_source_id;payload.surveySchema={properties:{対応:surveySchema.properties['対応'],面談準備:surveySchema.properties['面談準備']}};payload.actorName=context.staff.displayName;payload.originalBody=prepared.originalBody;payload.intent=body.intent;
- postDatabase(await db.rpc('post_interview_entry_save',{p_user:context.identity.authUserId,p_session:context.identity.authSessionId,p_operation:body.operationKey,p_id:body.id,p_version:body.version,p_payload:payload,p_targets:{record,survey,lines},p_hash:requestHash}));return readPostEntry(db,body.id);
+ postDatabase(await db.rpc('post_interview_entry_save',{p_user:context.identity.authUserId,p_session:context.identity.authSessionId,p_operation:body.operationKey,p_id:body.id,p_version:body.version,p_payload:payload,p_targets:{record,survey,workLog,lines},p_hash:requestHash}));return readPostEntry(db,body.id);
 }
-export async function processPostEntry({db,request,id=null,recipients,fetcher=fetch,lineToken=''}){
+export async function processPostEntry({db,request,id=null,recipients,fetcher=fetch,lineToken='',cloudKey=''}){
  const entry=postDatabase(await db.rpc('post_interview_entry_claim',{p_id:id}));if(!entry)return {processed:false};
  const checkpoint=async(targets,status)=>postDatabase(await db.rpc('post_interview_entry_checkpoint',{p_id:entry.id,p_lease:entry.lease,p_targets:targets,p_status:status}));
  try{
-  if(entry.payload.intent!=='draft')await runPostNotion({entry,request,checkpoint});
+  if(entry.payload.intent!=='draft'&&entry.payload.workflow!=='parent-contact')await runPostNotion({entry,request,checkpoint});
+  if(entry.payload.intent!=='draft')await syncParentContactLog({db,entry,checkpoint,key:cloudKey,fetcher});
   await runPostDeliveries({entry,checkpoint,validateRecipient:async(id,number)=>{const accounts=await recipients(number);return accounts.some(a=>a.id===id&&a.verification==='confirmed'&&a.category!=='unknown');},
    findSent:async historyId=>postDatabase(await db.from('line_messages').select('id').eq('line_message_id',historyId).maybeSingle()),
    sendLine:line=>{if(!lineToken)throw new Error('LINE configuration unavailable');return fetcher('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer '+lineToken,'Content-Type':'application/json','X-Line-Retry-Key':line.key},signal:AbortSignal.timeout(10000),body:JSON.stringify({to:line.id,messages:[{type:'text',text:line.text}]})});},
    storeSent:async({historyId,line,entry})=>{const result=await db.from('line_messages').insert({line_message_id:historyId,line_user_id:line.id,direction:'outbound',message_type:'text',text:line.text,sent_by:entry.payload.actorName,received_at:new Date().toISOString(),raw_event:{operation:'post_interview',entry_id:entry.id,version:entry.version,line_retry_key:line.key,line_request_id:line.requestId}});if(!result.error)return true;return !!postDatabase(await db.from('line_messages').select('id').eq('line_message_id',historyId).maybeSingle());}});
-  const values=[entry.targets.record,entry.targets.survey,...Object.values(entry.targets.lines)];
+  const values=[entry.targets.record,entry.targets.survey,...(entry.targets.workLog?[entry.targets.workLog]:[]),...Object.values(entry.targets.lines)];
   const pending=values.some(s=>['pending','retry','creating'].includes(s.status));const review=values.some(s=>!['synced','accepted','external','skipped'].includes(s.status))||Object.values(entry.payload.fields).some(f=>!['confirmed','not_applicable'].includes(f.state));
   const status=pending?'partial':review||entry.payload.intent==='draft'?'review':'complete';await checkpoint(entry.targets,status);return {processed:true,status};
  }catch{await checkpoint(entry.targets,'partial');return {processed:false,status:'partial'};}

@@ -10,7 +10,7 @@ const navigation = [
   { id: "daily", label: "【事務】日常業務", links: [["/attendance", "欠席連絡の確認"], ["/classroom-office", "教室への連絡"]] },
   { id: "interview", label: "面談・予約関連", links: [["/staff/surveys", "アンケートを確認する"], ["/staff/interview-materials", "面談資料を作る"], ["/staff/survey-workflow/post-interview", "面談後の一括入力（工藤確認用）"], ["/staff/interview-availability", "予約可能枠を作る"], ["/staff/interview-availability/manual", "予約可能枠をコピー"]] },
   { id: "management", label: "授業・管理", links: [["/staff/journals", "授業日誌の確認"], ["/staff/recordings", "録画の公開設定"], ["/schedule-import", "授業スケジュール取込"], ["/contacts", "連絡先管理"], ["/contacts#roster-import", "クラス一覧表の取り込み"], ["/admin/notion-roster", "Notion・クラス一覧 照合"], ["/line-alias-import", "LINE登録名の取り込み"], ["/feedback", "改善してほしいことなど、何でも"]] },
-  { id: "prelaunch", label: "本番運用前", links: [["/staff/enrollment", "入塾手続きの一括入力"], ["/staff/login-people", "ログインする人の管理"], ["/dashboard", "未対応メッセージ"], ["/students", "担任・クラス別 生徒一覧"], ["/karte", "生徒カルテ"], ["/staff/self-study-room/trial", "自習室管理"], ["/self-study-room/trial", "自習室予約"]] },
+  { id: "prelaunch", label: "本番運用前", links: [["/staff/parent-contact", "面談記録記入"], ["/staff/enrollment", "入塾手続きの一括入力"], ["/staff/login-people", "ログインする人の管理"], ["/dashboard", "未対応メッセージ"], ["/students", "担任・クラス別 生徒一覧"], ["/karte", "生徒カルテ"], ["/staff/self-study-room/trial", "自習室管理"], ["/self-study-room/trial", "自習室予約"]] },
 ];
 
 export function AppFrame({ children }: { children: ReactNode }) {
