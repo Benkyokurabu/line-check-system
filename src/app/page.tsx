@@ -5,6 +5,7 @@ const menuItems = [
   { href: "/classroom-office", group: "daily" as const, icon: "message", title: "教室への連絡", description: "教室ごとの欠席・遅刻情報を確認し、事務部から教室へメッセージを出します。" },
   { href: "/staff/surveys", group: "interview" as const, icon: "file", title: "アンケートを確認する", description: "アンケートを選び、担当生徒の回答・対応状況を確認します。" },
   { href: "/staff/interview-materials", group: "interview" as const, icon: "calendar", title: "面談資料を作る", description: "面談日または生徒名から対象を選び、資料の確認・PDF作成・保存へ進みます。" },
+  { href: "/staff/survey-workflow/post-interview", group: "interview" as const, icon: "file", trial: true, title: "面談後の一括入力", description: "本番運用前・工藤先生の確認用です。面談内容の入力から、記録・アンケートの対応・LINE連絡へ進みます。" },
   { href: "/staff/interview-availability", group: "interview" as const, icon: "calendar", title: "予約可能枠を作る", description: "毎月のスケジュール表から、自分の勤務校舎と空き時間を確認してNotionへ予約可を作成します。" },
   { href: "/staff/interview-availability/manual", group: "interview" as const, icon: "calendar", title: "予約可能枠をコピー", description: "先生と期間を選び、Notionの予約可を番号付きの日程一覧にしてコピーします。" },
   { href: "/staff/journals", group: "management" as const, icon: "file", title: "授業日誌の確認", description: "科目と校舎を選び、OneDriveの授業日誌をブラウザでまとめて開きます。" },

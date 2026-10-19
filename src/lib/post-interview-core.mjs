@@ -11,7 +11,7 @@ export const postFields=[
  {key:'grade',label:'面談時の学年',type:'select',property:'面談時の学年'},
  {key:'purpose',label:'面談目的',type:'multi',property:'面談目的'},
  {key:'author',label:'記入者',type:'staff',property:'記入者'},
- {key:'record',label:'職員用の面談記録',type:'long'},
+ {key:'record',label:'Notion用の面談記録',type:'long'},
  {key:'summary',label:'本人・保護者へ共有する内容',type:'long'},
  {key:'handling',label:'アンケートの対応',type:'select',options:['対応済','未着手','不要']},
 ];

@@ -4,6 +4,8 @@ import {blankEnrollmentFields,validateEnrollmentPayload,desiredEnrollmentPropert
 const student='11111111-1111-4111-8111-111111111111';
 const payload=()=>({studentPageId:student,intakePageId:'',fields:blankEnrollmentFields(),record:'手続きの記録',sourceText:''});
 const date=name=>({id:name,type:'date'});
+
+test('Notionのstatusを比較し、面談準備の競合は上書きしない',()=>{const before={status:{id:'todo'}},after={status:{id:'done'}};assert.deepEqual(propertyComparable(before),{status:'todo'});assert.deepEqual(safePropertyPatch({properties:{面談準備:before}},{面談準備:after},{面談準備:{status:'todo'}}),{面談準備:after});assert.throws(()=>safePropertyPatch({properties:{面談準備:{status:{id:'other'}}}},{面談準備:after},{面談準備:{status:'todo'}}),/面談準備/);});
 test('生徒情報にシステム日時やURLが混在しても読み取れる',async()=>{const {propertyText}=await import('../src/lib/enrollment-core.mjs');assert.equal(propertyText({type:'last_edited_time',last_edited_time:'2026-10-17T00:00:00Z'}),'2026-10-17T00:00:00Z');assert.equal(propertyText({type:'rollup',rollup:{array:[{type:'formula',formula:{string:'中2'}}]}}),'中2');});
 test('入塾日・手続き日を区別し、未入力で既存値を消さない',()=>{
  const p=payload();p.fields.procedureDate={value:'2026-10-17',state:'confirmed'};const checked=validateEnrollmentPayload(p);

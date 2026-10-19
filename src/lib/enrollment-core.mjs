@@ -118,6 +118,7 @@ export function propertyComparable(p){
  if(p.relation)return {relation:p.relation.map(x=>x.id.replaceAll('-','')).sort()};
  if(p.title)return {title:p.title.map(x=>x.type==='mention'?{page:x.mention?.page?.id?.replaceAll('-','')}:x.text?{text:x.text.content,link:x.text.link?.url??null}:null)};
  if(p.select)return {select:p.select.id};
+ if(p.status)return {status:p.status.id};
  if(p.multi_select)return {multi_select:p.multi_select.map(x=>x.id).sort()};
  if(p.date)return {date:p.date.start};
  if(p.rich_text)return {rich_text:p.rich_text.map(x=>x.text?.content??x.plain_text??'').join('')};

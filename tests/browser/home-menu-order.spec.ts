@@ -2,17 +2,34 @@ import { expect, test } from "@playwright/test";
 
 const menu = [
   { heading: "【事務】日常業務", titles: ["欠席連絡の確認", "教室への連絡"] },
-  { heading: "面談・予約関連", titles: ["アンケートを確認する", "面談資料を作る", "予約可能枠を作る", "予約可能枠をコピー"] },
+  { heading: "面談・予約関連", titles: ["アンケートを確認する", "面談資料を作る", "面談後の一括入力", "予約可能枠を作る", "予約可能枠をコピー"] },
   { heading: "授業・管理", titles: ["授業日誌の確認", "録画の公開設定", "授業スケジュール取込", "連絡先管理", "クラス一覧表の取り込み", "Notion・クラス一覧 照合", "LINE登録名の取り込み", "改善してほしいことなど、何でも"] },
   { heading: "本番運用前", titles: ["入塾手続きの一括入力", "ログインする人の管理", "未対応メッセージ", "担任・クラス別 生徒一覧", "生徒カルテ", "自習室管理", "自習室予約"] },
 ];
 const categoryIds = ["daily", "interview", "management", "prelaunch"];
 const destinations = [
   ["/attendance", "/classroom-office"],
-  ["/staff/surveys", "/staff/interview-materials", "/staff/interview-availability", "/staff/interview-availability/manual"],
+  ["/staff/surveys", "/staff/interview-materials", "/staff/survey-workflow/post-interview", "/staff/interview-availability", "/staff/interview-availability/manual"],
   ["/staff/journals", "/staff/recordings", "/schedule-import", "/contacts", "/contacts#roster-import", "/admin/notion-roster", "/line-alias-import", "/feedback"],
   ["/staff/enrollment", "/staff/login-people", "/dashboard", "/students", "/karte", "/staff/self-study-room/trial", "/self-study-room/trial"],
 ];
+
+for (const width of [1280, 390]) test(`home interview panel opens the post-interview workspace at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await page.route("**/api/**", route => route.fulfill({ json: { groups: [], states: {}, records: [] } }));
+  await page.route("**/api/staff/session", route => route.fulfill({ json: { staff: { staffId: "test-kudo", staffCode: "KUDO", role: "admin", displayName: "工藤" } } }));
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "機能の分類" }).getByRole("button", { name: "面談・予約関連", exact: true }).click();
+  const panel = page.getByRole("region", { name: "面談・予約関連" }).getByRole("link", { name: /面談後の一括入力/ });
+  await expect(panel).toContainText("本番運用前・工藤先生の確認用");
+  await expect(panel).toHaveAttribute("href", "/staff/survey-workflow/post-interview");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: `test-results/post-interview-home-panel-${width}.png`, fullPage: true });
+  await panel.click();
+  await expect(page).toHaveURL("/staff/survey-workflow/post-interview");
+  await expect(page.getByRole("heading", { name: "面談後の一括入力", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "回答を探す", exact: true })).toBeVisible();
+});
 
 test("home menu keeps the approved order and existing destinations", async ({ page }) => {
   await page.route("**/api/**", route => route.fulfill({ json: { groups: [], states: {}, records: [] } }));
@@ -44,7 +61,7 @@ test("staff sidebar follows the categories without changing compact student page
   await expect(groups.locator("p")).toHaveText(menu.map(group => group.heading));
   for (let index = 0; index < menu.length; index++) {
     const links = groups.nth(index).locator(":scope > a");
-    await expect(links).toHaveText(menu[index].titles);
+    await expect(links).toHaveText(menu[index].titles.map(title => title === "面談後の一括入力" ? `${title}（工藤確認用）` : title));
     for (let link = 0; link < destinations[index].length; link++) await expect(links.nth(link)).toHaveAttribute("href", destinations[index][link]);
   }
   for (const path of ["/dashboard", "/students", "/karte"]) {

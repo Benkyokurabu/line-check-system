@@ -33,6 +33,15 @@ export function postDesiredProperties(payload,schema){const desired={};for(const
  if(f.key==='author'){desired[f.property]={relation:[{id:value}]};continue;}
  desired[f.property]=typedNotionValue(schema,f.property,value);
  }desired['生徒情報DB']={relation:[{id:payload.studentPageId}]};return desired;}
+export function postSurveyProperties(schema,value){
+ const desired={対応:typedNotionValue(schema,'対応',value)};
+ if(value==='対応済'){
+  const property=schema.properties['面談準備'];const option=property?.type==='status'&&property.status.options.find(o=>o.name==='完了');
+  if(!option)throw new InterviewError('Notionの「面談準備」の「完了」を確認してください。対応の反映も保留しました。',409);
+  desired['面談準備']={status:{id:option.id}};
+ }
+ return desired;
+}
 function recordChildren(entry){return [{object:'block',type:'code',code:{language:'plain text',caption:[{type:'text',text:{content:marker(entry.id,entry.version)}}],rich_text:notionRecordText(confirmed(entry.payload,'record'))}}];}
 async function recoverRecord(request,entry){const found=[];for(const page of await postRecordCandidates(request,entry.payload.studentPageId)){if(hasCase(await postBlocks(request,page.id),entry.id))found.push(page);}if(found.length>1)throw new InterviewError('同じ入力に対応する記録が複数あります。',409);return found[0];}
 export async function runPostNotion({entry,request,checkpoint}){
@@ -44,16 +53,21 @@ export async function runPostNotion({entry,request,checkpoint}){
     const value=confirmed(entry.payload,'handling');if(!value){state.status='review';state.error='アンケートの対応は人の確認待ちです。';await save();continue;}
     const page=await request('/pages/'+entry.payload.answerId);if(page.archived||page.in_trash||!sameNotionId(page.parent?.data_source_id,entry.payload.answerSourceId))throw new InterviewError('回答の原本が変わっています。',409);
     const relation=page.properties['生徒情報DB']?.relation??[];if(relation.length!==1||!sameNotionId(relation[0].id,entry.payload.studentPageId))throw new InterviewError('回答の生徒対応を再確認してください。',409);
-    const desired={対応:typedNotionValue(entry.payload.surveySchema,'対応',value)};const patch=safePropertyPatch(page,desired,state.baseline);
+    const surveySchema=value==='対応済'?await request('/data_sources/'+entry.payload.answerSourceId):entry.payload.surveySchema;
+    const desired=postSurveyProperties(surveySchema,value);
+    // Older saved entries predate status-property snapshots. Only seed this newly managed property.
+    const baseline={...state.baseline};if(value==='対応済'&&baseline['面談準備']==null)baseline['面談準備']=propertyComparable(page.properties['面談準備']);
+    const patch=safePropertyPatch(page,desired,baseline);
     if(Object.keys(patch).length){await save();await request('/pages/'+page.id,{method:'PATCH',body:JSON.stringify({properties:patch})});}
-    const checked=await request('/pages/'+page.id);if(JSON.stringify(propertyComparable(checked.properties['対応']))!==JSON.stringify(propertyComparable(desired['対応'])))throw new InterviewError('対応の反映を確認できません。',409);
+    const checked=await request('/pages/'+page.id);for(const [name,value]of Object.entries(desired))if(JSON.stringify(propertyComparable(checked.properties[name]))!==JSON.stringify(propertyComparable(value)))throw new InterviewError(`「${name}」の反映を確認できません。`,409);
     state.status='synced';state.baseline=propertyBaseline(checked);state.error='';state.url=page.url;await save();continue;
    }
    const desired=postDesiredProperties(entry.payload,schema),body=confirmed(entry.payload,'record');
    let page=state.pageId?await postRecordPage(request,state.pageId,entry.payload.studentPageId):await recoverRecord(request,entry);
    if(!page){
     if(state.createAttempted)throw new InterviewError('前回の新規登録結果を確認できません。再作成せず原本を確認してください。',409);
-    if(!body||!confirmed(entry.payload,'title')||!confirmed(entry.payload,'date'))throw new InterviewError('新しい面談記録には見出し・実施日・本文の確定が必要です。',409);
+    const missing=[['title','面談の見出し'],['date','実施日'],['record','Notion用の面談記録']].filter(([key])=>!confirmed(entry.payload,key)?.trim()).map(([,label])=>label);
+    if(missing.length)throw new InterviewError(`新しい面談記録の作成を保留しています。「${missing.join('」「')}」を入力し、判断の状態を「確定」にしてください。${missing.includes('Notion用の面談記録')?'「面談の原文・補足」は別欄です。AIで候補を作るか、原文を記録本文として採用してください。':''}`,409);
     state.createAttempted=true;state.status='creating';await save();page=await request('/pages',{method:'POST',body:JSON.stringify({parent:{type:'data_source_id',data_source_id:RECORD_SOURCE},properties:desired,children:recordChildren(entry)})});state.pageId=page.id;state.baseline=propertyBaseline(page);await save();
    }
    state.pageId=page.id;

@@ -1,7 +1,7 @@
 import {InterviewError} from './interview-core.mjs';
 import {isEnrollmentId,sameNotionId} from './enrollment-core.mjs';
 import {digest,validatePostPayload,planPostDelivery,confirmed,postFields} from './post-interview-core.mjs';
-import {preparePostContext,postDesiredProperties,runPostNotion} from './post-interview-notion.mjs';
+import {preparePostContext,postDesiredProperties,postSurveyProperties,runPostNotion} from './post-interview-notion.mjs';
 import {runPostDeliveries} from './post-interview-delivery.mjs';
 export function postDatabase(result){if(result.error)throw new InterviewError(/conflict|unique/.test(result.error.message)?'保存内容が別の操作で変わりました。入力を保持して最新の内容を確認してください。':'面談入力の保存先を確認できません。',/conflict|unique/.test(result.error.message)?409:503);return result.data;}
 export async function readPostEntry(db,id){if(!isEnrollmentId(id))throw new InterviewError('入力記録を選び直してください。',422);const entry=postDatabase(await db.from('post_interview_entries').select('*').eq('id',id).maybeSingle());if(!entry)throw new InterviewError('入力記録が見つかりません。',404);return entry;}
@@ -23,16 +23,17 @@ export async function savePostEntry({db,request,body,context,verifyAnswer,recipi
  postDesiredProperties(payload,schema);
  const surveySchema=await request('/data_sources/'+verified.answer.parent.data_source_id);
  if(confirmed(payload,'handling')&&!surveySchema.properties['対応']?.select?.options?.some(o=>o.name===confirmed(payload,'handling')))throw new InterviewError('アンケートの対応の選択肢を確認してください。',422);
+ if(confirmed(payload,'handling'))postSurveyProperties(surveySchema,confirmed(payload,'handling'));
  for(const def of postFields){const f=payload.fields[def.key],old=prior?.payload.fields[def.key];if(f.state==='confirmed'){const comparable=value=>Object.fromEntries(['value','state','source','reason','candidates'].map(key=>[key,value[key]]));const unchanged=old&&digest(comparable(old))===digest(comparable(f));f.confirmedBy=unchanged?old.confirmedBy:context.staff.staffId;f.confirmedAt=unchanged?old.confirmedAt:new Date().toISOString();}}
  const targetFingerprint=digest({fields:Object.fromEntries(postFields.filter(f=>f.key!=='summary'&&f.key!=='handling').map(f=>[f.key,{value:confirmed(payload,f.key),state:payload.fields[f.key].state}]))});
  const oldRecord=prior?.targets.record??{};const reflect=body.intent!=='draft';
  const record={...oldRecord,...prepared.snapshots.record,status:reflect?(oldRecord.fingerprint===targetFingerprint&&oldRecord.status==='synced'?'synced':'pending'):'skipped',fingerprint:targetFingerprint,error:''};
- const oldSurvey=prior?.targets.survey??{};const handlingHash=digest({value:confirmed(payload,'handling'),state:payload.fields.handling.state});
+ const oldSurvey=prior?.targets.survey??{};const handlingHash=digest({value:confirmed(payload,'handling'),state:payload.fields.handling.state,...(confirmed(payload,'handling')==='対応済'?{preparation:'complete-with-handled-v1'}:{})});
  const survey={...oldSurvey,...prepared.snapshots.survey,status:reflect?(oldSurvey.fingerprint===handlingHash&&oldSurvey.status==='synced'?'synced':'pending'):'skipped',fingerprint:handlingHash,error:''};
  if(body.intent==='send'&&(!prior||prior.targets.record.status!=='synced'||oldRecord.fingerprint!==targetFingerprint))throw new InterviewError('先に確定した内容を記録へ反映し、最新の結果を確認してください。',409);
  const accounts=body.intent==='send'?await recipients(String(verified.student.student_number)):[];
  const lines=planPostDelivery({previous:prior?.targets.lines??{},approval:body.intent==='send'?body.deliveryApproval:null,accounts,summary:confirmed(payload,'summary'),entryId:body.id});
- payload.studentName=verified.student.student_name;payload.studentNumber=String(verified.student.student_number);payload.answerSourceId=verified.answer.parent.data_source_id;payload.surveySchema={properties:{対応:surveySchema.properties['対応']}};payload.actorName=context.staff.displayName;payload.originalBody=prepared.originalBody;payload.intent=body.intent;
+ payload.studentName=verified.student.student_name;payload.studentNumber=String(verified.student.student_number);payload.answerSourceId=verified.answer.parent.data_source_id;payload.surveySchema={properties:{対応:surveySchema.properties['対応'],面談準備:surveySchema.properties['面談準備']}};payload.actorName=context.staff.displayName;payload.originalBody=prepared.originalBody;payload.intent=body.intent;
  postDatabase(await db.rpc('post_interview_entry_save',{p_user:context.identity.authUserId,p_session:context.identity.authSessionId,p_operation:body.operationKey,p_id:body.id,p_version:body.version,p_payload:payload,p_targets:{record,survey,lines},p_hash:requestHash}));return readPostEntry(db,body.id);
 }
 export async function processPostEntry({db,request,id=null,recipients,fetcher=fetch,lineToken=''}){
