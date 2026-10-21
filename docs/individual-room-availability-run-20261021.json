@@ -1,0 +1,99 @@
+{
+    "run_date":  "2026-10-21",
+    "status":  "manual_run_complete_feature_not_integrated",
+    "verified_at":  "2026-10-21T07:21:10.025Z",
+    "created_total":  158,
+    "created_by_month":  {
+                             "2026-10":  13,
+                             "2026-11":  145
+                         },
+    "existing_pages_changed":  0,
+    "excluded_rooms_created":  0,
+    "review_by_month":  {
+                            "2026-10":  15,
+                            "2026-11":  39
+                        },
+    "reader_comparison":  [
+                              {
+                                  "month":  "2026-10",
+                                  "python_count":  397,
+                                  "javascript_count":  397,
+                                  "identical":  true
+                              },
+                              {
+                                  "month":  "2026-11",
+                                  "python_count":  386,
+                                  "javascript_count":  386,
+                                  "identical":  true
+                              }
+                          ],
+    "october_added":  [
+                          {
+                              "date":  "2026-10-21",
+                              "start":  "16:45",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-22",
+                              "start":  "18:35",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-22",
+                              "start":  "20:25",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-24",
+                              "start":  "16:45",
+                              "room":  "本①"
+                          },
+                          {
+                              "date":  "2026-10-24",
+                              "start":  "16:45",
+                              "room":  "本③"
+                          },
+                          {
+                              "date":  "2026-10-24",
+                              "start":  "20:25",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-26",
+                              "start":  "16:45",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-26",
+                              "start":  "20:25",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-27",
+                              "start":  "16:45",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-27",
+                              "start":  "20:25",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-28",
+                              "start":  "16:45",
+                              "room":  "本④"
+                          },
+                          {
+                              "date":  "2026-10-28",
+                              "start":  "20:25",
+                              "room":  "本③"
+                          },
+                          {
+                              "date":  "2026-10-29",
+                              "start":  "20:25",
+                              "room":  "本④"
+                          }
+                      ],
+    "october_31_created":  0,
+    "october_31_unassigned_slots_corrected":  false
+}
