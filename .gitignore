@@ -84,6 +84,8 @@ unlinked_line_user_analysis*.csv
 *スケジュール*.xlsm
 *指導簿*.xlsm
 analysis_outputs/
+# Private source workbooks, Notion snapshots and per-page operation logs.
+/.private/kobetsu-20261021/
 
 # vercel
 .vercel
