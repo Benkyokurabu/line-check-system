@@ -4,6 +4,7 @@ import {digest,sameNotionId,propertyText,propertyComparable,safePropertyPatch,ty
 import {propertyBaseline,enrollmentStaffOptions,enrollmentActor} from './enrollment-notion.mjs';
 import {RECORD_SOURCE,postFields,seedPostFields,confirmed} from './post-interview-core.mjs';
 import {notionRecordText} from './survey-workflow-core.mjs';
+import {parentContactTeacherName} from './parent-contact-core.mjs';
 export async function postBlocks(request,id){let cursor='',rows=[];for(let i=0;i<10;i++){const data=await request(`/blocks/${id}/children?page_size=100${cursor?'&start_cursor='+encodeURIComponent(cursor):''}`);rows.push(...data.results);if(!data.has_more)return rows;cursor=data.next_cursor;if(!cursor)break;}throw new InterviewError('既存の本文を全件確認できません。',409);}
 const text=items=>(items??[]).map(x=>x.plain_text??x.text?.content??'').join('');
 const blockText=block=>text(block[block.type]?.rich_text);
@@ -24,7 +25,7 @@ export async function preparePostContext({request,verified,entry,recordId,staff}
  const owned=entry?blocks.filter(b=>b.type==='code'&&text(b.code?.caption).startsWith(`勉たん面談後の入力:${entry.id}:`)).at(-1):null;
  const recordText=owned?blockText(owned):legacy;
  const payload=entry?{...entry.payload,recordPageId:record?.id??''}:{answerId:answer.id,studentPageId:profile.id,recordPageId:record?.id??'',sourceText:'',participants:'',fields:seedPostFields({record,survey:answer,recordText,grade:String(student.grade??''),method,author})};
- if(!payload.workLog)payload.workLog={enabled:true,teacher:staff.displayName.endsWith('先生')?staff.displayName:staff.displayName+'先生',task:'',start:'',end:'',contact:[student.grade,student.student_name].filter(Boolean).join(' '),content:'',result:''};
+ if(!payload.workLog)payload.workLog={enabled:true,teacher:parentContactTeacherName(staff),task:'',start:'',end:'',contact:[student.grade,student.student_name].filter(Boolean).join(' '),content:'',result:''};
  const snapshots={record:record?{pageId:record.id,baseline:propertyBaseline(record),blocks:signature(blocks)}:{pageId:'',baseline:{},blocks:signature([])},survey:{pageId:answer.id,baseline:propertyBaseline(answer)}};
  return {payload,entry,student:{id:profile.id,name:student.student_name,number:student.student_number,grade:student.grade},survey:{id:answer.id,url:answer.url,preparation:propertyText(answer.properties['面談準備']),handling:propertyText(answer.properties['対応']),date:verified.date},
   records:candidates.map(p=>({id:p.id,title:propertyText(p.properties['面談内容']),date:propertyText(p.properties['面談日']),url:p.url})).sort((a,b)=>b.date.localeCompare(a.date)),

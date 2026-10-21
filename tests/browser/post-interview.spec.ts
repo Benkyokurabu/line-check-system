@@ -44,9 +44,9 @@ for(const width of [1280,390])test(`面談後の入力・明示選択・候補�
  await page.goto('/staff/survey-workflow/post-interview?answer='+answer);await expect(page.getByRole('heading',{name:'見本の生徒さんの面談'})).toBeVisible();
  await expect(page.getByRole('button',{name:'保存して記録・対応へ反映',exact:true})).toBeDisabled();await page.getByLabel('反映する面談記録',{exact:true}).selectOption('new');
  const purpose=page.getByRole('group',{name:'面談目的',exact:true});await expect(purpose.getByRole('checkbox')).toHaveCount(2);await purpose.getByRole('checkbox',{name:'進路',exact:true}).check();await purpose.getByRole('checkbox',{name:'学習相談',exact:true}).check();await expect(page.locator('#post-state-purpose')).toHaveValue('confirmed');
- await page.getByLabel('面談の見出し',{exact:true}).fill('自分で入力した見出し');await page.getByLabel('面談の原文・補足',{exact:true}).fill('相談した');await page.getByRole('button',{name:'AIで記録と共有文の候補を作る'}).click();
+ await page.getByLabel('面談の見出し',{exact:true}).fill('自分で入力した見出し');await page.getByLabel('面談の原文・補足',{exact:true}).fill('相談した');await page.getByRole('button',{name:'AIで面談記録の候補を作る'}).click();
  await expect(page.getByLabel('面談の見出し',{exact:true})).toHaveValue('自分で入力した見出し');await expect(page.locator('#post-state-record')).toHaveValue('review');
- await page.getByLabel('実施日',{exact:true}).fill('2026-10-17');await page.getByLabel('Notion用の面談記録',{exact:true}).fill('確認した職員向けの記録');await page.getByLabel('本人・保護者へ共有する内容',{exact:true}).fill('確認した共有内容');
+ await page.getByLabel('実施日',{exact:true}).fill('2026-10-17');await page.getByLabel('Notion用の面談記録',{exact:true}).fill('確認した職員向けの記録');await expect(page.getByLabel('本人・保護者へ共有する内容',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'保存して記録・対応へ反映',exact:true}).click();await expect(page.getByRole('heading',{name:'保存結果：確認後、確定にしてください'})).toBeVisible();await expect(page.getByText('対応を確認後、確定にしてください',{exact:true})).toBeVisible();
  await expect(page.getByRole('checkbox',{name:/未確認の連絡先/})).toBeEnabled();await page.getByRole('checkbox',{name:'母・確認済み',exact:true}).check();await page.getByRole('checkbox',{name:'本人・確認済み',exact:true}).check();
  expect(calls.filter(c=>c.action==='send-line')).toHaveLength(0);await expect(page.getByRole('button',{name:'送信する',exact:true})).toBeEnabled();

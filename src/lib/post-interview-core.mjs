@@ -41,7 +41,7 @@ export function seedPostFields({record,survey,recordText='',grade='',method='',a
  set('handling',propertyText(survey.properties['対応']),'review','既存の対応状況（今回の変更要否を確認）');return fields;
 }
 export function checkedPostAI(result,sourceText){
- const candidate=result?.fields??result;const fields={};for(const def of postFields){if(['author','handling'].includes(def.key))continue;const row=candidate?.[def.key];if(!row||typeof row.value!=='string')continue;const source=typeof row.source==='string'&&sourceText.includes(row.source)?row.source:'';fields[def.key]={value:row.value.slice(0,['record','summary'].includes(def.key)?15000:1000),state:'review',source,reason:source?'AI候補です。原文を確認してください。':'根拠の箇所を確認できません。人の判断が必要です。',candidates:[]};}return {fields};
+ const candidate=result?.fields??result;const fields={};for(const def of postFields){if(['author','handling','summary'].includes(def.key))continue;const row=candidate?.[def.key];if(!row||typeof row.value!=='string')continue;const source=typeof row.source==='string'&&sourceText.includes(row.source)?row.source:'';fields[def.key]={value:row.value.slice(0,['record','summary'].includes(def.key)?15000:1000),state:'review',source,reason:source?'AI候補です。原文を確認してください。':'根拠の箇所を確認できません。人の判断が必要です。',candidates:[]};}return {fields};
 }
 export function planPostDelivery({previous={},approval,accounts,summary,entryId,direct=false}){
  const result=structuredClone(previous);if(!approval){if(direct)throw new InterviewError('送り先を選んでください。',422);return result;}

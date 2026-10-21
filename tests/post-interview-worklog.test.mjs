@@ -1,7 +1,17 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import {PGlite} from '@electric-sql/pglite';
-import {parentContactRow,normalizeParentWorkLog,parentRowMatches,parentRowBlank} from '../src/lib/parent-contact-core.mjs';import {syncParentContactLog} from '../src/lib/parent-contact-sync.mjs';
+import {parentContactRow,normalizeParentWorkLog,parentRowMatches,parentRowBlank,parentContactTeacherName,parentContactTeacherChoice,parentContactOptionIssues} from '../src/lib/parent-contact-core.mjs';import {syncParentContactLog} from '../src/lib/parent-contact-sync.mjs';
 const options={teachers:['工藤先生'],tasks:['保護者面談'],contents:['定期面談行事'],results:['解決']};
 const payload=()=>({fields:{date:{state:'confirmed',value:'2026-10-19'}},workLog:{enabled:true,teacher:'工藤先生',task:'保護者面談',start:'16:05',end:'16:40',contact:'見本の生徒+母',content:'定期面談行事',result:'解決'}});
+test('ログイン者の旧初期値だけをExcelの氏名に合わせ、他の氏名や不明な候補を推測しない',()=>{
+ const staff={staffCode:'KUDO',displayName:'工藤謙'};assert.equal(parentContactTeacherName(staff),'工藤先生');
+ assert.equal(parentContactTeacherChoice('工藤謙先生',options.teachers,staff),'工藤先生');
+ for(const current of ['','別の先生','工藤先生'])assert.equal(parentContactTeacherChoice(current,options.teachers,staff),current);
+ assert.equal(parentContactTeacherChoice('工藤謙先生',['工藤謙先生','工藤先生'],staff),'工藤謙先生');
+ assert.equal(parentContactTeacherChoice('工藤謙先生',[],staff),'工藤謙先生');
+ assert.equal(parentContactTeacherChoice('工藤謙先生',options.teachers,{staffCode:'KUDO',displayName:'工藤'}),'工藤謙先生');
+ const p=payload();p.workLog.teacher='工藤謙先生';assert.deepEqual(parentContactOptionIssues(p.workLog,options),[{key:'teacher',label:'氏名',value:'工藤謙先生'}]);assert.throws(()=>parentContactRow(p,options),/「氏名」（工藤謙先生）/);
+ p.workLog.teacher=parentContactTeacherChoice(p.workLog.teacher,options.teachers,staff);assert.equal(parentContactRow(p,options).values[1],'工藤先生');
+});
 test('原本の項目に合わせ、未確定日付・未入力・時刻逆転・選択肢違いを記入しない',()=>{
  const p=payload(),row=parentContactRow(p,options);assert.equal(row.values[0],'19日');assert.equal(row.values[3],965/1440);assert.equal(row.values[5],1000/1440);assert.equal(row.values[4],null);assert.equal(row.values[6],null);assert.equal(row.duration,35/1440);assert.equal(normalizeParentWorkLog().enabled,false);
  for(const edit of [p=>p.fields.date.state='review',p=>p.workLog.start='',p=>p.workLog.end='16:00',p=>p.workLog.task='別の摘要']){const changed=payload();edit(changed);assert.throws(()=>parentContactRow(changed,options));}
