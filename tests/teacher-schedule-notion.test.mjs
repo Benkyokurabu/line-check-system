@@ -130,7 +130,9 @@ test('an already-created card is reused and a partial retry creates only the mis
   assert.deepEqual(await applyTeacherNotionSync(first), { created: 1, existing: 1, locationPending: 1 });
   const second = await prepareTeacherNotionSync(rows, month, notion.request);
   assert.equal(second.existing, 2);
+  const readsBefore=notion.calls.filter(([path])=>path.endsWith('/query')).length;
   assert.deepEqual(await applyTeacherNotionSync(second), { created: 0, existing: 2, locationPending: 1 });
+  assert.equal(notion.calls.filter(([path])=>path.endsWith('/query')).length,readsBefore);
   assert.equal(notion.calls.filter(([path, init]) => path === '/pages' && init.method === 'POST').length, 1);
 });
 

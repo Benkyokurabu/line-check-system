@@ -27,6 +27,25 @@ test("manual import shows completion or review without accepting client lesson d
 test("foreign origins and unauthenticated cron cannot start imports", async ({ request }) => {
   expect((await request.post("/api/schedule/sync?month=2026-09", { headers: { origin: "https://foreign.invalid" } })).status()).toBe(403);
   expect((await request.post("/api/cron/schedule-sync")).status()).toBe(401);
+  const anonymous=await request.post('/api/schedule/sync?month=2026-11',{headers:{origin:'https://test.invalid'}});
+  expect(anonymous.status()).toBe(401);
+  expect((await anonymous.json()).code).toBe('invalid_session');
+});
+
+test('room rules and source-cell review remain readable on a phone',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const report={month:'2026-11',generatedAt:'2026-10-21T10:00:00Z',source:{file:'2026年11月スケジュール.xlsm'},summary:{incoming:1,unchanged:1},warnings:[],changes:[],lessons:[],roomSchedule:{format:'bentan-room-schedule-v1',month:'2026-11',slots:[{date:'2026-11-02',start:'16:45',end:'18:15',room:'本①',status:'free',reason:'',cells:['F13']},{date:'2026-11-02',start:'18:35',end:'20:05',room:'本②',status:'review',reason:'原表の注記の確認が必要',cells:['M13']}]}};
+  await page.route('**/api/schedule/preview*',route=>route.fulfill({json:new URL(route.request().url()).searchParams.has('month')?report:{months:[{month:'2026-11'}]}}));
+  await page.route('**/api/schedule/calendar*',route=>route.fulfill({json:{count:1}}));
+  await page.goto('/schedule-import');
+  await expect(page.getByRole('heading',{name:'個別使用可能枠も自動作成'})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Notionの本校個別を開く'})).toBeVisible();
+  await page.getByRole('button',{name:'スケジュールを確認',exact:true}).click();
+  await page.getByText('個別枠の原表判定（2枠）',{exact:true}).click();
+  await expect(page.getByRole('cell',{name:'F13',exact:true})).toBeVisible();
+  await expect(page.getByRole('cell',{name:'原表の注記の確認が必要',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:'analysis_outputs/individual-room/schedule-import-390.png',fullPage:true});
 });
 
 test("one button reads cloud schedule and retries errors without file selection", async ({ page }) => {

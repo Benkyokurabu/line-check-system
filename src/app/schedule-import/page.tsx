@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { scheduleFieldLabels } from "@/lib/schedule-preview.mjs";
+import {planIndividualRooms} from '@/lib/individual-room-rules.mjs';
 
 type Lesson = { lesson_date: string; campus: string; classroom: string; start_time: string; label: string; teacher_name?: string };
 type Change = { kind: string; before: Lesson | Lesson[] | null; after: Lesson | Lesson[] | null; changedFields: string[]; linkedRecords: number };
-type Report = { month: string; generatedAt: string; source: { file: string }; summary: Record<string, number>; warnings: string[]; changes: Change[]; lessons: Lesson[] };
+type RoomSlot={date:string;start:string;end:string;room:string;status:string;reason:string;cells:string[]};
+type Report = { month: string; generatedAt: string; source: { file: string }; summary: Record<string, number>; warnings: string[]; changes: Change[]; lessons: Lesson[];roomSchedule?:{format:string;month:string;slots:RoomSlot[]} };
 type SyncRun = { id: string; month: string; status: string; message: string; started_at: string; finished_at: string | null; source: { file?: string } | null };
 type SyncStatus = { enabled: boolean; stale: boolean; months: string[]; runs: SyncRun[] };
-const syncLabels: Record<string, string> = { running: "処理中", applied: "反映完了", unchanged: "反映済み・変更なし", review: "確認が必要・反映保留", error: "エラー・再試行待ち", waiting: "原本の保存待ち" };
+const syncLabels: Record<string, string> = { running: "処理中", applied: "反映完了", unchanged: "反映済み・変更なし", review: "確認が必要", error: "エラー・再試行待ち", waiting: "保存待ち・続きの処理待ち" };
 const kinds: Record<string, string> = { add: "追加", update: "変更", remove: "原本に見当たらない", ambiguous: "対応の確認が必要" };
 const labels: Record<string, string> = { existing: "現在の登録", incoming: "原本の授業", unchanged: "変更なし", add: "追加", update: "変更", remove: "原本に見当たらない", ambiguous: "対応確認" };
 function describe(value: Lesson | Lesson[] | null): string {
@@ -93,11 +95,19 @@ export default function ScheduleImportPage() {
     } catch (e) { if (active.current === controller) setError(controller.signal.aborted ? "確認に時間がかかっています。もう一度お試しください。" : e instanceof Error ? e.message : "スケジュールを確認できませんでした。"); }
     finally { clearTimeout(timeout); if (active.current === controller) { setBusy(false); active.current = null; } }
   }
+  const roomSlots=report?.roomSchedule?planIndividualRooms(report.roomSchedule):[];
   return <main className="shell"><section className="panel">
     <p className="eyebrow">授業管理</p><h1>授業スケジュール取込</h1>
     <p>「【完成版】授業日誌システム」に「2026年9月スケジュール.xlsm」の形式でExcelを保存すると、今月・翌月の授業を自動で取り込みます。</p>
     <p>各月を約10分ごとに確認します。お急ぎの場合は「今すぐ取り込む」を押してください。時間・教室の変更後も欠席・遅刻の記録を引き継ぎます。</p>
     <p>取り込み済みの授業は、生徒・先生用カレンダーと授業準備画面でも共通で使用します。日誌の定期更新を待つ必要はありません。カレンダーを開いたままの場合は約1分で再確認します。</p>
+    <section aria-label="個別使用可能枠の自動作成">
+      <h2>個別使用可能枠も自動作成</h2>
+      <p>取込時に本校①・②・③・④・⑥教室を照合し、授業や使用予定のない枠をNotion「本校個別」に作成します。日曜と過ぎた時刻は対象外です。先生個人の休みは教室の空き判定に使いません。</p>
+      <p><span style={{color:'#2162a8'}}>16:45</span>・<span style={{color:'#8052a4'}}>18:35</span>・<span style={{color:'#626262'}}>20:25</span>の時刻文字で区別します。確定時に「個別使用可能」を外すと、通常の文字と既存の緑背景になります。</p>
+      <p>既存枠・確定予定は上書きしません。教室や予定が未確定の枠は要確認として表示し、件数が多い場合は次回の自動取込で続けます。</p>
+      <a href="https://app.notion.com/p/390f012080a780eb88d1c78e8f1ac00e" target="_blank" rel="noreferrer" style={{display:'inline-block',padding:'10px 16px',border:'1px solid currentColor',borderRadius:8,fontWeight:700}}>Notionの本校個別を開く</a>
+    </section>
     {statusError && <p role="alert">{statusError}</p>}
     {syncStatus && <section aria-label="自動反映の状況">
       <h2>自動反映の状況</h2>
@@ -119,6 +129,10 @@ export default function ScheduleImportPage() {
     {report && <>
       <h2>{report.month} の確認結果</h2><p>原本: {report.source.file}<br />確認日時: {new Date(report.generatedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}（日本時間）</p>
       <p>これは確認日時点の結果です。反映前には原本と本番データを再確認します。</p>
+      {report.roomSchedule&&<details><summary>個別枠の原表判定（{roomSlots.length}枠）</summary>
+        <p>原表で空欄：{roomSlots.filter(s=>s.status==='free').length}枠／授業・使用予定あり：{roomSlots.filter(s=>s.status==='occupied').length}枠／注記などの要確認：{roomSlots.filter(s=>s.status==='review').length}枠。作成時にNotionの予定と登録履歴も再確認します。</p>
+        <div style={{overflowX:'auto'}}><table><thead><tr><th>日付</th><th>時刻</th><th>教室</th><th>原表の判定</th><th>参照セル</th></tr></thead><tbody>{roomSlots.map(s=><tr key={`${s.date}-${s.start}-${s.room}`}><td>{s.date}</td><td>{s.start}</td><td>{s.room}</td><td>{s.status==='free'?'空欄':s.reason}</td><td>{s.cells.join('・')}</td></tr>)}</tbody></table></div>
+      </details>}
       <dl style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>{Object.entries(report.summary).map(([key, count]) => <div key={key}><dt>{labels[key]}</dt><dd style={{ margin: 0, fontSize: "1.5rem" }}>{count}件</dd></div>)}</dl>
       {report.warnings.length > 0 && <ul>{report.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>}
       <label>表示対象 <select aria-label="表示対象" value={kind} onChange={(e) => setKind(e.target.value)}><option value="all">差分すべて</option>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>

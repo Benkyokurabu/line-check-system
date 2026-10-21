@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { getScheduleCloudPreview, listScheduleCloudMonths, ScheduleCloudError } from "./schedule-cloud.mjs";
+import { getScheduleCloudPreview, listScheduleCloudMonths, assertScheduleCloudVersion, ScheduleCloudError } from "./schedule-cloud.mjs";
 import { applyTeacherNotionSync, isTrackedTeacherLesson, prepareTeacherNotionSync } from "./teacher-schedule-notion.mjs";
+import {prepareIndividualRoomSync,applyIndividualRoomSync} from './individual-room-notion.mjs';
 
 export function scheduleSyncToken(key) {
   return createHmac("sha256", key).update("schedule-sync-cron-v1").digest("hex");
@@ -34,6 +35,7 @@ async function rpc(db, name, args) {
 // The caller supplies a month only. Lesson data is always fetched from the trusted folder.
 export async function syncSchedule(db, month, key, options = {}) {
   const now = options.now ?? new Date();
+  const deadline=Date.now()+95000;
   if (!scheduleSyncMonths(now).includes(month)) throw new ScheduleCloudError("自動反映の対象は今月と翌月です。過去の月は確認のみできます。", 422);
   const runId = await rpc(db, "schedule_sync_claim", { p_month: month, p_trigger: options.trigger ?? "manual" });
   if (!runId) return { status: "busy", message: "直前の処理を実行中、または完了直後です。少し待って結果を確認してください。" };
@@ -66,27 +68,34 @@ export async function syncSchedule(db, month, key, options = {}) {
       return { status: "review", message, summary: report.summary };
     }
     const prepared = await (options.prepareTeacherNotionSync ?? prepareTeacherNotionSync)(report.lessons, month);
+    const rooms=await (options.prepareIndividualRoomSync??prepareIndividualRoomSync)(db,report,{now});
     const result = await rpc(db, "schedule_sync_apply_v2", { p_run: runId, p_report: report });
-    if (!prepared.items.length) {
-      const message = result.status === "applied" ? "授業への反映が完了しました。教室画面・欠席連絡の授業選択に反映されます。" : "原本と登録済み授業は一致しています。反映済みです。";
-      await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: result.status, p_message: message });
-      return { ...result, message };
-    }
     const teacherNames = [...new Set(prepared.items.map((item) => item.teacherName))].join("・");
     let teacherNotion;
-    try {
+    if(prepared.items.length)try {
       teacherNotion = await (options.applyTeacherNotionSync ?? applyTeacherNotionSync)(prepared);
     } catch {
       throw new ScheduleCloudError(`授業DBは反映済みですが、${teacherNames}のNotion予定は一部未完了です。次回の同期で不足分を再確認して登録します。`);
     }
-    if (teacherNotion.blocked?.length) {
+    if (teacherNotion?.blocked?.length) {
       const message = `授業DBは反映済みですが、${teacherNames}の授業${teacherNotion.blocked.length}件はNotionの既存予定と重なるため登録を保留しました。管理担当者が予定を確認してください。次回の同期で再確認します。`;
       await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: "error", p_message: message });
       return { ...result, status: "error", teacherNotion, message };
     }
-    const message = result.status === "applied" ? `授業と${teacherNames}のNotion予定への反映が完了しました。` : `原本と登録済み授業は一致しています。${teacherNames}のNotion予定も確認しました。`;
-    await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: result.status, p_message: message });
-    return { ...result, teacherNotion, message };
+    let individualRooms;
+    try{
+      individualRooms=await (options.applyIndividualRoomSync??applyIndividualRoomSync)(rooms,{runId,deadline,
+        assertSource:()=> (options.assertSource??assertScheduleCloudVersion)(db,month,key,report.sourceVersion)});
+    }catch{
+      throw new ScheduleCloudError('授業DBは反映済みですが、個別使用可能枠の作成は一部未完了です。作成履歴を保ち、次回の取込で原本とNotionを再確認します。');
+    }
+    const status=individualRooms.pending?'waiting':individualRooms.review?'review':result.status==='applied'||individualRooms.created?'applied':'unchanged';
+    const base=teacherNames?`授業と${teacherNames}のNotion予定を確認しました。`:'授業への反映が完了しました。';
+    const detail=(individualRooms.details??[]).slice(0,3).map(s=>`${s.date} ${s.start} ${s.room}：${s.reason}`).join('／');
+    const message=`${base} 個別使用可能枠：新規${individualRooms.created}、登録済み${individualRooms.existing+individualRooms.recorded}、使用中${individualRooms.blocked}、要確認${individualRooms.review}枠。${individualRooms.pending?`残り${individualRooms.pending}枠は次回の取込で継続します。`:''}${detail}`;
+    await rpc(db, "schedule_sync_finish_v2", { p_run: runId, p_status: status, p_message: message,
+      p_report:{...report,individualRooms,summary:{...report.summary,individualRooms}} });
+    return { ...result,status,teacherNotion,individualRooms,message };
   } catch (error) {
     const message = error instanceof ScheduleCloudError ? error.message : "原本の取得・照合・反映に失敗しました。次の定期処理で再試行します。";
     await rpc(db, v2Ready ? "schedule_sync_finish_v2" : "schedule_sync_finish", { p_run: runId, p_status: "error", p_message: message }).catch(() => {});

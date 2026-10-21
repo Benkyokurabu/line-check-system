@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { buildSchedulePreview } from "../src/lib/schedule-preview.mjs";
-import { authorizeScheduleSync, scheduleSyncToken, scheduleSyncMonths, scheduleSyncBlockers, syncSchedule } from "../src/lib/schedule-sync.mjs";
+import { authorizeScheduleSync, scheduleSyncToken, scheduleSyncMonths, scheduleSyncBlockers, syncSchedule as runScheduleSync } from "../src/lib/schedule-sync.mjs";
+const noRooms=()=>({created:0,existing:0,recorded:0,blocked:0,review:0,pending:0,details:[]});
+const syncSchedule=(db,month,key,options={})=>runScheduleSync(db,month,key,{
+  prepareIndividualRoomSync:async()=>({items:[]}),applyIndividualRoomSync:async()=>noRooms(),...options,
+});
 
 test("JST rollover and dedicated worker authentication", () => {
   assert.deepEqual(scheduleSyncMonths(new Date("2026-12-31T15:00:00Z")), ["2027-01", "2027-02"]);

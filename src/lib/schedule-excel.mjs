@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { validateScheduleMonth, scheduleRows } from "./schedule-preview.mjs";
+import { individualRooms, individualTimes, scheduleInterval, overlaps } from './individual-room-rules.mjs';
 
 // Port of the existing export_schedule_json/export_by_grade_subject reader.
 // Never executes macros, writes workbooks, or guesses teacher colours.
@@ -97,7 +98,7 @@ function sheetReader(sh) {
   return { cell, dayAt, timeAt, roomAt, teacher: (r, c) => legend.get(color(cell(r, c))) ?? "" };
 }
 
-export function parseScheduleWorkbook(buffer, month) {
+export function parseScheduleWorkbookDetails(buffer, month) {
   validateScheduleMonth(month);
   if (!buffer?.length || buffer.length > 8 * 1024 * 1024) throw new Error("Excelのサイズが不正です（上限8MB）。");
   const wb = XLSX.read(buffer, { type: "buffer", cellStyles: true, bookVBA: false, bookFiles: true });
@@ -143,5 +144,47 @@ export function parseScheduleWorkbook(buffer, month) {
   }
   items.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.label.localeCompare(b.label));
   scheduleRows(items, month); // Reject empty/incomplete/duplicate extraction.
-  return items;
+  return {items,roomSchedule:readRoomSchedule(wb,selected.get('hon'),items,month)};
+}
+
+export function parseScheduleWorkbook(buffer,month){return parseScheduleWorkbookDetails(buffer,month).items;}
+
+// Reuse the journal reader's merged cells, classroom headers and time headers.
+// Unknown annotations remain review items instead of being silently treated as lessons.
+function readRoomSchedule(wb,name,items,month){
+  const slots=[];
+  if(!name)return {format:'bentan-room-schedule-v1',month,slots};
+  const sh=sheetReader(wb.Sheets[name]),days=new Map(),unresolvedDays=new Set();
+  const last=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).getUTCDate();
+  for(let r=2;r<=54;r++){
+    const {day,weekday}=sh.dayAt(r);
+    if(!day||!weekday||day>last)continue;
+    const date=`${month}-${String(day).padStart(2,'0')}`;
+    if('日月火水木金土'[new Date(`${date}T12:00:00+09:00`).getUTCDay()]!==weekday)throw Error('原表の日付と曜日が一致しません。');
+    if(!days.has(date))days.set(date,[]);
+    days.get(date).push(r);
+    for(let c=3;c<=30;c++)if(/後日|未定|調整中/u.test(text(sh.cell(r,c)))&&/対策|授業/u.test(text(sh.cell(r,c))))unresolvedDays.add(date);
+  }
+  for(let d=1;d<=last;d++)for(const time of individualTimes)for(const room of individualRooms){
+    const date=`${month}-${String(d).padStart(2,'0')}`,range=scheduleInterval(`${time.start}～${time.end}`);
+    const cells=[],notes=[],uses=[];let observed=false;
+    for(const r of days.get(date)??[])for(let c=3;c<=30;c++){
+      if(`本${'①②③④⑤⑥⑦⑧⑨'[Number(sh.roomAt(c))-1]}`!==room)continue;
+      const interval=scheduleInterval(sh.timeAt(r,c));
+      if(!interval||!overlaps(range,interval))continue;
+      observed=true;cells.push(XLSX.utils.encode_cell({r:r-1,c:c-1}));
+      const raw=text(sh.cell(r,c));if(!raw)continue;
+      const compact=raw.normalize('NFKC').replace(/\s/gu,'');
+      if(/休講|休み|お休み|中止|欠講/u.test(compact)||/^(休|休日)$/u.test(compact))continue;
+      if(/後日|未定|調整中|確認中/u.test(compact)){notes.push('予定の時間・使用教室が未確定');continue;}
+      if(classToken(raw)||/補講|対策|英検|漢検|診断|面談|個別|入会|見学|テスト|模試/u.test(raw))uses.push(/診断/u.test(raw)?'診断':'教室使用');
+      else notes.push('原表の注記の確認が必要');
+    }
+    // Grade-specific lesson times can be narrower than the column header.
+    const lesson=items.some(i=>i.campus==='hon'&&i.date===date&&!/後日|未定|調整中|確認中|休講|休み|中止|欠講/u.test(i.label)&&`本${'①②③④⑤⑥⑦⑧⑨'[Number(i.room)-1]}`===room&&overlaps(range,scheduleInterval(i.time)??[0,1440]));
+    let status=notes.length?'review':lesson||uses.length?'occupied':!observed?'review':'free';
+    if(status==='free'&&unresolvedDays.has(date)){status='review';notes.push('詳細未定の授業・対策の使用時間と教室を確認');}
+    slots.push({date,...time,room,status,reason:status==='occupied'?'原表に授業・教室使用予定あり':!observed?'原表の教室欄を確認できない':notes.join('／'),cells:[...new Set(cells)],uses:[...new Set(uses)]});
+  }
+  return {format:'bentan-room-schedule-v1',month,slots};
 }

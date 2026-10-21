@@ -1,6 +1,6 @@
 // Server-side only: callers must never serialize connection or Graph responses.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { parseScheduleWorkbook } from "./schedule-excel.mjs";
+import { parseScheduleWorkbookDetails } from "./schedule-excel.mjs";
 import { buildSchedulePreview, validateScheduleMonth } from "./schedule-preview.mjs";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -103,8 +103,8 @@ export async function getScheduleCloudPreview(db, month, key, fetcher = fetch, o
   const response = await fetcher(download, { signal: AbortSignal.timeout(30000), redirect: "error" });
   if (!response.ok) throw new ScheduleCloudError("Excelをダウンロードできませんでした。再試行してください。");
   const buffer = await boundedBody(response);
-  let items;
-  try { items = parseScheduleWorkbook(buffer, month); } catch (e) { throw new ScheduleCloudError(e instanceof Error ? e.message : "Excelを読み取れませんでした。", 422); }
+  let items,roomSchedule;
+  try { ({items,roomSchedule} = parseScheduleWorkbookDetails(buffer, month)); } catch (e) { throw new ScheduleCloudError(e instanceof Error ? e.message : "Excelを読み取れませんでした。", 422); }
   const after = await session.graph(metadataUrl);
   if (after.eTag !== before.eTag) throw new ScheduleCloudError("読み取り中に原本が更新されました。もう一度確認してください。", 409);
   const [year, number] = month.split("-").map(Number);
@@ -120,5 +120,11 @@ export async function getScheduleCloudPreview(db, month, key, fetcher = fetch, o
   if ((await session.graph(metadataUrl)).eTag !== before.eTag) throw new ScheduleCloudError("照合中に原本が更新されました。もう一度確認してください。", 409);
   const result = buildSchedulePreview(items, existing, month, references);
   // No credentials, Graph IDs/URLs, student IDs, messages or connection metadata.
-  return { ...result, ...(options.includeSnapshot ? { existing } : {}), generatedAt: new Date().toISOString(), source: { file: file.name, modifiedAt: before.lastModifiedDateTime, sha256: createHash("sha256").update(buffer).digest("hex") } };
+  return { ...result, roomSchedule, ...(options.includeSnapshot ? { existing, sourceVersion:before.eTag } : {}), generatedAt: new Date().toISOString(), source: { file: file.name, modifiedAt: before.lastModifiedDateTime, sha256: createHash("sha256").update(buffer).digest("hex") } };
+}
+
+export async function assertScheduleCloudVersion(db,month,key,version,fetcher=fetch){
+  if(!version)throw new ScheduleCloudError('原本の版を確認できません。個別枠の作成を保留します。',409);
+  const matches=(await files(await cloudSession(db,key,fetcher))).filter(f=>f.month===month);
+  if(matches.length!==1||matches[0].eTag!==version)throw new ScheduleCloudError('原本が更新されました。個別枠は次回の取込で再確認します。',409);
 }

@@ -179,6 +179,8 @@ export async function applyTeacherNotionSync(prepared) {
   let created = 0, existing = 0;
   const blocked = [];
   for (const item of prepared.items) {
+    // Preflight already verified these pages. They require no write or repeat read.
+    if(item.action==='existing'){existing++;continue;}
     if (item.action === 'blocked') {
       blocked.push({ date: item.date, title: item.title, teacherName: item.teacherName });
       continue;
