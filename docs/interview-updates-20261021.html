@@ -1,0 +1,16 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>面談の入力と日程連絡</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f1f6f3;color:#183d31;font:16px/1.85 system-ui,sans-serif}main{max-width:960px;margin:auto;padding:28px 18px 60px}h1{font-size:28px}h2{font-size:21px}.note{background:#fff2d4;padding:13px;border-radius:9px}.tabs,.flow{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}button,a.button{font:inherit;border:1px solid #387257;border-radius:8px;background:white;color:#205a40;padding:10px 14px;cursor:pointer;text-decoration:none}button[aria-selected=true]{background:#205a40;color:white}section{background:#fff;border:1px solid #c9ded0;padding:22px;border-radius:12px;margin:15px 0}.step{flex:1;min-width:140px;background:#e6f1e8;padding:12px;border-radius:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;background:#f4f7f5;padding:18px;border-radius:8px}[hidden]{display:none!important}@media(max-width:500px){section{padding:16px}h1{font-size:24px}.tabs button{flex:1;font-size:14px;padding:8px}.step{min-width:120px}}</style>
+<main><h1>面談の入力と日程連絡</h1><p class="note">これは確認用の説明画面です。面談後の一括入力と面談記録記入は、本番運用前・工藤先生の確認用です。</p>
+<div class="tabs" role="tablist" aria-label="説明内容"><button role="tab" aria-selected="true" aria-controls="schedule">日程連絡</button><button role="tab" aria-selected="false" aria-controls="record">面談記録</button><button role="tab" aria-selected="false" aria-controls="line">面談後のLINE</button></div>
+<section id="schedule" role="tabpanel"><h2>日程を決めて連絡する</h2><div class="flow"><div class="step">① 日付・開始・終了を入力</div><div class="step">② 日程を保存</div><div class="step">③ 文面を作り、送り先を確認</div><div class="step">④ LINE送信</div></div><p>「日程から文面を作る」で、挨拶から結びまで一つの文面を作成します。日時・曜日を差し込み、送信前に編集できます。ベンスケの備考に内部のアンケートIDは追記しません。</p><pre>こんにちは。工藤です。
+ご連絡ありがとうございます。
+
+面談を以下の日時で確定させていただきたいと思います。
+
+10月24日（土）14:00〜14:45
+
+IDとパスコードは当日お伝えいたします。
+それではよろしくお願いいたします。</pre><p>Zoom以外の面談では、ID・パスコードの一文は付けません。</p></section>
+<section id="record" role="tabpanel" hidden><h2>面談記録記入</h2><div class="flow"><div class="step">① 生徒を検索</div><div class="step">② 実施日・実際の時間・相手・内容・結果</div><div class="step">③ 実施月のOneDrive原本へ記入</div><div class="step">④ ファイル名と行番号を確認</div></div><p>ホームの「本番運用前」→「面談記録記入」から開きます。アンケートのない見学生も選択できます。専用画面の保存先はOneDriveの担任業務記録簿（対保護者）です。</p><a class="button" href="parent-contact-flow.html">項目と見学後の手順を見る</a></section>
+<section id="line" role="tabpanel" hidden><h2>面談後のLINE送信</h2><div class="flow"><div class="step">① 送り先を選ぶ</div><div class="step">② 本文を確認・編集</div><div class="step">③ 送信する</div></div><p>Notion反映・共有文の確定・本人確認登録・送信前チェックは必須にしません。入力途中の記録を保持し、同じ文の二重送信と結果不明時の自動再送を防ぎます。</p><a class="button" href="post-interview-simple-line.html">架空例で操作を試す</a></section></main>
+<script>const tabs=[...document.querySelectorAll('[role=tab]')];for(const tab of tabs)tab.onclick=()=>{for(const t of tabs){t.setAttribute('aria-selected',String(t===tab));document.getElementById(t.getAttribute('aria-controls')).hidden=t!==tab;}};</script></html>

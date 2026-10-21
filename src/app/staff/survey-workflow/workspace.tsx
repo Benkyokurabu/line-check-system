@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import StaffEntry from '../self-study-room/staff-entry';
-import {scheduleMethods,suggestedInterviewEnd} from '@/lib/survey-schedule-style.mjs';
+import {scheduleMethods,suggestedInterviewEnd,surveyScheduleMessage} from '@/lib/survey-schedule-style.mjs';
 import styles from './workspace.module.css';
 
 type Account={id:string;relation:string;label:string;category?:string;studentNumber?:string;aliasName?:string;displayName?:string;verification?:string};
@@ -169,8 +169,8 @@ export default function Workspace({answerId,embedded=false,onSaved,onClose,onSav
     <p>日程の調整中も返信できます。宛先を選び、文面を確認してから送信します。</p>
     <details className={styles.answers}><summary>最近のLINEのやり取り</summary><p>確認済みの家族アカウントの直近20件です。兄弟の連絡を含む場合があります。</p>{data.historyError&&<p role="alert">{data.historyError}</p>}{data.history?.length?data.history.map(item=><div className={styles.history} key={item.id}><strong>{data.accounts.find(account=>account.id===item.line_user_id)?.label}・{item.direction==='inbound'?'受信':'送信'}</strong><small>{new Date(item.received_at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}</small><p>{item.text||'文字以外のメッセージ'}</p></div>):<p>表示できるLINE履歴がありません。</p>}</details>
     <RecipientChoices student={data.student} accounts={data.accounts} values={selected.schedule} statusFor={account=>deliveries[deliveryKey('schedule',account.id,scheduleText)]} disabled={busy} onRefresh={()=>void refreshRecipients()} onToggle={id=>toggle('schedule',id)}/>
-    <label className={styles.blockLabel}>日程連絡の文面<textarea value={scheduleText} onChange={e=>{setScheduleText(e.target.value);setReview(null);}} placeholder="例：面談は10月1日（木）18時から、Zoomでお願いいたします。" rows={5}/></label>
-    <div className={styles.actions}><button disabled={!date||busy} onClick={()=>{setScheduleText(`${data.student.name}さんの面談は${date}${time?` ${time}から`:""}にお願いいたします。\n\n${data.staffName}`);setReview(null);}}>日程から文面を作る</button><button disabled={busy||scheduleChanged||!scheduleText.trim()||!pendingMessages('schedule').length} onClick={()=>setReview('schedule')}>宛先・文面を確認</button></div>
+    <label className={styles.blockLabel}>日程連絡の文面<textarea value={scheduleText} onChange={e=>{setScheduleText(e.target.value);setReview(null);}} placeholder="日程から文面を作り、送信前に確認・編集してください。" rows={12}/></label>
+    <div className={styles.actions}><button disabled={!date||busy} onClick={()=>{setScheduleText(surveyScheduleMessage({date,time,endTime,staffName:data.staffName,method:scheduleMethod}));setReview(null);}}>日程から文面を作る</button><button disabled={busy||scheduleChanged||!scheduleText.trim()||!pendingMessages('schedule').length} onClick={()=>setReview('schedule')}>宛先・文面を確認</button></div>
     {review==='schedule'&&<SendReview student={data.student} phase="schedule" entries={pendingMessages('schedule')} disabled={busy} onSend={()=>void send('schedule')} onCancel={()=>setReview(null)}/>}
    </section>
    <section hidden={embedded&&tab!=='record'} className={styles.card}><h2>3　面談後の内容を記録する</h2>

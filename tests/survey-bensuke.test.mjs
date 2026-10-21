@@ -12,8 +12,8 @@ function fixture(){
   if(path===`/pages/${answerId}`){if(init.method==='PATCH'){if(failSurvey)throw Error('offline');answer.properties['面談日']=body.properties['面談日'];answer.last_edited_time='v2';}return structuredClone(answer);}
   if(path===`/data_sources/${BENSUKE_SOURCE}`)return {properties:{'担当者':{type:'relation',relation:{data_source_id:'staff'}},'名前':{type:'title'},'日時':{type:'date'},'校舎':{type:'multi_select'},'教室':{type:'select'},'備考':{type:'rich_text'},'内容':{type:'multi_select',multi_select:{options:['面談予定','面談(オンライン)','面談(対面)','電話'].map(name=>({name}))}}}};
   if(path==='/data_sources/staff/query')return {results:[{id:teacherId,properties:{name:{type:'title',title:[{plain_text:'工藤先生'}]}}}]};
-  if(path.endsWith('/query'))return {results:body.filter.property==='備考'?(page?[page]:[]):slots.filter(p=>!p.archived)};
-  if(path==='/pages'){page={id:createdPages.length?'66666666-6666-4666-8666-666666666666':pageId,parent:{data_source_id:BENSUKE_SOURCE},properties:body.properties};createdPages.push(page);if(failCreate)throw Error('lost response');return page;}
+  if(path.endsWith('/query'))return {results:body.filter.property==='備考'?createdPages.filter(p=>surveyScheduleValue(p).note.includes(body.filter.rich_text.contains)):body.filter.and?.some(f=>f.property==='名前')?[...createdPages,...slots].filter(p=>surveyScheduleValue(p).title===body.filter.and.find(f=>f.property==='名前').title.equals):slots.filter(p=>!p.archived)};
+  if(path==='/pages'){page={id:createdPages.length?'66666666-6666-4666-8666-666666666666':pageId,created_time:new Date().toISOString(),parent:{data_source_id:BENSUKE_SOURCE},properties:body.properties};createdPages.push(page);if(failCreate)throw Error('lost response');return page;}
   const created=createdPages.find(p=>path===`/pages/${p.id}`);
   if(created){if(init.method==='PATCH'){Object.assign(created.properties,body.properties);if(body.archived)created.archived=true;if(body.archived?failArchive:failUpdate)throw Error('lost update');}return structuredClone(created);}
   const slot=slots.find(p=>path===`/pages/${p.id}`);
@@ -30,6 +30,24 @@ test('date save creates a Bensuke schedule with the homeroom teacher and also sa
  assert.deepEqual(surveyScheduleValue(f.page).teachers,[teacherId]);assert.deepEqual(surveyScheduleValue(f.page).tags,['面談(オンライン)']);
  assert.equal(surveyScheduleValue(f.page).title,'中２架空生徒／三者面談');
  assert.ok(!JSON.stringify(f.page).includes('相談メモ'));assert.ok(!f.page.properties['校舎']);
+ assert.equal(surveyScheduleValue(f.page).note,'');
+});
+
+test('existing answer markers are removed while unrelated notes and the internal link survive',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);
+ f.page.properties['備考']={rich_text:[{text:{content:`保護者の希望\n勉たん面談アンケート:${answerId.replaceAll('-','')}\n持参物のメモ`}}]};
+ f.link.baseline=surveyScheduleValue(f.page);await saveSurveySchedule(f.args);
+ assert.equal(surveyScheduleValue(f.page).note,'保護者の希望\n持参物のメモ');assert.equal(f.link.page_id,pageId);assert.equal(f.link.state,'synced');
+});
+
+test('a preexisting lookalike and an ambiguous creation never cause a duplicate or an incorrect recovery',async()=>{
+ const f=fixture();await saveSurveySchedule(f.args);const old=f.page;
+ delete f.link.page_id;f.link.state='creating';f.link.expected={...f.link.expected,createStartedAt:'2000-01-01T00:00:00Z',createExcludedIds:[old.id]};
+ await assert.rejects(()=>saveSurveySchedule(f.args),/再作成を停止/);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
+ f.link.expected.createExcludedIds=[];
+ const duplicate=structuredClone(old);duplicate.id='77777777-7777-4777-8777-777777777777';const request=f.args.request;
+ f.args.request=async(p,init={})=>{const result=await request(p,init);return p.endsWith('/query')&&JSON.parse(init.body??'{}').filter?.and?.some(f=>f.property==='名前')?{results:[...result.results,duplicate]}:result;};
+ await assert.rejects(()=>saveSurveySchedule(f.args),/一つに確認/);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
 });
 test('schedule comparisons survive PostgreSQL JSONB key reordering and UTC conversion',()=>{
  const a={title:'面談',start:'2026-10-03T18:00:00+09:00',end:null,teachers:[],tags:['面談予定'],note:'note'};
@@ -52,8 +70,9 @@ test('rescheduling updates the linked page and preserves its unrelated propertie
  const f=fixture();await saveSurveySchedule(f.args);f.page.properties['校舎']={multi_select:[{name:'本校'}]};f.args.date='2026-10-04';f.args.expectedEditedAt='v2';
  await saveSurveySchedule(f.args);assert.equal(f.link.page_id,pageId);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);assert.equal(f.page.properties['校舎'].multi_select[0].name,'本校');
 });
-test('a lost creation response is recovered by its answer marker without another POST',async()=>{
+test('a lost creation response is recovered from the internal ledger without writing an answer marker',async()=>{
  const f=fixture();f.failCreate();await assert.rejects(()=>saveSurveySchedule(f.args),/完了できません/);assert.equal(f.link.state,'creating');
+ f.page.created_time=new Date(Math.floor(Date.parse(f.page.created_time)/60000)*60000).toISOString();
  f.recover();await saveSurveySchedule(f.args);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);
 });
 test('an unresolved creation is not retried when its marker is not found',async()=>{
@@ -87,9 +106,9 @@ test('a matching availability becomes the appointment without creating another c
  const result=await saveSurveySchedule(f.args);assert.equal(result.bensuke.id,slot.id);assert.equal(result.bensuke.endTime,'18:45');
  assert.equal(f.calls.filter(([p])=>p==='/pages').length,0);assert.equal(f.link.state,'synced');
  assert.deepEqual(surveyScheduleValue(slot).tags,['面談(オンライン)']);assert.deepEqual(surveyScheduleValue(slot).campuses,['本校']);
- assert.equal(slot.properties['教室'].select.name,'本②');assert.match(surveyScheduleValue(slot).note,/既存のメモ\n勉たん面談アンケート:/);
+ assert.equal(slot.properties['教室'].select.name,'本②');assert.equal(surveyScheduleValue(slot).note,'既存のメモ');
  const patch=f.calls.find(([p,i])=>p===`/pages/${slot.id}`&&i.method==='PATCH');assert.ok(!JSON.parse(patch[1].body).properties['校舎']);assert.ok(!JSON.parse(patch[1].body).properties['教室']);
- await saveSurveySchedule(f.args);assert.equal(surveyScheduleValue(slot).end,'2026-10-03T09:45:00Z');assert.equal(surveyScheduleValue(slot).note.split('勉たん面談アンケート:').length,2);
+ await saveSurveySchedule(f.args);assert.equal(surveyScheduleValue(slot).end,'2026-10-03T09:45:00Z');assert.equal(surveyScheduleValue(slot).note,'既存のメモ');
 });
 test('confirmation moves a linked appointment into the original availability and retires its extra card',async()=>{
  const f=fixture();await saveSurveySchedule(f.args);const old=f.page,slot=addSlot(f);await saveSurveySchedule(f.args);
@@ -180,7 +199,7 @@ test('a named appointment or a card retaining another survey marker cannot be tr
 test('lost conversion response during a linked transfer recovers the same slot and both original notes',async()=>{
  const f=fixture();await saveSurveySchedule(f.args);const old=f.page;old.properties['備考'].rich_text.unshift({text:{content:'旧面談のメモ\n'}});f.link.baseline=surveyScheduleValue(old);const slot=addSlot(f);
  f.failUpdate();await assert.rejects(()=>saveSurveySchedule(f.args));assert.equal(f.link.page_id,slot.id);assert.ok(f.link.expected.replacedPage);assert.ok(!old.archived);
- f.recover();await saveSurveySchedule(f.args);assert.equal(old.archived,true);assert.ok(!slot.archived);assert.match(surveyScheduleValue(slot).note,/既存のメモ\n旧面談のメモ\n勉たん面談アンケート:/);assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);assert.ok(!f.link.expected.replacedPage);
+ f.recover();await saveSurveySchedule(f.args);assert.equal(old.archived,true);assert.ok(!slot.archived);assert.equal(surveyScheduleValue(slot).note,'既存のメモ\n旧面談のメモ\n');assert.equal(f.calls.filter(([p])=>p==='/pages').length,1);assert.ok(!f.link.expected.replacedPage);
 });
 
 test('a concurrent edit to the displaced appointment stops retirement and preserves the pending cleanup',async()=>{

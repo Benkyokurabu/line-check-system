@@ -6,6 +6,11 @@ import {matchingSurveyAvailability,archiveSurveyAvailability,archiveReplacedSurv
 
 const plain=items=>(items??[]).map(x=>x.plain_text??x.text?.content??'').join('');
 const marker=id=>`勉たん面談アンケート:${id.replaceAll('-','').toLowerCase()}`;
+async function creationCandidates(request,expected){
+ const found=await request(`/data_sources/${BENSUKE_SOURCE}/query`,{method:'POST',body:JSON.stringify({page_size:100,filter:{and:[{property:'名前',title:{equals:expected.title}},{property:'日時',date:{equals:expected.start.slice(0,10)}}]}})});
+ if(!Array.isArray(found.results)||found.has_more)throw new InterviewError('登録結果を一つに確認できません。重複を防ぐため原本を確認してください。',409);
+ return found.results.filter(row=>!row.archived&&!row.in_trash);
+}
 export async function activeSurveySchedule(request,pageId){
  if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(pageId))throw new InterviewError('ベンスケのカードを選び直してください。',409);
  const page=await request(`/pages/${pageId}`);
@@ -45,7 +50,7 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
   const teacherName=String(student.homeroom_teacher??'').trim();
   const teacher=teacherName&&teacherName!=='未設定'?teacherMatch(teacherName,await staffDirectory(request,schema)):null;
   const campus=resolveCampus?null:['本校','南教室'].includes(student.campus)?student.campus:null;
-  const desired={title:style.title,start,end:endTime?`${date}T${endTime}:00+09:00`:null,teachers:teacher?[teacher.id]:[],tags:[style.tag],note:marker(answer.id),campuses:campus?[campus]:[],...(link.expected?.replacedPage?{replacedPage:link.expected.replacedPage}:{})};
+  const desired={title:style.title,start,end:endTime?`${date}T${endTime}:00+09:00`:null,teachers:teacher?[teacher.id]:[],tags:[style.tag],note:'',campuses:campus?[campus]:[],...(link.expected?.replacedPage?{replacedPage:link.expected.replacedPage}:{})};
   let page=link.page_id?await activeSurveySchedule(request,link.page_id):null;
   // A trashed appointment is no longer a schedule. Release its stale link
   // under the answer lease, then use the current availability/new-save flow.
@@ -61,7 +66,14 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
   if(!link.page_id){
    const found=await request(`/data_sources/${BENSUKE_SOURCE}/query`,{method:'POST',body:JSON.stringify({page_size:100,filter:{property:'備考',rich_text:{contains:marker(answer.id)}}})});
    if(!Array.isArray(found.results)||found.has_more)throw new InterviewError('対応するベンスケの予定を一つに確認できません。',409);
-   const active=found.results.filter(row=>!row.archived&&!row.in_trash);
+   let active=found.results.filter(row=>!row.archived&&!row.in_trash);
+   // The durable ledger, rather than the visible note, owns the association.
+   // Recover a lost create only from a new, exact match after the preflight.
+   if(!active.length&&link.state==='creating'&&link.expected?.createStartedAt){
+    const expected=link.expected,started=Math.floor(Date.parse(expected.createStartedAt)/60000)*60000;
+    active=(await creationCandidates(request,expected)).filter(row=>
+     !(expected.createExcludedIds??[]).includes(row.id)&&Date.parse(row.created_time)>=started&&sameSurveySchedule(surveyScheduleValue(row),expected)&&JSON.stringify(surveyScheduleValue(row).campuses)===JSON.stringify(expected.campuses));
+   }
    if(active.length>1)throw new InterviewError('対応するベンスケの予定を一つに確認できません。',409);
    if(active.length){
     page=await checkedPage(request,active[0].id,BENSUKE_SOURCE);
@@ -74,7 +86,8 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
      page=slot.page;
      await persist({page_id:page.id,baseline:slot.value,expected:desired,state:'updating'});
     }else{
-    await persist({expected:desired,state:'creating'});
+    const existing=await creationCandidates(request,desired);
+    await persist({expected:{...desired,createStartedAt:new Date().toISOString(),createExcludedIds:existing.map(row=>row.id)},state:'creating'});
     page=await request('/pages',{method:'POST',body:JSON.stringify({parent:{type:'data_source_id',data_source_id:BENSUKE_SOURCE},properties:properties(desired)})});
     page=await checkedPage(request,page.id,BENSUKE_SOURCE);
     if(!sameSurveySchedule(surveyScheduleValue(page),desired))throw new InterviewError('ベンスケの登録内容を確認できません。再試行で確認してください。',409);
@@ -100,7 +113,7 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
    const oldNote=previous.note.split('\n').filter(line=>line!==marker(answer.id)).join('\n');
    const slotNote=slot.value.note.split('\n').filter(line=>line!==marker(answer.id)).join('\n');
    const note=[...new Set([slotNote,oldNote].filter(Boolean))].join('\n');
-   desired.note=note?`${note}\n${marker(answer.id)}`:marker(answer.id);
+   desired.note=note;
    desired.replacedPage={id:page.id,value:previous,editedAt:page.last_edited_time,note:desired.note};
    page=slot.page;
    await persist({page_id:page.id,baseline:slot.value,expected:desired,state:'updating'});
@@ -110,7 +123,7 @@ export async function saveSurveySchedule({request,claim,store,reserve,resolveCam
   if(!slot&&remote.campuses.length&&Date.parse(remote.start)===Date.parse(desired.start))desired.campuses=remote.campuses;
   else if(!slot&&!desired.campuses.length&&remote.campuses.length)desired.campuses=remote.campuses;
   const oldNote=remote.note.split('\n').filter(line=>line!==marker(answer.id)).join('\n');
-  desired.note=desired.replacedPage?.note??(oldNote?`${oldNote}\n${marker(answer.id)}`:marker(answer.id));
+  desired.note=desired.replacedPage?.note??oldNote;
   if(!sameSurveySchedule(remote,link.baseline)&&!(link.state==='updating'&&sameSurveySchedule(remote,link.expected)))throw new InterviewError('ベンスケ側で予定が変更されています。原本を確認してください。',409);
   if(slot&&slot.page.id!==page.id)await reserve(answer.id,link.lease,slot.page.id);
   for(const duplicate of slot?.duplicates??[])await reserve(answer.id,link.lease,duplicate.page.id);

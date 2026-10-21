@@ -43,11 +43,11 @@ export function seedPostFields({record,survey,recordText='',grade='',method='',a
 export function checkedPostAI(result,sourceText){
  const candidate=result?.fields??result;const fields={};for(const def of postFields){if(['author','handling'].includes(def.key))continue;const row=candidate?.[def.key];if(!row||typeof row.value!=='string')continue;const source=typeof row.source==='string'&&sourceText.includes(row.source)?row.source:'';fields[def.key]={value:row.value.slice(0,['record','summary'].includes(def.key)?15000:1000),state:'review',source,reason:source?'AI候補です。原文を確認してください。':'根拠の箇所を確認できません。人の判断が必要です。',candidates:[]};}return {fields};
 }
-export function planPostDelivery({previous={},approval,accounts,summary,entryId}){
- const result=structuredClone(previous);if(!approval)return result;
- if(!summary)throw new InterviewError('共有内容を確定してから、宛先と本文を確認してください。',422);
+export function planPostDelivery({previous={},approval,accounts,summary,entryId,direct=false}){
+ const result=structuredClone(previous);if(!approval){if(direct)throw new InterviewError('送り先を選んでください。',422);return result;}
+ if(!direct&&!summary)throw new InterviewError('共有内容を確定してから、宛先と本文を確認してください。',422);
  if(!Array.isArray(approval)||!approval.length||approval.length>10)throw new InterviewError('確認した送信先を選んでください。',422);
- const seen=new Set();for(const item of approval){const account=accounts.find(a=>a.id===item.id);if(!account||account.verification!=='confirmed'||account.category==='unknown'||seen.has(item.id))throw new InterviewError('本人・続柄を確認済みの送信先だけを選んでください。',422);seen.add(item.id);
+ const seen=new Set();for(const item of approval){const account=accounts.find(a=>a.id===item?.id);if(!account||!direct&&(account.verification!=='confirmed'||account.category==='unknown')||seen.has(item.id))throw new InterviewError(direct?'この生徒の送り先を選び直してください。':'本人・続柄を確認済みの送信先だけを選んでください。',422);seen.add(item.id);
   if(typeof item.text!=='string'||!item.text.trim()||item.text.length>5000)throw new InterviewError('宛先ごとのLINE本文を確認してください。',422);
   const text=item.text.trim(),hash=digest({entryId,id:item.id,text});const old=previous[item.id];
   if(old&&['sending','unknown'].includes(old.status)&&!(item.external===true&&text===old.text))throw new InterviewError('結果不明の送信先があります。履歴を確認するまで新しい文面は送信できません。',409);
@@ -55,6 +55,6 @@ export function planPostDelivery({previous={},approval,accounts,summary,entryId}
   if(old&&['accepted','external'].includes(old.status)&&item.confirmResend!==true)throw new InterviewError('この宛先には送信済みです。追加送信する場合は再送の確認をしてください。',409);
   const external=typeof item.externalNote==='string'?item.externalNote.trim():'';
   if(item.external===true&&external.length<4)throw new InterviewError('外部で送信済みの根拠（日時・宛先など）を入力してください。',422);
-  result[item.id]={id:item.id,label:account.label,text,hash,key:old?.hash===hash?old.key:randomUUID(),status:item.external?'external':'pending',externalNote:external,approvedAt:new Date().toISOString(),error:''};
+  result[item.id]={id:item.id,label:account.label,text,hash,key:old?.hash===hash?old.key:randomUUID(),status:item.external?'external':'pending',externalNote:external,approvedAt:new Date().toISOString(),error:'',...(direct?{independent:true}:{})};
  }return result;
 }

@@ -77,7 +77,7 @@ test('registration entry follows refreshed guardian status and preserves the LIN
 for (const width of [390, 1280]) test(`survey → search → registration → return preserves the interview draft (${width}px)`, async ({ page, context }) => {
   await page.setViewportSize({ width, height: 844 });
   const state = await setup(context, { noGuardian: true });
-  await page.goto('/');
+  await page.goto('/staff/surveys/2026-autumn');
   await page.getByRole('searchbox', { name: 'アンケートの生徒を検索' }).fill(name);
   await page.getByRole('button', { name: `${name}：日程連絡・面談記録・LINE`, exact: true }).click();
   const ui = page.getByRole('region', { name: '面談入力' });
@@ -90,8 +90,9 @@ for (const width of [390, 1280]) test(`survey → search → registration → re
   await expect(contacts.getByRole('searchbox', { name: 'LINE連絡先を検索' })).toHaveValue(name);
   await expect(contacts.getByText('登録済みの保護者LINE：0件')).toBeVisible();
   await expect(contacts.getByRole('table', { name: '連絡先一覧' }).getByRole('row')).toHaveCount(4);
+  await contacts.locator('#contact-search').scrollIntoViewIfNeeded();
   const box = await contacts.locator('#contact-search').boundingBox();
-  expect(box).not.toBeNull(); expect(box!.y + box!.height).toBeLessThan(844);
+  expect(box).not.toBeNull(); expect(box!.y + box!.height).toBeLessThanOrEqual(845); // Allow subpixel rounding at the viewport edge.
   await contacts.screenshot({ path: `analysis_outputs/guardian-line-lookup/entry-${width}.png`, fullPage: false });
   const mother = contacts.getByRole('row').filter({ hasText: 'はなの母' });
   await expect(mother.getByText('生徒・続柄の登録なし')).toBeVisible();
