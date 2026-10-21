@@ -103,7 +103,7 @@ export default function ScheduleImportPage() {
     <p>取り込み済みの授業は、生徒・先生用カレンダーと授業準備画面でも共通で使用します。日誌の定期更新を待つ必要はありません。カレンダーを開いたままの場合は約1分で再確認します。</p>
     <section aria-label="個別使用可能枠の自動作成">
       <h2>個別使用可能枠も自動作成</h2>
-      <p>取込時に本校①・②・③・④・⑥教室を照合し、授業や使用予定のない枠をNotion「本校個別」に作成します。日曜と過ぎた時刻は対象外です。先生個人の休みは教室の空き判定に使いません。</p>
+      <p>取込時に本校①・②・③・④・⑥教室を照合し、授業や使用予定のない枠をNotion「本校個別」に作成します。日曜と過ぎた時刻は対象外です。</p>
       <p><span style={{color:'#2162a8'}}>16:45</span>・<span style={{color:'#8052a4'}}>18:35</span>・<span style={{color:'#626262'}}>20:25</span>の時刻文字で区別します。確定時に「個別使用可能」を外すと、通常の文字と既存の緑背景になります。</p>
       <p>既存枠・確定予定は上書きしません。教室や予定が未確定の枠は要確認として表示し、件数が多い場合は次回の自動取込で続けます。</p>
       <a href="https://app.notion.com/p/390f012080a780eb88d1c78e8f1ac00e" target="_blank" rel="noreferrer" style={{display:'inline-block',padding:'10px 16px',border:'1px solid currentColor',borderRadius:8,fontWeight:700}}>Notionの本校個別を開く</a>
