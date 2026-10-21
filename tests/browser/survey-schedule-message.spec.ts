@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 for(const width of [1280,390])test(`日程確定文を挨拶から結びまで一括生成して編集できる ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:950});let sends=0;
  const id='11111111-1111-4111-8111-111111111111';
- await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill({json:{student:{name:'見本の生徒',number:'2026000',grade:'中2'},staffName:'工藤',survey:{id,date:'2026-10-24',time:'14:00',editedAt:'v1'},bensuke:{state:'synced',method:'３者Zoom',endTime:'14:45',styled:true},accounts:[],record:null}}));
+ await page.route('**/api/staff/survey-workflow?answer=*',route=>route.fulfill({json:{student:{name:'見本の生徒',number:'2026000',grade:'中2'},staffName:'工藤謙',staffCode:'KUDO',survey:{id,date:'2026-10-24',time:'14:00',editedAt:'v1'},bensuke:{state:'synced',method:'３者Zoom',endTime:'14:45',styled:true},accounts:[],record:null}}));
  await page.route('**/api/staff/survey-workflow',r=>{sends++;return r.fulfill({json:{ok:true}});});
  await page.goto(`/staff/survey-workflow?answer=${id}`);
  await page.getByRole('button',{name:'日程から文面を作る',exact:true}).click();

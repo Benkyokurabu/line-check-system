@@ -1,9 +1,9 @@
 import {isKinjoTeacher,kinjoInterviewSlot} from './kinjo-interview-slots.mjs';
 export const scheduleMethods=['','2者Zoom','３者Zoom','４者Zoom','２者対面','３者対面','４者対面','電話','LINE'];
-export function surveyScheduleMessage({date,time='',endTime='',staffName='',method='３者Zoom'}){
+export function surveyScheduleMessage({date,time='',endTime='',staffName='',staffCode='',method='３者Zoom'}){
  const day=new Date(`${date}T00:00:00Z`);
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(day.getTime())||day.toISOString().slice(0,10)!==date)return '';
- const name=String(staffName).trim().replace(/先生$/,'');
+ const name=staffCode==='KUDO'?'工藤':String(staffName).trim().replace(/先生$/,'');
  const when=`${day.getUTCMonth()+1}月${day.getUTCDate()}日（${'日月火水木金土'[day.getUTCDay()]}）${time?`${time}${endTime?`〜${endTime}`:''}`:''}`;
  return [`こんにちは。${name?`${name}です。`:''}`,'ご連絡ありがとうございます。','',
   '面談を以下の日時で確定させていただきたいと思います。','',when,'',
