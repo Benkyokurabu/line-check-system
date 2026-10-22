@@ -19,6 +19,8 @@ const menuItems = [
   { href: "/staff/visit-followup", group: "prelaunch" as const, icon: "file", trial: true, title: "見学打合せ後の一括入力", description: "面談記録・生徒情報・受付・終業MTGへまとめて反映します。工藤先生の確認用です。" },
   { href: "/staff/parent-contact", group: "prelaunch" as const, icon: "file", trial: true, title: "面談記録記入", description: "見学打ち合わせ・面談・電話の実績を、OneDriveの業務記録簿へ入力します。工藤先生の確認用です。" },
   { href: "/staff/enrollment", group: "prelaunch" as const, icon: "file", trial: true, title: "入塾手続きの一括入力", description: "正式運用前の確認用です。一つの入力から各所へ反映し、判断できない項目を保留します。" },
+  { href: "/staff/benkei", group: "prelaunch" as const, icon: "message", trial: true, title: "ベンケイ・共有連絡の確認", description: "共有連絡を読み、先生ごとの確認状況を確認します。工藤先生の確認用です。" },
+  { href: "/staff/school-context", group: "prelaunch" as const, icon: "search", trial: true, title: "塾全体の情報・確認候補", description: "Notion・LINEの取得範囲と原文を確認し、根拠のある確認候補を判断します。工藤先生の確認用です。" },
   { href: "/staff/login-people", group: "prelaunch" as const, icon: "users", title: "ログインする人の管理", description: "先生ログインに表示する名前を確認し、新しく利用する人を追加します。" },
   { href: "/dashboard", group: "prelaunch" as const, icon: "message", title: "未対応メッセージ", description: "LINEで届いた未対応の連絡を先生別に確認し、返信・完了処理をします。" },
   { href: "/students", group: "prelaunch" as const, icon: "users", title: "担任・クラス別 生徒一覧", description: "担任生徒やクラス在籍生徒を一覧で確認し、選択した生徒へLINE送信します。" },

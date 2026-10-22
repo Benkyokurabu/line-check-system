@@ -97,3 +97,7 @@ next-env.d.ts
 # Isolated browser test output
 test-results/
 playwright-report/
+
+# Private knowledge inputs and derived operational context.
+/資料集約/知識受信/
+/資料集約/知識基盤/

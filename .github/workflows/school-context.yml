@@ -1,0 +1,20 @@
+name: School context and confirmations
+on:
+  push:
+    branches: [main]
+    paths: ['knowledge/**', 'src/lib/benkei*', 'src/lib/school-context*', 'src/lib/line-context*', 'src/app/api/staff/benkei/**', 'src/app/api/staff/school-context/**', 'supabase/benkei*', 'supabase/school_context*', 'tests/benkei*', 'tests/school-context*', 'tests/knowledge-intake*', 'tests/line-context*', '.github/workflows/school-context.yml']
+  pull_request:
+    paths: ['knowledge/**', 'src/lib/benkei*', 'src/lib/school-context*', 'src/lib/line-context*', 'supabase/benkei*', 'supabase/school_context*', 'tests/benkei*', 'tests/school-context*', 'tests/knowledge-intake*', 'tests/line-context*', '.github/workflows/school-context.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node --test knowledge/context-store.test.mjs tests/knowledge-intake.test.mjs tests/benkei.test.mjs tests/line-context-core.test.mjs tests/school-context.test.mjs tests/school-context-db.test.mjs tests/school-context-sync.test.mjs
