@@ -14,6 +14,10 @@ export async function GET(request:NextRequest){let c:Context|undefined;try{
 export async function POST(request:NextRequest){let c:Context|undefined;try{
  assertStaffMutationOrigin(request);c=await staffContext(request);checked(await c.dataClient.rpc('benkei_actor',identity(c)));const body=await staffJsonBody(request);
  if(body.action==='sync')return staffResponse(await syncBenkei(c.dataClient),c);
+ if(body.action==='dismiss'||body.action==='restore'){
+  if(!Array.isArray(body.itemIds)||body.itemIds.length<1||body.itemIds.length>100||body.itemIds.some(id=>typeof id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))throw new StaffAuthError('invalid_request',400);
+  return staffResponse(checked(await c.dataClient.rpc('benkei_set_dismissed',{...identity(c),p_ids:body.itemIds,p_dismiss:body.action==='dismiss'})),c);
+ }
  if(body.action!=='confirm'||typeof body.itemId!=='string'||!/^[0-9a-f-]{36}$/i.test(body.itemId)||!Number.isInteger(body.version)||Number(body.version)<1||typeof body.sourceHash!=='string'||!body.sourceHash.match(/^[a-f0-9]{64}$/))throw new StaffAuthError('invalid_request',400);
  await verifyBenkeiSource(c.dataClient,body.itemId,body.sourceHash);
  return staffResponse(checked(await c.dataClient.rpc('benkei_confirm',{...identity(c),p_id:body.itemId,p_version:body.version,p_hash:body.sourceHash})),c);

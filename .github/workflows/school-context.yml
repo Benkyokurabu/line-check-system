@@ -17,4 +17,4 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: node --test knowledge/context-store.test.mjs tests/knowledge-intake.test.mjs tests/benkei.test.mjs tests/line-context-core.test.mjs tests/school-context.test.mjs tests/school-context-db.test.mjs tests/school-context-sync.test.mjs
+      - run: node --test --test-concurrency=1 knowledge/context-store.test.mjs tests/knowledge-intake.test.mjs tests/benkei.test.mjs tests/benkei-authoring.test.mjs tests/line-context-core.test.mjs tests/school-context.test.mjs tests/school-context-db.test.mjs tests/school-context-sync.test.mjs

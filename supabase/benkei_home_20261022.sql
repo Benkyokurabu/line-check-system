@@ -28,8 +28,13 @@ create table if not exists public.bentan_benkei_receipts (
  primary key(item_id,version,reader_id),
  foreign key(item_id,version) references public.bentan_benkei_versions(item_id,version)
 );
+create table if not exists public.bentan_benkei_dismissals (
+ item_id uuid not null,version integer not null,reader_id uuid not null references public.bentan_benkei_readers(id),
+ dismissed_at timestamptz not null default now(),primary key(item_id,version,reader_id),
+ foreign key(item_id,version) references public.bentan_benkei_versions(item_id,version)
+);
 do $$ declare t text;begin
- foreach t in array array['settings','readers','reader_accounts','items','versions','receipts'] loop
+ foreach t in array array['settings','readers','reader_accounts','items','versions','receipts','dismissals'] loop
   execute format('alter table public.bentan_benkei_%I enable row level security',t);
   execute format('revoke all on public.bentan_benkei_%I from public,anon,authenticated',t);
   execute format('grant all on public.bentan_benkei_%I to service_role',t);
@@ -63,14 +68,15 @@ begin
   select 1 from bentan_benkei_receipts r where r.item_id=i.id and r.version=i.version and r.reader_id=(s->>'readerId')::uuid);
  select coalesce(jsonb_agg(to_jsonb(q)),'[]'::jsonb) into rows from (
   select i.*,exists(select 1 from bentan_benkei_receipts r where r.item_id=i.id and r.version=i.version and r.reader_id=(s->>'readerId')::uuid) confirmed,
+   exists(select 1 from bentan_benkei_dismissals d where d.item_id=i.id and d.version=i.version and d.reader_id=(s->>'readerId')::uuid) dismissed,
    (select coalesce(jsonb_agg(jsonb_build_object('readerId',p.id,'name',p.display_name,'confirmedAt',r.confirmed_at,'version',r.version) order by p.display_name),'[]'::jsonb)
     from bentan_benkei_readers p left join bentan_benkei_receipts r on r.item_id=i.id and r.version=i.version and r.reader_id=p.id where p.active) readers,
    (select coalesce(jsonb_agg(jsonb_build_object('readerId',r.reader_id,'name',p.display_name,'confirmedAt',r.confirmed_at,'version',r.version) order by r.confirmed_at),'[]'::jsonb)
     from bentan_benkei_receipts r join bentan_benkei_readers p on p.id=r.reader_id where r.item_id=i.id) history
-  from bentan_benkei_items i where i.active and (p_all or not exists(select 1 from bentan_benkei_receipts r where r.item_id=i.id and r.version=i.version and r.reader_id=(s->>'readerId')::uuid))
+  from bentan_benkei_items i where i.active and (p_all or not exists(select 1 from bentan_benkei_dismissals r where r.item_id=i.id and r.version=i.version and r.reader_id=(s->>'readerId')::uuid))
   order by i.source_edited_at desc nulls last,i.id limit 20 offset p_offset
  ) q;
- select exists(select 1 from bentan_benkei_items i where i.active and (p_all or not exists(select 1 from bentan_benkei_receipts r where r.item_id=i.id and r.version=i.version and r.reader_id=(s->>'readerId')::uuid)) offset p_offset+20 limit 1) into more;
+ select exists(select 1 from bentan_benkei_items i where i.active and (p_all or not exists(select 1 from bentan_benkei_dismissals r where r.item_id=i.id and r.version=i.version and r.reader_id=(s->>'readerId')::uuid)) offset p_offset+20 limit 1) into more;
  return jsonb_build_object('staff',s,'items',rows,'unreadCount',unread,'hasMore',more,'sync',(select to_jsonb(c)-'page_id' from bentan_benkei_settings c where singleton));
 end $$;
 
@@ -120,3 +126,23 @@ revoke all on function public.benkei_complete_sync(jsonb) from public,anon,authe
 grant execute on function public.benkei_complete_sync(jsonb) to service_role;
 revoke all on function public.benkei_actor(uuid,uuid),public.benkei_list(uuid,uuid,boolean,integer),public.benkei_confirm(uuid,uuid,uuid,integer,text),public.benkei_import(jsonb) from public,anon,authenticated;
 grant execute on function public.benkei_actor(uuid,uuid),public.benkei_list(uuid,uuid,boolean,integer),public.benkei_confirm(uuid,uuid,uuid,integer,text),public.benkei_import(jsonb) to service_role;
+
+create or replace function public.benkei_set_dismissed(p_auth_user_id uuid,p_auth_session_id uuid,p_ids uuid[],p_dismiss boolean)
+returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
+declare s jsonb;i bentan_benkei_items%rowtype;n integer:=0;begin
+ s:=public.benkei_actor(p_auth_user_id,p_auth_session_id);
+ if p_ids is null or cardinality(p_ids) not between 1 and 100 or p_dismiss is null then raise exception 'invalid_request';end if;
+ for i in select * from bentan_benkei_items where id=any(p_ids) and active order by id for update loop
+  if p_dismiss and not exists(select 1 from bentan_benkei_receipts r where r.item_id=i.id and r.version=i.version and r.reader_id=(s->>'readerId')::uuid) then raise exception 'benkei_conflict';end if;
+  if p_dismiss then
+   insert into bentan_benkei_dismissals(item_id,version,reader_id) values(i.id,i.version,(s->>'readerId')::uuid) on conflict do nothing;
+  else
+   delete from bentan_benkei_dismissals where item_id=i.id and version=i.version and reader_id=(s->>'readerId')::uuid;
+  end if;
+  n:=n+1;
+ end loop;
+ if n<>(select count(distinct value) from unnest(p_ids) value) then raise exception 'invalid_request';end if;
+ return jsonb_build_object('changed',n,'dismissed',p_dismiss);
+end $$;
+revoke all on function public.benkei_set_dismissed(uuid,uuid,uuid[],boolean) from public,anon,authenticated;
+grant execute on function public.benkei_set_dismissed(uuid,uuid,uuid[],boolean) to service_role;

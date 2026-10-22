@@ -19,6 +19,16 @@ test('隔離DBで原文版保存・検索・出典・保留再浮上防止・監
   const next=await read();assert.equal(next.proposals.length,0);assert.equal(next.records[0].version,'new-version');
   const proposals=(await read('proposals')).proposals;assert.equal(proposals.length,1);assert.equal(proposals[0].status,'held');assert.equal(proposals[0].decisions.length,1);assert.equal(proposals[0].evidence_stale,true);
   assert.equal(proposals[0].evidence[0].version,record.version);
+  const decide=decision=>db.query('select school_context_decide($1,$2,$3,$4,\'検証\')',[actor,session,id,decision]);
+  await assert.rejects(decide('accepted'),/context_evidence_stale/);
+  await db.query('update school_context_sources set last_version=$1 where source_key=$2',[record.version,record.sourceKey]);
+  for(const status of ['unavailable','refreshing','needs_refresh','needs_verification']){
+   await db.query('update school_context_sources set status=$1 where source_key=$2',[status,record.sourceKey]);
+   await assert.rejects(decide('accepted'),/context_evidence_stale/);
+  }
+  await decide('dismissed');await decide('held');
+  await db.query("update school_context_sources set status='available' where source_key=$1",[record.sourceKey]);await decide('accepted');
+  const missing={...record,sourceKey:'missing:source'};await db.query('update school_context_proposals set evidence=$1 where id=$2',[[{sourceKey:missing.sourceKey,version:record.version}],id]);await assert.rejects(decide('accepted'),/context_evidence_stale/);await decide('held');
   const rights=(await db.query("select has_table_privilege('anon','school_context_records','select') a,has_table_privilege('authenticated','school_context_records','select') b,has_function_privilege('anon','school_context_ingest(jsonb,jsonb)','execute') c,has_function_privilege('authenticated','school_context_read(uuid,uuid,text,text,text,integer)','execute') d")).rows[0];assert.ok(Object.values(rights).every(v=>v===false));
   await db.exec('set role anon');await assert.rejects(db.query('select * from school_context_records'),/permission/);await db.exec('reset role');
  }finally{await db.close();}

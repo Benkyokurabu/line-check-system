@@ -80,6 +80,7 @@ export default function SchoolContextWorkspace() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [decisionResults, setDecisionResults] = useState<Record<string, { proposal: Proposal; message: string }>>({});
   const lock = useRef(false);
 
   useEffect(() => {
@@ -105,11 +106,11 @@ export default function SchoolContextWorkspace() {
 
   async function work(task: () => Promise<void>) {
     if (lock.current) return;
-    lock.current = true; setBusy(true); setError(''); setMessage('');
+    lock.current = true; setBusy(true); setError('');
     try { await task(); }
     catch (caught) {
-      if (caught instanceof ApiError && caught.status === 401) { setStaff(null); setData(null); setForbidden(false); }
-      if (caught instanceof ApiError && caught.status === 403) { setForbidden(true); setData(null); }
+      if (caught instanceof ApiError && caught.status === 401) { setStaff(null); setData(null); setDecisionResults({}); setForbidden(false); }
+      if (caught instanceof ApiError && caught.status === 403) { setForbidden(true); setData(null); setDecisionResults({}); }
       setError(caught instanceof Error ? caught.message : '処理に失敗しました。再度お試しください。');
     } finally { lock.current = false; setBusy(false); }
   }
@@ -119,7 +120,7 @@ export default function SchoolContextWorkspace() {
     setData(next); setView(nextView); setActiveQuery(nextQuery); setActiveStudent(nextStudent.trim());
   }
   function login(nextStaff: LoginStaff) {
-    setStaff(nextStaff); setData(null); setForbidden(!allowedStaff(nextStaff));
+    setStaff(nextStaff); setData(null); setDecisionResults({}); setForbidden(!allowedStaff(nextStaff));
     if (allowedStaff(nextStaff)) void work(async () => { await load('summary', '', ''); });
   }
   async function search(event: FormEvent) {
@@ -133,15 +134,32 @@ export default function SchoolContextWorkspace() {
       else setMessage(`取得しました。Notion ${result.notion?.completed ?? 0}件、LINE ${result.line?.imported ?? 0}件。${result.errors?.length ? '一部の取得に失敗しました。取得範囲を確認してください。' : '取得済みの範囲を一覧へ反映しました。'}${result.line?.hasMore || result.notion?.partial ? ' 続きの取得が残っています。' : ''}`);
     });
   }
-  async function decide(proposal: Proposal, decision: Decision) {
+  async function decide(proposal: Proposal, decision: Decision, trigger: HTMLButtonElement) {
+    if (proposal.status === decision) { setMessage(`「${proposal.title}」は${decisionLabels[decision]}として記録済みです。判断を変更するときは別の判断を選んでください。`); return; }
+    const position = { x: window.scrollX, y: window.scrollY };
     await work(async () => {
-      await api('/api/staff/school-context', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'decision', proposalId: proposal.id, decision, reason: reasons[proposal.id] ?? '' }) });
-      await load(view); setMessage(`「${proposal.title}」を${decisionLabels[decision]}として記録しました。`);
+      const saved = await api<{ id: string; status: Decision }>('/api/staff/school-context', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'decision', proposalId: proposal.id, decision, reason: reasons[proposal.id] ?? '' }) });
+      const updated = { ...proposal, status: saved.status, decisions: [...(proposal.decisions ?? []),
+        ...(proposal.status === saved.status ? [] : [{ decision: saved.status, reason: reasons[proposal.id] ?? '', created_at: new Date().toISOString() }])] };
+      const resultMessage = `${decisionLabels[saved.status]}として記録しました。この行と根拠は引き続き確認できます。`;
+      setDecisionResults(current => ({ ...current, [proposal.id]: { proposal: updated, message: resultMessage } }));
+      setData(current => current ? { ...current, proposals: current.proposals.map(item => item.id === proposal.id ? updated : item),
+        summary: { ...current.summary, proposalCount: Math.max(0, current.summary.proposalCount - (proposal.status === 'pending' ? 1 : 0)) } } : current);
+      setMessage(`「${proposal.title}」を${decisionLabels[saved.status]}として記録しました。`);
+    });
+    requestAnimationFrame(() => {
+      // Keep the operation position without pulling someone back after they intentionally scroll or focus elsewhere.
+      if (trigger.isConnected && Math.abs(window.scrollY - position.y) < 2 &&
+        (document.activeElement === document.body || document.activeElement === trigger)) {
+        trigger.focus({ preventScroll: true }); window.scrollTo(position.x, position.y);
+      }
     });
   }
 
   const showRecords = view === 'summary' || view === 'list' || view === 'search';
   const showProposals = view === 'summary' || view === 'proposals';
+  const displayedProposals = data ? [...data.proposals, ...Object.values(decisionResults)
+    .filter(result => !data.proposals.some(proposal => proposal.id === result.proposal.id)).map(result => result.proposal)] : [];
   return <main className={styles.screen}>
     <header className={styles.header}><div><h1>塾内の情報と確認候補</h1><p>Notion・LINEの記録を根拠と一緒に確認します。</p><span className={styles.status}>工藤確認用</span></div></header>
     {error && <p role="alert" className={styles.notice}>{error}</p>}
@@ -168,25 +186,31 @@ export default function SchoolContextWorkspace() {
       {data && showRecords && <section aria-label="取得した記録"><h2>{view === 'search' ? '検索結果' : '取得した記録'}（表示 {data.records.length}件）</h2>
         {view === 'search' && <p>{activeQuery ? `「${activeQuery}」の検索結果` : '検索語の指定なし'}{activeStudent ? ` ／ 生徒番号：${activeStudent}` : ''}</p>}
         {!data.records.length && <p className={styles.empty}>該当する記録はありません。未取得・未確認の情報が存在しないことは意味しません。</p>}
-        {data.records.map(record => <article key={record.id} className={styles.panel} style={{ overflowWrap: 'anywhere' }}><div className={styles.actions}><span className={styles.status}>{record.source_type === 'notion' ? 'Notion' : 'LINE'}</span>
-          {record.source_type === 'line' && <span className={styles.status}>{record.direction === 'outbound' ? '送信記録' : record.direction === 'inbound' ? '受信記録' : '送受信未確認'}</span>}
-          <span className={styles.status}>原文の記録・内容は要確認</span></div>
-          <h3>{record.title}</h3><small>原文の日時：{date(record.occurred_at)} ／ 取得：{date(record.fetched_at)}</small>
+        {data.records.map(record => <article key={record.id} className={styles.panel} style={{ overflowWrap: 'anywhere', padding: '12px 16px' }}><details>
+          <summary><strong>{record.title}</strong> <span className={styles.status}>{record.source_type === 'notion' ? 'Notion' : 'LINE'}</span>
+            <small>原文の日時：{date(record.occurred_at)} ／ 詳細を開く</small></summary>
+          <div className={styles.actions}>{record.source_type === 'line' && <span className={styles.status}>{record.direction === 'outbound' ? '送信記録' : record.direction === 'inbound' ? '受信記録' : '送受信未確認'}</span>}
+            <span className={styles.status}>原文の記録・内容は要確認</span></div><small>取得：{date(record.fetched_at)}</small>
           {record.source_status && record.source_status !== 'available' && <p className={styles.notice}>保存時点の情報です。{record.source_status === 'unavailable' ? '原文の再取得ができていません。' : '原文の更新・取得範囲を再確認しています。'}最新の原文を確認してください。</p>}
           <Limits detail={record.coverage} /><p><SourceLink value={record.source_ref ?? ''} /></p>
-          <details><summary>保存した本文を確認</summary><p style={{ whiteSpace: 'pre-wrap' }}>{record.content}</p></details>
+          <p style={{ whiteSpace: 'pre-wrap' }}>{record.content}</p></details>
         </article>)}
         {view !== 'summary' && data.records.length >= 100 && <p>表示は100件までです。検索語や生徒番号で絞ってください。</p>}
       </section>}
-      {data && showProposals && <section aria-label="根拠付きの確認候補"><h2>確認候補（表示 {data.proposals.length}件）</h2><p>記録にある確認・相談等の表現を手がかりにした候補です。未対応・未返信とは判定していません。</p>
-        {!data.proposals.length && <p className={styles.empty}>現在表示できる確認候補はありません。</p>}
-        {data.proposals.map(proposal => <article key={proposal.id} className={styles.panel} style={{ overflowWrap: 'anywhere' }}><span className={styles.status}>{decisionLabels[proposal.status] ?? '要確認'}</span><h3>{proposal.title}</h3><p>{proposal.description}</p>
+      {data && showProposals && <section aria-label="根拠付きの確認候補"><h2>確認候補（表示 {displayedProposals.length}件）</h2><p>記録にある確認・相談等の表現を手がかりにした候補です。未対応・未返信とは判定していません。</p>
+        {!displayedProposals.length && <p className={styles.empty}>現在表示できる確認候補はありません。</p>}
+        {displayedProposals.map(proposal => <article key={proposal.id} className={styles.panel} style={{ overflowWrap: 'anywhere', padding: '12px 16px' }}>
+          {decisionResults[proposal.id] && <p role="status" className={styles.notice}>{decisionResults[proposal.id].message}</p>}
+          <details><summary><span className={styles.status}>{decisionLabels[proposal.status] ?? '要確認'}</span> <strong>{proposal.title}</strong><small>根拠・判断・履歴を開く{proposal.evidence_stale ? ' ／ 原文の再確認が必要' : ''}</small></summary>
+          <p>{proposal.description}</p>
           {proposal.evidence_stale && <p className={styles.notice}>根拠の版が更新されています。最新の原文を確認してから判断してください。</p>}
           <Limits detail={proposal.coverage} />
           {proposal.evidence.map((evidence, index) => <div className={styles.selected} key={`${evidence.sourceKey}-${index}`}><strong>根拠 {index + 1}</strong><p style={{ whiteSpace: 'pre-wrap' }}>{evidence.excerpt}</p><SourceLink value={evidence.sourceRef ?? ''} /></div>)}
           <label>判断の理由（任意）<textarea maxLength={2000} disabled={busy} value={reasons[proposal.id] ?? ''} onChange={event => setReasons(current => ({ ...current, [proposal.id]: event.target.value }))} /></label>
-          <div className={styles.actions}>{(['accepted', 'held', 'dismissed'] as const).map(decision => <button key={decision} className={decision === 'accepted' ? styles.primary : undefined} disabled={busy || proposal.evidence_stale} onClick={() => void decide(proposal, decision)}>{decisionLabels[decision]}</button>)}</div>
+          <div className={styles.actions}>{(['accepted', 'held', 'dismissed'] as const).map(decision => <button key={decision} className={decision === 'accepted' ? styles.primary : undefined} aria-pressed={proposal.status === decision} disabled={busy || proposal.evidence_stale} onClick={event => void decide(proposal, decision, event.currentTarget)}>{decisionLabels[decision]}{proposal.status === decision ? '（現在）' : ''}</button>)}</div>
+          {proposal.status !== 'pending' && <small>判断を変更するときは、理由を入力して別の判断を選んでください。これまでの判断は履歴に残ります。</small>}
           {!!proposal.decisions?.length && <details><summary>判断の履歴（{proposal.decisions.length}件）</summary><ul>{proposal.decisions.map((item, index) => <li key={index}>{date(item.created_at)}：{decisionLabels[item.decision]}{item.reason && <p style={{ whiteSpace: 'pre-wrap' }}>{item.reason}</p>}</li>)}</ul></details>}
+          </details>
         </article>)}
       </section>}
       {data && (view === 'summary' || view === 'coverage') && <section className={styles.panel} aria-label="情報の取得範囲"><h2>取得範囲</h2><p>接続で閲覧できるNotionページ、保存済みのLINE記録を対象にします。コメント・添付の内容や、LINE管理画面から直接送った返信などには未取得の経路があります。</p>

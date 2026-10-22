@@ -103,6 +103,14 @@ begin
  if p_decision is null or p_decision not in('accepted','held','dismissed') or p_reason is null or length(p_reason)>2000 then raise exception 'invalid_context_decision';end if;
  select status into prior from school_context_proposals where id=p_proposal for update;
  if not found then raise exception 'context_proposal_not_found';end if;
+ if p_decision='accepted' then
+  perform 1 from school_context_sources s where s.source_key in(select e->>'sourceKey' from school_context_proposals p cross join lateral jsonb_array_elements(p.evidence)e where p.id=p_proposal) order by s.source_key for share;
+  if not exists(select 1 from school_context_proposals p cross join lateral jsonb_array_elements(p.evidence)e where p.id=p_proposal)
+   or exists(select 1 from school_context_proposals p cross join lateral jsonb_array_elements(p.evidence)e
+    left join school_context_sources s on s.source_key=e->>'sourceKey'
+    where p.id=p_proposal and (s.source_key is null or s.status is distinct from 'available' or s.last_version is distinct from e->>'version'))
+   then raise exception 'context_evidence_stale';end if;
+ end if;
  if prior<>p_decision then
   update school_context_proposals set status=p_decision,updated_at=now() where id=p_proposal;
   insert into school_context_decisions(proposal_id,actor_id,decision,reason) values(p_proposal,actor,p_decision,p_reason);

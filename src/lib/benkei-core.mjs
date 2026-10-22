@@ -4,6 +4,9 @@ export function blockText(block){
  const value=block[block.type]??{};
  const text=(value.rich_text??value.caption??[]).map(part=>{
   const label=part.plain_text??part.text?.content??'';const href=part.href??part.text?.link?.url;
+  if(label.trim()==='勉たんで確認'&&typeof href==='string'){
+   try{const marker=new URL(href);if(marker.origin==='https://line-check-system.vercel.app'&&marker.pathname==='/staff/benkei'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(marker.searchParams.get('operation')??''))return '';}catch{}
+  }
   return href&&href!==label?`${label} (${href})`:label;
  }).join('');
  const url=value.url??value.external?.url;
