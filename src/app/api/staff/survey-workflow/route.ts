@@ -10,6 +10,7 @@ import {saveSurveySchedule,activeSurveySchedule} from '@/lib/survey-bensuke.mjs'
 import {surveyMeetingCampus} from '@/lib/survey-meeting-campus.mjs';
 import {surveyLineRecipients} from '@/lib/survey-line-recipients.mjs';
 import {methodFromSurveySchedule} from '@/lib/survey-schedule-style.mjs';
+import {resolveSurveyStudentProfile} from '@/lib/survey-student-profile.mjs';
 
 export const dynamic='force-dynamic';
 export const maxDuration=60;
@@ -22,7 +23,6 @@ type RecordBlock={id:string;type:string;last_edited_time?:string;code?:{rich_tex
 
 type StaffContext=Awaited<ReturnType<typeof staffContext>>;
 
-function text(property?:NotionProperty){return (property?.title??property?.rich_text??[]).map(x=>x.plain_text??x.text?.content??'').join('').trim();}
 function requireRole(context:StaffContext){if(!['admin','office','employee','teacher'].includes(context.staff.role))throw new InterviewError('職員の権限を確認してください。',403);}
 
 async function selectedAnswer(context:StaffContext,answerId:string){
@@ -35,26 +35,9 @@ async function selectedAnswer(context:StaffContext,answerId:string){
  if(!student)throw new InterviewError('アンケート回答と生徒を照合できません。',404);
  const answer=await loadVerifiedSurveyAnswer(answerId,student,roster);
  const page=await notionRequest(`/pages/${answerId}`) as NotionPage;
- const relation=page.properties['生徒情報DB']?.relation??[];
- if(relation.length>1)throw new InterviewError('アンケートに複数の生徒情報が紐づいています。',409);
- let profileId=relation[0]?.id??'';
- if(!profileId){
-  const {data:registered,error}=await context.dataClient.from('student_registry')
-   .select('notion_page_id').eq('student_number',student.student_number).eq('enrollment_status','current_roster').maybeSingle();
-  if(error)throw new InterviewError('Notionの生徒対応表を取得できません。',503);
-  profileId=String(registered?.notion_page_id??'');
-  if(!profileId){
-   const {data:mapping,error:mappingError}=await context.dataClient.from('notion_student_profiles')
-    .select('notion_page_id').eq('student_number',student.student_number).order('updated_at',{ascending:false}).limit(1).maybeSingle();
-   if(mappingError)throw new InterviewError('Notionの生徒対応表を取得できません。',503);
-   profileId=String(mapping?.notion_page_id??'');
-  }
- }
- if(!profileId)throw new InterviewError('生徒情報のNotionページを確認できません。',409);
- const profile=await notionRequest(`/pages/${profileId}`) as NotionPage;
- if(text(profile.properties['学籍番号'])!==String(student.student_number)&&
-    String(profile.properties['学籍番号']?.number??'')!==String(student.student_number))
-   throw new InterviewError('Notionの生徒番号が一致しません。',409);
+ const profile=await resolveSurveyStudentProfile({db:context.dataClient,
+  request:(path:string,init:RequestInit={})=>notionRequest(path,{...init,cache:'no-store',signal:AbortSignal.timeout(10000)}),
+  page,number:String(student.student_number)}) as NotionPage;
  return {student,page,profile,answer};
 }
 async function linkedAccounts(context:StaffContext,number:string){
