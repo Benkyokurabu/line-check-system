@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>根拠付き知識の保存と利用</title>
+<style>
+:root{color-scheme:light;--ink:#183128;--muted:#566b61;--line:#ccd8ce;--green:#17634a;--paper:#fffef8;--bg:#eef2e9}
+*{box-sizing:border-box}body{margin:0;font-family:"Yu Gothic UI",Meiryo,sans-serif;background:var(--bg);color:var(--ink);line-height:1.75}main{max-width:1100px;margin:auto;padding:48px 28px 72px}h1{font-size:clamp(27px,4vw,44px);line-height:1.35;margin:12px 0 20px}h2{font-size:22px;margin:0 0 16px}h3{font-size:16px;margin:0 0 8px}p{margin:10px 0}.eyebrow{font-size:13px;letter-spacing:.12em;color:var(--green);font-weight:700}.intro{max-width:760px;color:var(--muted)}.status{padding:16px 20px;border-left:4px solid var(--green);background:var(--paper);margin:24px 0 32px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}button{font:inherit;border:1px solid var(--line);background:white;color:var(--ink);border-radius:8px;padding:10px 16px;cursor:pointer}button[aria-selected="true"]{background:var(--green);color:white;border-color:var(--green)}button:focus-visible{outline:3px solid #e1a53e;outline-offset:3px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:28px}.flow{display:grid;grid-template-columns:1fr 30px 1fr 30px 1fr;align-items:center;gap:8px;margin:26px 0}.box{border:1px solid var(--line);background:white;border-radius:10px;padding:18px;min-height:150px}.box small{display:block;color:var(--muted)}.arrow{text-align:center;font-size:24px;color:var(--green)}.planned{border-style:dashed}.chips{display:flex;gap:8px;flex-wrap:wrap}.chip{background:#e7efdf;padding:5px 10px;border-radius:5px;font-size:13px}.muted{color:var(--muted);font-size:14px}.demo{display:grid;grid-template-columns:1fr 1fr;gap:20px}.result{border:1px solid var(--line);border-radius:10px;padding:20px;background:#fff}.badge{display:inline-block;padding:4px 10px;background:#e7efdf;border-radius:5px;font-size:13px;font-weight:700}.warning{background:#fff0d2}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:12px 8px}th{font-weight:700}.steps{padding-left:24px}.steps li{margin:10px 0}code{font-size:13px;overflow-wrap:anywhere}footer{margin-top:24px;color:var(--muted);font-size:13px}a{color:var(--green)}[hidden]{display:none!important}@media(max-width:650px){main{padding:26px 16px 40px}.panel{padding:20px 16px}.flow{grid-template-columns:1fr}.box{min-height:0}.arrow{transform:rotate(90deg)}.demo{grid-template-columns:1fr}.tabs button{flex:1;padding:9px 10px;font-size:14px}}
+</style>
+<main>
+<div class="eyebrow">業務コンテキスト / 保存と参照</div>
+<h1>説明を、根拠のある知識へ。</h1>
+<p class="intro">業務のやり方、例外、気づき、決定を分けて蓄積します。答えを出す前に、いつ・誰に・どの範囲で成り立つかと、訂正の有無を確認します。</p>
+<div class="status"><strong>現在使えるもの：</strong>ローカルの保存・検索・訂正履歴・出典更新の検出。<br><strong>今後の接続：</strong>勉たんの画面とAIからの自動利用。サーバー側保存・職員別の閲覧範囲・原資料の更新取得が必要です。</div>
+<nav class="tabs" role="tablist" aria-label="説明の切替">
+<button id="tab-flow" role="tab" aria-controls="flow" aria-selected="true">仕組み</button>
+<button id="tab-demo" role="tab" aria-controls="demo" aria-selected="false">訂正と再確認</button>
+<button id="tab-usage" role="tab" aria-controls="usage" aria-selected="false">保存と使い方</button>
+</nav>
+<section class="panel" id="flow" role="tabpanel" aria-labelledby="tab-flow">
+<h2>原文から回答までの流れ</h2>
+<div class="flow"><div class="box"><h3>原資料</h3><small>既存の資料集約・業務記録・説明<br>原文は元の場所に保持</small></div><div class="arrow" aria-hidden="true">→</div><div class="box"><h3>分類した知識</h3><small>出典・引用・確認日・適用範囲<br>訂正前後の版と変更理由</small></div><div class="arrow" aria-hidden="true">→</div><div class="box"><h3>条件を指定して検索</h3><small>現在の判断基準と参考情報を分離<br>原資料の変更時は要再確認</small></div></div>
+<div class="box planned"><h3>画面・AIとの自動接続は未実装</h3><small>共通処理とCLIは利用できます。既存画面の動作や外部サービスへの書き込みは変更していません。</small></div>
+<h3 style="margin-top:24px">保存する8つの分類</h3><div class="chips"><span class="chip">作業手順</span><span class="chip">判断基準</span><span class="chip">例外</span><span class="chip">個別事例</span><span class="chip">気づき</span><span class="chip">改善案</span><span class="chip">決定</span><span class="chip">未確認点</span></div>
+<p class="muted">分類と確認状態は別々に保持します。確認済みの個別事例でも、全体に適用するルールへ自動で格上げしません。</p>
+</section>
+<section class="panel" id="demo" role="tabpanel" aria-labelledby="tab-demo" hidden>
+<h2>訂正と原資料の更新を確認する</h2><p>以下は動きを説明する<strong>架空例</strong>です。実際の生徒データを使っていません。</p>
+<div class="controls"><button data-mode="current" aria-pressed="true">現在の検索結果</button><button data-mode="old" aria-pressed="false">訂正前の履歴</button><button data-mode="stale" aria-pressed="false">原資料が更新された場合</button></div>
+<div class="demo"><div class="result"><span class="badge" id="demo-badge">確認済みの判断基準</span><h3 style="margin-top:16px" id="demo-title">登録数から人数を断定しない</h3><p id="demo-body">同じ人に複数の登録がある場合、登録数と人物数を分け、照合した範囲を示します。</p><p class="muted" id="demo-source">出典：架空の確認メモ / 確認日：2026-10-22 / 出典は更新なし</p></div><div class="result"><h3>利用側へ返す扱い</h3><p id="demo-action">現在の判断基準として返します。外部への更新や送信を許可するものではありません。</p><p class="muted">校舎・学年・役割などの条件が限定されている場合は、検索時もその条件を指定します。条件が不足する結果は参考情報として返します。</p></div></div>
+</section>
+<section class="panel" id="usage" role="tabpanel" aria-labelledby="tab-usage" hidden>
+<h2>説明を受けた後の保存と参照</h2><ol class="steps"><li>元の説明を業務記録へ保存し、手順・理由・例外・確認日を整理します。</li><li>必要な知識を分類し、引用と適用範囲を確認して保存します。訂正は同じIDの新しい版として追記します。</li><li>質問や業務の対象に合わせて検索し、判断基準と個別事例・未確認点を分けて読みます。</li><li>原資料が変わっていたら再確認し、新しい根拠で版を追加します。</li></ol>
+<table><thead><tr><th>場面</th><th>処理</th></tr></thead><tbody><tr><td>過去の説明が訂正された</td><td>通常の検索は最新版のみ。旧版は履歴として保持。</td></tr><tr><td>元資料が変わった・読めない</td><td>要再確認。現在の判断基準から除外。</td></tr><tr><td>個別事例・改善案・推測</td><td>参考情報に分離。一般ルールにしない。</td></tr><tr><td>既存文書に古い説明が残る</td><td>自動で全件採用せず、根拠を確認して登録。</td></tr></tbody></table>
+<p class="muted">詳細なコマンドと保存形式：<a href="../knowledge/README.md">共通処理の説明</a>。業務の私的な知識データは公開Gitへ含めません。</p>
+</section>
+<footer>確認日 2026-10-22 / 原資料の取得や外部システムへの反映は、それぞれの業務手順と権限に従います。</footer>
+</main>
+<script>
+const tabs=[...document.querySelectorAll('[role=tab]')];
+function activate(tab){for(const candidate of tabs){const selected=candidate===tab;candidate.setAttribute('aria-selected',String(selected));candidate.tabIndex=selected?0:-1;document.getElementById(candidate.getAttribute('aria-controls')).hidden=!selected;}}
+for(const tab of tabs){tab.addEventListener('click',()=>activate(tab));tab.addEventListener('keydown',event=>{if(['ArrowRight','ArrowLeft','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(tabs.indexOf(tab)+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;activate(tabs[next]);tabs[next].focus();}});}
+activate(tabs[0]);
+const states={current:['確認済みの判断基準','登録数から人数を断定しない','同じ人に複数の登録がある場合、登録数と人物数を分け、照合した範囲を示します。','出典：架空の確認メモ / 確認日：2026-10-22 / 出典は更新なし','現在の判断基準として返します。外部への更新や送信を許可するものではありません。'],old:['訂正前の履歴','古い説明は現在の判断に使わない','件数をそのまま人数と扱った旧説明。訂正理由と旧版を履歴へ残し、通常の検索には戻しません。','出典：架空の旧説明 / 新版による訂正あり','履歴として表示します。現在の判断基準から除外します。'],stale:['要再確認','根拠となる原資料が更新された','保存時と現在の出典ハッシュが一致しません。元資料を読み直し、必要な確認をしてから新しい版を保存します。','出典：架空の確認メモ / 出典に変更あり','参考情報として返します。確認済みの判断基準として使いません。']};
+for(const button of document.querySelectorAll('[data-mode]'))button.addEventListener('click',()=>{const values=states[button.dataset.mode];['badge','title','body','source','action'].forEach((key,i)=>document.getElementById('demo-'+key).textContent=values[i]);document.getElementById('demo-badge').classList.toggle('warning',button.dataset.mode!=='current');for(const other of document.querySelectorAll('[data-mode]'))other.setAttribute('aria-pressed',String(other===button));});
+</script>
+</html>

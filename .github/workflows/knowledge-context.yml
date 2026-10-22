@@ -1,0 +1,25 @@
+name: Knowledge context
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'knowledge/**'
+      - '.github/workflows/knowledge-context.yml'
+  pull_request:
+    paths:
+      - 'knowledge/**'
+      - '.github/workflows/knowledge-context.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  knowledge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test knowledge/context-store.test.mjs

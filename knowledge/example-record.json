@@ -1,0 +1,14 @@
+{
+  "id": "example-count-criterion",
+  "title": "件数と人数を区別する架空の判断基準",
+  "body": "同じ人が複数登録されている場合があるため、登録数から人数を断定しない。これは形式説明用の架空例。",
+  "category": "criterion",
+  "assertion": "proposal",
+  "status": "unconfirmed",
+  "checkedAt": "2026-10-22",
+  "validFrom": "2026-10-22",
+  "validUntil": null,
+  "scope": { "campuses": [], "grades": [], "roles": [], "subject": "" },
+  "changeReason": "形式説明用。実際の判断基準として採用するには原文を確認する。",
+  "sources": [{ "path": "knowledge/README.md", "quote": "登録数と人数は区別する。", "locator": "架空例" }]
+}
