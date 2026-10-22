@@ -35,6 +35,7 @@ function fixture(){
 test('確認状態と原本の選択肢を検証し、未確認の作業を完了にしない',async()=>{
  const f=fixture(),p=await prepareVisit({request:f.request,studentPageId:f.student.id,staff:f.staff});
  assert.equal(p.payload.fields.studentStatus.state,'review');assert.equal(p.payload.fields.materials.state,'unknown');
+ f.student.properties['学年'].formula.string='中1';const half=await prepareVisit({request:f.request,studentPageId:f.student.id,staff:f.staff});assert.equal(half.payload.fields.grade.value,'中１');assert.equal(half.payload.fields.grade.state,'review');
  const clean=validateVisitPayload(f.entry.payload,p.options);clean.fields.intakeStatus.state='review';assert.ok(!('状態（問合DBのみの）'in visitProperties(clean,'intake',f.schemas.intake,f.staff.staffId)));
  f.entry.payload.fields.visitEnd.value='2026-10-25';assert.throws(()=>validateVisitPayload(f.entry.payload,p.options),/終了日/);f.entry.payload.fields.visitEnd.value='2026-11-06';f.entry.payload.fields.classes.value='存在しないクラス';assert.throws(()=>validateVisitPayload(f.entry.payload,p.options),/原本の選択肢/);
 });
