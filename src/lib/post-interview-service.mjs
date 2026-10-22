@@ -4,6 +4,7 @@ import {digest,validatePostPayload,planPostDelivery,confirmed,postFields,blankPo
 import {preparePostContext,postDesiredProperties,postSurveyProperties,runPostNotion} from './post-interview-notion.mjs';
 import {runPostDeliveries} from './post-interview-delivery.mjs';
 import {syncParentContactLog} from './parent-contact-sync.mjs';
+import {runVisitNotion} from './visit-followup-notion.mjs';
 export function postDatabase(result){if(result.error)throw new InterviewError(/conflict|unique/.test(result.error.message)?'保存内容が別の操作で変わりました。入力を保持して最新の内容を確認してください。':'面談入力の保存先を確認できません。',/conflict|unique/.test(result.error.message)?409:503);return result.data;}
 export async function readPostEntry(db,id){if(!isEnrollmentId(id))throw new InterviewError('入力記録を選び直してください。',422);const entry=postDatabase(await db.from('post_interview_entries').select('*').eq('id',id).maybeSingle());if(!entry)throw new InterviewError('入力記録が見つかりません。',404);return entry;}
 export async function postEntries(db,answerId){return postDatabase(await db.from('post_interview_entries').select('id,answer_page_id,payload,status,version,updated_at').eq('answer_page_id',answerId).order('updated_at',{ascending:false}).limit(40)).map(e=>({id:e.id,title:e.payload.fields.title.value||'面談記録の下書き',date:e.payload.fields.date.value,status:e.status,version:e.version,updatedAt:e.updated_at}));}
@@ -65,11 +66,14 @@ export async function processPostEntry({db,request,id=null,recipients,fetcher=fe
     storeSent:async({historyId,line,entry})=>{const result=await db.from('line_messages').insert({line_message_id:historyId,line_user_id:line.id,direction:'outbound',message_type:'text',text:line.text,sent_by:entry.payload.actorName,received_at:new Date().toISOString(),raw_event:{operation:'post_interview',entry_id:entry.id,version:entry.version,line_retry_key:line.key,line_request_id:line.requestId}});if(!result.error)return true;return !!postDatabase(await db.from('line_messages').select('id').eq('line_message_id',historyId).maybeSingle());}};
   await runPostDeliveries({...delivery,onlyIndependent:true});
   if(!lineOnly){
-   if(entry.payload.intent!=='draft'&&entry.payload.workflow!=='parent-contact')await runPostNotion({entry,request,checkpoint});
+   if(entry.payload.intent!=='draft'){
+    if(entry.payload.workflow==='visit-followup')await runVisitNotion({entry,request,checkpoint});
+    else if(entry.payload.workflow!=='parent-contact')await runPostNotion({entry,request,checkpoint});
+   }
    if(entry.payload.intent!=='draft')await syncParentContactLog({db,entry,checkpoint,key:cloudKey,fetcher});
    await runPostDeliveries(delivery);
   }
-  const values=[entry.targets.record,entry.targets.survey,...(entry.targets.workLog?[entry.targets.workLog]:[]),...Object.values(entry.targets.lines)];
+  const values=[entry.targets.record,entry.targets.survey,...['student','intake','mtg','workLog'].flatMap(key=>entry.targets[key]?[entry.targets[key]]:[]),...Object.values(entry.targets.lines)];
   const pending=values.some(s=>['pending','retry','creating'].includes(s.status));const review=values.some(s=>!['synced','accepted','external','skipped'].includes(s.status))||Object.values(entry.payload.fields).some(f=>!['confirmed','not_applicable'].includes(f.state));
   const status=pending?'partial':review||entry.payload.intent==='draft'?'review':'complete';await checkpoint(entry.targets,status);return {processed:true,status};
  }catch{await checkpoint(entry.targets,'partial');return {processed:false,status:'partial'};}
