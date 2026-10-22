@@ -7,6 +7,22 @@ export async function recordCoverage(db,channel,scope,status,detail){contextData
 async function readState(db,key){return contextDatabase(await db.from('school_context_state').select('value').eq('key',key).maybeSingle())?.value??{};}
 async function writeState(db,key,value){contextDatabase(await db.from('school_context_state').upsert({key,value,updated_at:new Date().toISOString()}));}
 const safeFailure=error=>({code:typeof error?.code==='string'&&/^[a-z_]+$/.test(error.code)?error.code:'request_failed',httpStatus:Number(error?.status)||null});
+const deadlineError=()=>Object.assign(new Error('context_work_deadline'),{code:'context_work_deadline'});
+// Supabase builders start the HTTP request when awaited. Bound that request at
+// the execution point, including RPCs, without changing query ordering or SQL.
+export function deadlineContextDatabase(db,deadlineAt){
+  const wrap=target=>new Proxy(target,{get(object,key){
+    if(key==='then'&&typeof object.then==='function')return(resolve,reject)=>{
+      const remaining=deadlineAt-Date.now();
+      if(remaining<=0)return Promise.reject(deadlineError()).then(resolve,reject);
+      const query=typeof object.abortSignal==='function'?object.abortSignal(AbortSignal.timeout(Math.max(1,remaining))):object;
+      return query.then(resolve,reject);
+    };
+    const value=Reflect.get(object,key,object);
+    return typeof value==='function'?(...args)=>{const next=value.apply(object,args);return next&&typeof next==='object'?wrap(next):next;}:value;
+  }});
+  return {from:(...args)=>wrap(db.from(...args)),rpc:(...args)=>wrap(db.rpc(...args))};
+}
 export async function associateContextStudents(db,record){
   const ids=[...new Set([record.nativeId,...record.associations.filter(a=>a.kind==='notion_relation').map(a=>a.id)])].filter(id=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
   if(!ids.length)return record;
@@ -16,11 +32,13 @@ export async function associateContextStudents(db,record){
   return {...record,associations,version:contextDigest({sourceVersion:record.version,associations})};
 }
 
-export function notionContextRequest({token,version='2025-09-03',request=fetch}){
+export function notionContextRequest({token,version='2025-09-03',request=fetch,deadlineAt=Infinity}){
   let lastCall=0;
   return async(path,body)=>{
-    const delay=Math.max(0,350-(Date.now()-lastCall));if(delay)await new Promise(resolve=>setTimeout(resolve,delay));lastCall=Date.now();
-    const response=await request(`https://api.notion.com/v1${path}`,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','Notion-Version':version},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(8000),cache:'no-store'});
+    const delay=Math.max(0,350-(Date.now()-lastCall));if(Date.now()+delay>=deadlineAt)throw deadlineError();
+    if(delay)await new Promise(resolve=>setTimeout(resolve,delay));lastCall=Date.now();
+    const remaining=deadlineAt-Date.now();if(remaining<=0)throw deadlineError();
+    const response=await request(`https://api.notion.com/v1${path}`,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','Notion-Version':version},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(Math.max(1,Math.min(8000,remaining))),cache:'no-store'});
     if(!response.ok){const error=new Error('notion_request_failed');error.status=response.status;error.code=[401,403,404].includes(response.status)?'permission_or_source_unavailable':response.status===429?'rate_limited':'request_failed';throw error;}
     const result=await response.json();if(!result||typeof result!=='object')throw new Error('invalid_notion_response');return result;
   };
@@ -28,29 +46,36 @@ export function notionContextRequest({token,version='2025-09-03',request=fetch})
 
 /** One resumable batch; no Notion or LINE writes and no external messages. */
 export async function syncSchoolContext(options){
-  const lease=contextDatabase(await options.db.rpc('school_context_sync_claim'));
+  const hardDeadline=Date.now()+50000,db=deadlineContextDatabase(options.db,hardDeadline);
+  const lease=contextDatabase(await db.rpc('school_context_sync_claim'));
   if(!lease)return {busy:true,canContinue:true};
-  try{return await syncContextBatch(options);}finally{contextDatabase(await options.db.rpc('school_context_sync_release',{p_lease:lease}));}
+  try{return await syncContextBatch({...options,db,hardDeadline});}
+  finally{contextDatabase(await deadlineContextDatabase(options.db,Date.now()+5000).rpc('school_context_sync_release',{p_lease:lease}));}
 }
-async function syncContextBatch({db,notion=null,token=null,deadlineMs=40000,blockBudget=12,lineLimit=500}){
-  const started=Date.now(),deadline=started+deadlineMs,report={notion:{discovered:0,completed:0,partial:0,failed:0},line:{imported:0,hasMore:false},errors:[]};
-  const request=notion??(token?notionContextRequest({token}):null);
+async function syncContextBatch({db,notion=null,token=null,deadlineMs=40000,blockBudget=12,lineLimit=500,hardDeadline=Date.now()+50000}){
+  const started=Date.now(),deadline=Math.min(started+Math.max(0,deadlineMs),hardDeadline-10000),requestDeadline=deadline-3000,report={notion:{discovered:0,completed:0,partial:0,failed:0},line:{imported:0,hasMore:false},errors:[]};
+  const request=notion??(token?notionContextRequest({token,deadlineAt:requestDeadline}):null);
   if(!request){await recordCoverage(db,'notion','connection_discovery','unavailable',{reason:'notion_token_missing',complete:false});report.errors.push('notion_token_missing');}
+  else if(Date.now()>=requestDeadline){await recordCoverage(db,'notion','connection_discovery','partial',{reason:'notion_budget_exhausted',complete:false,cursorRetained:true});}
   else{
     const state=await readState(db,'notion_discovery');
     try{
       const cycleAt=state.cursor?state.cycleStartedAt:new Date().toISOString();
       const page=await request('/search',{filter:{value:'page',property:'object'},sort:{direction:'descending',timestamp:'last_edited_time'},page_size:100,...(state.cursor?{start_cursor:state.cursor}:{})});
       if(!Array.isArray(page.results)||typeof page.has_more!=='boolean'||page.has_more&&!page.next_cursor)throw new Error('invalid_notion_discovery_response');
-      const objects=page.results.filter(p=>p.object==='page');
-      for(const object of objects){
+      const objects=[...new Map(page.results.filter(p=>p.object==='page').map(object=>[object.id,object])).values()];
+      const keys=objects.map(object=>`notion:${object.id}`);
+      const priorRows=keys.length?contextDatabase(await db.from('school_context_sources').select('*').in('source_key',keys)):[];
+      const bySource=new Map((priorRows??[]).map(prior=>[prior.source_key,prior]));
+      const discovered=objects.map(object=>{
         const sourceKey=`notion:${object.id}`;
-        const prior=contextDatabase(await db.from('school_context_sources').select('*').eq('source_key',sourceKey).maybeSingle());
+        const prior=bySource.get(sourceKey);
         const changed=!prior||prior.metadata?.page?.last_edited_time!==object.last_edited_time;
         const due=prior&&Date.now()-Date.parse(prior.metadata?.lastFullFetch??'1970-01-01')>86400000;
         const metadata={...prior?.metadata,page:object,discoveryCycleAt:cycleAt,...(changed?{progress:null}:{})};
-        contextDatabase(await db.from('school_context_sources').upsert({source_key:sourceKey,source_type:'notion',native_id:object.id,metadata,pending:changed||due||prior?.pending||prior?.status==='unavailable',status:changed&&prior?.last_version?'needs_refresh':prior?.status??'discovered',...(prior?{}:{updated_at:new Date().toISOString()})}));
-      }
+        return {source_key:sourceKey,source_type:'notion',native_id:object.id,metadata,pending:!!(changed||due||prior?.pending||prior?.status==='unavailable'),status:changed&&prior?.last_version?'needs_refresh':prior?.status??'discovered',updated_at:prior?.updated_at??new Date().toISOString()};
+      });
+      if(discovered.length)contextDatabase(await db.from('school_context_sources').upsert(discovered));
       const truncated=!!page.request_status?.incomplete_reason;
       if(!page.has_more&&!truncated)contextDatabase(await db.rpc('school_context_discovery_finish',{p_cycle:cycleAt}));
       await writeState(db,'notion_discovery',{cursor:page.has_more?page.next_cursor:null,cycleStartedAt:cycleAt,lastCompletedAt:page.has_more||truncated?state.lastCompletedAt:new Date().toISOString()});
@@ -58,7 +83,7 @@ async function syncContextBatch({db,notion=null,token=null,deadlineMs=40000,bloc
       await recordCoverage(db,'notion','connection_discovery',page.has_more||truncated?'partial':'complete_for_connection',{complete:!page.has_more&&!truncated,cursor:page.next_cursor??null,discovered:objects.length,workspaceComplete:false,...(truncated?{apiIncompleteReason:page.request_status.incomplete_reason}:{}),limitations:['接続へ共有され、Notion検索APIが返すページの範囲です。塾内全体の閲覧権限・検索漏れは保証しません。']});
     }catch(error){report.errors.push('notion_discovery_failed');await recordCoverage(db,'notion','connection_discovery','failed',{complete:false,...safeFailure(error),cursorRetained:state.cursor??null});}
     let budget=blockBudget;
-    while(budget>0&&Date.now()<deadline){
+    while(budget>0&&Date.now()<requestDeadline){
       const source=contextDatabase(await db.from('school_context_sources').select('*').eq('source_type','notion').eq('pending',true).order('updated_at').limit(1).maybeSingle());
       if(!source)break;
       const metadata=source.metadata??{};
@@ -72,7 +97,7 @@ async function syncContextBatch({db,notion=null,token=null,deadlineMs=40000,bloc
           progress={...progress,blocks:[...progress.blocks,...result.results],queue:[...(result.has_more?[{id:node.id,cursor:result.next_cursor}]:[]),...progress.queue.slice(1),...result.results.filter(b=>b.has_children).map(b=>({id:b.id,cursor:null}))]};
         }
         let complete=progress.queue.length===0;
-        if(complete&&budget>0){
+        if(complete&&budget>0&&Date.now()<requestDeadline){
           const latest=await request(`/pages/${source.native_id}`);budget--;
           if(latest.last_edited_time!==page.last_edited_time){
             contextDatabase(await db.from('school_context_sources').update({metadata:{...metadata,page:latest,progress:null},pending:true,updated_at:new Date().toISOString()}).eq('source_key',source.source_key));
@@ -88,6 +113,9 @@ async function syncContextBatch({db,notion=null,token=null,deadlineMs=40000,bloc
         await recordCoverage(db,'notion',source.source_key,complete?'complete_for_page':'partial',{complete,version:record.version,remainingBlockLists:progress.queue.length,limitations:record.coverage.limitations});
         report.notion[complete?'completed':'partial']++;
       }catch(error){
+        if(error?.code==='context_work_deadline'||Date.now()>=requestDeadline){
+          await recordCoverage(db,'notion',source.source_key,'partial',{complete:false,reason:'notion_budget_exhausted',retainedPreviousVersion:true});break;
+        }
         report.notion.failed++;report.errors.push('notion_page_failed');
         contextDatabase(await db.from('school_context_sources').update({status:'unavailable',updated_at:new Date().toISOString()}).eq('source_key',source.source_key));
         await recordCoverage(db,'notion',source.source_key,'failed',{complete:false,...safeFailure(error),retainedPreviousVersion:true});break;

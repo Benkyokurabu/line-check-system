@@ -1,8 +1,8 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {PGlite} from '@electric-sql/pglite';
-import {syncSchoolContext,importContextLineEvents,associateContextStudents} from '../src/lib/school-context-sync.mjs';
+import {syncSchoolContext,importContextLineEvents,associateContextStudents,deadlineContextDatabase,notionContextRequest} from '../src/lib/school-context-sync.mjs';
 
 // Supabase query transport backed by a real isolated PostgreSQL engine.
-function adapter(sql){
+function adapter(sql,onQuery=()=>{}){
  const ident=value=>{assert.match(value,/^[a-z_]+$/);return value;};
  return {
   async rpc(name,args={}){try{return {data:(await sql.query(`select ${ident(name)}(${Object.values(args).map((_,i)=>`$${i+1}`).join(',')}) value`,Object.values(args))).rows[0].value,error:null};}catch(error){return {data:null,error};}},
@@ -26,6 +26,7 @@ function adapter(sql){
       const keys=Object.keys(state.rows[0]);query=`insert into ${table}(${keys.map(ident).join(',')}) values ${state.rows.map(row=>'('+keys.map(key=>param(row[key])).join(',')+')').join(',')}`;
       if(state.mode==='upsert'){const pk=table==='school_context_sources'?'source_key':'key';query+=` on conflict(${pk}) do update set ${keys.filter(key=>key!==pk).map(key=>`${ident(key)}=excluded.${ident(key)}`).join(',')}`;}
      }
+     onQuery({table,mode:state.mode,filters:state.filters,rowCount:state.rows?.length??null});
      const result=await sql.query(query,values);resolve({data:state.single?result.rows[0]??null:result.rows,error:null});
     }catch(error){if(resolve)resolve({data:null,error});else reject(error);}}
    };return api;
@@ -73,4 +74,44 @@ test('Notion relationと生徒DBの正確なID対応を根拠付きでLINEと同
   const original={nativeId:'22222222-2222-4222-8222-222222222222',version:'raw',associations:[{kind:'notion_relation',id:'11111111-1111-4111-8111-111111111111',reason:{property:'生徒'}}]};
   const record=await associateContextStudents(adapter(sql),original);assert.equal(record.associations.length,2);assert.equal(record.associations[1].id,'123');assert.equal(record.associations[1].verifiedStudent,true);assert.deepEqual(record.associations[1].reason.relationProperties,['生徒']);assert.notEqual(record.version,'raw');
  }finally{await sql.close();}
+});
+
+test('発見100件をSELECT1回・upsert1回で保存し、旧版・本文進捗・処理順を維持',async()=>{
+ const sql=await isolated();try{
+  const pages=Array.from({length:100},(_,index)=>({...page,id:`batch-page-${index}`}));
+  const oldTime='2026-01-01T00:00:00.000Z',progress={queue:[{id:'nested-block',cursor:'nested-cursor'}],blocks:[{id:'saved-block'}],version:page.last_edited_time};
+  for(let index=0;index<3;index++)await sql.query("insert into school_context_sources(source_key,source_type,native_id,metadata,pending,status,last_version,updated_at) values($1,'notion',$2,$3,$4,'available','saved-version',$5)",[
+   `notion:${pages[index].id}`,pages[index].id,{page:index===1?{...pages[index],last_edited_time:'2026-01-01T00:00:00Z'}:pages[index],lastFullFetch:new Date().toISOString(),progress},index===2,oldTime,
+  ]);
+  const queries=[],result=await syncSchoolContext({db:adapter(sql,query=>queries.push(query)),notion:async()=>({results:pages,has_more:true,next_cursor:'next-page'}),blockBudget:0});
+  assert.equal(result.notion.discovered,100);
+  const sourceQueries=queries.filter(query=>query.table==='school_context_sources');assert.equal(sourceQueries.length,2);assert.equal(sourceQueries[0].mode,'select');assert.equal(sourceQueries[0].filters[0].kind,'in');assert.equal(sourceQueries[0].filters[0].value.length,100);assert.equal(sourceQueries[1].mode,'upsert');assert.equal(sourceQueries[1].rowCount,100);
+  const rows=(await sql.query('select * from school_context_sources order by native_id')).rows;assert.equal(rows.length,100);
+  const unchanged=rows.find(row=>row.native_id===pages[0].id),changed=rows.find(row=>row.native_id===pages[1].id),pending=rows.find(row=>row.native_id===pages[2].id);
+  assert.equal(unchanged.pending,false);assert.equal(unchanged.last_version,'saved-version');assert.deepEqual(unchanged.metadata.progress,progress);assert.equal(unchanged.updated_at.toISOString(),oldTime);
+  assert.equal(changed.pending,true);assert.equal(changed.status,'needs_refresh');assert.equal(changed.metadata.progress,null);assert.equal(changed.last_version,'saved-version');
+  assert.equal(pending.pending,true);assert.deepEqual(pending.metadata.progress,progress);assert.equal(pending.updated_at.toISOString(),oldTime);
+  assert.equal((await sql.query("select value->>'cursor' cursor from school_context_state where key='notion_discovery'")).rows[0].cursor,'next-page');
+ }finally{await sql.close();}
+});
+
+test('Notion予算終了時もLINE500件を一括保存し、cursorとleaseを確定して終了',async()=>{
+ const sql=await isolated();try{
+  await sql.exec("insert into line_messages select md5(i::text)::uuid,'U1','保存済みの本文','outbound','2026-10-22'::timestamptz from generate_series(1,500)i");
+  let notionCalls=0;const result=await syncSchoolContext({db:adapter(sql),notion:async()=>{notionCalls++;throw new Error('must not call after deadline');},deadlineMs:0});
+  assert.equal(notionCalls,0);assert.equal(result.line.imported,500);assert.equal(result.line.hasMore,true);
+  assert.equal((await sql.query('select count(*)::int n from school_context_records')).rows[0].n,500);
+  assert.equal((await sql.query("select count(*)::int n from school_context_state where key='sync_lease'")).rows[0].n,0);
+  assert.equal((await sql.query("select detail->>'reason' reason from school_context_coverage where channel='notion'")).rows[0].reason,'notion_budget_exhausted');
+ }finally{await sql.close();}
+});
+
+test('期限を過ぎたHTTP/DBは開始せず、実行するSupabase queryへAbortSignalを渡す',async()=>{
+ let httpCalls=0,queryCalls=0,signal;
+ const request=notionContextRequest({token:'not-a-real-token',deadlineAt:Date.now()-1,request:async()=>{httpCalls++;}});
+ await assert.rejects(request('/search',{}),/context_work_deadline/);assert.equal(httpCalls,0);
+ const builder={abortSignal(value){signal=value;return this;},then(resolve){queryCalls++;return Promise.resolve(resolve({data:[],error:null}));}};
+ const client={from(){return builder;},rpc(){return builder;}};
+ await assert.rejects(Promise.resolve(deadlineContextDatabase(client,Date.now()-1).from('school_context_sources')),/context_work_deadline/);assert.equal(queryCalls,0);
+ await deadlineContextDatabase(client,Date.now()+3000).rpc('school_context_sync_claim');assert.equal(queryCalls,1);assert.ok(signal instanceof AbortSignal);assert.equal(signal.aborted,false);
 });
