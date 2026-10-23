@@ -14,6 +14,7 @@ async function setup(page: Page, count = 3) {
     const url = new URL(route.request().url());
     if (url.origin !== "http://127.0.0.1:3197") return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
+    if (url.pathname === "/api/operation-analysis") return route.fulfill({ status: 503, json: { code: "analysis_unavailable" } });
     const path = url.pathname;
     if (path.endsWith("/visibility")) {
       const id = path.split("/").at(-2)!;

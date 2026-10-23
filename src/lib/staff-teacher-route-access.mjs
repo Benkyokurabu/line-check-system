@@ -1,4 +1,5 @@
 const accessible = new Set([
+  '/api/operation-analysis',
   '/api/staff/benkei',
   '/api/staff/journals',
   '/api/staff/session',

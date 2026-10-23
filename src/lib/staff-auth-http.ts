@@ -6,6 +6,7 @@ import {
   StaffAuthError, staffCookieOptions, staffSessionCookies,
 } from "@/lib/staff-auth-core.mjs";
 import { teacherRouteAllowed } from "@/lib/staff-teacher-route-access.mjs";
+import { OPERATION_SUPPORT_COOKIE, operationSupportToken } from "@/lib/operation-support-token.mjs";
 
 export function assertStaffAuthEnabled() {
   if (process.env.STAFF_AUTH_ENABLED !== "true" || !process.env.STAFF_AUTH_ORIGIN) {
@@ -67,16 +68,18 @@ export async function staffContext(request: NextRequest) {
 }
 
 type CookieSession = { access_token: string; refresh_token: string; expires_at?: number; expires_in?: number };
-type CookieContext = { session?: CookieSession | null; refreshToken?: string; staff: { expiresAt: string } };
+type CookieContext = { session?: CookieSession | null; refreshToken?: string; staff: { expiresAt: string; staffId?: string } };
 
 export function staffResponse(body: unknown, context?: CookieContext, status = 200) {
   const response = NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", "Pragma": "no-cache" } });
   for (const cookie of staffSessionCookies(context)) response.cookies.set(cookie.name, cookie.value, { ...cookie.options, sameSite: 'strict' });
+  const support = operationSupportToken(context?.staff, process.env.SUPABASE_SECRET_KEY);
+  if (support) response.cookies.set(OPERATION_SUPPORT_COOKIE, support.value, {...staffCookieOptions(support.maxAge),sameSite:'strict'});
   return response;
 }
 
 export function clearStaffCookies(response: NextResponse) {
-  for (const name of [STAFF_ACCESS_COOKIE, STAFF_REFRESH_COOKIE]) {
+  for (const name of [STAFF_ACCESS_COOKIE, STAFF_REFRESH_COOKIE, OPERATION_SUPPORT_COOKIE]) {
     response.cookies.set(name, "", { ...staffCookieOptions(0), sameSite: "strict" });
   }
   return response;

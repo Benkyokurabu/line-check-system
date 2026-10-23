@@ -5,6 +5,7 @@ import { PwaRegistration } from "./PwaRegistration";
 import { CodexPanel } from "./CodexPanel";
 import {pageMetadata} from '@/lib/page-titles';
 import StaffSessionKeeper from "./StaffSessionKeeper";
+import OperationFeedback from "@/components/operation-feedback";
 
 export const metadata: Metadata = {
   ...pageMetadata('勉たん'),
@@ -35,7 +36,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body><PwaRegistration /><StaffSessionKeeper /><AppFrame>{children}</AppFrame>{registration}<CodexPanel /></body>
+      <body><PwaRegistration /><StaffSessionKeeper /><AppFrame>{children}</AppFrame>{registration}<CodexPanel /><OperationFeedback /></body>
     </html>
   );
 }

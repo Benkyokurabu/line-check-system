@@ -6,6 +6,7 @@ async function setup(page: Page) {
     const url = new URL(route.request().url());
     if (url.origin !== "http://127.0.0.1:3197") return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
+    if (url.pathname === "/api/operation-analysis") return route.fulfill({ status: 503, json: { code: "analysis_unavailable" } });
     if (url.pathname === "/api/attendance/extract") {
       expect(route.request().method()).toBe("POST");
       expect(route.request().postDataJSON()).toEqual({ limit: 10 });
