@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function setup(page: Page) {
-  const state = { reads: 0, checks: 0, processed: 2, failRefresh: false, failCheck: false };
+  const state = { reads: 0, checks: 0, processed: 2, failRefresh: false, failCheck: false, hangCheck: false, hangStatus: false };
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== "http://127.0.0.1:3197") return route.abort();
@@ -10,6 +10,7 @@ async function setup(page: Page) {
       expect(route.request().method()).toBe("POST");
       expect(route.request().postDataJSON()).toEqual({ limit: 10 });
       state.checks++;
+      if (state.hangCheck) return new Promise<void>(() => {});
       if (state.failCheck) return route.fulfill({ status: 500, json: { error: "チェックに失敗しました" } });
       return route.fulfill({ json: { processed: state.processed, candidates: 1, ignored: 0, retrying: 1, dead: 0 } });
     }
@@ -19,6 +20,7 @@ async function setup(page: Page) {
       if (state.failRefresh) return route.fulfill({ status: 500, json: { error: "一覧取得失敗" } });
       return route.fulfill({ json: { candidates: [] } });
     }
+    if (url.pathname === "/api/attendance/status" && state.hangStatus) return new Promise<void>(() => {});
     if (url.pathname === "/api/attendance/status") return route.fulfill({ json: {
       queued: 3, ready: 2, processing: 1, retry_wait: 1, dead: 0,
       last_worker_succeeded_at: "2026-09-09T09:00:00Z", last_checked_at: "2026-09-10T09:00:00Z",
@@ -85,4 +87,42 @@ test("visible page periodically checks latest LINE and returning to the page ref
   await expect(page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true })).toBeEnabled();
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await expect.poll(() => state.checks).toBe(3);
+});
+
+test("a stalled LINE check releases the button, reports an unknown outcome and allows retry", async ({ page }) => {
+  await page.clock.install();
+  const state = await setup(page);
+  state.hangCheck = true;
+  const update = page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true });
+  await update.click();
+  await expect.poll(() => state.checks).toBe(2);
+  await expect(page.getByRole("button", { name: "最新のLINEを確認中…", exact: true })).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("サーバーからの確認結果を待っています");
+  const pendingButton = page.getByRole("button", { name: "最新のLINEを確認中…", exact: true });
+  await expect(pendingButton).toHaveAttribute("aria-describedby", "attendance-check-result");
+  const buttonBox = await pendingButton.boundingBox(), statusBox = await page.getByRole("status").boundingBox();
+  expect(buttonBox).not.toBeNull();
+  expect(statusBox).not.toBeNull();
+  expect(statusBox!.y).toBeGreaterThanOrEqual(buttonBox!.y + buttonBox!.height);
+  await page.clock.runFor(45_001);
+  await expect(update).toBeEnabled();
+  await expect(page.getByRole("status")).toContainText("サーバーでは処理が続いている場合があります");
+  await expect(page.getByRole("status")).not.toContainText("一覧を更新しました");
+  state.hangCheck = false;
+  await update.click();
+  await expect(page.getByRole("status")).toContainText("2件をチェックしました");
+  await expect(update).toBeEnabled();
+  expect(state.checks).toBe(3);
+});
+
+test("a stalled status refresh preserves the completed check outcome and releases the button", async ({ page }) => {
+  await page.clock.install();
+  const state = await setup(page);
+  state.hangStatus = true;
+  await page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("一覧と処理状況を更新しています");
+  await page.clock.runFor(15_001);
+  await expect(page.getByRole("status")).toContainText("2件をチェックしました");
+  await expect(page.getByRole("status")).toContainText("一覧または処理状況の更新に失敗");
+  await expect(page.getByRole("button", { name: "最新のLINEを確認して更新", exact: true })).toBeEnabled();
 });

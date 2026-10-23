@@ -11,6 +11,7 @@ import { RegistrationLink, useRegistrationRefresh } from "@/app/line-registratio
 import ConfirmerPicker from "@/app/line-registration/confirmer-picker";
 import { attendancePeriodProposal } from "@/lib/attendance-period-proposal.mjs";
 import { isAttendanceCrossCampus, normalizeCampus } from "@/lib/attendance-campus-consistency.mjs";
+import { attendanceRequest, ATTENDANCE_CHECK_TIMEOUT_MS } from "@/lib/attendance-request";
 import {
   actionCandidatesForReview,
   candidateHasError,
@@ -320,8 +321,7 @@ export default function AttendancePage() {
   const load = useCallback(async (keepVisibleCandidateId?: string, keepVisibleTab: ReviewTab = "action") => {
     const params = new URLSearchParams({ status: "review", days: String(historyDays) });
     if (includePastPending) params.set("include_past", "1");
-    const response = await fetch(`/api/attendance/candidates?${params.toString()}`);
-    const body = await response.json();
+    const { response, body } = await attendanceRequest(`/api/attendance/candidates?${params.toString()}`);
     if (!response.ok) throw new Error(body.error ?? "候補を取得できませんでした");
     const nextCandidates = (body.candidates ?? []) as Candidate[];
     setCandidates((current) => nextCandidates.map((candidate) => {
@@ -346,8 +346,7 @@ export default function AttendancePage() {
     }
   }, [historyDays, includePastPending]);
   const loadStatus = useCallback(async () => {
-    const response = await fetch("/api/attendance/status");
-    const body = await response.json();
+    const { response, body } = await attendanceRequest("/api/attendance/status");
     if (!response.ok) throw new Error(body.error ?? "解析状態を取得できませんでした");
     setAnalysisStatus({
       queued: Number(body.queued ?? 0),
@@ -381,13 +380,14 @@ export default function AttendancePage() {
   useEffect(() => {
     async function initialize() {
       try {
-        const [, , studentResponse, templateResponse] = await Promise.all([
+        const [, , studentResult, templateResult] = await Promise.all([
           load(),
           loadStatus(),
-          fetch("/api/attendance/students"),
-          fetch("/api/attendance/reply-templates"),
+          attendanceRequest("/api/attendance/students"),
+          attendanceRequest("/api/attendance/reply-templates"),
         ]);
-        const [studentBody, templateBody] = await Promise.all([studentResponse.json(), templateResponse.json()]);
+        const { response: studentResponse, body: studentBody } = studentResult;
+        const { response: templateResponse, body: templateBody } = templateResult;
         if (!studentResponse.ok) throw new Error(studentBody.error ?? "生徒一覧を取得できませんでした");
         if (!templateResponse.ok) throw new Error(templateBody.error ?? "LINE返信文案を取得できませんでした");
         setStudents(studentBody.students ?? []);
@@ -414,15 +414,17 @@ export default function AttendancePage() {
   async function analyze() {
     if (busy || bulkBusy || latestRunning.current) return;
     latestRunning.current = true;
-    setBusy(true); setMessage("未チェックのLINEを最大10件確認しています。完了後に一覧を更新します…");
+    setBusy(true); setMessage("未チェックのLINEを最大10件確認しています。サーバーからの確認結果を待っています。完了後に一覧を更新します…");
     try {
-      const response = await fetch("/api/attendance/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
-      const body = await response.json();
+      const { response, body } = await attendanceRequest("/api/attendance/extract", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }),
+      }, ATTENDANCE_CHECK_TIMEOUT_MS, "LINEの確認結果を受け取れませんでした。サーバーでは処理が続いている場合があります。表示中の連絡はそのままです。時間をおいて「最新のLINEを確認して更新」を押してください。");
       if (!response.ok) throw new Error(body.error ?? "解析に失敗しました");
       const result = body.processed > 0
         ? `${body.processed}件をチェックしました。遅刻・欠席の候補${body.candidates}件、対象外${body.ignored}件、再試行待ち${body.retrying ?? 0}件、チェック失敗${body.dead ?? 0}件。残りは自動チェックが順次処理します。`
         : "今回すぐにチェックできるLINEはありませんでした。処理中・再試行待ちのLINEがある場合は、自動チェックの完了をお待ちください。";
       try {
+        setMessage(`${result} 一覧と処理状況を更新しています…`);
         await Promise.all([load(), loadStatus()]);
         setMessage(`${result} 一覧を更新しました。`);
       } catch {
@@ -518,7 +520,10 @@ export default function AttendancePage() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 16 }}>
         <div style={{ flex: "1 1 280px", minWidth: 0, padding: 16, borderRadius: 12, background: "var(--accent-soft)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end" }}>
           <ConfirmerPicker onActiveChange={setConfirmedBy} />
-          <button type="button" style={buttonStyle} disabled={busy || bulkBusy} onClick={analyze}>{busy ? "最新のLINEを確認中…" : "最新のLINEを確認して更新"}</button>
+          <div style={{ display: "grid", gap: 8, flex: "1 1 260px", minWidth: 0 }}>
+            <button type="button" style={{ ...buttonStyle, justifySelf: "start" }} disabled={busy || bulkBusy} aria-describedby={message ? "attendance-check-result" : undefined} onClick={analyze}>{busy ? "最新のLINEを確認中…" : "最新のLINEを確認して更新"}</button>
+            {message && <p id="attendance-check-result" role="status" style={{ margin: 0, fontSize: 14, overflowWrap: "anywhere" }}>{message}</p>}
+          </div>
         </div>
       </div>
       {analysisStatus ? <>
@@ -532,8 +537,7 @@ export default function AttendancePage() {
           <p>直近の処理正常終了（自動・手動共通）：{formatDateTime(analysisStatus.last_worker_succeeded_at)}／処理状況の取得：{formatDateTime(analysisStatus.last_checked_at)}</p>
           <p>すぐに処理可能 {analysisStatus.ready}件／直近1時間の処理 {analysisStatus.processed_last_hour}件{analysisStatus.oldest_queued_at ? `／最も古い待機 ${formatDateTime(analysisStatus.oldest_queued_at)}` : ""}{analysisStatus.last_worker_error ? `／エラー：${analysisStatus.last_worker_error}` : ""}</p>
         </details>
-      </> : <p style={{ color: "var(--muted)", fontSize: 14 }}>処理状況を確認しています。取得できない場合は「最新のLINEを確認して更新」を押してください。</p>}
-      {message && <p role="status" style={{ marginBottom: 0 }}>{message}</p>}
+      </> : <p style={{ color: "var(--muted)", fontSize: 14 }}>処理状況はまだ取得できていません。「最新のLINEを確認して更新」から再確認できます。</p>}
     </section>
     <section className="panel" style={{ padding: 16, marginTop: 20, display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
       <button type="button" style={includePastPending ? secondaryButtonStyle : ghostButtonStyle} disabled={bulkBusy} onClick={() => { clearSelection(); setIncludePastPending((value) => !value); }}>{includePastPending ? "過去の連絡を非表示" : "過去の連絡も表示"}</button>
