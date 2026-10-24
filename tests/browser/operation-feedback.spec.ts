@@ -62,6 +62,7 @@ test('analysis endpoint requires same origin and authorized diagnostic scope wit
  const denied=await request.post('/api/operation-analysis',{data:body,headers:{Origin:'https://outside.invalid'}});expect(denied.status()).toBe(403);
  const anonymous=await request.post('/api/operation-analysis',{data:body,headers:{Origin:'https://test.invalid'}});expect(anonymous.status()).toBe(401);
  const token=operationSupportToken({staffId:'test-staff',expiresAt:new Date(Date.now()+3600000).toISOString()},'isolated-test-not-a-real-key');
+ if(!token)throw new Error('The authorized diagnostic fixture must have a support token');
  const malformed=await request.post('/api/operation-analysis',{data:{...body,text:'PRIVATE'},headers:{Origin:'https://test.invalid',Cookie:`${OPERATION_SUPPORT_COOKIE}=${token.value}`}});expect(malformed.status()).toBe(400);
  const authorized=await request.post('/api/operation-analysis',{data:body,headers:{Origin:'https://test.invalid',Cookie:`${OPERATION_SUPPORT_COOKIE}=${token.value}`}});
  expect(authorized.status()).toBe(503);expect((await authorized.json()).code).toBe('analysis_unavailable');
