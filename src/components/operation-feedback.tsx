@@ -35,6 +35,8 @@ export default function OperationFeedback(){
   };
   const receive=(signal:OperationSignal)=>{
    const previous=latest.current.get(signal.key);
+   if(previous&&signal.startedAt<previous.startedAt)return;
+   if(previous?.action===signal.action&&previous.phase==='failure'&&signal.phase!=='failure')return;
    if(signal.phase==='responded'&&(!previous||(previous.action===signal.action&&previous.phase==='failure')))return;
    if(previous?.request===signal.request&&previous.phase==='failure')return;
    latest.current.set(signal.key,signal);

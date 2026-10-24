@@ -66,3 +66,35 @@ test('analysis endpoint requires same origin and authorized diagnostic scope wit
  const authorized=await request.post('/api/operation-analysis',{data:body,headers:{Origin:'https://test.invalid',Cookie:`${OPERATION_SUPPORT_COOKIE}=${token.value}`}});
  expect(authorized.status()).toBe(503);expect((await authorized.json()).code).toBe('analysis_unavailable');
 });
+
+test('a pending sibling read cannot hide a failure from the same operation',async({page})=>{
+ const state=await setup(page);let finishSlow:()=>void=()=>{};
+ await page.route('**/api/attendance/observer-slow',async route=>{
+  await new Promise<void>(resolve=>{finishSlow=resolve;});await route.fulfill({json:{ok:true}});
+ });
+ await page.goto('/attendance');await page.evaluate(()=>{
+  const button=document.createElement('button');button.textContent='並列取得の動作確認';
+  button.onclick=()=>{void Promise.all([fetch('/api/attendance/observer-failure'),fetch('/api/attendance/observer-slow')]);};
+  document.querySelector('main')!.append(button);
+ });
+ await page.route('**/api/attendance/observer-failure',route=>route.fulfill({status:503,json:{error:'test'}}));
+ await page.getByRole('button',{name:'並列取得の動作確認'}).click();
+ const panel=page.getByRole('region',{name:'操作の状況説明'});await expect(panel).toContainText('AIによる分析');
+ await page.waitForTimeout(3200);await expect(panel).toContainText('HTTP 503');
+ finishSlow();await expect(panel).toContainText('HTTP 503');expect(state.diagnostics).toHaveLength(1);
+});
+
+test('an older request cannot overwrite the result of a newer click on the same button',async({page})=>{
+ await setup(page);let finishOld:()=>void=()=>{},calls=0;
+ await page.route('**/api/attendance/observer-repeat',async route=>{
+  if(++calls===1){await new Promise<void>(resolve=>{finishOld=resolve;});return route.fulfill({status:503,json:{error:'old'}});}
+  return route.fulfill({status:403,json:{error:'new'}});
+ });
+ await page.goto('/attendance');await page.evaluate(()=>{
+  const button=document.createElement('button');button.textContent='続けて取得の動作確認';
+  button.onclick=()=>{void fetch('/api/attendance/observer-repeat');};document.querySelector('main')!.append(button);
+ });
+ const button=page.getByRole('button',{name:'続けて取得の動作確認'});await button.click();await expect.poll(()=>calls).toBe(1);await button.click();
+ const panel=page.getByRole('region',{name:'操作の状況説明'});await expect(panel).toContainText('権限に関係する可能性');
+ finishOld();await expect(panel).toContainText('HTTP 403');await expect(panel).not.toContainText('HTTP 503');
+});

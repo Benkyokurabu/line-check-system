@@ -46,6 +46,9 @@ export function checkedAnalysis(value){
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('invalid_analysis');
  for(const k of ['assessment','nextStep']){
   if(typeof value[k]!=='string'||!value[k].trim()||value[k].length>600||/https?:\/\/|<[^>]*>/.test(value[k]))throw Error('invalid_analysis');
+  // Reject retry/reload advice even when a provider ignores the prompt. We
+  // cannot infer that a timed-out write did not complete from an absent row.
+  if(/再(?:読み込[みむ]|読込|実行|試行|送信|送|起動|度.{0,12}(?:実行|操作|保存|送信))|リロード|やり直|もう一度|(?:ページ|画面).{0,6}更新|(?:同じ|同様の)操作.{0,6}試|\b(?:reload|refresh|retry|resubmit|resend)\b/i.test(value[k]))throw Error('invalid_analysis');
  }
  return {assessment:value.assessment.trim(),nextStep:value.nextStep.trim()};
 }

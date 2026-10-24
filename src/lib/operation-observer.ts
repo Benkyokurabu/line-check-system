@@ -1,6 +1,6 @@
 import { diagnosticArea } from './operation-diagnostics.mjs';
 export type Diagnostic = {area:string;method:string;symptom:string;status:number;elapsedMs:number;online:boolean};
-export type OperationSignal = {key:string;action:string;request:string;anchor:HTMLElement|null;phase:'waiting'|'responded'|'failure';diagnostic:Diagnostic};
+export type OperationSignal = {key:string;action:string;startedAt:number;request:string;anchor:HTMLElement|null;phase:'waiting'|'responded'|'failure';diagnostic:Diagnostic};
 type Action = {id:string;key:string;anchor:HTMLElement;at:number;settled:number;active:number};
 
 // Observe requests without retrying them, reading their headers/bodies ahead of
@@ -33,7 +33,7 @@ export function observeOperations(receive:(signal:OperationSignal)=>void){
   let failure=false;
   const emit=(phase:OperationSignal['phase'],symptom='network',status=0)=>{
    if(!active)return;
-   try{receive({key,action:actionId,request,anchor:owner?.anchor??null,phase,
+   try{receive({key,action:actionId,startedAt:owner?.at??start,request,anchor:owner?.anchor??null,phase,
     diagnostic:{area,method,symptom,status,elapsedMs:Math.min(3_600_000,Math.max(0,Date.now()-start)),online:navigator.onLine}});}catch{}
   };
   const fail=(symptom:string,status=0)=>{if(!failure){failure=true;emit('failure',symptom,status);}};
@@ -70,7 +70,7 @@ export function observeOperations(receive:(signal:OperationSignal)=>void){
  window.fetch=wrapped;
  const clientError=()=>{
   const owner=action(),id=crypto.randomUUID();
-  try{receive({key:owner?.key??'background-client',action:owner?.id??id,request:id,anchor:owner?.anchor??null,phase:'failure',
+  try{receive({key:owner?.key??'background-client',action:owner?.id??id,startedAt:owner?.at??Date.now(),request:id,anchor:owner?.anchor??null,phase:'failure',
    diagnostic:{area:diagnosticArea(location.pathname),method:'GET',symptom:'client',status:0,elapsedMs:0,online:navigator.onLine}});}catch{}
  };
  document.addEventListener('click',capture,true);document.addEventListener('submit',capture,true);

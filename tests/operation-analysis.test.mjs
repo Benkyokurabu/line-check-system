@@ -7,8 +7,8 @@ test('AI receives actual diagnostic evidence and produces a separate inferred ex
   assert.equal(url,'https://api.groq.com/openai/v1/chat/completions');assert.equal(options.method,'POST');assert(options.signal);
   captured=JSON.parse(options.body);return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({assessment:'応答が遅れている可能性があります。内部の原因は不明です。',nextStep:'履歴や一覧で結果を確認してください。'})}}]})};
  }});
- assert.match(result.assessment,/可能性/);const user=JSON.parse(captured.messages[1].content);assert.deepEqual(user.observed,diagnostic);assert.match(user.facts.outcome,/判断できません/);
- assert.match(captured.messages[0].content,/根拠なく決めつけない/);assert(!captured.messages[1].content.includes('fixture-key'));
+ assert.match(result.assessment,/可能性/);const user=JSON.parse(captured.messages.find(m=>m.role==='user').content);assert.deepEqual(user.observed,diagnostic);assert.match(user.facts.outcome,/判断できません/);
+ assert.match(captured.messages[0].content,/根拠なく決めつけない/);assert.match(captured.messages[0].content,/未反映に見える場合も提案しない/);assert(!JSON.stringify(captured.messages).includes('fixture-key'));
 });
 test('missing keys and private/unrecognized input never cause a provider request',async()=>{
  let calls=0;const fetcher=async()=>{calls++;throw Error();};

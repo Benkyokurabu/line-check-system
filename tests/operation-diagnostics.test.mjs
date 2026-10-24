@@ -21,6 +21,13 @@ test('AI output is short plain text; invalid or absent output is not mislabeled 
  assert.deepEqual(checkedAnalysis({assessment:'応答を確認できません。原因は未確定です。',nextStep:'一覧で結果を確認してください。'}),{assessment:'応答を確認できません。原因は未確定です。',nextStep:'一覧で結果を確認してください。'});
  for(const v of [null,{}, {assessment:'',nextStep:'a'},{assessment:'a'.repeat(601),nextStep:'a'},{assessment:'<script>bad</script>',nextStep:'a'},{assessment:'a',nextStep:'https://outside.test'}])assert.throws(()=>checkedAnalysis(v));
 });
+
+test('model advice cannot discard inputs or encourage another write after an unknown outcome',()=>{
+ for(const nextStep of ['ページを再読み込みして情報が更新されるか確認してください。','一覧で未反映なら再度実行してください。','再送信してください。','画面を更新してください。','もう一度保存してください。','Reload the page.','Retry the request.']){
+  assert.throws(()=>checkedAnalysis({assessment:'原因は未確定です。',nextStep}),/invalid_analysis/);
+ }
+ assert.doesNotThrow(()=>checkedAnalysis({assessment:'接続先の応答が遅れている可能性があります。',nextStep:'入力を保ったまま履歴で結果を確認し、判断できなければ担当者に相談してください。'}));
+});
 const now=Date.parse('2026-10-23T09:00:00Z'),secret='isolated-support-secret',staff={staffId:'private-staff-id',expiresAt:new Date(now+3600000).toISOString()};
 test('support tokens are scoped, signed, short-lived and contain no business identity',()=>{
  const token=operationSupportToken(staff,secret,now);assert.equal(token.maxAge,900);
